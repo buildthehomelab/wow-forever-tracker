@@ -126,9 +126,12 @@ first_run() {
         say "client build unknown (set FT_BUILD, or the user needs SELECT on ${FT_DB_AUTH:-auth}.realmlist): no analysis"; return
     fi
     languages="${FT_LANGUAGES:-en,fr}"
+    # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client): the stored
+    # analysis is then redone once at the next start.
+    marker="$languages analysis=2"
     if [ -d "$DATA/builds/$build" ]; then
-        if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$languages" ]; then
-            say "languages are now $languages: analysing again"
+        if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
+            say "languages or analysis changed ($marker): analysing again"
         elif [ "${FT_ANALYSE_ON_START:-new-build}" != "always" ]; then
             say "build $build already stored: no analysis at start (the Forge's Run again, or FT_ANALYSE_ON_START=always)"; return
         fi
@@ -148,13 +151,14 @@ first_run() {
         say "build $build: $step (log in data/analysis.log)"
         case "$step" in
             snapshot) set -- snapshot --dbc "$client_dbc" --build "$build" --locale "$LOCALE" --source container ;;
+            analyse) if [ "${FT_WOWHEAD:-1}" = "1" ]; then set -- analyse --wowhead; else set -- analyse; fi ;;
             *) set -- "$step" ;;
         esac
         if as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" "$@" >> "$log" 2>&1; then ok=1; else ok=0; fi
         echo FT-END >> "$log"
         tail -n 3 "$log" | sed 's/^/[forever-tracker]   /'
         if [ "$ok" = "0" ]; then say "$step failed: stopping here (full log: data/analysis.log)"; return; fi
-        [ "$step" = "analyse" ] && echo "$languages" > "$DATA/languages"
+        [ "$step" = "analyse" ] && echo "$marker" > "$DATA/languages"
     done
     say "build $build: done"
 }

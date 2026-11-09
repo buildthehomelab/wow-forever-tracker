@@ -64,6 +64,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_CLIENT_DBC` | `$FT_SERVER_DATA/dbc` | Official DB2 files for the snapshot (a folder with `<locale>` sub-folders, or flat) |
 | `FT_BUILD` | from `auth.realmlist` | Client build of the server data |
 | `FT_ANALYSE_ON_START` | `new-build` | `new-build`: only for a build without a snapshot; `always`; `never` |
+| `FT_WOWHEAD` | `1` | `0`: the analysis does not ask Wowhead's public tooltips for the names of new quests the server lacks |
 | `FT_LOCATE` | `1` | `0`: no locator after the first analysis (it asks Wowhead's public tooltips, slowly) |
 | `FT_ADMIN_USER`, `FT_ADMIN_PASSWORD` | `admin`, empty | Local administrator; empty password: game masters only |
 | `FT_GM_LEVEL` | `3` | GM level a game account needs to log in as an administrator |

@@ -4,11 +4,11 @@ import json
 import re
 
 from . import sqlio
+from .baseline import Baseline
 
 INTERNAL_NAME = re.compile(r'^\s*\[|^\s*<|^\s*$|^zz|Test(?![a-z])|\btest\b|\b(OLD|TEST|Test|DEPRECATED|Deprecated|DEP|PH|DNT|QA|Unused|UNUSED|NYI|Monster|Monstre|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\bcopy\b')
-# IDs above these did not exist in Classic: a practical 'new in Forever' marker per resource type.
-NEW_FROM = {'item': 190000, 'quest': 60000, 'spell': 400000, 'talent': 3000, 'dungeon': 1000, 'boss': 3000, 'zone': 5000, 'recipe': 400000,
-            'mount': 1000, 'toy': 0, 'pet': 3000, 'achievement': 0, 'taxi': 500}
+# Flight paths a quest flies you along (TaxiNodes rows named "Quest Path 11512: ..."), not flight points.
+QUEST_PATH = re.compile(r'^Quest Path \d+')
 DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach', 'creates')
 TABLES = ('ft_builds', 'ft_entities', 'ft_changes', 'ft_meta', 'ft_tooltips', 'ft_fixes')
 
@@ -48,6 +48,23 @@ def dumps(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str)
 
 
+def covered_elsewhere(content):
+    """{(kind, id): 'type:id'} for the lines another line of the work list already covers: the spell of a recipe,
+    mount or pet, and the item that teaches a recipe, mount or pet or is a toy. Fixing that other line fixes them."""
+    covered = {}
+    for kind in ('recipe', 'mount', 'pet', 'toy'):
+        for entity_id, entity in content.get(kind, {}).items():
+            owner = f'{kind}:{entity_id}'
+            spell = entity_id if kind == 'recipe' else entity.get('spell')
+            if spell:
+                covered.setdefault(('spell', int(spell)), owner)
+            for item in entity.get('teach') or []:
+                covered.setdefault(('item', int(item)), owner)
+            if entity.get('item'):
+                covered.setdefault(('item', int(entity['item'])), owner)
+    return covered
+
+
 def write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tooltips, fixes):
     e = sqlio.escape
     with open(path, 'w', encoding='utf-8') as out:
@@ -55,6 +72,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         out.write('DROP TABLE IF EXISTS ' + ', '.join(t + '_new' for t in TABLES) + ';\n' + SCHEMA_SQL)
         for b in build_list:
             out.write(f"INSERT INTO ft_builds_new VALUES ({b['build']},{e(b['version'])},{e(b['date'])},{e(b['note'])},{e(b['source'])},{1 if b['build'] == server_build else 0},{e(dumps(b.get('counts', {})))});\n")
+        baseline = Baseline()
+        covered = covered_elsewhere(content)
         batch = Batch(out, 'ft_entities_new')
         for (kind, entity_id), (status, score, checks) in results.items():
             entity = content[kind][entity_id]
@@ -87,12 +106,16 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name else 0
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
+                if kind == 'taxi' and QUEST_PATH.search(name_en or name):
+                    internal = 1
             for key in DATA_KEYS:
                 if entity.get(key):
                     data[key] = entity[key]
+            if (kind, entity_id) in covered:
+                data['dup'] = covered[(kind, entity_id)]  # the work list shows it once, on that other line
             icon = icons.get(entity.get('icon') or 0, '')
             batch.add(f"({e(kind)},{entity_id},{e(name[:250])},{e(name_en[:250])},{e(str(entity.get('sub', ''))[:120])},{int(entity.get('level') or 0)},"
-                      f"{int(entity.get('quality', -1)) if kind == 'item' else -1},{e(icon)},{internal},{1 if entity_id >= NEW_FROM.get(kind, 10**9) else 0},{e(status)},{score},"
+                      f"{int(entity.get('quality', -1)) if kind == 'item' else -1},{e(icon)},{internal},{1 if baseline.is_new(kind, entity_id, entity) else 0},{e(status)},{score},"
                       f"{e(dumps(checks))},{e(dumps(data))},{first_seen.get((kind, entity_id), 0)},{changed_in.get((kind, entity_id), 0)})")
         batch.flush()
         batch = Batch(out, 'ft_changes_new')

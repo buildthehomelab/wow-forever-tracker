@@ -99,8 +99,13 @@ The analysis reads the snapshots, your server's DB2 files, databases and map fol
 the `tracker` database (about three minutes). It only reads the game databases. Run it again after every change
 on your server, or use *Run again* in the Forge.
 
-Add `--wowhead` once to name the quests your server does not know: their names come from Wowhead's public Forever
-tooltips, slowly and politely, and are cached in `data/wowhead-quests.json`.
+Add `--wowhead` once to name the quests new in Forever that your server does not know: their names come from
+Wowhead's public Forever tooltips, slowly and politely, and are cached in `data/wowhead-quests.json`. A quest Wowhead
+does not know either is one of the game's invisible tracking quests and is hidden.
+
+*New in Forever* means not in the Classic Era client. The Forever client still carries all of Classic Era, Season of
+Discovery included (runes, Waylaid Supplies, Karazhan Crypts...), and none of that counts as new. The Classic Era IDs
+are in `tools/baseline/classic-era.json`; `python tools/make_baseline.py` refreshes them from wago.tools.
 
 ## 5. Serve the website
 
