@@ -5,6 +5,8 @@ $level = in_array($_GET['level'] ?? '', ['missing', 'all'], true) ? $_GET['level
 $focus = isset(TYPES[$_GET['type'] ?? '']) ? $_GET['type'] : '';
 $statusSql = $level === 'missing' ? "status = 'missing'" : "status <> 'ok'";
 $newSql = $onlyNew ? ' AND is_new = 1' : '';
+// A line another line already covers (a recipe's spell, the item that teaches it, a toy's item...) is listed once, on that other line.
+$newSql .= ' AND JSON_EXTRACT(data, \'$.dup\') IS NULL';
 $counts = [];
 foreach (rows("SELECT type, status, COUNT(*) n FROM ft_entities WHERE internal = 0 AND $statusSql$newSql GROUP BY type, status") as $x) $counts[$x['type']][$x['status']] = (int)$x['n'];
 

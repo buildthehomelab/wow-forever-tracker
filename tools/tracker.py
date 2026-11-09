@@ -14,8 +14,9 @@ the game databases.
 (quest givers, objectives, vendors, trainers, loot, bosses) and where they stand, from the maps of Wowhead's
 public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 
---wowhead names official quests the server does not know through Wowhead's public Forever tooltip
-service (slow and polite, cached in data/wowhead-quests.json).
+--wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
+tooltip service (slow and polite, cached in data/wowhead-quests.json). Quests Wowhead does not know either
+are hidden: they are the game's invisible tracking quests.
 """
 import argparse
 import datetime
@@ -25,11 +26,13 @@ import re
 import shutil
 import sys
 import time
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ft import content as official_content, forge, locator, output, rules, server, sqlio, tooltips  # noqa: E402
+from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
 log = server.log
@@ -63,7 +66,7 @@ def wowhead_names(quest_ids):
     todo = [q for q in quest_ids if str(q) not in cache]
     log(f'wowhead: {len(todo)} quests to look up ({len(cache)} cached)')
     for index, quest in enumerate(todo):
-        entry = {}
+        entry, failed = {}, False
         for locale, key in ((2, 'fr'), (0, 'en')) if CONFIG.french() else ((0, 'en'),):
             if key == 'en' and CONFIG.french() and not entry.get('fr'):
                 break  # unknown to Wowhead in French: no need to ask again in English
@@ -75,10 +78,15 @@ def wowhead_names(quest_ids):
                 entry[key] = data.get('name', '')
                 text = re.sub(r'<[^>]+>', ' ', data.get('tooltip', ''))
                 entry.setdefault('text_' + key, re.sub(r'\s+', ' ', text).strip()[:400])
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    failed = True
+                entry.setdefault(key, None)  # 404: Wowhead does not know it (the quest is then hidden)
             except Exception:
-                entry.setdefault(key, None)
+                failed = True
             time.sleep(0.35)
-        cache[str(quest)] = entry
+        if not failed:  # a network error is asked again next time instead of hiding the quest
+            cache[str(quest)] = entry
         if index % 50 == 49:
             json.dump(cache, open(cache_path, 'w', encoding='utf-8'), ensure_ascii=False)
             log(f'wowhead: {index + 1}/{len(todo)}')
@@ -124,7 +132,9 @@ def analyse(args):
     latest = build_list[-1]
     log(f'{len(changes)} changes across {len(build_list)} builds')
     ctx = server.server_state()
-    unknown_quests = [q for q in content['quest'] if q not in ctx['quests']]
+    # Only the quests new in Forever: the Classic Era ones are known, and asking Wowhead about thousands more takes long.
+    baseline = Baseline()
+    unknown_quests = [q for q in content['quest'] if q not in ctx['quests'] and baseline.is_new('quest', q, {})]
     quest_names = {}
     if args.wowhead:
         quest_names = wowhead_names(unknown_quests)
@@ -167,7 +177,7 @@ def main():
     snap.add_argument('--date')
     snap.add_argument('--note')
     run = sub.add_parser('analyse', help='compare the official content with the server and load the website data')
-    run.add_argument('--wowhead', action='store_true', help='name unknown quests through Wowhead tooltips')
+    run.add_argument('--wowhead', action='store_true', help='name the unknown quests new in Forever through Wowhead tooltips')
     locate = sub.add_parser('locate', help='find unspawned creatures and objects the content needs and where they stand (after analyse)')
     locate.add_argument('--refresh', action='store_true', help='ask Wowhead again even for the resources already cached')
     locate.add_argument('--limit', type=int, default=0, help='ask Wowhead for at most N new resources this time')
