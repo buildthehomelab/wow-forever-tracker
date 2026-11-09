@@ -19,6 +19,7 @@ import re
 import statistics
 
 from . import sqlio
+from .config import CONFIG
 from .content import table
 from .rules import L
 from .server import log, server_db2
@@ -195,7 +196,7 @@ class Copier:
             rows_fr, rows_en = self.rows(name), self.rows(name, 'enUS')
             rows, locale_rows = [], []
             # French texts go to the _locale table, only when the snapshot has French files
-            locale_columns = self.columns.get(target + '_locale', []) if os.path.isdir(os.path.join(self.folder, 'frFR')) else []
+            locale_columns = self.columns.get(target + '_locale', []) if CONFIG.french() and os.path.isdir(os.path.join(self.folder, 'frFR')) else []
             for record_id in ids:
                 fr, en = rows_fr[record_id], rows_en.get(record_id, rows_fr[record_id])
                 rows.append([self.build if c == 'VerifiedBuild' else self.value(target, c, fr, en) if c in fr else 0 for c in columns])
