@@ -36,7 +36,7 @@ log = server.log
 
 
 def snapshot(args):
-    for locale in ('frFR', 'enUS'):
+    for locale in ('frFR', 'enUS') if CONFIG.french() else ('enUS',):
         # <dbc>/frFR and <dbc>/enUS as mapextractor writes them, or a flat folder of the --locale given
         source = os.path.join(args.dbc, locale) if os.path.isdir(os.path.join(args.dbc, locale)) else (args.dbc if locale == args.locale and not any(
             os.path.isdir(os.path.join(args.dbc, other)) for other in ('frFR', 'enUS')) else None)
@@ -64,8 +64,8 @@ def wowhead_names(quest_ids):
     log(f'wowhead: {len(todo)} quests to look up ({len(cache)} cached)')
     for index, quest in enumerate(todo):
         entry = {}
-        for locale, key in ((2, 'fr'), (0, 'en')):
-            if key == 'en' and not entry.get('fr'):
+        for locale, key in ((2, 'fr'), (0, 'en')) if CONFIG.french() else ((0, 'en'),):
+            if key == 'en' and CONFIG.french() and not entry.get('fr'):
                 break  # unknown to Wowhead in French: no need to ask again in English
             try:
                 request = urllib.request.Request(f'https://nether.wowhead.com/forever/tooltip/quest/{quest}?locale={locale}',
@@ -130,6 +130,8 @@ def analyse(args):
         quest_names = wowhead_names(unknown_quests)
     elif os.path.isfile(os.path.join(DATA, 'wowhead-quests.json')):
         quest_names = json.load(open(os.path.join(DATA, 'wowhead-quests.json'), encoding='utf-8'))
+    if not CONFIG.french():  # English only: French answers cached by an earlier run are left out
+        quest_names = {quest: {key: value for key, value in entry.items() if key not in ('fr', 'text_fr')} for quest, entry in quest_names.items()}
     for index, change in enumerate(changes):
         if change[2] == 'quest' and not change[6]:
             qid = change[3]

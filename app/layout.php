@@ -89,7 +89,7 @@ function page_start(string $title, string $active = '', string $description = ''
       </div>
       <?php endif; ?>
       <div class="side-actions">
-        <a class="icon-btn" href="?<?= e(http_build_query($query)) ?>" title="<?= e(t('Français', 'English')) ?>"><b><?= strtoupper($otherLang) ?></b></a>
+        <?php if (count(languages()) > 1): ?><a class="icon-btn" href="?<?= e(http_build_query($query)) ?>" title="<?= e(t('Français', 'English')) ?>"><b><?= strtoupper($otherLang) ?></b></a><?php endif; ?>
         <button class="icon-btn" type="button" data-theme-toggle title="<?= e(t('Light / dark theme', 'Thème clair / sombre')) ?>"><i class="fas fa-moon"></i><i class="fas fa-sun"></i></button>
         <?php if (is_admin()): ?>
           <a class="icon-btn" href="<?= e(url('logout', ['t' => csrf_token()])) ?>" title="<?= e(t('Log out', 'Se déconnecter')) . ' (' . e(admin()['name']) . ')' ?>"><i class="fas fa-right-from-bracket"></i></a>

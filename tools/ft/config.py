@@ -31,6 +31,10 @@ class Config:
             return _clean(self.parser.get(section, key))
         return default
 
+    def french(self):
+        """False when [site] languages leaves French out: the analysis then reads, stores and shows English only."""
+        return 'fr' in [part.strip() for part in self.get('site', 'languages', 'en,fr').split(',')]
+
     def db(self, name):
         """Name of a database: tracker, world, hotfixes or auth."""
         return self.get('database', name, name)

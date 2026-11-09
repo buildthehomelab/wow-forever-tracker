@@ -97,7 +97,8 @@ def server_state():
     quests = {}
     for row in q('SELECT ID, LogTitle, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, ' + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
         quests[int(row['ID'])] = row
-    ctx['quest_fr'] = {int(r['ID']): r['LogTitle'] for r in q("SELECT ID, LogTitle FROM quest_template_locale WHERE locale='frFR'") if r['LogTitle']}
+    ctx['quest_fr'] = {int(r['ID']): r['LogTitle'] for r in q("SELECT ID, LogTitle FROM quest_template_locale WHERE locale='frFR'") if r['LogTitle']} \
+        if CONFIG.french() else {}
     ctx['quest_level'] = {int(r['ID']): (int(r['QuestLevel'] or 0), int(r['MinLevel'] or 0)) for r in q('SELECT ID, QuestLevel, MinLevel FROM quest_classic_level')} if sqlio.has_table('quest_classic_level') else {}
     ctx['quests'] = quests
     pairs = lambda sql: [(int(a), int(b)) for a, b in (tuple(r.values()) for r in q(sql))]

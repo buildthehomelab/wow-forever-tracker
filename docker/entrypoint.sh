@@ -14,7 +14,7 @@ LOCALE="${FT_DBC_LOCALE:-enUS}"
 say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
-for var in FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_SITE_NAME \
+for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_SITE_NAME \
            FT_ADMIN_USER FT_ADMIN_PASSWORD FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC; do
     eval "value=\${$var:-}"
     case "$value" in
@@ -41,6 +41,7 @@ cat > "$CONFIG" <<EOF
 [site]
 name = "${FT_SITE_NAME:-Forever Tracker}"
 default_language = "${FT_LANGUAGE:-en}"
+languages = "${FT_LANGUAGES:-en,fr}"
 public = ${FT_PUBLIC:-1}
 home_url = "${FT_HOME_URL:-}"
 home_label = "${FT_HOME_LABEL:-}"
@@ -124,9 +125,13 @@ first_run() {
     if [ -z "$build" ] || [ "$build" = "0" ]; then
         say "client build unknown (set FT_BUILD, or the user needs SELECT on ${FT_DB_AUTH:-auth}.realmlist): no analysis"; return
     fi
+    languages="${FT_LANGUAGES:-en,fr}"
     if [ -d "$DATA/builds/$build" ]; then
-        say "build $build already stored: no analysis at start (the Forge's Run again, or FT_ANALYSE_ON_START=always)"
-        [ "${FT_ANALYSE_ON_START:-new-build}" = "always" ] || return
+        if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$languages" ]; then
+            say "languages are now $languages: analysing again"
+        elif [ "${FT_ANALYSE_ON_START:-new-build}" != "always" ]; then
+            say "build $build already stored: no analysis at start (the Forge's Run again, or FT_ANALYSE_ON_START=always)"; return
+        fi
         steps="analyse"
     else
         client_dbc="${FT_CLIENT_DBC:-$SERVER_DATA/dbc}"
@@ -149,6 +154,7 @@ first_run() {
         echo FT-END >> "$log"
         tail -n 3 "$log" | sed 's/^/[forever-tracker]   /'
         if [ "$ok" = "0" ]; then say "$step failed: stopping here (full log: data/analysis.log)"; return; fi
+        [ "$step" = "analyse" ] && echo "$languages" > "$DATA/languages"
     done
     say "build $build: done"
 }

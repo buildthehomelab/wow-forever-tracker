@@ -9,6 +9,7 @@ Everything is in `config.ini`, read by the website (PHP) and by the analysis (Py
 |---|---|---|
 | `name` | `Forever Tracker` | Name shown in the sidebar, the titles and the footer |
 | `default_language` | `en` | `en` or `fr`; visitors can switch, their choice is kept in a cookie |
+| `languages` | `en,fr` | `en` or `fr` alone: one language everywhere, without the switch; the analysis then stores and reads that language only (run it again after a change) |
 | `public` | `1` | `0` shows only the login page to visitors who are not administrators |
 | `home_url`, `home_label` | | Link back to your main website (sidebar button) |
 | `repository_url` | | Link to the source code in the footer |

@@ -46,10 +46,17 @@ session_name('ft_session');
 session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off']);
 session_start();
 
+/** The interface languages of [site] languages ("en,fr" by default; "en" or "fr" alone hides the switch). */
+function languages(): array
+{
+    $list = array_values(array_intersect(array_map('trim', explode(',', (string)config('site', 'languages', 'en,fr'))), ['en', 'fr']));
+    return $list ?: ['en', 'fr'];
+}
 function lang(): string
 {
     static $lang = null;
     if ($lang !== null) return $lang;
+    if (count(languages()) === 1) return $lang = languages()[0];
     $wanted = $_GET['lang'] ?? $_COOKIE['ft_lang'] ?? null;
     if (isset($_GET['lang']) && in_array($_GET['lang'], ['en', 'fr'], true)) {
         setcookie('ft_lang', $_GET['lang'], ['expires' => time() + 31536000, 'path' => '/', 'samesite' => 'Lax']);

@@ -4,7 +4,7 @@ import json
 import os
 
 from . import db2
-from .config import BUILDS
+from .config import BUILDS, CONFIG
 
 # Tables compared build after build (the changelog).
 DIFF_TABLES = ['ItemSparse', 'Item', 'ItemEffect', 'ItemXItemEffect', 'SpellName', 'Spell', 'SpellMisc', 'SpellLevels', 'SpellEffect',
@@ -46,6 +46,8 @@ _cache = {}
 
 def table(folder, name, locale='frFR'):
     """Rows of a snapshot table in a locale, or in the other one when the build only has one; [] when absent."""
+    if not CONFIG.french():
+        locale = 'enUS'  # English only: the frFR tables of a snapshot are never read
     key = (folder, name, locale)
     if key not in _cache:
         path = os.path.join(folder, locale, name + '.db2')
@@ -56,7 +58,7 @@ def table(folder, name, locale='frFR'):
 
 
 def db2_path(folder, name):
-    for locale in ('frFR', 'enUS'):
+    for locale in ('frFR', 'enUS') if CONFIG.french() else ('enUS', 'frFR'):
         path = os.path.join(folder, locale, name + '.db2')
         if os.path.isfile(path):
             return path

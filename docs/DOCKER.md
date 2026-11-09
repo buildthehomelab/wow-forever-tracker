@@ -69,7 +69,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_GM_LEVEL` | `3` | GM level a game account needs to log in as an administrator |
 | `FT_VENDOR_ENTRY` | `0` | Default vendor the Forge proposes |
 | `FT_PUBLIC` | `1` | `0`: only administrators see the tracker |
-| `FT_LANGUAGE` | `en` | `en` or `fr` |
+| `FT_LANGUAGE` | `en` | `en` or `fr`: the default interface language |
+| `FT_LANGUAGES` | `en,fr` | `en`: English only, everywhere (no French names or language switch); `fr`: French only. A change analyses again at the next start |
 | `FT_SITE_NAME`, `FT_HOME_URL`, `FT_HOME_LABEL`, `FT_REPOSITORY_URL` | | `[site]` of [CONFIGURATION.md](CONFIGURATION.md) |
 | `FT_RA_HOST`, `FT_RA_PORT`, `FT_RA_USER`, `FT_RA_PASSWORD` | empty, `3443` | Remote console for spawns ([SPAWNS.md](SPAWNS.md)) |
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
