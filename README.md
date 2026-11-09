@@ -37,7 +37,7 @@ and loot, vendors and quests from world data files you import.
 
 Windows may say *"Windows protected your PC"* the first time, because the launcher is not signed: *More info* ›
 *Run anyway*. Its source is in [`tools/launcher`](tools/launcher). Linux, Apache / nginx or a manual setup: see
-[the installation guide](docs/INSTALL.md).
+[the installation guide](docs/INSTALL.md). Docker: see [DOCKER.md](docs/DOCKER.md).
 
 ## Features
 
@@ -185,6 +185,7 @@ loot table linked when it had none, and columns or tables your core does not hav
 | | |
 |---|---|
 | [Installation](docs/INSTALL.md) | Launcher and wizard, manual setup, Linux, Apache and nginx, updates |
+| [Docker](docs/DOCKER.md) | One container, configured from its environment |
 | [The Forge](docs/FORGE.md) | Every fix, how it is applied and rolled back |
 | [Spawns and imports](docs/SPAWNS.md) | The locator, the four ways to spawn, the core module, the ForeverForge and ForeverScribe addons, importing WowPacketParser SQL files |
 | [Configuration](docs/CONFIGURATION.md) | Every setting of `config.ini` |

@@ -1,0 +1,31 @@
+# ForeverTracker beside a TrinityCore server that runs in Docker (docs/DOCKER.md).
+# Copy to docker-compose.yml, fill in the values marked "your", then: docker compose up -d --build
+services:
+  tracker:
+    build: .
+    image: forever-tracker:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:80"   # this computer only; "8090:80" opens it to the network
+    environment:
+      FT_DB_HOST: mysql                 # your MySQL host (the service name on a shared Docker network)
+      FT_DB_USER: tracker
+      FT_DB_PASSWORD: change-me         # your tracker user's password
+      FT_DB_TRACKER: forever_tracker    # the tracker's own tables; the user must be able to write it
+      FT_DB_WORLD: world
+      FT_DB_HOTFIXES: hotfixes
+      FT_DB_AUTH: auth
+      FT_ADMIN_PASSWORD: change-me-too  # local administrator "admin" (FT_ADMIN_USER)
+    volumes:
+      - tracker-data:/opt/forever-tracker/data
+      # your server's data folder (dbc/<locale>, maps, vmaps, mmaps), read only
+      - /path/to/server/data:/server/data:ro
+    # networks: [server]
+
+# networks:
+#   server:
+#     name: <your server's Docker network>
+#     external: true
+
+volumes:
+  tracker-data:

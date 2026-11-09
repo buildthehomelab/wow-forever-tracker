@@ -1,0 +1,16 @@
+# Windows launcher and scripts: the container starts PHP and Python itself
+*.exe
+*.bat
+tools/launcher
+start.sh
+
+# Local settings, data and repository files
+config.ini
+php.local.ini
+data/*
+!data/.gitkeep
+.git
+.github
+docs/screenshots
+__pycache__
+*.pyc
