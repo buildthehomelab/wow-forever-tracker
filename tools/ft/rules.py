@@ -239,7 +239,13 @@ def evaluate_all(content, ctx):
             if kind == 0 and obj not in npc_spawned:
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
-                problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
+                provided = int(row.get('StartItem') or 0)
+                casts = ctx['item_use_spells'].get(provided, set())
+                if quest_id in ctx['provided_item_quests'] and casts & ctx['creates'].get(obj, set()):
+                    problems.append(L(f'item {obj}: quest-provided item {provided} can create it; cast requirements unverified',
+                                      f'objet {obj} : l’objet de quête {provided} peut le créer ; conditions d’incantation à vérifier'))
+                else:
+                    problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
             elif kind == 2 and obj not in go_spawned:
                 problems.append(L(f'object {obj} not spawned', f'objet du monde {obj} non placé'))
         if objectives.get(quest_id):
