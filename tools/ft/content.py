@@ -126,6 +126,8 @@ def official(folder):
             spell_category.setdefault(a['Spell'], 'racial')
         elif category in PROFESSION_CATEGORIES:
             spell_category.setdefault(a['Spell'], 'profession')
+            if a['AcquireMethod'] == 3:  # NeverLearned in SkillLineAbility
+                continue
             recipes[a['Spell']] = {'name': spell_names.get(a['Spell'], f"#{a['Spell']}"), 'name_en': spell_names_en.get(a['Spell'], ''),
                                    'icon': icons_spell.get(a['Spell'], 0), 'sub': line.get('DisplayName', ''), 'level': a['MinSkillLineRank'],
                                    'auto': a['AcquireMethod'] in (1, 2), 'spell': a['Spell'], 'creates': creates.get(a['Spell'], 0),
