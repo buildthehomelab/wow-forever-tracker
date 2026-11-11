@@ -62,20 +62,24 @@ def server_state():
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
         if e['Effect'] == EFFECT_CREATE_ITEM and e['EffectItemType']:
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
-    effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
-    for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
-        effects[int(row['ID'])] = int(row['SpellID'])
-    item_spells = {}
+    effects = {r['ID']: (r['SpellID'], r['TriggerType']) for r in srv('ItemEffect')}
+    for row in sqlio.query('SELECT ID, SpellID, TriggerType FROM item_effect', 'hotfixes'):
+        effects[int(row['ID'])] = (int(row['SpellID']), int(row['TriggerType']))
+    item_spells, item_use_spells = {}, {}
     links = srv('ItemXItemEffect') + [{'ItemID': int(r['ItemID']), 'ItemEffectID': int(r['ItemEffectID'])} for r in sqlio.query('SELECT ItemID, ItemEffectID FROM item_x_item_effect', 'hotfixes')]
     for link in links:
         if link['ItemEffectID'] in effects:
-            item_spells.setdefault(link['ItemID'], set()).add(effects[link['ItemEffectID']])
+            spell, trigger = effects[link['ItemEffectID']]
+            item_spells.setdefault(link['ItemID'], set()).add(spell)
+            if spell and trigger == 0:
+                item_use_spells.setdefault(link['ItemID'], set()).add(spell)
     teaches = {}
     for item_id, spells in item_spells.items():
         for spell in spells:
             for target in {spell} | learn.get(spell, set()):
                 teaches.setdefault(target, set()).add(item_id)
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
+    ctx['item_use_spells'] = item_use_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     ctx['spell_ids'] = {r['ID'] for r in srv('SpellName')} | {r['SpellID'] for r in srv('SpellMisc')}
     ctx['start_quest_item'] = {r['StartQuestID']: r['ID'] for r in srv('ItemSparse') if r['StartQuestID']}
@@ -101,6 +105,7 @@ def server_state():
         if CONFIG.french() else {}
     ctx['quest_level'] = {int(r['ID']): (int(r['QuestLevel'] or 0), int(r['MinLevel'] or 0)) for r in q('SELECT ID, QuestLevel, MinLevel FROM quest_classic_level')} if sqlio.has_table('quest_classic_level') else {}
     ctx['quests'] = quests
+    ctx['provided_item_quests'] = ints('SELECT ID FROM quest_template_addon WHERE ProvidedItemCount > 0')
     pairs = lambda sql: [(int(a), int(b)) for a, b in (tuple(r.values()) for r in q(sql))]
     ctx['q_start_npc'] = pairs('SELECT id, quest FROM creature_queststarter')
     ctx['q_end_npc'] = pairs('SELECT id, quest FROM creature_questender')
