@@ -333,6 +333,8 @@ def evaluate_all(content, ctx):
             how.append(L('trainer', 'entraîneur'))
         if entity.get('auto') or spell_id in ctx['auto_learn']:
             how.append(L('learned automatically', 'appris automatiquement'))
+        if spell_id in ctx.get('gossip_recipe_spells', ()):
+            how.append(L('NPC gossip', 'dialogue de PNJ'))
         teach = ctx['teaches'].get(spell_id, set())
         if teach & obtainable:
             how.append(L('obtainable recipe', 'recette obtenable'))
