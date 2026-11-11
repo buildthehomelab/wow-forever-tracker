@@ -106,6 +106,14 @@ def server_state():
     ctx['q_end_npc'] = pairs('SELECT id, quest FROM creature_questender')
     ctx['q_start_go'] = pairs('SELECT id, quest FROM gameobject_queststarter')
     ctx['q_end_go'] = pairs('SELECT id, quest FROM gameobject_questender')
+    ctx['object_exchange_quests'] = dict(pairs('''
+        SELECT DISTINCT s.quest, COALESCE(a.PrevQuestID, 0)
+        FROM gameobject_queststarter s
+        JOIN gameobject_questender e ON e.id = s.id AND e.quest = s.quest
+        LEFT JOIN quest_template_addon a ON a.ID = s.quest
+        WHERE COALESCE(a.BreadcrumbForQuestId, 0) = 0 AND COALESCE(a.ExclusiveGroup, 0) = 0
+          AND EXISTS (SELECT 1 FROM gameobject g WHERE g.id = s.id AND g.PhaseId = 0 AND g.PhaseGroup = 0)
+    '''))
     ctx['objectives'] = [(int(r['QuestID']), int(r['Type']), int(r['ObjectID']), int(r['Amount'])) for r in q('SELECT QuestID, Type, ObjectID, Amount FROM quest_objectives')]
     ctx['quest_items_npc'] = pairs('SELECT CreatureEntry, ItemId FROM creature_questitem')
     ctx['quest_items_go'] = pairs('SELECT GameObjectEntry, ItemId FROM gameobject_questitem')
