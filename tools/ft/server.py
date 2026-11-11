@@ -7,6 +7,7 @@ from .config import CONFIG, DATA
 from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
+ITEM_SPELLTRIGGER_ON_LEARN = 6
 
 
 def log(message):
@@ -62,19 +63,27 @@ def server_state():
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
         if e['Effect'] == EFFECT_CREATE_ITEM and e['EffectItemType']:
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
-    effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
-    for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
-        effects[int(row['ID'])] = int(row['SpellID'])
-    item_spells = {}
+    effects = {r['ID']: (r['SpellID'], r['TriggerType']) for r in srv('ItemEffect')}
+    for row in sqlio.query('SELECT ID, SpellID, TriggerType FROM item_effect', 'hotfixes'):
+        effects[int(row['ID'])] = (int(row['SpellID']), int(row['TriggerType']))
+    item_spells, recipe_teachers = {}, {}
     links = srv('ItemXItemEffect') + [{'ItemID': int(r['ItemID']), 'ItemEffectID': int(r['ItemEffectID'])} for r in sqlio.query('SELECT ItemID, ItemEffectID FROM item_x_item_effect', 'hotfixes')]
     for link in links:
         if link['ItemEffectID'] in effects:
-            item_spells.setdefault(link['ItemID'], set()).add(effects[link['ItemEffectID']])
+            spell, trigger = effects[link['ItemEffectID']]
+            item_id = link['ItemID']
+            item_spells.setdefault(item_id, set()).add(spell)
+            targets = learn.get(spell, set())
+            if trigger == ITEM_SPELLTRIGGER_ON_LEARN:
+                targets = targets | {spell}
+            for target in targets:
+                recipe_teachers.setdefault(target, set()).add(item_id)
     teaches = {}
     for item_id, spells in item_spells.items():
         for spell in spells:
             for target in {spell} | learn.get(spell, set()):
                 teaches.setdefault(target, set()).add(item_id)
+    ctx['recipe_teachers'] = recipe_teachers
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     ctx['spell_ids'] = {r['ID'] for r in srv('SpellName')} | {r['SpellID'] for r in srv('SpellMisc')}

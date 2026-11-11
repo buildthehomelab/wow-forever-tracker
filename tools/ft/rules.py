@@ -333,13 +333,16 @@ def evaluate_all(content, ctx):
             how.append(L('trainer', 'entraîneur'))
         if entity.get('auto') or spell_id in ctx['auto_learn']:
             how.append(L('learned automatically', 'appris automatiquement'))
-        teach = ctx['teaches'].get(spell_id, set())
-        if teach & obtainable:
+        teach = ctx['recipe_teachers'].get(spell_id, set())
+        if teach & obtainable & known['item']:
             how.append(L('obtainable recipe', 'recette obtenable'))
         if how:
             detail = join(how)
-        elif teach:
+        elif teach and not (teach & known['item']):
             ids = ', '.join(map(str, sorted(teach)[:3]))
+            detail = L('Teaching item missing from the server item data: ' + ids, 'Objet d’apprentissage absent des données serveur : ' + ids)
+        elif teach:
+            ids = ', '.join(map(str, sorted(teach & known['item'])[:3]))
             detail = L('Recipe exists but cannot be obtained: ' + ids, 'Recette existante mais non obtenable : ' + ids)
         else:
             detail = L('No trainer and no recipe.', 'Ni entraîneur ni recette.')
