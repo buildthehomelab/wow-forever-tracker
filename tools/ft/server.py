@@ -84,6 +84,17 @@ def server_state():
     q = sqlio.query
     ints = lambda sql, db='world': {int(x) for x in sqlio.column(sql, db) if x is not None}
     ctx['spawned_npc'] = ints('SELECT DISTINCT id FROM creature')
+    # Classic Herod summons trainees in C++, outside SmartAI.
+    ctx['scripted_loot_npc'] = ints("""
+        SELECT DISTINCT trainee.entry
+        FROM creature c
+        JOIN creature_template herod ON herod.entry = c.id
+        JOIN instance_template dungeon ON dungeon.map = c.map
+        JOIN creature_template trainee ON trainee.entry = 6575
+        WHERE c.id = 3975 AND c.map = 189
+          AND herod.ScriptName = 'classic_boss_herod'
+          AND dungeon.script = 'classic_instance_scarlet_monastery'
+    """)
     ctx['spawned_go'] = ints('SELECT DISTINCT id FROM gameobject')
     npc_maps = {}
     for row in q('SELECT c.map, c.id, COUNT(*) n, ct.name, ct.ScriptName, ct.AIName FROM creature c JOIN creature_template ct ON ct.entry = c.id GROUP BY c.map, c.id'):

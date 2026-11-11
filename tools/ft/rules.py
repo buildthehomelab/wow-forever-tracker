@@ -67,8 +67,9 @@ def evaluate_all(content, ctx):
 
     npc_loot_ids, pick_ids, skin_ids = set(), set(), set()
     for npc, loot_id, pick, skin in ctx['npc_loot']:
-        if npc in npc_spawned:
+        if npc in npc_spawned or npc in ctx.get('scripted_loot_npc', set()):
             loot_id and npc_loot_ids.add(loot_id)
+        if npc in npc_spawned:
             pick and pick_ids.add(pick)
             skin and skin_ids.add(skin)
     go_loot_ids = {data for entry, _type, data in ctx['go_loot'] if entry in go_spawned and data}
