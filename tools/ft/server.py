@@ -124,6 +124,19 @@ def server_state():
     ctx['npc_loot'] = [(int(r['Entry']), int(r['LootID'] or 0), int(r['PickPocketLootID'] or 0), int(r['SkinLootID'] or 0))
                        for r in q('SELECT Entry, LootID, PickPocketLootID, SkinLootID FROM creature_template_difficulty WHERE DifficultyID IN (0,1)')]
     ctx['go_loot'] = [(int(r['entry']), int(r['type']), int(r['Data1'] or 0)) for r in q('SELECT entry, type, Data1 FROM gameobject_template WHERE type IN (3, 25)')]
+    # The Classic AQ20 instance summons Andorov after Kurinnaxx.
+    ctx['scripted_vendors'] = ints("""
+        SELECT DISTINCT vendor.entry
+        FROM creature c
+        JOIN creature_template boss ON boss.entry = c.id
+        JOIN instance_template raid ON raid.map = c.map
+        JOIN creature_template vendor ON vendor.entry = 15471
+        WHERE c.id = 15348 AND c.map = 509
+          AND boss.ScriptName = 'classic_boss_kurinnaxx'
+          AND raid.script = 'classic_instance_ruins_of_ahnqiraj'
+          AND vendor.ScriptName = 'classic_npc_andorov'
+          AND EXISTS (SELECT 1 FROM creature rajaxx WHERE rajaxx.map = c.map AND rajaxx.id = 15341)
+    """)
     ctx['vendors'] = pairs('SELECT entry, item FROM npc_vendor WHERE type = 1')
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]
