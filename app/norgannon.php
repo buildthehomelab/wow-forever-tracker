@@ -101,7 +101,8 @@ function norgannon_import(): array
     if (!$dir) return ['ok' => false, 'message' => $error];
     $gaps = source_gaps();
     $label = 'NorgannonDB ' . substr($commit, 0, 8);
-    // vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins (its cache) saw on live Forever
+    // vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins (its cache) saw on live Forever,
+    // or (drops) AtlasLoot's boss tables
     $witnesses = [icyveins_cached_items($gaps['items']), icyveins_cached_quests($gaps['noGiver'] + $gaps['noEnder'])];
     $ev = norgannon_evidence($dir, $gaps);
     foreach (['eglink', 'foreverdb'] as $source) {
@@ -109,6 +110,8 @@ function norgannon_import(): array
         if (!empty($w['ev'])) $witnesses[] = $w['ev'];
         else $ev['left']["witness_{$source}_unreachable"] = 1;
     }
+    require_once FT_APP . '/atlasloot.php';
+    $witnesses[] = atlasloot_cached_drops();   // the last AtlasLoot download: its boss tables
     $ev = source_witnessed($ev, $witnesses);
     [$tables, $left] = source_tables($ev, $label, $gaps);
     return source_card('norgannondb', $label, 'norgannondb@' . $commit, $tables, $left);
