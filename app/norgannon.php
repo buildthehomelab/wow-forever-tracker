@@ -102,7 +102,7 @@ function norgannon_import(): array
     $gaps = source_gaps();
     $label = 'NorgannonDB ' . substr($commit, 0, 8);
     // vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins (its cache) saw on live Forever
-    $witnesses = [icyveins_cached_items($gaps['items'])];
+    $witnesses = [icyveins_cached_items($gaps['items']), icyveins_cached_quests($gaps['noGiver'] + $gaps['noEnder'])];
     $ev = norgannon_evidence($dir, $gaps);
     foreach (['eglink', 'foreverdb'] as $source) {
         $w = ($source . '_evidence')();

@@ -29,8 +29,11 @@ repeat its rows.
 - **NorgannonDB needs a second source for vendors and loot**: it mixes Classic databases with what its players saw, so
   alone it would bring Classic test vendors (unreleased mounts, the Panda Collar, soul shards for sale) and quest-only
   items. A NorgannonDB vendor or drop is kept only when EG Link, ForeverDB.net or Icy Veins (answers already fetched)
-  saw the same creature or chest sell or drop the same item on live Forever. Run *Import Icy Veins* first: its answers
-  count. Quest givers, enders and trainers keep NorgannonDB alone.
+  saw the same creature or chest sell or drop the same item on live Forever; a giver or ender, when one of them saw the
+  same creature or object give or take the same quest (NorgannonDB's quest numbers can be Season of Discovery's, which
+  Forever reused for other quests). Run *Import Icy Veins* first: its answers count. Trainers keep NorgannonDB alone.
+- **Quests an item starts** (ItemSparse `StartQuestID`) need no giver: no source adds one (the creature that drops the
+  item, or the chest it lies in, would be wrong).
 - **Quests**: only quests the server has no giver (or no ender) for; creatures and objects the server has.
 - **Trainers**: at the trainers the server has for that creature (`creature_trainer`). A class spell needs a level:
   the source's, else the server's other trainers', else Wowhead's *"Requires level N"*. The ranks a spell needs: the

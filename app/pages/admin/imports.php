@@ -28,6 +28,8 @@ $leftLabels = [
     'loot_unknown' => t('creatures unknown to this server', 'PNJ inconnus de ce serveur'), 'object_no_loot' => t('objects without a loot table', 'objets sans table de butin'), 'loot_known' => t('drops the server already has (directly or through reference loot)', 'butins que le serveur a déjà (directement ou par référence)'),
     'quest_unknown' => t('quests unknown to this server', 'quêtes inconnues de ce serveur'),
     'vendor_no_second_source' => t('vendors no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'marchands qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
+    'quest_start_no_second_source' => t('quest givers no live Forever recording saw', 'donneurs de quête qu’aucun enregistrement de Forever n’a vus'),
+    'quest_end_no_second_source' => t('quest enders no live Forever recording saw', 'valideurs de quête qu’aucun enregistrement de Forever n’a vus'),
     'drop_no_second_source' => t('drops no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'butins qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
     'witness_eglink_unreachable' => t('EG Link unreachable: its recordings could not confirm', 'EG Link injoignable : ses enregistrements n’ont pas pu confirmer'),
     'witness_foreverdb_unreachable' => t('ForeverDB.net unreachable: its recordings could not confirm', 'ForeverDB.net injoignable : ses enregistrements n’ont pas pu confirmer'),

@@ -139,7 +139,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         batch.flush()
         meta = {'generated_at': datetime.datetime.now().isoformat(timespec='seconds'), 'server_build': server_build,
                 'client_build': build_list[-1]['build'] if build_list else 0, 'hidden': content.get('_meta', {}).get('hidden', {}),
-                'schema': 2}
+                'schema': 2,
+                # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
+                'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else []}
         for key, value in meta.items():
             out.write(f"INSERT INTO ft_meta_new VALUES ({e(key)},{e(dumps(value))});\n")
         # atomic swap

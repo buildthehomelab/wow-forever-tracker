@@ -39,9 +39,12 @@ const SOURCES = [
 function source_gaps(): array
 {
     $ids = function (string $sql, string $database = 'tracker'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
+    // a quest an item starts (the Ancient Petrified Leaf) has no giver on purpose: a source naming the creature that
+    // drops the item, or the chest it lies in, as its giver would be wrong
+    $byItem = array_fill_keys(array_map('intval', (array)(meta()['item_quests'] ?? [])), true);
     return [
         'items' => $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
-        'noGiver' => $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'),
+        'noGiver' => array_diff_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'), $byItem),
         'noEnder' => $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
     ];
 }
@@ -173,14 +176,22 @@ function source_tables(array $ev, string $label, array $gaps): array
  * Keeps the vendors and drops of $ev that one of the live-Forever recordings ($witnesses: EG Link, ForeverDB.net, Icy
  * Veins) also saw: the same creature (or chest) selling or dropping the same item. NorgannonDB mixes Classic databases
  * with what its players saw: without a second source it would bring Classic test vendors (unreleased mounts, the Panda
- * Collar, soul shards for sale) and quest-only items. Quest givers, enders and trainers are kept (checked elsewhere).
+ * Collar, soul shards for sale) and quest-only items; its quest numbers can be Season of Discovery's, reused by Forever
+ * for another quest (79363 is Silvia's Sword in Duskwood, not Bath'rah's). Givers and enders need the same creature or
+ * object giving or taking the same quest. Trainers are kept (checked against the server's trainers and Wowhead).
  */
 function source_witnessed(array $ev, array $witnesses): array
 {
-    $sold = $dropped = [];
+    $sold = $dropped = $quests = [];
     foreach ($witnesses as $w) {
         foreach ($w['sell'] ?? [] as [$npc, $item]) $sold["$npc:$item"] = true;
         foreach ($w['drop'] ?? [] as [$kind, $id, $item]) $dropped["$kind:$id:$item"] = true;
+        foreach (['start', 'end'] as $role) foreach ($w[$role] ?? [] as [$kind, $id, $quest]) $quests["$role:$kind:$id:$quest"] = true;
+    }
+    foreach (['start', 'end'] as $role) {
+        $before = count($ev[$role] ?? []);
+        $ev[$role] = array_values(array_filter($ev[$role] ?? [], fn($q) => isset($quests["$role:$q[0]:$q[1]:$q[2]"])));
+        $ev['left']["quest_{$role}_no_second_source"] = ($ev['left']["quest_{$role}_no_second_source"] ?? 0) + $before - count($ev[$role]);
     }
     $before = [count($ev['sell'] ?? []), count($ev['drop'] ?? [])];
     $ev['sell'] = array_values(array_filter($ev['sell'] ?? [], fn($s) => isset($sold["$s[0]:$s[1]"])));
@@ -448,6 +459,27 @@ function icyveins_cached_items(array $items): array
     return $ev;
 }
 
+/** Givers and enders of the gap quests Icy Veins already answered (its cache only). */
+function icyveins_cached_quests(array $quests): array
+{
+    $ev = ['start' => [], 'end' => []];
+    foreach (array_keys($quests) as $quest) {
+        $path = FT_ROOT . "/data/icyveins/quest/$quest.json";
+        if (is_file($path)) icyveins_quest_evidence($ev, $quest, (array)((json_decode((string)file_get_contents($path), true) ?: [])['relations'] ?? []));
+    }
+    return $ev;
+}
+
+function icyveins_quest_evidence(array &$ev, int $quest, array $r): void
+{
+    foreach ((array)($r['addon_givers'] ?? []) as $g) {
+        [$kind, $id] = !empty($g['npc_id']) ? ['npc', (int)$g['npc_id']] : ['go', (int)($g['gameobject_id'] ?? 0)];
+        if (!$id) continue;
+        if (!empty($g['starts'])) $ev['start'][] = [$kind, $id, $quest];
+        if (!empty($g['ends'])) $ev['end'][] = [$kind, $id, $quest];
+    }
+}
+
 function icyveins_item_evidence(array &$ev, int $item, array $r): void
 {
     foreach ((array)($r['addon_dropped_by'] ?? []) as $d) {
@@ -475,13 +507,7 @@ function icyveins_import(?callable $progress = null): array
         icyveins_item_evidence($ev, $item, (array)(icyveins_get('item', $item, $asked)['relations'] ?? [])); $tick();
     }
     foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
-        $r = icyveins_get('quest', $quest, $asked)['relations'] ?? []; $tick();
-        foreach ((array)($r['addon_givers'] ?? []) as $g) {
-            [$kind, $id] = !empty($g['npc_id']) ? ['npc', (int)$g['npc_id']] : ['go', (int)($g['gameobject_id'] ?? 0)];
-            if (!$id) continue;
-            if (!empty($g['starts'])) $ev['start'][] = [$kind, $id, $quest];
-            if (!empty($g['ends'])) $ev['end'][] = [$kind, $id, $quest];
-        }
+        icyveins_quest_evidence($ev, $quest, (array)(icyveins_get('quest', $quest, $asked)['relations'] ?? [])); $tick();
     }
     foreach ($trainers as $npc) {
         $r = icyveins_get('npc', $npc, $asked)['relations'] ?? []; $tick();
