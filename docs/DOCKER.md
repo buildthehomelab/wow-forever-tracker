@@ -75,6 +75,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_SITE_NAME`, `FT_HOME_URL`, `FT_HOME_LABEL`, `FT_REPOSITORY_URL` | | `[site]` of [CONFIGURATION.md](CONFIGURATION.md) |
 | `FT_RA_HOST`, `FT_RA_PORT`, `FT_RA_USER`, `FT_RA_PASSWORD` | empty, `3443` | Remote console for spawns ([SPAWNS.md](SPAWNS.md)) |
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
+| `FT_FORGE_TRAINER_GUESS` | `1` | `0`: no trainer fixes guessed from the client's skill lines; trainer spells come from imports (NorgannonDB) only. A change re-analyses once |
+| `FT_NORGANNONDB_COMMIT` | empty | NorgannonDB commit the import reads (empty: the tested one) |
 | `FT_FORGE_TRAINER_SKIP_IDS` | empty | Spell ids and ranges the Forge never offers at trainers (`400000-499999, 12345`); a change re-analyses once at the next start |
 
 Values may not contain a double quote.

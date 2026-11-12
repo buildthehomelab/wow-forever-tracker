@@ -67,6 +67,16 @@ page_start(t('Imports', 'Imports'), 'admin');
 </section>
 
 <section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Open data', 'Données ouvertes')) ?></span><h2>NorgannonDB</h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('NorgannonDB is an open WoW Forever database (GPL-3.0) built from QuestieDB, pfQuest, Forever\'s own tables and what its players saw. The pinned version is downloaded from GitHub when you import it.', 'NorgannonDB est une base ouverte de WoW Forever (GPL-3.0) faite de QuestieDB, pfQuest, des tables de Forever et de ce que ses joueurs ont vu. La version épinglée est téléchargée depuis GitHub à l’import.')) ?></li>
+    <li><?= e(t('The import aims at the gaps of the last analysis: drops and vendors for the items players cannot get (internal items left out), givers and enders for the quests that have none, and the spells its players saw trainers teach. Run the analysis again first when the server changed.', 'L’import vise les manques de la dernière analyse : butin et marchands des objets introuvables (objets internes écartés), donneurs et valideurs des quêtes qui n’en ont pas, et les sorts que ses joueurs ont vu enseigner. Relancez l’analyse d’abord si le serveur a changé.')) ?></li>
+    <li><?= e(t('It becomes an import below: preview, apply what is missing, roll back from the history, export to your data repository.', 'Il devient un import ci-dessous : aperçu, appliquer ce qui manque, annuler depuis l’historique, exporter vers votre dépôt de données.')) ?></li>
+  </ol>
+  <div class="btn-row"><button class="btn is-small is-gold" type="button" data-scribe="norgannon"><i class="fas fa-database"></i> <?= e(t('Import NorgannonDB', 'Importer NorgannonDB')) ?></button></div>
+</section>
+
+<section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Add a file', 'Ajouter un fichier')) ?></span><h2><?= e(t('SQL in WowPacketParser\'s format', 'SQL au format de WowPacketParser')) ?></h2></div></header>
   <ol class="steps-list">
     <li><?= e(t('Use a SQL file you already have in WowPacketParser\'s world format (usually ending in _world.sql), or any file of INSERT statements for your world tables.', 'Utilisez un fichier SQL que vous avez déjà, au format monde de WowPacketParser (il finit souvent par _world.sql), ou tout fichier d’INSERT pour vos tables du monde.')) ?></li>

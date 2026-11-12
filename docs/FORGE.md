@@ -90,6 +90,12 @@ PHP as the website (for example `php -c php.ini tools/forge-check.php`). Every t
 Restart the worldserver, then run the analysis again (*Run again* in the Forge) to refresh the statuses. Fixes
 applied since the last analysis are greyed out in the lists.
 
+## Filling the gaps from NorgannonDB
+
+The Forge › Imports › *Import NorgannonDB* turns the open NorgannonDB database into an import aimed at the analysis'
+gaps: drops and vendors for items players cannot get, givers and enders for quests that have none, and the spells its
+players saw trainers teach. See [NORGANNONDB.md](NORGANNONDB.md).
+
 ## Taking a fix to another realm
 
 Tested on a test realm and good for the live one? *History* exports any applied operation as a world update file for
