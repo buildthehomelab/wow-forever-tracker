@@ -53,6 +53,16 @@ switch ((string)($input['action'] ?? '')) {
     case 'norgannon':
         require_once FT_APP . '/norgannon.php';
         json_out(norgannon_import());
+    case 'source_eglink':
+        require_once FT_APP . '/sources.php';
+        json_out(eglink_import());
+    case 'source_foreverdb':
+        require_once FT_APP . '/sources.php';
+        json_out(foreverdb_import());
+    case 'source_icyveins':
+        // about an hour the first time (two lookups a second): in the background
+        require_once FT_APP . '/sources.php';
+        json_out(source_start('icyveins'));
     case 'sync':
         require_once FT_APP . '/collector.php';
         $report = collector_sync(!empty($input['apply']) && !empty($input['confirm']));

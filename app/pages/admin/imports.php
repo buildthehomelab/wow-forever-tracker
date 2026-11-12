@@ -67,6 +67,21 @@ page_start(t('Imports', 'Imports'), 'admin');
   </ul>
 </section>
 
+<?php require_once FT_APP . '/sources.php'; $icyRunning = source_running('icyveins'); $icyLog = is_file(source_log('icyveins')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('icyveins')))) : ''; ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Live Forever recordings', 'Enregistrements de Forever')) ?></span><h2><?= e(t('EG Link, ForeverDB.net, Icy Veins', 'EG Link, ForeverDB.net, Icy Veins')) ?></h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('Three projects whose players\' addons record what live WoW Forever shows: vendor windows, loot, trainers, who gives and takes quests. Each import aims at the last analysis\' gaps, with the same rules as NorgannonDB (docs/SOURCES.md).', 'Trois projets dont les addons des joueurs enregistrent ce que montre WoW Forever : marchands, butin, entraîneurs, donneurs et valideurs de quêtes. Chaque import vise les manques de la dernière analyse, avec les mêmes règles que NorgannonDB (docs/SOURCES.md).')) ?></li>
+    <li><?= e(t('EG Link (CC BY 4.0) and ForeverDB.net (GPL-3.0, credit "Data from ForeverDB.net") are downloaded whole. Icy Veins (no licence stated: for your own server) is asked about each gap, two lookups a second: about an hour the first time, in the background; its answers are asked again after two weeks as it grows.', 'EG Link (CC BY 4.0) et ForeverDB.net (GPL-3.0, crédit « Data from ForeverDB.net ») sont téléchargés en entier. Icy Veins (sans licence : pour votre serveur) est consulté pour chaque manque, deux fois par seconde : environ une heure la première fois, en arrière-plan ; ses réponses sont redemandées après deux semaines.')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <button class="btn is-small is-gold" type="button" data-scribe="source_eglink"><i class="fas fa-link"></i> <?= e(t('Import EG Link', 'Importer EG Link')) ?></button>
+    <button class="btn is-small is-gold" type="button" data-scribe="source_foreverdb"><i class="fas fa-book-atlas"></i> <?= e(t('Import ForeverDB.net', 'Importer ForeverDB.net')) ?></button>
+    <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
+  </div>
+  <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
+</section>
+
 <section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Open data', 'Données ouvertes')) ?></span><h2>NorgannonDB</h2></div></header>
   <ol class="steps-list">
