@@ -26,6 +26,11 @@ repeat its rows.
 - **Loot**: into the creature's own loot table (`LootID` filled where it is 0) or the chest's (`Data1`); a chance of 0
   (unknown) is left out; an item the table already gives, references included, is left out. EG Link drops count from
   10 looked corpses; skinning, pick pocketing and quest-tied loot are left out.
+- **NorgannonDB needs a second source for vendors and loot**: it mixes Classic databases with what its players saw, so
+  alone it would bring Classic test vendors (unreleased mounts, the Panda Collar, soul shards for sale) and quest-only
+  items. A NorgannonDB vendor or drop is kept only when EG Link, ForeverDB.net or Icy Veins (answers already fetched)
+  saw the same creature or chest sell or drop the same item on live Forever. Run *Import Icy Veins* first: its answers
+  count. Quest givers, enders and trainers keep NorgannonDB alone.
 - **Quests**: only quests the server has no giver (or no ender) for; creatures and objects the server has.
 - **Trainers**: at the trainers the server has for that creature (`creature_trainer`). A class spell needs a level:
   the source's, else the server's other trainers', else Wowhead's *"Requires level N"*. The ranks a spell needs: the

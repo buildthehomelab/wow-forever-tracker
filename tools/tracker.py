@@ -170,7 +170,9 @@ def npc_checks(ask):
             continue
         lo, hi, rank = (int(r['lo']) if r['lo'] else None), (int(r['hi']) if r['hi'] else None), int(r['rank_id'] or 0)
         issues = []
-        if facts['min'] is not None and (lo, hi) != (facts['min'], facts['max']):
+        # a level differs only when the ranges do not meet: Wowhead's range spans every spawn and phase it saw
+        # (61-62 against our 62 is the same creature), so a narrower server range inside it is not a finding
+        if facts['min'] is not None and (lo is None or hi < facts['min'] or lo > facts['max']):
             issues.append('level')
         if rank != facts['rank']:
             issues.append('rank')

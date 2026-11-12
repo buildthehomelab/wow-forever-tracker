@@ -27,6 +27,14 @@ $leftLabels = [
     'vendor_unknown' => t('vendors unknown to this server', 'marchands inconnus de ce serveur'), 'cost_unknown' => t('items paid with items or currencies (no known ExtendedCost)', 'objets payés en objets ou monnaies (ExtendedCost inconnu)'),
     'loot_unknown' => t('creatures unknown to this server', 'PNJ inconnus de ce serveur'), 'object_no_loot' => t('objects without a loot table', 'objets sans table de butin'), 'loot_known' => t('drops the server already has (directly or through reference loot)', 'butins que le serveur a déjà (directement ou par référence)'),
     'quest_unknown' => t('quests unknown to this server', 'quêtes inconnues de ce serveur'),
+    'vendor_no_second_source' => t('vendors no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'marchands qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
+    'drop_no_second_source' => t('drops no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'butins qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
+    'witness_eglink_unreachable' => t('EG Link unreachable: its recordings could not confirm', 'EG Link injoignable : ses enregistrements n’ont pas pu confirmer'),
+    'witness_foreverdb_unreachable' => t('ForeverDB.net unreachable: its recordings could not confirm', 'ForeverDB.net injoignable : ses enregistrements n’ont pas pu confirmer'),
+    'loot_chance_unknown' => t('drops without a known chance', 'butins sans chance connue'), 'loot_unknown_creature' => t('drops of creatures or chests unknown to this server', 'butins de PNJ ou coffres inconnus de ce serveur'),
+    'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
+    'trainer_level_unknown' => t('class spells without a known level', 'sorts de classe sans niveau connu'), 'trainer_previous_rank_unknown' => t('higher ranks whose previous rank is unknown', 'rangs supérieurs dont le rang précédent est inconnu'),
+    'trainer_skill_unknown' => t('profession entries with an unknown skill', 'entrées de métier à la compétence inconnue'), 'trainer_profession_skill_unknown' => t('profession entries without a skill rank', 'entrées de métier sans rang de compétence'),
 ];
 $megabytes = fn(int $bytes) => number($bytes / 1048576, 1) . ' MB';
 page_start(t('Imports', 'Imports'), 'admin');
@@ -127,7 +135,7 @@ page_start(t('Imports', 'Imports'), 'admin');
       <label class="checkbox-line"><input type="checkbox" value="<?= e($table) ?>" checked> <span><?= e($tableLabels[$table] ?? $table) ?></span> <small class="muted"><?= e($table) ?> · <?= number($n) ?></small></label>
     <?php endforeach; ?>
   </div>
-  <?php if ($ignored): ?><p class="muted small"><?= e(t('Not on this server (left out):', 'Absent de ce serveur (écarté) :')) ?> <?= e(implode(', ', array_map(fn($t, $n) => ($leftLabels[$t] ?? $t) . " ($n)", array_keys($ignored), $ignored))) ?></p><?php endif; ?>
+  <?php if ($ignored): ?><p class="muted small"><?= e(t('Left out:', 'Écarté :')) ?> <?= e(implode(', ', array_map(fn($t, $n) => ($leftLabels[$t] ?? $t) . " ($n)", array_keys($ignored), $ignored))) ?></p><?php endif; ?>
   <div class="btn-row">
     <button class="btn is-small" type="button" data-import-preview><i class="fas fa-eye"></i> <?= e(t('Preview', 'Aperçu')) ?></button>
     <button class="btn is-small is-gold" type="button" data-import-apply><i class="fas fa-bolt"></i> <?= e(t('Apply what is missing', 'Appliquer ce qui manque')) ?></button>
