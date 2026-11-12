@@ -111,6 +111,9 @@ umask 022
 chown www-data:www-data "$DATA"
 say "config.ini written (database ${FT_DB_USER:-tracker}@${FT_DB_HOST:-mysql}, world ${FT_DB_WORLD:-world}, hotfixes ${FT_DB_HOTFIXES:-hotfixes})"
 
+# no import survives a restart: a lock left by one would grey out its button
+rm -f "$DATA"/source-*.running
+
 as_www() { setpriv --reuid=www-data --regid=www-data --init-groups -- "$@"; }
 
 # The first analysis (and a new snapshot each time the server moves to another client build), in the background so

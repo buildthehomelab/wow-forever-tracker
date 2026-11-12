@@ -43,7 +43,9 @@ Each card lists what was left out and why, and carries the source's licence in i
 
 - The Forge › Imports: *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import NorgannonDB*.
 - `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins`.
-- Icy Veins runs in the background (about an hour the first time); its last log line shows on the Imports page. Its
+- Icy Veins runs in the background: several hours the first time (one lookup per gap item, quest and trainer, two a
+  second). A restart stops it; press the button again and it goes on from its cache. Its last log line shows on the
+  Imports page. Its
   answers are kept in `data/icyveins/` and asked again after 14 days (7 for "not found"): it is a young project and
   keeps growing. `[icyveins] max` (`FT_ICYVEINS_MAX`) caps the lookups of one run; the next run goes on.
 

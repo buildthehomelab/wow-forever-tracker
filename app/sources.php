@@ -507,8 +507,10 @@ function source_log(string $source): string { return FT_ROOT . "/data/source-$so
 
 function source_running(string $source): bool
 {
+    // the run touches its lock at each progress line (every 200 Icy Veins lookups, under two minutes): a lock left
+    // untouched for 15 minutes belongs to a run that a restart or a crash stopped
     $lock = FT_ROOT . "/data/source-$source.running";
-    return is_file($lock) && time() - filemtime($lock) < 6 * 3600;
+    return is_file($lock) && time() - filemtime($lock) < 15 * 60;
 }
 
 /** Starts tools/source-import.php <source> in the background (Icy Veins takes about an hour the first time). */
