@@ -8,6 +8,7 @@ Answers are kept in data/wowhead/<kind>/<id>.json; {"missing": true} records a r
 """
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +28,19 @@ class Wowhead:
         self.requests = 0
         self._last = 0.0
 
+    def npc(self, entity_id, ask):
+        """An NPC's tooltip data with 'facts' (level, type, rank); an answer cached before facts were kept is asked again."""
+        data = self.cached('npc', entity_id)
+        if data is not None and ((data.get('missing') and not (ask and self.stale(data))) or 'facts' in data or not ask):
+            return data
+        if not ask:
+            return None
+        refresh, self.refresh = self.refresh, True
+        try:
+            return self.get('npc', entity_id)
+        finally:
+            self.refresh = refresh
+
     def path(self, kind, entity_id):
         return os.path.join(self.folder, kind, f'{int(entity_id)}.json')
 
@@ -39,14 +53,21 @@ class Wowhead:
                 return None
         return None
 
+    def stale(self, data):
+        """A "Wowhead does not know it" answer older than [wowhead] recheck_days: Wowhead learns what players discover."""
+        days = float(CONFIG.get('wowhead', 'recheck_days', '7') or 7)
+        return bool(data and data.get('missing') and time.time() - data.get('fetched', 0) > days * 86400)
+
     def get(self, kind, entity_id, locale=0):
         """The tooltip data, {'missing': True} when Wowhead does not know it, None when it could not be reached."""
         if not self.refresh:
             data = self.cached(kind, entity_id)
-            if data is not None:
+            if data is not None and not self.stale(data):
                 return data
         data = self._fetch(kind, entity_id, locale)
         if data is not None:
+            if kind == 'npc' and data.get('tooltip'):
+                data['facts'] = npc_facts(data['tooltip'])
             data.pop('tooltip', None) if kind in ('npc', 'object') else None
             data['fetched'] = int(time.time())
             os.makedirs(os.path.dirname(self.path(kind, entity_id)), exist_ok=True)
@@ -93,3 +114,20 @@ def verdict(data):
     if data.get('missing'):
         return 'unknown'
     return 'season' if SEASON_NOTE in (data.get('tooltip') or '') else 'forever'
+
+
+# "Level 30 Humanoid (Normal)", "Level 24 - 25 Beast (Elite)", "Level ?? Dragonkin (Boss)"
+NPC_LINE = re.compile(r'Level\s+(\?\?|\d+)(?:\s*-\s*(\d+))?\s+(.*?)\s*\((Normal|Elite|Rare Elite|Rare|Boss)\)')
+# creature_template.Classification
+RANKS = {'Normal': 0, 'Elite': 1, 'Rare Elite': 2, 'Boss': 3, 'Rare': 4}
+
+
+def npc_facts(tooltip):
+    """{'min', 'max', 'type', 'rank'} from an NPC tooltip (levels None for "??"), or None when the line is not there."""
+    text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', tooltip or ''))
+    m = NPC_LINE.search(text)
+    if not m:
+        return None
+    low = None if m.group(1) == '??' else int(m.group(1))
+    high = int(m.group(2)) if m.group(2) else low
+    return {'min': low, 'max': high, 'type': m.group(3).strip(), 'rank': RANKS[m.group(4)]}

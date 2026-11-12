@@ -47,6 +47,9 @@ switch ((string)($input['action'] ?? '')) {
             if (file_put_contents($target . '/' . $name, $content) === false) json_out(['ok' => false, 'message' => sprintf(t('Cannot write %s.', 'Impossible d’écrire %s.'), $target . '/' . $name)]);
         }
         json_out(['ok' => true, 'message' => sprintf(t('ForeverScribe installed in %s. Restart the game or /reload.', 'ForeverScribe installé dans %s. Relancez le jeu ou /reload.'), $target)]);
+    case 'wowhead_quests':
+        require_once FT_APP . '/wowhead.php';
+        json_out(wowhead_quest_import());
     case 'norgannon':
         require_once FT_APP . '/norgannon.php';
         json_out(norgannon_import());

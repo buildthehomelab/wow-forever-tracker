@@ -315,7 +315,7 @@ function analysis_start(string $task = 'analyse'): array
     file_put_contents($state, (string)time());
     file_put_contents($log, '');
     $task = $task === 'locate' ? 'locate' : 'analyse';
-    $command = escapeshellarg($python) . ' -X utf8 -u ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' ' . $task . ' > ' . escapeshellarg($log) . ' 2>&1';
+    $command = escapeshellarg($python) . ' -X utf8 -u ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' ' . $task . ($task === 'analyse' && (string)config('wowhead', 'analyse', '0') === '1' ? ' --wowhead' : '') . ' > ' . escapeshellarg($log) . ' 2>&1';
     if (PHP_OS_FAMILY === 'Windows') {
         // the end marker is written even when Python cannot start or stops early
         pclose(popen('start "" /B cmd /C "(' . $command . ') & echo FT-END>> ' . escapeshellarg($log) . '"', 'r'));

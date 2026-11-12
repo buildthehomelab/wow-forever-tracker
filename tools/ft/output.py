@@ -109,8 +109,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 if kind == 'taxi' and QUEST_PATH.search(name_en or name):
                     internal = 1
             verdict = (wowhead or {}).get((kind, entity_id))
+            if verdict == 'season':
+                internal = 1  # Wowhead marks it as a Season of Discovery leftover
             if verdict in ('unknown', 'season'):
-                internal = 1  # Wowhead's Forever database lacks it, or marks it as a Season of Discovery leftover
+                # 'unknown' stays visible: Forever keeps content encrypted for players to discover, Wowhead learns it later
                 data['wowhead'] = verdict
             for key in DATA_KEYS:
                 if entity.get(key):
