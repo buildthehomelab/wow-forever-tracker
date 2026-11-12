@@ -88,6 +88,11 @@ PHP as the website (for example `php -c php.ini tools/forge-check.php`). Every t
 Restart the worldserver, then run the analysis again (*Run again* in the Forge) to refresh the statuses. Fixes
 applied since the last analysis are greyed out in the lists.
 
+## Taking a fix to another realm
+
+Tested on a test realm and good for the live one? *History* exports any applied operation as a world update file for
+a data repository, safe to run twice: see [DATA-REPO.md](DATA-REPO.md).
+
 ## Troubleshooting
 
 | Message | Meaning |
