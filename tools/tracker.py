@@ -15,7 +15,7 @@ the game databases.
 public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
-tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about the new items, class and
+tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
 profession spells and recipes the server lacks (cached in data/wowhead): the ones Wowhead marks as Season of
 Discovery leftovers, or does not know, count as internal and are never offered at trainers. Quests Wowhead does not know either
 are hidden: they are the game's invisible tracking quests.
@@ -97,14 +97,16 @@ def wowhead_names(quest_ids):
 
 
 def wowhead_verdicts(content, results, baseline, ask):
-    """{(kind, id): verdict} for the new items, spells and recipes the server lacks (see ft.wowhead.verdict).
+    """{(kind, id): verdict} for the items players cannot get and the new spells and recipes the server lacks (see ft.wowhead.verdict).
     With ask, Wowhead is asked for the ones not cached yet (slow and polite); otherwise only the cache is read."""
     from ft.wowhead import Wowhead, verdict
     wanted = []
     for kind in ('item', 'spell', 'recipe'):
         for entity_id, entity in content.get(kind, {}).items():
             status = results.get((kind, entity_id), ('ok',))[0]
-            if status == 'ok' or not baseline.is_new(kind, entity_id, entity):
+            # every item players cannot get: Season of Discovery items ship in the Classic Era client too, so "new" alone
+            # would miss them; spells and recipes only when new (trainer candidates)
+            if status == 'ok' or (kind != 'item' and not baseline.is_new(kind, entity_id, entity)):
                 continue
             if kind == 'spell' and entity.get('sub') not in ('class', 'profession'):
                 continue
