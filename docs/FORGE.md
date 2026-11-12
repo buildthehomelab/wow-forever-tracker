@@ -105,6 +105,11 @@ Wowhead's public Forever tooltips about what the server lacks:
   summary sends the player back to, when exactly one spawned creature has that name. An import card, reviewed before
   it is applied.
 
+## Filling the gaps from open data
+
+NorgannonDB, EG Link, ForeverDB.net and Icy Veins each become an import aimed at the analysis' gaps, under the same
+rules: see [SOURCES.md](SOURCES.md).
+
 ## Filling the gaps from NorgannonDB
 
 The Forge › Imports › *Import NorgannonDB* turns the open NorgannonDB database into an import aimed at the analysis'

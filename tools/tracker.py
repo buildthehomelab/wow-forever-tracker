@@ -144,7 +144,7 @@ def npc_checks(ask):
     from ft.wowhead import Wowhead
     levels = sqlio.has_table('creature_classic_level')
     rows = sqlio.query(
-        'SELECT ct.entry, ct.name, ct.Classification rank' + (', l.level_min lo, l.level_max hi' if levels else ', NULL lo, NULL hi') +
+        'SELECT ct.entry, ct.name, ct.Classification rank_id' + (', l.level_min lo, l.level_max hi' if levels else ', NULL lo, NULL hi') +
         ' FROM creature_template ct' + (' LEFT JOIN creature_classic_level l ON l.entry = ct.entry' if levels else '') +
         ' WHERE EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry) AND (ct.Classification > 0'
         ' OR ct.entry IN (SELECT id FROM creature_queststarter) OR ct.entry IN (SELECT id FROM creature_questender)'
@@ -168,7 +168,7 @@ def npc_checks(ask):
         if data.get('missing') or not facts:
             counts['not_on_wowhead' if data.get('missing') else 'no_level_line'] = counts.get('not_on_wowhead' if data.get('missing') else 'no_level_line', 0) + 1
             continue
-        lo, hi, rank = (int(r['lo']) if r['lo'] else None), (int(r['hi']) if r['hi'] else None), int(r['rank'] or 0)
+        lo, hi, rank = (int(r['lo']) if r['lo'] else None), (int(r['hi']) if r['hi'] else None), int(r['rank_id'] or 0)
         issues = []
         if facts['min'] is not None and (lo, hi) != (facts['min'], facts['max']):
             issues.append('level')
@@ -247,7 +247,10 @@ def analyse(args):
             changes[index] = change[:6] + (name,)
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
-    npc_checks(args.wowhead)
+    try:
+        npc_checks(args.wowhead)
+    except Exception as error:  # a report only: it never stops the analysis
+        log(f'npc check failed, skipped: {error}')
     log('tooltips')
     tips = tooltips.build(content, latest['dir'], quest_names, ctx)
     fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'], wowhead)

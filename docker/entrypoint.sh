@@ -83,6 +83,9 @@ path = ""
 trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
 trainer_guess = ${FT_FORGE_TRAINER_GUESS:-1}
 
+[icyveins]
+max = ${FT_ICYVEINS_MAX:-20000}
+
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"
 
