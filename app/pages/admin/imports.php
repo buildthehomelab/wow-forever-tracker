@@ -30,7 +30,10 @@ $leftLabels = [
     'vendor_no_second_source' => t('vendors no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'marchands qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
     'quest_start_no_second_source' => t('quest givers no live Forever recording saw', 'donneurs de quête qu’aucun enregistrement de Forever n’a vus'),
     'quest_end_no_second_source' => t('quest enders no live Forever recording saw', 'valideurs de quête qu’aucun enregistrement de Forever n’a vus'),
-    'drop_no_second_source' => t('drops no live Forever recording saw (EG Link, ForeverDB.net, Icy Veins)', 'butins qu’aucun enregistrement de Forever n’a vus (EG Link, ForeverDB.net, Icy Veins)'),
+    'drop_no_second_source' => t('drops no live Forever recording (EG Link, ForeverDB.net, Icy Veins) or AtlasLoot saw', 'butins qu’aucun enregistrement de Forever (EG Link, ForeverDB.net, Icy Veins) ni AtlasLoot n’a vus'),
+    'atlasloot_no_creature' => t('AtlasLoot lists whose name is no single spawned creature or chest of this server (trash, sets, quest rewards)', 'listes AtlasLoot dont le nom n’est aucun PNJ ou coffre unique placé sur ce serveur (trash, ensembles, récompenses)'),
+    'atlasloot_vendor' => t('AtlasLoot lists of vendors (their stock, not drops)', 'listes AtlasLoot de marchands (leur stock, pas du butin)'),
+    'atlasloot_several_creatures' => t('AtlasLoot lists naming several creatures, none of whose loot gives the list\'s other items', 'listes AtlasLoot à plusieurs PNJ dont aucun butin ne donne les autres objets de la liste'),
     'witness_eglink_unreachable' => t('EG Link unreachable: its recordings could not confirm', 'EG Link injoignable : ses enregistrements n’ont pas pu confirmer'),
     'witness_foreverdb_unreachable' => t('ForeverDB.net unreachable: its recordings could not confirm', 'ForeverDB.net injoignable : ses enregistrements n’ont pas pu confirmer'),
     'loot_chance_unknown' => t('drops without a known chance', 'butins sans chance connue'), 'loot_unknown_creature' => t('drops of creatures or chests unknown to this server', 'butins de PNJ ou coffres inconnus de ce serveur'),
@@ -90,6 +93,20 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
   </div>
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
+</section>
+
+<?php $alLog = is_file(source_log('atlasloot')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('atlasloot')))) : ''; ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Addon data', 'Données d’addon')) ?></span><h2>AtlasLoot Classic Forever</h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('The loot browser most Forever players run (GPL-2.0, CurseForge), updated almost daily: which boss drops each item, Forever\'s new dungeons and items included. The newest Forever file is downloaded from CurseForge.', 'Le navigateur de butin de la plupart des joueurs de Forever (GPL-2.0, CurseForge), mis à jour presque chaque jour : quel boss lâche chaque objet, nouveaux donjons et objets de Forever compris. Le fichier Forever le plus récent est téléchargé depuis CurseForge.')) ?></li>
+    <li><?= e(t('Drops for the items players cannot get, at the boss AtlasLoot names (a new dungeon\'s boss by its name). The chance: AtlasLoot\'s measured one, else a live Forever recording\'s, else an even share of the boss\'s list (the card says how many; FT_ATLASLOOT_GUESS=0 leaves those out). Its boss tables also count as a second source for NorgannonDB\'s drops.', 'Le butin des objets introuvables, sur le boss que nomme AtlasLoot (celui d’un nouveau donjon par son nom). La chance : celle mesurée par AtlasLoot, sinon celle d’un enregistrement de Forever, sinon une part égale de la liste du boss (la carte dit combien ; FT_ATLASLOOT_GUESS=0 les écarte). Ses tables comptent aussi comme seconde source pour le butin de NorgannonDB.')) ?></li>
+    <li><?= e(t('The container checks CurseForge every few hours (FT_ATLASLOOT_EVERY_HOURS) and makes a new card when a new version is out. Nothing is applied by itself.', 'Le conteneur consulte CurseForge toutes les quelques heures (FT_ATLASLOOT_EVERY_HOURS) et crée une carte à chaque nouvelle version. Rien n’est appliqué tout seul.')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <button class="btn is-small is-gold" type="button" data-scribe="source_atlasloot"><i class="fas fa-book-skull"></i> <?= e(t('Import AtlasLoot', 'Importer AtlasLoot')) ?></button>
+  </div>
+  <?php if ($alLog !== ''): ?><p class="muted small">AtlasLoot: <?= e($alLog) ?></p><?php endif; ?>
 </section>
 
 <section class="block import-add">

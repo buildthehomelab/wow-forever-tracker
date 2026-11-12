@@ -86,6 +86,9 @@ trainer_guess = ${FT_FORGE_TRAINER_GUESS:-1}
 [icyveins]
 max = ${FT_ICYVEINS_MAX:-20000}
 
+[atlasloot]
+guess = ${FT_ATLASLOOT_GUESS:-1}
+
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"
 
@@ -184,5 +187,28 @@ first_run() {
 if [ "${FT_ANALYSE_ON_START:-new-build}" != "never" ]; then
     first_run &
 fi
+
+# AtlasLoot Classic Forever is updated almost daily on CurseForge: every FT_ATLASLOOT_EVERY_HOURS (0 = never) the
+# newest file is checked and, when it is new, imported as a card for the last analysis' gaps (nothing is applied). The
+# import waits by itself while an analysis runs; a lock younger than 15 minutes is a run still going (the website's).
+atlasloot_watch() {
+    case "${FT_ATLASLOOT_EVERY_HOURS:-6}" in ''|*[!0-9]*|?????*) say "FT_ATLASLOOT_EVERY_HOURS must be a whole number up to 9999: no AtlasLoot check"; return ;; esac
+    hours="$(expr "${FT_ATLASLOOT_EVERY_HOURS:-6}" + 0 || true)"   # expr exits 1 when the sum is 0
+    if [ "$hours" -eq 0 ]; then say "FT_ATLASLOOT_EVERY_HOURS=0: no AtlasLoot check"; return; fi
+    log="$DATA/source-atlasloot.log"
+    sleep 900
+    while :; do
+        nap=$((hours * 3600))
+        if [ -z "$(find "$DATA" -maxdepth 1 -name source-atlasloot.running -mmin -15 2>/dev/null)" ]; then
+            if as_www sh -c 'php "$1" atlasloot --if-new > "$2" 2>&1' sh "$ROOT/tools/source-import.php" "$log"; then rc=0; else rc=$?; fi
+            tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] AtlasLoot: /'
+            [ "$rc" -eq 3 ] && nap=900   # an analysis was running: again in 15 minutes
+        else
+            nap=900                       # the website's import is running
+        fi
+        sleep "$nap"
+    done
+}
+atlasloot_watch &
 
 exec docker-php-entrypoint "$@"

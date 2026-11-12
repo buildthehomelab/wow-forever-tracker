@@ -4,9 +4,9 @@
 FROM php:8.3-apache-bookworm
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 mariadb-client libgmp-dev \
- && docker-php-ext-install mysqli gmp \
- && apt-get purge -y --auto-remove libgmp-dev && apt-get install -y --no-install-recommends libgmp10 \
+ && apt-get install -y --no-install-recommends python3 mariadb-client libgmp-dev libzip-dev \
+ && docker-php-ext-install mysqli gmp zip \
+ && apt-get purge -y --auto-remove libgmp-dev libzip-dev && apt-get install -y --no-install-recommends libgmp10 libzip4 \
  && rm -rf /var/lib/apt/lists/* \
  && a2enmod rewrite headers
 

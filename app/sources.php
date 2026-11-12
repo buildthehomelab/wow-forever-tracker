@@ -18,7 +18,8 @@
 //                                                    higher rank with neither is left out (a talent's later rank
 //                                                    would be sold to players who never took the talent)
 //
-// Sources: NorgannonDB (app/norgannon.php), EG Link, ForeverDB.net, Icy Veins (below). See docs/SOURCES.md.
+// Sources: NorgannonDB (app/norgannon.php), AtlasLoot (app/atlasloot.php), EG Link, ForeverDB.net, Icy Veins (below).
+// See docs/SOURCES.md.
 require_once FT_APP . '/imports.php';
 require_once FT_APP . '/collector.php';
 require_once FT_APP . '/wowhead.php';
@@ -33,6 +34,7 @@ const SOURCES = [
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
+    'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
 ];
 
 /** The analysis' gaps: items players cannot get (not internal), quests without giver / ender. */
@@ -174,7 +176,7 @@ function source_tables(array $ev, string $label, array $gaps): array
 
 /**
  * Keeps the vendors and drops of $ev that one of the live-Forever recordings ($witnesses: EG Link, ForeverDB.net, Icy
- * Veins) also saw: the same creature (or chest) selling or dropping the same item. NorgannonDB mixes Classic databases
+ * Veins; AtlasLoot for drops) also saw: the same creature (or chest) selling or dropping the same item. NorgannonDB mixes Classic databases
  * with what its players saw: without a second source it would bring Classic test vendors (unreleased mounts, the Panda
  * Collar, soul shards for sale) and quest-only items; its quest numbers can be Season of Discovery's, reused by Forever
  * for another quest (79363 is Silvia's Sword in Duskwood, not Bath'rah's). Givers and enders need the same creature or

@@ -78,6 +78,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
 | `FT_FORGE_TRAINER_GUESS` | `1` | `0`: no trainer fixes guessed from the client's skill lines; trainer spells come from imports (NorgannonDB) only. A change re-analyses once |
 | `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
+| `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
+| `FT_ATLASLOOT_GUESS` | `1` | `0`: AtlasLoot drops without a measured chance are left out instead of getting an even share of their boss's list |
 | `FT_NORGANNONDB_COMMIT` | empty | NorgannonDB commit the import reads (empty: the tested one) |
 | `FT_FORGE_TRAINER_SKIP_IDS` | empty | Spell ids and ranges the Forge never offers at trainers (`400000-499999, 12345`); a change re-analyses once at the next start |
 
