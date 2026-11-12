@@ -240,6 +240,29 @@
     }).catch((e) => { toast(esc(e.message), 'error'); button.disabled = false; });
   }));
 
+  // data repository export (history)
+  const saveZip = (data) => {
+    const bytes = Uint8Array.from(atob(data.zip), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: data.name });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const exportNotes = (data) => (data.warnings && data.warnings.length ? '<br>' + data.warnings.map(esc).join('<br>') : '');
+  $$('[data-forge-datarepo]').forEach((button) => button.addEventListener('click', () => {
+    button.disabled = true;
+    api({ action: 'datarepo', log: Number(button.dataset.forgeDatarepo) }).then((data) => {
+      if (data.ok) { download(data.sql, data.name); toast(esc(data.name) + exportNotes(data)); }
+      else toast(esc(data.message || 'Error'), 'error');
+    }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; });
+  }));
+  $$('[data-forge-datarepo-all]').forEach((button) => button.addEventListener('click', () => {
+    button.disabled = true;
+    api({ action: 'datarepo_all' }).then((data) => {
+      if (data.ok) { saveZip(data); toast(L(`${data.files} file(s)`, `${data.files} fichier(s)`) + exportNotes(data)); }
+      else toast(esc(data.message || 'Error'), 'error');
+    }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; });
+  }));
+
   // spawns (locator results)
   const spawnTable = $('[data-spawn-table]'), spawnBar = $('[data-spawn-bar]'), spawnDialog = $('#spawn-dialog');
   if (spawnTable && spawnBar && spawnDialog) {

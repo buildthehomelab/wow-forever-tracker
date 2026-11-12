@@ -1,5 +1,5 @@
 <?php
-// POST api/forge (administrators): preview, apply, rollback, vendor lookup, background analysis.
+// POST api/forge (administrators): preview, apply, rollback, data repository export, vendor lookup, background analysis.
 require_once FT_APP . '/forge.php';
 if (!is_admin()) json_out(['error' => t('Administrators only.', 'Réservé aux administrateurs.')], 403);
 $input = json_decode((string)file_get_contents('php://input'), true) ?: [];
@@ -19,6 +19,13 @@ switch ($action) {
         json_out(forge_apply($selection, $options));
     case 'rollback':
         json_out(forge_rollback((int)($input['log'] ?? 0)));
+    case 'datarepo':
+        require_once FT_APP . '/datarepo.php';
+        json_out(datarepo_export((int)($input['log'] ?? 0)));
+    case 'datarepo_all':
+        require_once FT_APP . '/datarepo.php';
+        @set_time_limit(0);
+        json_out(datarepo_export_all());
     case 'vendors':
         $q = trim(mb_substr((string)($input['q'] ?? ''), 0, 60));
         // every creature matches, vendors first: one Wowhead shows as a vendor may lack the vendor flag here (the Forge adds it)

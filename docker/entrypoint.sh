@@ -79,6 +79,9 @@ password = "${FT_RA_PASSWORD:-}"
 [client]
 path = ""
 
+[forge]
+trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
+
 [wowhead]
 branch = "${FT_WOWHEAD_BRANCH:-forever}"
 pause = ${FT_WOWHEAD_PAUSE:-0.4}
@@ -126,9 +129,10 @@ first_run() {
         say "client build unknown (set FT_BUILD, or the user needs SELECT on ${FT_DB_AUTH:-auth}.realmlist): no analysis"; return
     fi
     languages="${FT_LANGUAGES:-en,fr}"
-    # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client): the stored
+    # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client; 3: trainer fixes
+    # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too): the stored
     # analysis is then redone once at the next start.
-    marker="$languages analysis=2"
+    marker="$languages analysis=3 skip=${FT_FORGE_TRAINER_SKIP_IDS:-}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"
