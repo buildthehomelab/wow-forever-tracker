@@ -81,6 +81,10 @@ path = ""
 
 [forge]
 trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
+trainer_guess = ${FT_FORGE_TRAINER_GUESS:-1}
+
+[norgannondb]
+commit = "${FT_NORGANNONDB_COMMIT:-}"
 
 [wowhead]
 branch = "${FT_WOWHEAD_BRANCH:-forever}"
@@ -133,7 +137,7 @@ first_run() {
     # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too; 4: Wowhead checks new items and
     # trainer spells): the stored
     # analysis is then redone once at the next start.
-    marker="$languages analysis=4 skip=${FT_FORGE_TRAINER_SKIP_IDS:-}"
+    marker="$languages analysis=4 skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

@@ -105,7 +105,10 @@ function datarepo_block(string $table, array $rows, string $file, string $note, 
     foreach (array_chunk($rows, 200) as $chunk) {
         $out[] = "INSERT INTO $stage ($list) VALUES\n" . implode(",\n", array_map(fn($r) => '(' . implode(', ', array_map(fn($c) => datarepo_literal($r[$c] ?? null, $types[$c]), $columns)) . ')', $chunk)) . ';';
     }
-    $primary = forge_primary('world', $table);
+    // the key a row is matched on: the primary key, else the table's first index (loot tables have no primary key:
+    // Entry, ItemType, Item), else every column; without it a run again would add the row a second time
+    $primary = forge_primary('world', $table) ?: array_column(rows("SELECT COLUMN_NAME c FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?
+        AND INDEX_NAME = (SELECT MIN(INDEX_NAME) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?) ORDER BY SEQ_IN_INDEX", [$table, $table], 'world'), 'c') ?: $columns;
     if ($guidBase !== null) {
         // a spawn: same creature or object within a few yards on the same map = already there, and the guid must be free
         $d = DATAREPO_SAME_SPAWN * DATAREPO_SAME_SPAWN;

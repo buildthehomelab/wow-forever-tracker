@@ -1,6 +1,6 @@
 <?php
 // POST api/imports (administrators): upload or import a WowPacketParser SQL file or a ForeverScribe file, preview, apply, delete;
-// apply the imported sources of items; import the game client's ForeverScribe files that changed (sync).
+// apply the imported sources of items; import the game client's ForeverScribe files that changed (sync); import NorgannonDB.
 require_once FT_APP . '/imports.php';
 if (!is_admin()) json_out(['error' => t('Administrators only.', 'Réservé aux administrateurs.')], 403);
 $upload = !empty($_FILES['file']);
@@ -47,6 +47,9 @@ switch ((string)($input['action'] ?? '')) {
             if (file_put_contents($target . '/' . $name, $content) === false) json_out(['ok' => false, 'message' => sprintf(t('Cannot write %s.', 'Impossible d’écrire %s.'), $target . '/' . $name)]);
         }
         json_out(['ok' => true, 'message' => sprintf(t('ForeverScribe installed in %s. Restart the game or /reload.', 'ForeverScribe installé dans %s. Relancez le jeu ou /reload.'), $target)]);
+    case 'norgannon':
+        require_once FT_APP . '/norgannon.php';
+        json_out(norgannon_import());
     case 'sync':
         require_once FT_APP . '/collector.php';
         $report = collector_sync(!empty($input['apply']) && !empty($input['confirm']));

@@ -277,6 +277,8 @@ def generate(content, results, ctx, folder, build, wowhead=None):
     talent_spells = {s for t in content.get('talent', {}).values() for s in t.get('ranks', [])}
     skip_ranges = trainer_skip_ranges()
     skipped = {'talent': 0, 'range': 0, 'wowhead': 0}
+    if (CONFIG.get('forge', 'trainer_guess', '1') or '1').strip() in ('0', 'false', 'no', 'off'):
+        candidates = []  # trainer spells come from imports only (NorgannonDB, ForeverScribe, WowPacketParser files)
     for kind, spell_id, entity in candidates:
         if not failing(kind, spell_id, 'learn') or entity.get('auto') or entity.get('teach'):
             continue  # spells Blizzard teaches with an item get a vendor fix for that item instead
