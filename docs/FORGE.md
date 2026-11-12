@@ -99,7 +99,8 @@ Wowhead's public Forever tooltips about what the server lacks:
   it does not know stay listed with a note: Forever keeps content encrypted for players to discover, and Wowhead learns
   it later. A "does not know it" answer is asked again after `[wowhead] recheck_days` (7).
 - **Creatures** (*Checks*): the level and rank of spawned quest givers, enders and targets, elites, rares and bosses,
-  compared with Wowhead's "Level 30 Humanoid (Normal)". Report only.
+  compared with Wowhead's "Level 30 Humanoid (Normal)". Report only. A level counts as different only when the two
+  ranges do not meet: Wowhead's range spans every spawn and phase it saw, so our 62 against its 61-62 is no finding.
 - **Trainer levels**: NorgannonDB trainer rows without a level take the spell's "Requires level N".
 - **Quest enders** (*Imports › Import Wowhead quest enders*): for quests without an ender, the NPC Wowhead's quest
   summary sends the player back to, when exactly one spawned creature has that name. An import card, reviewed before

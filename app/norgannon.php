@@ -101,6 +101,15 @@ function norgannon_import(): array
     if (!$dir) return ['ok' => false, 'message' => $error];
     $gaps = source_gaps();
     $label = 'NorgannonDB ' . substr($commit, 0, 8);
-    [$tables, $left] = source_tables(norgannon_evidence($dir, $gaps), $label, $gaps);
+    // vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins (its cache) saw on live Forever
+    $witnesses = [icyveins_cached_items($gaps['items'])];
+    $ev = norgannon_evidence($dir, $gaps);
+    foreach (['eglink', 'foreverdb'] as $source) {
+        $w = ($source . '_evidence')();
+        if (!empty($w['ev'])) $witnesses[] = $w['ev'];
+        else $ev['left']["witness_{$source}_unreachable"] = 1;
+    }
+    $ev = source_witnessed($ev, $witnesses);
+    [$tables, $left] = source_tables($ev, $label, $gaps);
     return source_card('norgannondb', $label, 'norgannondb@' . $commit, $tables, $left);
 }

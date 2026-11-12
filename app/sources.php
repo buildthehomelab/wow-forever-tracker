@@ -169,6 +169,27 @@ function source_tables(array $ev, string $label, array $gaps): array
     return [$tables, array_filter($left)];
 }
 
+/**
+ * Keeps the vendors and drops of $ev that one of the live-Forever recordings ($witnesses: EG Link, ForeverDB.net, Icy
+ * Veins) also saw: the same creature (or chest) selling or dropping the same item. NorgannonDB mixes Classic databases
+ * with what its players saw: without a second source it would bring Classic test vendors (unreleased mounts, the Panda
+ * Collar, soul shards for sale) and quest-only items. Quest givers, enders and trainers are kept (checked elsewhere).
+ */
+function source_witnessed(array $ev, array $witnesses): array
+{
+    $sold = $dropped = [];
+    foreach ($witnesses as $w) {
+        foreach ($w['sell'] ?? [] as [$npc, $item]) $sold["$npc:$item"] = true;
+        foreach ($w['drop'] ?? [] as [$kind, $id, $item]) $dropped["$kind:$id:$item"] = true;
+    }
+    $before = [count($ev['sell'] ?? []), count($ev['drop'] ?? [])];
+    $ev['sell'] = array_values(array_filter($ev['sell'] ?? [], fn($s) => isset($sold["$s[0]:$s[1]"])));
+    $ev['drop'] = array_values(array_filter($ev['drop'] ?? [], fn($d) => isset($dropped["$d[0]:$d[1]:$d[2]"])));
+    $ev['left']['vendor_no_second_source'] = ($ev['left']['vendor_no_second_source'] ?? 0) + $before[0] - count($ev['sell']);
+    $ev['left']['drop_no_second_source'] = ($ev['left']['drop_no_second_source'] ?? 0) + $before[1] - count($ev['drop']);
+    return $ev;
+}
+
 /** A profession's skill line from the name a trainer shows ("Skinning", or the spell "Journeyman Skinning"); 0 when unknown. */
 function source_skill_line(string $skill, string $spellName): int
 {
@@ -236,6 +257,16 @@ const EGLINK_MIN_KILLS = 10;   // a creature's drops count from this many looked
 function eglink_import(): array
 {
     if ($e = source_check()) return $e;
+    $r = eglink_evidence();
+    if (empty($r['ev'])) return $r;
+    $label = 'EG Link ' . substr($r['commit'], 0, 8);
+    [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
+    return source_card('eglink', $label, 'eglink@' . $r['commit'], $tables, $left);
+}
+
+/** What EG Link recorded: ['ev' => evidence, 'commit' => sha], or ['ok' => false, 'message']. */
+function eglink_evidence(): array
+{
     [$status, $body] = source_http('https://api.github.com/repos/' . EGLINK_REPO . '/commits/main');
     $commit = $status === 200 ? (string)(json_decode($body, true)['sha'] ?? '') : '';
     if (!preg_match('/^[0-9a-f]{40}$/', $commit)) return ['ok' => false, 'message' => t('Could not reach EG Link on GitHub.', 'EG Link est injoignable sur GitHub.')];
@@ -301,9 +332,7 @@ function eglink_import(): array
             }
         }
     }
-    $label = 'EG Link ' . substr($commit, 0, 8);
-    [$tables, $left] = source_tables($ev, $label, source_gaps());
-    return source_card('eglink', $label, 'eglink@' . $commit, $tables, $left);
+    return ['ev' => $ev, 'commit' => $commit];
 }
 
 // ------------------------------------------------------------------ ForeverDB.net (GPL-3.0, attribution)
@@ -315,6 +344,16 @@ const FOREVERDB_FILES = ['Data/NPCs.lua', 'Data/Loot.lua', 'Data/QuestForever.lu
 function foreverdb_import(): array
 {
     if ($e = source_check()) return $e;
+    $r = foreverdb_evidence();
+    if (empty($r['ev'])) return $r;
+    $label = 'ForeverDB.net ' . $r['version'];
+    [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
+    return source_card('foreverdb', $label, 'foreverdb@' . $r['version'], $tables, $left);
+}
+
+/** What ForeverDB.net's players saw on Forever: ['ev' => evidence, 'version'], or ['ok' => false, 'message']. */
+function foreverdb_evidence(): array
+{
     [$status, $body] = source_http(FOREVERDB . 'downloads/addon-manifest.json');
     $listing = $status === 200 ? json_decode($body, true) : null;
     $version = (string)($listing['data']['version'] ?? '');
@@ -362,9 +401,7 @@ function foreverdb_import(): array
             foreach ($m as [, $k, $id]) $ev[$role][] = [$k === 'n' ? 'npc' : 'go', (int)$id, (int)$quest];
         }
     }
-    $label = 'ForeverDB.net ' . $version;
-    [$tables, $left] = source_tables($ev, $label, source_gaps());
-    return source_card('foreverdb', $label, 'foreverdb@' . $version, $tables, $left);
+    return ['ev' => $ev, 'version' => $version];
 }
 
 // ------------------------------------------------------------------ Icy Veins (reference only)
@@ -399,6 +436,31 @@ function icyveins_get(string $kind, int $id, int &$asked): ?array
     return $data;
 }
 
+/** Drops and vendors of the gap items Icy Veins already answered (its cache only: no lookup). */
+function icyveins_cached_items(array $items): array
+{
+    $ev = ['sell' => [], 'drop' => []];
+    foreach (array_keys($items) as $item) {
+        $path = FT_ROOT . "/data/icyveins/item/$item.json";
+        if (!is_file($path)) continue;
+        icyveins_item_evidence($ev, $item, (array)((json_decode((string)file_get_contents($path), true) ?: [])['relations'] ?? []));
+    }
+    return $ev;
+}
+
+function icyveins_item_evidence(array &$ev, int $item, array $r): void
+{
+    foreach ((array)($r['addon_dropped_by'] ?? []) as $d) {
+        $chance = 100 * (float)($d['chance'] ?? 0);
+        if (!empty($d['npc_id'])) $ev['drop'][] = ['npc', (int)$d['npc_id'], $item, $chance];
+        elseif (!empty($d['gameobject_id'])) $ev['drop'][] = ['go', (int)$d['gameobject_id'], $item, $chance];
+    }
+    foreach ((array)($r['addon_sold_by'] ?? []) as $s) {
+        if (empty($s['npc_id']) || (isset($s['current']) && !$s['current']) || !empty($s['cost_item_ids']) || !empty($s['cost_currency_ids'])) continue;
+        $ev['sell'][] = [(int)$s['npc_id'], $item, (int)($s['remaining'] ?? 0) > 0 ? (int)$s['remaining'] : 0];
+    }
+}
+
 function icyveins_import(?callable $progress = null): array
 {
     if ($e = source_check()) return $e;
@@ -410,16 +472,7 @@ function icyveins_import(?callable $progress = null): array
     $todo += count($trainers);
     $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 200 === 0) $progress("$done/$todo looked at, $asked asked"); };
     foreach (array_keys($gaps['items']) as $item) {
-        $r = icyveins_get('item', $item, $asked)['relations'] ?? []; $tick();
-        foreach ((array)($r['addon_dropped_by'] ?? []) as $d) {
-            $chance = 100 * (float)($d['chance'] ?? 0);
-            if (!empty($d['npc_id'])) $ev['drop'][] = ['npc', (int)$d['npc_id'], $item, $chance];
-            elseif (!empty($d['gameobject_id'])) $ev['drop'][] = ['go', (int)$d['gameobject_id'], $item, $chance];
-        }
-        foreach ((array)($r['addon_sold_by'] ?? []) as $s) {
-            if (empty($s['npc_id']) || (isset($s['current']) && !$s['current']) || !empty($s['cost_item_ids']) || !empty($s['cost_currency_ids'])) continue;
-            $ev['sell'][] = [(int)$s['npc_id'], $item, (int)($s['remaining'] ?? 0) > 0 ? (int)$s['remaining'] : 0];
-        }
+        icyveins_item_evidence($ev, $item, (array)(icyveins_get('item', $item, $asked)['relations'] ?? [])); $tick();
     }
     foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
         $r = icyveins_get('quest', $quest, $asked)['relations'] ?? []; $tick();
