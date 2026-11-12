@@ -89,6 +89,8 @@ commit = "${FT_NORGANNONDB_COMMIT:-}"
 [wowhead]
 branch = "${FT_WOWHEAD_BRANCH:-forever}"
 pause = ${FT_WOWHEAD_PAUSE:-0.4}
+analyse = ${FT_WOWHEAD:-1}
+recheck_days = ${FT_WOWHEAD_RECHECK_DAYS:-7}
 
 [collector]
 auto_apply = 0
@@ -135,9 +137,10 @@ first_run() {
     languages="${FT_LANGUAGES:-en,fr}"
     # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client; 3: trainer fixes
     # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too; 4: Wowhead checks new items and
-    # trainer spells; 5: every item players cannot get, Season of Discovery ones included): the stored
+    # trainer spells; 5: every item players cannot get, Season of Discovery ones included; 6: items
+    # Wowhead does not know stay visible, creature checks): the stored
     # analysis is then redone once at the next start.
-    marker="$languages analysis=5 skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=6 skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

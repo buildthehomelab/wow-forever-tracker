@@ -382,7 +382,7 @@
         return;
       }
       toast(esc(data.message || ''));
-      if ((action === 'sync' && (data.report || []).length) || (action === 'norgannon' && data.id)) setTimeout(() => location.reload(), 1500);
+      if ((action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests') && data.id)) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   const upload = $('[data-import-upload] input[type=file]');

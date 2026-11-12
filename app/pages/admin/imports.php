@@ -44,6 +44,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <a href="<?= e(url('admin', ['tab' => 'vendor'])) ?>"><i class="fas fa-gem"></i><?= e(t('Items', 'Objets')) ?></a>
   <a href="<?= e(url('admin/spawns')) ?>"><i class="fas fa-location-crosshairs"></i><?= e(t('Spawns', 'Placements')) ?></a>
   <a class="is-active" href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><em><?= count($imports) ?></em></a>
+  <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
 </nav>
 
@@ -73,7 +74,8 @@ page_start(t('Imports', 'Imports'), 'admin');
     <li><?= e(t('The import aims at the gaps of the last analysis: drops and vendors for the items players cannot get (internal items left out), givers and enders for the quests that have none, and the spells its players saw trainers teach. Run the analysis again first when the server changed.', 'L’import vise les manques de la dernière analyse : butin et marchands des objets introuvables (objets internes écartés), donneurs et valideurs des quêtes qui n’en ont pas, et les sorts que ses joueurs ont vu enseigner. Relancez l’analyse d’abord si le serveur a changé.')) ?></li>
     <li><?= e(t('It becomes an import below: preview, apply what is missing, roll back from the history, export to your data repository.', 'Il devient un import ci-dessous : aperçu, appliquer ce qui manque, annuler depuis l’historique, exporter vers votre dépôt de données.')) ?></li>
   </ol>
-  <div class="btn-row"><button class="btn is-small is-gold" type="button" data-scribe="norgannon"><i class="fas fa-database"></i> <?= e(t('Import NorgannonDB', 'Importer NorgannonDB')) ?></button></div>
+  <p class="muted small"><?= e(t('Wowhead quest enders: for quests the server has no ender for, the NPC Wowhead\'s quest summary sends the player back to ("then return to Hamish Bergwort in the Tower of Azora"), when exactly one spawned creature has that name. Up to 500 new Wowhead lookups per run; run it again for the rest.', 'Valideurs de quête Wowhead : pour les quêtes sans valideur, le PNJ chez qui le résumé de quête de Wowhead renvoie le joueur, quand une seule créature placée porte ce nom. Jusqu’à 500 nouvelles consultations par passage ; relancez pour la suite.')) ?></p>
+  <div class="btn-row"><button class="btn is-small" type="button" data-scribe="wowhead_quests"><i class="fas fa-route"></i> <?= e(t('Import Wowhead quest enders', 'Importer les valideurs de Wowhead')) ?></button><button class="btn is-small is-gold" type="button" data-scribe="norgannon"><i class="fas fa-database"></i> <?= e(t('Import NorgannonDB', 'Importer NorgannonDB')) ?></button></div>
 </section>
 
 <section class="block import-add">

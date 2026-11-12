@@ -7,12 +7,13 @@
 //   loot and vendor rows       only for items players cannot get and that are not internal (Wowhead's verdict included)
 //   quest givers and enders    only for quests the server has no giver (or no ender) for
 //   trainer_spell rows         spells NorgannonDB players saw a trainer teach (class training, profession recipes),
-//                              at the trainers the server has for those creatures, with their level, price and the
-//                              ranks they need first
+//                              at the trainers the server has for those creatures, with their level (NorgannonDB's, the
+//                              server's other trainers', or Wowhead's "Requires level N"), price and the ranks they need first
 //
 // See docs/NORGANNONDB.md.
 require_once FT_APP . '/imports.php';
 require_once FT_APP . '/collector.php';
+require_once FT_APP . '/wowhead.php';
 
 const NORGANNON_REPO = 'zmarotrix/NorgannonDB';
 const NORGANNON_PIN = 'a2a5bcf1031019093a3ad8a355ddab63cb630c65';   // 2026-11-12, schema 1.5 (training), data 1.4.8
@@ -178,8 +179,9 @@ function norgannon_tables(string $dir): array
             if (isset($seen["$trainer:$spell"])) continue;
             $seen["$trainer:$spell"] = true;
             if (isset($taught["$trainer:$spell"])) { $left['trainer_known']++; continue; }
-            // a class spell's level: NorgannonDB's, else what other trainers of this server ask for it; never 0 (anyone could learn it)
-            if (!$line) { $level = $level ?: ($levels[$spell] ?? 0); if (!$level) { $left['trainer_level_unknown']++; continue; } }
+            // a class spell's level: NorgannonDB's, else what other trainers of this server ask for it, else Wowhead's
+            // "Requires level N"; never 0 (anyone could learn it)
+            if (!$line) { $level = $level ?: ($levels[$spell] ?? 0) ?: ($levels[$spell] = wowhead_spell_level($spell)); if (!$level) { $left['trainer_level_unknown']++; continue; } }
             $rows['trainer_spell'][] = ['TrainerId' => $trainer, 'SpellId' => $spell, 'MoneyCost' => $cost, 'ReqSkillLine' => $line, 'ReqSkillRank' => $rank,
                 'ReqAbility1' => $needs[0] ?? 0, 'ReqAbility2' => $needs[1] ?? 0, 'ReqAbility3' => $needs[2] ?? 0, 'ReqLevel' => $level, 'VerifiedBuild' => $build];
         }

@@ -16,7 +16,8 @@ public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
-profession spells and recipes the server lacks (cached in data/wowhead): the ones Wowhead marks as Season of
+profession spells and recipes the server lacks, and compares the level and rank of quest-related, elite, rare and boss
+creatures (The Forge > Checks), all cached in data/wowhead: the ones Wowhead marks as Season of
 Discovery leftovers, or does not know, count as internal and are never offered at trainers. Quests Wowhead does not know either
 are hidden: they are the game's invisible tracking quests.
 """
@@ -113,13 +114,13 @@ def wowhead_verdicts(content, results, baseline, ask):
             wanted.append((kind, entity_id))
     wh = Wowhead()
     out, asked = {}, 0
-    todo = sum(1 for kind, i in wanted if wh.cached('item' if kind == 'item' else 'spell', i) is None)
+    todo = sum(1 for kind, i in wanted if (lambda d: d is None or wh.stale(d))(wh.cached('item' if kind == 'item' else 'spell', i)))
     if ask:
         log(f'wowhead: {len(wanted)} items/spells to check, {todo} not cached yet')
     for kind, entity_id in wanted:
         target = 'item' if kind == 'item' else 'spell'
         data = wh.cached(target, entity_id)
-        if data is None and ask:
+        if ask and (data is None or wh.stale(data)):
             data = wh.get(target, entity_id)
             asked += 1
             if asked % 200 == 0:
@@ -132,6 +133,63 @@ def wowhead_verdicts(content, results, baseline, ask):
         counts[v] = counts.get(v, 0) + 1
     log('wowhead verdicts: ' + (', '.join(f'{k}={n}' for k, n in sorted(counts.items())) or 'none cached'))
     return out
+
+
+RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
+
+
+def npc_checks(ask):
+    """Compares the level and rank of the spawned creatures that matter most (quest givers, enders and targets, elites,
+    rares, bosses) with Wowhead's Forever tooltips; writes ft_npc_checks (report only, nothing is changed)."""
+    from ft.wowhead import Wowhead
+    levels = sqlio.has_table('creature_classic_level')
+    rows = sqlio.query(
+        'SELECT ct.entry, ct.name, ct.Classification rank' + (', l.level_min lo, l.level_max hi' if levels else ', NULL lo, NULL hi') +
+        ' FROM creature_template ct' + (' LEFT JOIN creature_classic_level l ON l.entry = ct.entry' if levels else '') +
+        ' WHERE EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry) AND (ct.Classification > 0'
+        ' OR ct.entry IN (SELECT id FROM creature_queststarter) OR ct.entry IN (SELECT id FROM creature_questender)'
+        ' OR ct.entry IN (SELECT ObjectID FROM quest_objectives WHERE Type = 0))')
+    wh = Wowhead()
+    todo = sum(1 for r in rows if (wh.cached('npc', int(r['entry'])) or {}).get('facts') is None and not (wh.cached('npc', int(r['entry'])) or {}).get('missing'))
+    if ask:
+        log(f'wowhead: {len(rows)} creatures to compare, {todo} not cached yet')
+    out, asked, counts = [], 0, {}
+    for r in rows:
+        entry = int(r['entry'])
+        cached = wh.cached('npc', entry)
+        if ask and (cached is None or ('facts' not in cached and not cached.get('missing'))):
+            asked += 1
+            if asked % 200 == 0:
+                log(f'wowhead: {asked}/{todo} creatures')
+        data = wh.npc(entry, ask)
+        if not data:
+            continue
+        facts = data.get('facts')
+        if data.get('missing') or not facts:
+            counts['not_on_wowhead' if data.get('missing') else 'no_level_line'] = counts.get('not_on_wowhead' if data.get('missing') else 'no_level_line', 0) + 1
+            continue
+        lo, hi, rank = (int(r['lo']) if r['lo'] else None), (int(r['hi']) if r['hi'] else None), int(r['rank'] or 0)
+        issues = []
+        if facts['min'] is not None and (lo, hi) != (facts['min'], facts['max']):
+            issues.append('level')
+        if rank != facts['rank']:
+            issues.append('rank')
+        counts['checked'] = counts.get('checked', 0) + 1
+        for i in issues:
+            counts[i] = counts.get(i, 0) + 1
+        if issues:
+            out.append((entry, r['name'] or '', lo, hi, rank, facts['min'], facts['max'], facts['rank'], facts['type'], ','.join(issues)))
+    log('npc check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing cached'))
+    e = sqlio.escape
+    path = os.path.join(DATA, 'npc-checks.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_npc_checks;\n'
+                'CREATE TABLE ft_npc_checks (entry INT NOT NULL PRIMARY KEY, name VARCHAR(255) NOT NULL, level_min INT NULL, level_max INT NULL,'
+                ' rank_id TINYINT NOT NULL, wh_min INT NULL, wh_max INT NULL, wh_rank TINYINT NOT NULL, wh_type VARCHAR(64) NOT NULL,'
+                ' issues VARCHAR(32) NOT NULL, KEY ix_issues (issues)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        for chunk in range(0, len(out), 500):
+            f.write('INSERT INTO ft_npc_checks VALUES ' + ','.join('(' + ','.join(e(v) for v in row) + ')' for row in out[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
 
 
 def analyse(args):
@@ -189,6 +247,7 @@ def analyse(args):
             changes[index] = change[:6] + (name,)
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
+    npc_checks(args.wowhead)
     log('tooltips')
     tips = tooltips.build(content, latest['dir'], quest_names, ctx)
     fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'], wowhead)
