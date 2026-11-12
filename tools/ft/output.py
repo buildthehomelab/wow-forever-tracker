@@ -65,7 +65,7 @@ def covered_elsewhere(content):
     return covered
 
 
-def write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tooltips, fixes):
+def write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tooltips, fixes, wowhead=None):
     e = sqlio.escape
     with open(path, 'w', encoding='utf-8') as out:
         out.write('SET NAMES utf8mb4;\n')
@@ -108,6 +108,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
                 if kind == 'taxi' and QUEST_PATH.search(name_en or name):
                     internal = 1
+            verdict = (wowhead or {}).get((kind, entity_id))
+            if verdict in ('unknown', 'season'):
+                internal = 1  # Wowhead's Forever database lacks it, or marks it as a Season of Discovery leftover
+                data['wowhead'] = verdict
             for key in DATA_KEYS:
                 if entity.get(key):
                     data[key] = entity[key]

@@ -79,3 +79,17 @@ class Wowhead:
             except (urllib.error.URLError, TimeoutError, ValueError, OSError):
                 time.sleep(2 * (attempt + 1))
         return None
+
+
+# Wowhead's Forever tooltips end with this line for what Season of Discovery added and Forever may not have.
+SEASON_NOTE = 'May not be in WoW: Forever'
+
+
+def verdict(data):
+    """'unknown' (Wowhead's Forever database lacks it), 'season' (marked as a Season of Discovery leftover),
+    'forever', or None when Wowhead could not be asked."""
+    if data is None:
+        return None
+    if data.get('missing'):
+        return 'unknown'
+    return 'season' if SEASON_NOTE in (data.get('tooltip') or '') else 'forever'

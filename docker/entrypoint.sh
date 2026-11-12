@@ -130,9 +130,10 @@ first_run() {
     fi
     languages="${FT_LANGUAGES:-en,fr}"
     # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client; 3: trainer fixes
-    # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too): the stored
+    # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too; 4: Wowhead checks new items and
+    # trainer spells): the stored
     # analysis is then redone once at the next start.
-    marker="$languages analysis=3 skip=${FT_FORGE_TRAINER_SKIP_IDS:-}"
+    marker="$languages analysis=4 skip=${FT_FORGE_TRAINER_SKIP_IDS:-}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

@@ -221,7 +221,7 @@ def trainer_skip_ranges():
     return ranges
 
 
-def generate(content, results, ctx, folder, build):
+def generate(content, results, ctx, folder, build, wowhead=None):
     """[(type, id, kind, db, rows, needs, summary, detail, sql_apply, sql_rollback)]"""
     log('forge: building fixes')
     fixes = []
@@ -276,7 +276,7 @@ def generate(content, results, ctx, folder, build):
     # every rank of every talent: bought with talent points, never at a trainer (a trainer would hand the talent to anyone)
     talent_spells = {s for t in content.get('talent', {}).values() for s in t.get('ranks', [])}
     skip_ranges = trainer_skip_ranges()
-    skipped = {'talent': 0, 'range': 0}
+    skipped = {'talent': 0, 'range': 0, 'wowhead': 0}
     for kind, spell_id, entity in candidates:
         if not failing(kind, spell_id, 'learn') or entity.get('auto') or entity.get('teach'):
             continue  # spells Blizzard teaches with an item get a vendor fix for that item instead
@@ -286,6 +286,9 @@ def generate(content, results, ctx, folder, build):
         if any(low <= spell_id <= high for low, high in skip_ranges):
             skipped['range'] += 1
             continue
+        if (wowhead or {}).get((kind, spell_id)) in ('unknown', 'season'):
+            skipped['wowhead'] += 1
+            continue  # Wowhead's Forever database lacks it, or marks it as a Season of Discovery leftover
         rows = by_spell.get(spell_id, [])
         if not rows or any(r['AcquireMethod'] in (1, 2) for r in rows):
             continue
@@ -329,6 +332,6 @@ def generate(content, results, ctx, folder, build):
             ops = [op('world', 'instance_template', ['map', 'parent', 'script'], [[map_id, parent, '']], ['map'])]
             summary = L(f'Create the instance_template row (parent map {parent}, no script yet)', f'Créer la ligne instance_template (carte parente {parent}, sans script)')
             fixes.append(('dungeon', map_id, 'instance', 'world', 1, '', summary, {'parent': parent, 'ops': ops}, *render(ops)))
-    log(f"forge: trainer fixes left out: {skipped['talent']} talent rank(s), {skipped['range']} in [forge] trainer_skip_ids")
+    log(f"forge: trainer fixes left out: {skipped['talent']} talent rank(s), {skipped['range']} in [forge] trainer_skip_ids, {skipped['wowhead']} unknown to Wowhead or Season of Discovery")
     log(f"forge: {len(fixes)} fixes ({', '.join(f'{k}={sum(1 for f in fixes if f[2] == k)}' for k in ('hotfix', 'trainer', 'instance'))})")
     return fixes

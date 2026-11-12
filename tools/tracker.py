@@ -15,7 +15,9 @@ the game databases.
 public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
-tooltip service (slow and polite, cached in data/wowhead-quests.json). Quests Wowhead does not know either
+tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about the new items, class and
+profession spells and recipes the server lacks (cached in data/wowhead): the ones Wowhead marks as Season of
+Discovery leftovers, or does not know, count as internal and are never offered at trainers. Quests Wowhead does not know either
 are hidden: they are the game's invisible tracking quests.
 """
 import argparse
@@ -94,6 +96,42 @@ def wowhead_names(quest_ids):
     return cache
 
 
+def wowhead_verdicts(content, results, baseline, ask):
+    """{(kind, id): verdict} for the new items, spells and recipes the server lacks (see ft.wowhead.verdict).
+    With ask, Wowhead is asked for the ones not cached yet (slow and polite); otherwise only the cache is read."""
+    from ft.wowhead import Wowhead, verdict
+    wanted = []
+    for kind in ('item', 'spell', 'recipe'):
+        for entity_id, entity in content.get(kind, {}).items():
+            status = results.get((kind, entity_id), ('ok',))[0]
+            if status == 'ok' or not baseline.is_new(kind, entity_id, entity):
+                continue
+            if kind == 'spell' and entity.get('sub') not in ('class', 'profession'):
+                continue
+            wanted.append((kind, entity_id))
+    wh = Wowhead()
+    out, asked = {}, 0
+    todo = sum(1 for kind, i in wanted if wh.cached('item' if kind == 'item' else 'spell', i) is None)
+    if ask:
+        log(f'wowhead: {len(wanted)} items/spells to check, {todo} not cached yet')
+    for kind, entity_id in wanted:
+        target = 'item' if kind == 'item' else 'spell'
+        data = wh.cached(target, entity_id)
+        if data is None and ask:
+            data = wh.get(target, entity_id)
+            asked += 1
+            if asked % 200 == 0:
+                log(f'wowhead: {asked}/{todo}')
+        v = verdict(data)
+        if v:
+            out[(kind, entity_id)] = v
+    counts = {}
+    for v in out.values():
+        counts[v] = counts.get(v, 0) + 1
+    log('wowhead verdicts: ' + (', '.join(f'{k}={n}' for k, n in sorted(counts.items())) or 'none cached'))
+    return out
+
+
 def analyse(args):
     started = time.time()
     build_list = official_content.builds()
@@ -148,12 +186,13 @@ def analyse(args):
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             changes[index] = change[:6] + (name,)
     results = rules.evaluate_all(content, ctx)
+    wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     log('tooltips')
     tips = tooltips.build(content, latest['dir'], quest_names, ctx)
-    fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'])
+    fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'], wowhead)
     icons = {int(r['fileDataId']): r['name'] for r in sqlio.query('SELECT fileDataId, name FROM armory_icon')} if sqlio.has_table('armory_icon') else {}
     path = os.path.join(DATA, 'import.sql')
-    output.write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tips, fixes)
+    output.write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tips, fixes, wowhead)
     log(f"loading {os.path.getsize(path) // 1024} KB into {CONFIG.db('tracker')}")
     sqlio.execute_file(path, 'tracker')
     summary = {}
@@ -177,7 +216,7 @@ def main():
     snap.add_argument('--date')
     snap.add_argument('--note')
     run = sub.add_parser('analyse', help='compare the official content with the server and load the website data')
-    run.add_argument('--wowhead', action='store_true', help='name the unknown quests new in Forever through Wowhead tooltips')
+    run.add_argument('--wowhead', action='store_true', help='name the unknown quests new in Forever, and check the new items and trainer spells the server lacks, through Wowhead tooltips')
     locate = sub.add_parser('locate', help='find unspawned creatures and objects the content needs and where they stand (after analyse)')
     locate.add_argument('--refresh', action='store_true', help='ask Wowhead again even for the resources already cached')
     locate.add_argument('--limit', type=int, default=0, help='ask Wowhead for at most N new resources this time')
