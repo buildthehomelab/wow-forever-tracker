@@ -31,7 +31,9 @@ that is not spawned, a recipe nobody teaches) is fixed from *Spawns* or *Trainer
 | Items › Apply imported sources | An imported file has the item's loot, vendor or quest | Those rows, merged like an import | Restart |
 | Instances | A dungeon or raid has no `instance_template` row | The row, with its parent map and no script | Restart |
 
-Spells that Blizzard teaches with an item (recipes, books, runes) are not offered at trainers: sell or drop the
+Talents are never offered at trainers (every rank of a talent is bought with talent points), and a higher rank always
+requires the rank before it, so a talent's later ranks only go to players who took the talent. Spell ids listed in
+`[forge] trainer_skip_ids` are never offered either. Spells that Blizzard teaches with an item (recipes, books, runes) are not offered at trainers: sell or drop the
 item instead (*Vendors*). Hunter pet abilities are learned by taming and pet training, never at trainers.
 
 The *Push to clients* option of the *Core data* tab also adds `hotfix_data` rows, which send the records to

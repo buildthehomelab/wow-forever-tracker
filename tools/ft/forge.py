@@ -211,6 +211,16 @@ class Copier:
         return out
 
 
+def trainer_skip_ranges():
+    """[forge] trainer_skip_ids = "400000-499999, 12345": spell ids never offered at trainers (a season's runes, say)."""
+    ranges = []
+    for part in re.split(r'[,\s]+', CONFIG.get('forge', 'trainer_skip_ids', '') or ''):
+        m = re.fullmatch(r'(\d+)(?:-(\d+))?', part)
+        if m:
+            ranges.append((int(m.group(1)), int(m.group(2) or m.group(1))))
+    return ranges
+
+
 def generate(content, results, ctx, folder, build):
     """[(type, id, kind, db, rows, needs, summary, detail, sql_apply, sql_rollback)]"""
     log('forge: building fixes')
@@ -263,9 +273,19 @@ def generate(content, results, ctx, folder, build):
     skill_lines_en = {r['ID']: r for r in table(folder, 'SkillLine', 'enUS')}
     candidates = [('spell', s, e) for s, e in content.get('spell', {}).items() if e['sub'] in ('class', 'profession')] + \
                  [('recipe', s, e) for s, e in content.get('recipe', {}).items()]
+    # every rank of every talent: bought with talent points, never at a trainer (a trainer would hand the talent to anyone)
+    talent_spells = {s for t in content.get('talent', {}).values() for s in t.get('ranks', [])}
+    skip_ranges = trainer_skip_ranges()
+    skipped = {'talent': 0, 'range': 0}
     for kind, spell_id, entity in candidates:
         if not failing(kind, spell_id, 'learn') or entity.get('auto') or entity.get('teach'):
             continue  # spells Blizzard teaches with an item get a vendor fix for that item instead
+        if spell_id in talent_spells:
+            skipped['talent'] += 1
+            continue
+        if any(low <= spell_id <= high for low, high in skip_ranges):
+            skipped['range'] += 1
+            continue
         rows = by_spell.get(spell_id, [])
         if not rows or any(r['AcquireMethod'] in (1, 2) for r in rows):
             continue
@@ -287,7 +307,9 @@ def generate(content, results, ctx, folder, build):
             near = [row['MoneyCost'] for row in siblings if abs(row['ReqLevel'] - level) <= 3]
         near = near or [row['MoneyCost'] for row in siblings]
         cost = int(round(statistics.median(near) / 10.0) * 10) if near else 0
-        previous = ability['SupercedesSpell'] if ability['SupercedesSpell'] in content.get('spell', {}) else 0
+        # the rank before is always required, also when it is not a class spell of the list (a talent's first rank):
+        # without it a higher rank of a talent would be sold to players who never took the talent
+        previous = ability['SupercedesSpell'] or 0
         ops = [op('world', 'trainer_spell', ['TrainerId', 'SpellId', 'MoneyCost', 'ReqSkillLine', 'ReqSkillRank', 'ReqAbility1', 'ReqAbility2', 'ReqAbility3', 'ReqLevel', 'VerifiedBuild'],
                   [[t, spell_id, cost, req_line, req_rank, previous, 0, 0, min(level, 255), build] for t in trainers], ['TrainerId', 'SpellId'])]
         name_fr = skill_lines.get(ability['SkillLine'], {}).get('DisplayName', str(ability['SkillLine']))
@@ -307,5 +329,6 @@ def generate(content, results, ctx, folder, build):
             ops = [op('world', 'instance_template', ['map', 'parent', 'script'], [[map_id, parent, '']], ['map'])]
             summary = L(f'Create the instance_template row (parent map {parent}, no script yet)', f'Créer la ligne instance_template (carte parente {parent}, sans script)')
             fixes.append(('dungeon', map_id, 'instance', 'world', 1, '', summary, {'parent': parent, 'ops': ops}, *render(ops)))
+    log(f"forge: trainer fixes left out: {skipped['talent']} talent rank(s), {skipped['range']} in [forge] trainer_skip_ids")
     log(f"forge: {len(fixes)} fixes ({', '.join(f'{k}={sum(1 for f in fixes if f[2] == k)}' for k in ('hotfix', 'trainer', 'instance'))})")
     return fixes
