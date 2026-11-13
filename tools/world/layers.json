@@ -77,12 +77,12 @@
       "pin": {"type": "none"}
     },
     {
-      "id": "questie", "name": "Questie", "layer": "live", "group": "questie",
+      "id": "questie", "name": "QuestieDB", "layer": "live", "group": "questie",
       "licence": "GPL-3.0", "use": "public",
-      "credit": "Questie (https://github.com/Questie/Questie), GPL-3.0.",
-      "note": "Its Season of Discovery corrections feed the season layer.",
-      "url": "https://github.com/Questie/Questie",
-      "pin": {"type": "github-branch", "repo": "Questie/Questie", "branch": "master"}
+      "credit": "QuestieDB (https://github.com/Questie/QuestieDB), with players' QuestieTrace recordings, GPL-3.0.",
+      "note": "Read: its Forever corrections (players' traces, the generated delta, hand fixes). Its converted Classic base is not read: it says what Classic had. Its generated delta is built from Wowhead's pages: no second witness beside Wowhead.",
+      "url": "https://github.com/Questie/QuestieDB",
+      "pin": {"type": "github-branch", "repo": "Questie/QuestieDB", "branch": "master"}
     },
     {
       "id": "norgannondb", "name": "NorgannonDB", "layer": "live", "group": "questie", "also": ["cmangos", "dungeonjournal"],

@@ -38,14 +38,15 @@ loot), pickpocketing, skinning, fishing, a spawned vendor, the shop, a container
 a quest that can be done, or a craft that can be learned. Quests, items and crafts depend on each other, so the
 analysis repeats until nothing changes.
 
-## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/facts.py`, `tools/ft/world.py`)
+## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/facts.py`, `tools/ft/luadata.py`, `tools/ft/world.py`)
 
 | File | |
 |---|---|
 | `tools/world/layers.json` | The layers and every source: layer, licence, credit, use (`public`, `private`, `reference`), witness group, how its newest version is found |
 | `ft/layers.py` | Reads and checks that registry; counts independent witnesses; says whether a row may be published; looks up and locks each source's version. No configuration, no database: tested alone (`tools/tests`) |
 | `ft/replay.py` | Rebuilds the server's world in a scratch database (release dump, then update files in the updater's order) with triggers that log every row change under the file being applied; `why()` reads a row's origin back. Refuses an account that can write outside the scratch database, and reads each file before it runs |
-| `ft/facts.py` | What each source says, in one shape (`gives`, `sells`, `drops`, `quest` ...): one reader per source, the statements that replace a source's facts in `ft_world_facts`, a summary. No configuration, no database |
+| `ft/facts.py` | What each source says, in one shape (`gives`, `sells`, `drops`, `quest` ...): one reader per source (EG Link, QuestieDB), the statements that replace a source's facts in `ft_world_facts`, a summary. No configuration, no database |
+| `ft/luadata.py` | Reads the Lua data files addons ship as plain values: tables, strings, numbers; a name stays a name, a table that holds code is not read |
 | `ft/world.py` | The `world` commands of `tracker.py` |
 
 See [WORLD-BUILD.md](WORLD-BUILD.md).

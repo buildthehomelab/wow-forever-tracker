@@ -188,10 +188,12 @@ python tools/tracker.py world facts           # what is stored: per source and k
 | `talked`, `seen` | an NPC or object | a player opened its window; it was seen or fought: levels, rank, reactions, where |
 | `quest`, `creature`, `object` | one of them | its record as the server sent it to a client |
 | `objective`, `turn_in` | a quest | an objective counted while doing it; what handing it in gave |
+| `entry` | a quest, NPC, object or item | its entry in a database people keep by hand, in that database's own fields |
 
 Each fact keeps its source, the client build it was recorded on, the source's own record, and how much stands behind
 it, in the kind's own unit: loot windows that show every item (a group's window does not, so a drop only seen in
 groups has none) for loot and money, windows opened for `talked`, sightings for `seen`, players for the others.
+A source that counts nothing says 1 when players recorded the fact and 0 when it only states it.
 Nothing is weighed or worked out at this point: the numbers are the source's, a drop seen once is stored like one
 seen a thousand times, a beta build like a live one. Only a long list of positions is cut to 40, with the number
 there were. The rules that weigh facts come next, and read only this table, so a new source is one reader and
@@ -205,6 +207,7 @@ Sources read so far:
 
 | Source | Reads |
 |---|---|
+| `questie` | QuestieDB's twelve Forever correction files of the pinned commit. Its Forever data is the Classic database with converted coordinates, plus corrections; only the corrections say something about Forever, so only they are read, and each fact names the part that says it: `trace` (what players' QuestieTrace recordings showed on live Forever), `generated` (the reviewed delta QuestieDB generates for Forever; it is built from Wowhead's pages, so it is no second witness beside Wowhead), `fix` (a correction written by hand), `dynamic:<table>` (a hand correction that depends on the player, with the table it stands in: one faction's quest giver is not the other's). Who gives and takes a quest, what drops and sells an item, and each quest's, NPC's, object's and item's whole correction as an `entry`, kept whole. A name used as a value stays a name (`raceIDs.NIGHT_ELF+raceIDs.HUMAN`), one used as a key keeps its last part (`ELWYNN_FOREST`). A `_remove` correction and a plain empty list ("none") stay in the entry and state no fact; in QuestieDB a hand fix's plain list replaces the generated one, which only the entries show. Facts are not tied to a client build. A file that is missing, cut short, or written in a way the reader does not know (code where data should be, a function that returns two tables) stops the reading; a value of a shape it does not know is counted and left out, never guessed at. A thirteenth file added upstream is not noticed |
 | `eglink` | Every WoW Forever build of the pinned commit: `npcs`, `creatures`, `vendors`, `trainers`, `loot`, `quests`, `creature_details`, `object_details`, `objectives`, `turn_ins`. Not read yet: boss loot rolls (`loot`'s `rolls`), flights, game rules, the texts and the hotfix caches. Downloads go to `data/eglink/<commit>/`, the folder the website's EG Link import also uses; a file that is not whole is not kept, and one found broken stops the reading |
 
 ## Tests
