@@ -83,6 +83,15 @@ class Registry:
             return source['group'], False
         return source['group'], source.get('recorded') is True and self.live_from > 0 and bool(build) and build >= self.live_from
 
+    def trusted(self, source_id, part=''):
+        """Whether this source's word (or this part's) is enough by itself: marked `trusted` in the registry. That is
+        a judgement about a source's record, written down where it can be read and changed, not something worked out."""
+        source = self.source(source_id)
+        if source.get('parts'):          # a source made of parts is trusted part by part: a part nobody described is not
+            about = source['parts'].get(str(part).partition(':')[0])
+            return about is not None and about.get('trusted') is True
+        return source.get('trusted') is True
+
     def use(self, source_ids):
         """The most restricted use among the sources that set a value: `public`, `private` or `reference`."""
         uses = [USES.index(self.source(s)['use']) for s in source_ids]
@@ -141,10 +150,17 @@ def validate(data):
                     problems.append(f'{sid}: a part is named without ":" ({name!r})')
                 if not isinstance(about.get('live', False), bool):
                     problems.append(f'{sid}: part {name}: live is true or false')
+                if not isinstance(about.get('trusted', False), bool):
+                    problems.append(f'{sid}: part {name}: trusted is true or false')
                 if not (isinstance(about.get('group', sid), str) and about.get('group', sid)):
                     problems.append(f'{sid}: part {name}: group is a name')
         if not isinstance(source.get('recorded', False), bool):
             problems.append(f'{sid}: recorded is true or false')
+        if not isinstance(source.get('trusted', False), bool):
+            problems.append(f'{sid}: trusted is true or false')
+        elif source.get('use') == 'reference' and (source.get('trusted') or any(
+                isinstance(about, dict) and about.get('trusted') for about in (parts.values() if isinstance(parts, dict) else ()))):
+            problems.append(f'{sid}: a source that never gives a row cannot be trusted to give one')
         pin = source.get('pin')
         if not isinstance(pin, dict) or pin.get('type') not in PIN_TYPES:
             problems.append(f"{sid}: unknown pin type {pin.get('type') if isinstance(pin, dict) else pin!r}")
