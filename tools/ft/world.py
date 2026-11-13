@@ -1,8 +1,9 @@
-"""The `world` commands of tools/tracker.py: the world build's layers, sources and pins (docs/WORLD-BUILD.md)."""
+"""The `world` commands of tools/tracker.py: the world build's layers, sources and pins, and the replay of the server's
+world into a scratch database (docs/WORLD-BUILD.md)."""
 import os
 
-from . import layers
-from .config import DATA
+from . import layers, replay, sqlio
+from .config import CONFIG, DATA
 
 LOCK = os.path.join(DATA, 'world', 'layers.lock.json')
 
@@ -22,7 +23,65 @@ def show(registry, lock, write=print):
         write(f"pinned {lock['written']}")
 
 
+def build_database():
+    """(database object, scratch database name) of the world build: [build] database, and its own account when
+    [build] user is set."""
+    name = CONFIG.get('build', 'database', 'ft_world_build')
+    if CONFIG.db(name) != name:          # "world" or "tracker" would be read as a key of [database] and land elsewhere
+        raise SystemExit(f'[build] database = "{name}" is the name of a setting of [database]: choose another name')
+    return sqlio.Account(CONFIG.get('build', 'user'), CONFIG.get('build', 'password')), name
+
+
+def run_replay(args):
+    folders = []
+    if args.core:
+        folders += [('core updates', os.path.join(args.core, 'sql', 'updates', 'world')), ('core custom', os.path.join(args.core, 'sql', 'custom', 'world'))]
+    if args.data:
+        folders.append(('data repository', args.data))
+    for item in args.folder or []:
+        label, _, folder = item.partition('=')
+        if not folder:
+            raise SystemExit(f'--folder {item}: write it as label=folder')
+        folders.append((label, folder))
+    if not folders:
+        raise SystemExit('nothing to replay: give --core, --data or --folder')
+    protected = [CONFIG.db(name) for name in ('tracker', 'world', 'hotfixes', 'auth')]
+    db, build = build_database()
+    try:
+        result = replay.replay(db, build, args.dump, folders, protected, args.keep_going, args.trust_account, print)
+    except (replay.ReplayError, RuntimeError) as error:
+        raise SystemExit(f'replay: {str(error).strip()}')
+    print(f"{result['files']} files, {len(result['failed'])} failed, {result['rows']} rows written by a file")
+    for label, made, changed, gone in replay.summary(db, build):
+        print(f'  {label:20} created {made:>8}  changed {changed:>8}  removed {gone:>8}')
+    if result['failed']:
+        raise SystemExit('failed: ' + ', '.join(name for name, _error in result['failed'][:10]))
+
+
+def run_why(args):
+    db, build = build_database()
+    try:
+        found = replay.why(db, build, args.table, args.key)
+    except (replay.ReplayError, RuntimeError) as error:
+        raise SystemExit(f'why: {str(error).strip()}')
+    print(f"{args.table} ({', '.join(found['key_columns'])}) = {', '.join(args.key)}"
+          + ('' if found['exact'] else '   [this table has no unique key: rows sharing these values are told apart no further]'))
+    print(f"  from: {found['origin']}")
+    acts = {'I': 'inserted', 'U': 'updated', 'D': 'deleted', 'R': 'table created or rebuilt', 'T': 'table emptied',
+            'A': 'table altered (its row changes in that file are not followed)'}
+    for act, name, source in found['history']:
+        print(f'  {acts.get(act, act):9} by {name}  ({source})')
+    for act, name, source in found['table_events']:
+        print(f'  {acts.get(act, act)} by {name}  ({source})')
+    if not found['history'] and not found['table_events']:
+        print('  no update file touched it')
+
+
 def run(args):
+    if args.world_command == 'replay':
+        return run_replay(args)
+    if args.world_command == 'why':
+        return run_why(args)
     registry = layers.load()
     lock = layers.read_lock(LOCK)
     if args.world_command == 'pin':

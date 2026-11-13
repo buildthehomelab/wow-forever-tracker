@@ -17,13 +17,16 @@ def _mysql():
     return found
 
 
-def _client_file():
+def _client_file(account=None):
+    """`account` is (user, password) of another MySQL account on the same server; None: the one of [database]."""
+    user, password = account or (CONFIG.get('database', 'user'), CONFIG.get('database', 'password'))
+    quoted = lambda value: '"' + str(value).replace('\\', '\\\\').replace('"', '\\"') + '"'      # a # or a space would cut a bare value short
     handle = tempfile.NamedTemporaryFile('w', suffix='.cnf', delete=False, encoding='utf-8')
     handle.write('[client]\n'
                  f"host={CONFIG.get('database', 'host', '127.0.0.1')}\n"
                  f"port={CONFIG.get('database', 'port', '3306')}\n"
-                 f"user={CONFIG.get('database', 'user')}\n"
-                 f"password={CONFIG.get('database', 'password')}\n"
+                 f"user={quoted(user)}\n"
+                 f"password={quoted(password)}\n"
                  'default-character-set=utf8mb4\n')
     handle.close()
     return handle.name
@@ -35,9 +38,9 @@ def _unescape(value):
     return value.replace('\\t', '\t').replace('\\n', '\n').replace('\\0', '\0').replace('\\\\', '\\')
 
 
-def query(sql, database='world'):
+def query(sql, database='world', account=None):
     """Rows as dicts (values are str or None). `database` is a key of [database] or a real name."""
-    cnf = _client_file()
+    cnf = _client_file(account)
     try:
         result = subprocess.run([_mysql(), f'--defaults-extra-file={cnf}', '--batch', CONFIG.db(database), '-e', sql], capture_output=True)
         if result.returncode:
@@ -60,15 +63,48 @@ def has_table(name, database='world'):
     return bool(query(f"SHOW TABLES LIKE '{name}'", database))
 
 
-def execute_file(path, database):
-    cnf = _client_file()
+def execute_file(path, database, account=None, binary=False):
+    """`binary`: the file's bytes reach the server as they are and the client's own commands (source, system ...) are off."""
+    cnf = _client_file(account)
     try:
         with open(path, 'rb') as handle:
-            result = subprocess.run([_mysql(), f'--defaults-extra-file={cnf}', CONFIG.db(database)], stdin=handle, capture_output=True)
+            command = [_mysql(), f'--defaults-extra-file={cnf}'] + (['--binary-mode'] if binary else []) + [CONFIG.db(database)]
+            result = subprocess.run(command, stdin=handle, capture_output=True)
         if result.returncode:
             raise RuntimeError(result.stderr.decode('utf-8', 'replace'))
     finally:
         os.unlink(cnf)
+
+
+def execute(sql, database, account=None):
+    """Runs statements through the client's standard input. Text is our own SQL. Bytes are a file's content: they run
+    in the client's binary mode, where the bytes reach the server as they are and the client's own commands (source,
+    system ...) are off; DELIMITER still works."""
+    cnf = _client_file(account)
+    try:
+        binary = isinstance(sql, bytes)
+        command = [_mysql(), f'--defaults-extra-file={cnf}'] + (['--binary-mode'] if binary else []) + [CONFIG.db(database)]
+        result = subprocess.run(command, input=sql if binary else sql.encode('utf-8'), capture_output=True)
+        if result.returncode:
+            raise RuntimeError(result.stderr.decode('utf-8', 'replace'))
+    finally:
+        os.unlink(cnf)
+
+
+class Account:
+    """The same calls under another MySQL account of the same server (the world build's own), for code that takes a
+    database object. A file is always run in binary mode."""
+    def __init__(self, user='', password=''):
+        self.account = (user, password) if user else None
+
+    def query(self, sql, database):
+        return query(sql, database, self.account)
+
+    def execute(self, sql, database):
+        return execute(sql, database, self.account)
+
+    def execute_file(self, path, database):
+        return execute_file(path, database, self.account, binary=True)
 
 
 def escape(value):

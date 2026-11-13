@@ -4,6 +4,8 @@
     python tools/tracker.py analyse [--wowhead]
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
     python tools/tracker.py world layers | pin [source ...]
+    python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
+    python tools/tracker.py world why <table> <key> [<key> ...]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -16,7 +18,9 @@ the game databases.
 public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 
 `world` is the world build (docs/WORLD-BUILD.md): `layers` lists the layers and their sources, `pin` records the
-newest version of each source in data/world/layers.lock.json.
+newest version of each source in data/world/layers.lock.json, `replay` rebuilds the server's world (release dump plus
+update files, in the updater's order) in the scratch database named by [build] database and records which file wrote
+each row, and `why` answers where one row comes from. Only the scratch database is written.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
@@ -296,6 +300,17 @@ def main():
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
     pin = world_sub.add_parser('pin', help='look up the newest version of every source and write data/world/layers.lock.json')
     pin.add_argument('sources', nargs='*', help='only these source ids (default: all)')
+    rep = world_sub.add_parser('replay', help='rebuild the server world in the scratch database ([build] database) and record which file wrote each row')
+    rep.add_argument('--dump', required=True, help="the core's release world dump (TDB_full_world_*.sql)")
+    rep.add_argument('--core', help="a checkout of the core: its sql/updates/world and sql/custom/world are replayed")
+    rep.add_argument('--data', help="a folder of update files from your data repository (its sql/world)")
+    rep.add_argument('--folder', action='append', help='another folder of update files, as label=folder (repeatable)')
+    rep.add_argument('--keep-going', action='store_true', help='record a failing file and go on (default: stop, as the updater does)')
+    rep.add_argument('--trust-account', action='store_true',
+                     help='run although the MySQL account can write to other databases: only on a throwaway server that holds nothing else')
+    why = world_sub.add_parser('why', help='where a row of the replayed world comes from')
+    why.add_argument('table')
+    why.add_argument('key', nargs='+', help="the row's key values, in the order of the table's key columns")
     args = parser.parse_args()
     if args.command == 'world':
         world.run(args)

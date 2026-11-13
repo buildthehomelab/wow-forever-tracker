@@ -26,6 +26,15 @@ The user needs read access to `world`, `hotfixes` and `auth`, and write access t
 write access to `world` and `hotfixes`; give it to a separate user if you prefer to keep the website read-only and
 apply the downloaded SQL yourself.
 
+## `[build]`
+
+The [world build](WORLD-BUILD.md).
+
+| Key | |
+|---|---|
+| `database` | Scratch database `tracker.py world replay` drops and rebuilds (default `ft_world_build`). Never one of your server's databases |
+| `user`, `password` | A MySQL account of its own for the replay: every right on the scratch database, no right to write anywhere else. Empty: the account of `[database]`, which the replay only accepts when it cannot write to another database |
+
 ## `[server]`
 
 | Key | Example | |
