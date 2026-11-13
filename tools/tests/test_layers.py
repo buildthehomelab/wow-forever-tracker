@@ -121,6 +121,8 @@ class Validation(unittest.TestCase):
 
 
 class Pins(unittest.TestCase):
+    release = 'v0.1.36'
+
     def answers(self, url):
         if url == 'https://api.github.com/repos/JIVESCORP/eg-link-output-wowf/commits/main':
             return {'sha': 'a' * 40, 'commit': {'committer': {'date': '2026-11-12T06:00:00Z'}}}
@@ -128,6 +130,11 @@ class Pins(unittest.TestCase):
             return {'assets': [{'name': 'db-sqlite-1fb4909.zip', 'updated_at': '2026-11-11T23:41:00Z'},
                                {'name': 'db-1fb4909.zip', 'updated_at': '2026-11-11T23:40:00Z', 'size': 30511449,
                                 'browser_download_url': 'https://example.invalid/db-1fb4909.zip'}]}
+        if url == 'https://api.github.com/repos/Karrz1/Karrz-playerbots-wow-forever/releases/latest':
+            return {'tag_name': self.release, 'assets': [
+                {'name': f'WoW-Forever-Bots-{self.release[1:]}.zip', 'updated_at': '2026-11-13T21:47:00Z'},
+                {'name': f'wow-forever-source-{self.release[1:]}.zip', 'updated_at': '2026-11-13T21:46:00Z', 'size': 54837975,
+                 'browser_download_url': f'https://example.invalid/wow-forever-source-{self.release[1:]}.zip'}]}
         if url == 'https://www.curseforge.com/api/v1/mods/1422985/files':
             return {'data': [{'id': 5, 'fileName': 'AtlasLoot-Classic-Forever-1.3.7.zip', 'dateCreated': '2026-11-12'},
                              {'id': 9, 'fileName': 'AtlasLoot-Classic-TBC-9.9.zip'},
@@ -167,6 +174,23 @@ class Pins(unittest.TestCase):
         self.assertEqual(layers.changed(first, later), ['cmangos'])
         self.assertEqual(later['sources']['cmangos']['pinned'], '2026-11-14T05:00:00Z')
 
+    def test_a_project_that_tags_each_release_anew_is_pinned_by_its_newest_one(self):
+        registry = layers.load()
+        found = self.resolve(registry.source('karrz')['pin'])
+        self.assertEqual((found['tag'], found['file'], found['version'], found['size']),
+                         ('v0.1.36', 'wow-forever-source-0.1.36.zip', 'v0.1.36 wow-forever-source-0.1.36.zip@2026-11-13T21:46:00Z', 54837975))
+        first = layers.pin_all(registry, only={'karrz'}, fetch_json=self.answers, fetch_digest=self.digest, now=NOW)
+        self.release = 'v0.1.37'
+        later = layers.pin_all(registry, first, only={'karrz'}, fetch_json=self.answers, fetch_digest=self.digest, now=NOW + datetime.timedelta(days=1))
+        self.assertEqual(layers.changed(first, later), ['karrz'])                # a new release moves the pin
+        self.assertEqual(later['sources']['karrz']['tag'], 'v0.1.37')
+        with self.assertRaisesRegex(LookupError, 'no asset named world.7z'):
+            self.resolve({'type': 'github-latest-release', 'repo': 'Karrz1/Karrz-playerbots-wow-forever', 'asset': 'world.7z'})
+        with self.assertRaisesRegex(LookupError, 'its newest release has no tag'):
+            layers.resolve({'type': 'github-latest-release', 'repo': 'x/y'}, lambda url: {'assets': []})
+        # the core's own files and Karrz's releases are one line: no second witness beside each other
+        self.assertEqual(registry.witnesses(['core', 'karrz']), 1)
+
     def test_curseforge_newest_forever_file_only(self):
         found = self.resolve({'type': 'curseforge', 'project': 1422985, 'name': 'AtlasLoot-Classic-Forever-'})
         self.assertEqual((found['version'], found['file']), ('7', 'AtlasLoot-Classic-Forever-1.3.8.zip'))
@@ -190,7 +214,7 @@ class Pins(unittest.TestCase):
 
     def test_shipped_pins_resolve_against_the_recorded_answers(self):
         registry = layers.load()
-        for sid in ('eglink', 'vmangos', 'atlasloot', 'client'):
+        for sid in ('eglink', 'vmangos', 'karrz', 'atlasloot', 'client'):
             self.assertTrue(self.resolve(registry.source(sid)['pin'])['version'], sid)
 
     def test_lock_keeps_the_previous_pin_of_an_unreachable_source(self):

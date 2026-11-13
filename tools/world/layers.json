@@ -31,6 +31,14 @@
       "pin": {"type": "replay"}
     },
     {
+      "id": "karrz", "name": "Karrz's WoW Forever releases", "layer": "base", "group": "core",
+      "licence": "GPL-2.0-or-later", "use": "public",
+      "credit": "TrinityCore and its WoW Forever fork by Karrz (https://github.com/Karrz1/Karrz-playerbots-wow-forever), GPL-2.0 or later.",
+      "note": "The line the core is built from: its releases carry the core's update files. The pin shows when a new release is out; it reaches the world once the core you replay has taken it in.",
+      "url": "https://github.com/Karrz1/Karrz-playerbots-wow-forever",
+      "pin": {"type": "github-latest-release", "repo": "Karrz1/Karrz-playerbots-wow-forever", "asset": "wow-forever-source-*.zip"}
+    },
+    {
       "id": "databaseforever", "name": "EmuForever DatabaseForever", "layer": "base", "group": "core",
       "licence": "none", "use": "reference",
       "note": "The core's release database plus generated NPC templates and spawns: never a second witness beside the core.",
