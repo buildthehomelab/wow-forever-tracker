@@ -210,6 +210,76 @@ Sources read so far:
 | `questie` | QuestieDB's twelve Forever correction files of the pinned commit. Its Forever data is the Classic database with converted coordinates, plus corrections; only the corrections say something about Forever, so only they are read, and each fact names the part that says it: `trace` (what players' QuestieTrace recordings showed on live Forever), `generated` (the reviewed delta QuestieDB generates for Forever; it is built from Wowhead's pages, so it is no second witness beside Wowhead), `fix` (a correction written by hand), `dynamic:<table>` (a hand correction that depends on the player, with the table it stands in: one faction's quest giver is not the other's). Who gives and takes a quest, what drops and sells an item, and each quest's, NPC's, object's and item's whole correction as an `entry`, kept whole. A name used as a value stays a name (`raceIDs.NIGHT_ELF+raceIDs.HUMAN`), one used as a key keeps its last part (`ELWYNN_FOREST`). A `_remove` correction and a plain empty list ("none") stay in the entry and state no fact; in QuestieDB a hand fix's plain list replaces the generated one, which only the entries show. Facts are not tied to a client build. A file that is missing, cut short, or written in a way the reader does not know (code where data should be, a function that returns two tables) stops the reading; a value of a shape it does not know is counted and left out, never guessed at. A thirteenth file added upstream is not noticed |
 | `eglink` | Every WoW Forever build of the pinned commit: `npcs`, `creatures`, `vendors`, `trainers`, `loot`, `quests`, `creature_details`, `object_details`, `objectives`, `turn_ins`. Not read yet: boss loot rolls (`loot`'s `rolls`), flights, game rules, the texts and the hotfix caches. Downloads go to `data/eglink/<commit>/`, the folder the website's EG Link import also uses; a file that is not whole is not kept, and one found broken stops the reading |
 
+## Rules: what the world should hold and does not
+
+`world resolve` puts the two sides together: the replayed world is the base, the facts are claims, and a named rule
+turns the claims about one thing into a decision. Nothing is written to any server: the decisions are stored in the
+tracker's database, each with its reasons.
+
+```bash
+python tools/tracker.py world resolve                             # needs: world replay, world facts <source>
+python tools/tracker.py world decisions                           # the summary of the last resolve
+python tools/tracker.py world decisions quest --verdict add       # the quests ready to add, with giver, ender and witnesses
+python tools/tracker.py world decisions gives --verdict review
+```
+
+| Verdict | Meaning |
+|---|---|
+| `add` | The world should hold it, and everything it needs is there |
+| `hold` | The world should hold it, but something it needs is missing. `needs` names it: no giver known, an NPC without a template, a quest that is not in the world yet |
+| `review` | The facts are not enough to decide: a person looks |
+
+What the world already holds is not decided again (it is counted as *in the world*), and nothing is ever removed
+because no source mentions it.
+
+**Who gives a quest, who takes it, what a vendor sells**
+
+| Rule | When | Verdict |
+|---|---|---|
+| `seen-live` | A recording on the live game states it: EG Link on a build of the live game, a QuestieTrace recording | `add` |
+| `two-witnesses` | No live recording, but two independent witnesses state it. The parts of one source are one witness, and so are sources of one witness group | `add` |
+| `one-claim` | One witness's word, not recorded on live: a list generated from another site's pages, a hand correction, a beta build | `review` |
+| `reference-only` | Only sources that may never give a row state it | `review` |
+| `removed-by-hand` | A source's own hand correction takes the claim back (QuestieDB's `_remove`) | `review` |
+| `item-starts` | An item starts the quest: that is the item's own data, not followed here | `review` |
+
+It needs its NPC or object to have a template in the world, and (for a quest) its quest to be there; an NPC that
+exists and is not spawned is noted, not refused. A pair whose only missing piece is a quest that is itself ready to
+add is ready too: it comes with its quest. A source that may never give a row can confirm a claim (count as the
+second witness), never carry it.
+
+What the world holds is read whole: a vendor's list with the lists it borrows from other vendors, and what an NPC
+sells or gives only during a game event.
+
+**A quest the world lacks**
+
+| Rule | When | Verdict |
+|---|---|---|
+| `record-seen-live` | The server sent the quest's record to a client of the live game, and a source that may give rows recorded it: the quest exists | `add`, once a giver and an ender pass the rules above and have a template; else `hold`, with what is missing |
+| `record-not-live` | Its record was only seen before the live game | `review` |
+| `looks-internal` | Its name reads like a developer's leftover (`[DNT]`, `zzOLD`, `UNUSED`, `REUSE ME`) | `review` |
+
+Whether a source is a live recording is the registry's word (`tools/world/layers.json`), and it is strict on purpose:
+`live_from` is the first build of the live game; only a source marked `recorded` (its facts are recordings of play)
+is live, and only for a fact from such a build; a source made of parts says which part is live and whose word each
+part really is (QuestieDB: `trace` is live; `generated` is Wowhead's word; `fix` and `dynamic` are QuestieDB's own).
+A registry without `live_from`, or with a part's `live` written as text, is refused rather than read as "everything
+is live".
+
+Each decision also says whether it may be **published**: `public` when a source that may be published states it
+(the row is then written from that source, whoever else witnessed it), `private` when only a source without a
+licence does. A quest's record is stricter: it is `public` only when the live record itself comes from a source
+that may be published, because the record's values are what gets written.
+
+`world resolve` refuses to run on a replay that did not finish, or without facts: a world that stopped half way
+would make everything look missing.
+
+Tables: `ft_world_decisions` (kind, subject, object, verdict, rule, allowed, name, needs, notes, witnesses) and
+`ft_world_resolved` (when, the summary). A resolve replaces them whole. Approving, rejecting and exporting decisions
+come with the next step; so do drops, trainers, spawn positions and the fields of rows the world already has. Not
+followed yet: a QuestieDB hand fix whose plain list replaces a generated one (only `_remove` is read), and a build
+of a test realm later than `live_from` (it counts as live).
+
 ## Tests
 
 ```bash
@@ -222,7 +292,8 @@ order and trigger statements, and the facts read from a small copy of each sourc
 
 One class replays a small world on a real MySQL server, under an account it creates with rights on the scratch
 database only, and checks every origin. It runs when `FT_TEST_CONFIG` names a `config.ini` of a **throwaway** server
-whose user may create and drop databases and accounts, and is skipped otherwise:
+whose user may create and drop databases and accounts, and is skipped otherwise. The database tests of the facts and of the rules also create and drop that server's `[database]
+tracker` database: one more reason to point them at a throwaway server only:
 
 ```bash
 FT_TEST_CONFIG=/path/to/test-config.ini python -m unittest discover -s tools/tests

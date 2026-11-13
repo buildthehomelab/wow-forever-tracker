@@ -3,7 +3,7 @@ world into a scratch database (docs/WORLD-BUILD.md)."""
 import collections
 import os
 
-from . import facts, layers, replay, sqlio
+from . import facts, layers, replay, resolve, sqlio
 from .config import CONFIG, DATA
 
 LOCK = os.path.join(DATA, 'world', 'layers.lock.json')
@@ -119,7 +119,77 @@ def run_facts(args):
     show_facts()
 
 
+VERDICTS = ('add', 'hold', 'review')
+
+
+def show_resolved():
+    try:
+        when, summary = resolve.stored_summary(sqlio)
+    except RuntimeError as error:
+        raise SystemExit(f'decisions: {str(error).strip()}')
+    if not when:
+        print('nothing resolved yet: python tools/tracker.py world resolve')
+        return
+    print(f'resolved {when}')
+    print(f"  {'':8} {'in the world':>13} {'add':>7} {'hold':>7} {'review':>7}")
+    for kind, counts in summary.items():
+        print(f"  {kind:8} {counts.get('agreed', 0):>13} " + ' '.join(f'{counts.get(v, 0):>7}' for v in VERDICTS))
+
+
+def run_resolve(args):
+    registry = layers.load()
+    db, build = build_database()
+    try:
+        unfinished = [f"{row['n']} {row['state']}" for row in db.query(f'SELECT state, COUNT(*) n FROM {replay.FILES} GROUP BY state', build)
+                      if row['state'] != 'applied']
+        if unfinished:        # a world that stopped half way would make everything look missing
+            raise SystemExit(f"resolve: the replay did not finish ({', '.join(unfinished)} files): run world replay again first")
+        world = resolve.load_world(db, build)
+        claims, records, removed = resolve.load_claims(sqlio, registry)
+    except RuntimeError as error:
+        raise SystemExit(f'resolve: {str(error).strip()}\n(the replayed world and the facts are needed first: world replay, world facts <source>)')
+    if not world['quests'] or not world['npcs']:
+        raise SystemExit('resolve: the replayed world holds no quest or no NPC: run world replay again first')
+    if not any(claims.values()) and not records:
+        raise SystemExit('resolve: no facts are stored: python tools/tracker.py world facts <source>')
+    decisions, summary = resolve.resolve(registry, world, claims, records, removed)
+    path = os.path.join(DATA, 'world', 'decisions.sql')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    resolve.write_sql(path, decisions, summary)
+    try:
+        sqlio.execute_file(path, 'tracker')
+    except RuntimeError as error:
+        raise SystemExit(f'resolve: {str(error).strip()}')
+    show_resolved()
+
+
+def run_decisions(args):
+    if not args.kind:
+        return show_resolved()
+    try:
+        rows, total = resolve.stored(sqlio, args.kind, args.verdict, args.limit)
+    except RuntimeError as error:
+        raise SystemExit(f'decisions: {str(error).strip()}')
+    for row in rows:
+        what = f"quest {row['subject']} {row['name']}" if row['kind'] == 'quest' else f"{row['subject_kind']} {row['subject']} {row['kind']} {row['object']}"
+        said = ', '.join(f"{w['source']}{':' + w['part'] if w['part'] else ''}{' @' + str(w['build']) if w['build'] else ''}{' live' if w['live'] else ''}"
+                         for w in row['witnesses'])
+        print(f"{row['verdict']:6} {what}  [{row['rule']}, {row['allowed']}]  {said}")
+        for line in row['needs']:
+            print(f'       needs: {line}')
+        for line in row['notes']:
+            print(f'       {line}')
+    if not rows:
+        print('none')
+    elif total > len(rows):
+        print(f'{len(rows)} of {total} shown (--limit)')
+
+
 def run(args):
+    if args.world_command == 'resolve':
+        return run_resolve(args)
+    if args.world_command == 'decisions':
+        return run_decisions(args)
     if args.world_command == 'facts':
         return run_facts(args)
     if args.world_command == 'replay':

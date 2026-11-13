@@ -1,4 +1,5 @@
 {
+  "live_from": 70755,
   "layers": [
     {"key": "vanilla", "name": "Vanilla 1.12", "role": "Classic content Forever kept unchanged; reference to restore a row the base lost."},
     {"key": "base", "name": "Server world", "role": "The world as built: the core's release database and its update files, replayed."},
@@ -56,14 +57,14 @@
       "pin": {"type": "url", "url": "https://storage.googleapis.com/raidbots-static/wow/forever/enUS/DBCache.bin"}
     },
     {
-      "id": "eglink", "name": "EG Link", "layer": "live", "group": "eglink",
+      "id": "eglink", "name": "EG Link", "layer": "live", "group": "eglink", "recorded": true,
       "licence": "CC-BY-4.0", "use": "public",
       "credit": "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0.",
       "url": "https://github.com/JIVESCORP/eg-link-output-wowf",
       "pin": {"type": "github-branch", "repo": "JIVESCORP/eg-link-output-wowf", "branch": "main"}
     },
     {
-      "id": "icyveins", "name": "Icy Veins WoW Forever database", "layer": "live", "group": "eglink",
+      "id": "icyveins", "name": "Icy Veins WoW Forever database", "layer": "live", "group": "eglink", "recorded": true,
       "licence": "none", "use": "private",
       "note": "Holds EG Link's rows (all of its quest giver and trainer pairs, 98 % of its vendor pairs, 2026-11-12): the same witness group as EG Link.",
       "url": "https://db.icy-veins.com/wow-forever",
@@ -82,6 +83,12 @@
       "credit": "QuestieDB (https://github.com/Questie/QuestieDB), with players' QuestieTrace recordings, GPL-3.0.",
       "note": "Read: its Forever corrections (players' traces, the generated delta, hand fixes). Its converted Classic base is not read: it says what Classic had. Its generated delta is built from Wowhead's pages: no second witness beside Wowhead.",
       "url": "https://github.com/Questie/QuestieDB",
+      "parts": {
+        "trace": {"group": "questie", "live": true},
+        "generated": {"group": "wowhead"},
+        "fix": {"group": "questie"},
+        "dynamic": {"group": "questie"}
+      },
       "pin": {"type": "github-branch", "repo": "Questie/QuestieDB", "branch": "master"}
     },
     {
