@@ -221,6 +221,7 @@ python tools/tracker.py world resolve                             # needs: world
 python tools/tracker.py world decisions                           # the summary of the last resolve
 python tools/tracker.py world decisions quest --verdict add       # the quests ready to add, with giver, ender and witnesses
 python tools/tracker.py world decisions gives --verdict review
+python tools/tracker.py world decisions npc --verdict hold           # NPCs sources name but nothing shows
 ```
 
 | Verdict | Meaning |
@@ -252,11 +253,24 @@ second witness), never carry it.
 What the world holds is read whole: a vendor's list with the lists it borrows from other vendors, and what an NPC
 sells or gives only during a game event.
 
+**An NPC the world lacks**
+
+| Rule | When | Verdict |
+|---|---|---|
+| `record-seen-live` | The server sent the NPC's record (name, title, kind, model) to a client of the live game, and a source that may give rows recorded it | `add`: its template can be written |
+| the rules for pairs | No such record, but sources state it exists (QuestieDB's entry: name, level, title, where it stands) | `hold`: nothing says what it looks like; or `review` when their word is not enough |
+| `looks-internal` | Its name reads like a developer's leftover, whatever recorded it | `review` |
+| `only-claimed` | Nothing describes it: claims only name it | `review` |
+
+A claim or a quest that only waits for an NPC that is ready comes with it, as a pair comes with its quest, and may be
+published only if the NPC may. A claim that still waits for something else, or is for a person, only notes that its
+NPC is ready. Each NPC decision notes what else is known of it and how many claims that pass a rule wait for it.
+
 **A quest the world lacks**
 
 | Rule | When | Verdict |
 |---|---|---|
-| `record-seen-live` | The server sent the quest's record to a client of the live game, and a source that may give rows recorded it: the quest exists | `add`, once a giver and an ender pass the rules above and have a template; else `hold`, with what is missing |
+| `record-seen-live` | The server sent the quest's record to a client of the live game, and a source that may give rows recorded it: the quest exists | `add`, once a giver and an ender pass the rules above and have a template or are NPCs that are ready themselves; else `hold`, with what is missing |
 | `record-not-live` | Its record was only seen before the live game | `review` |
 | `looks-internal` | Its name reads like a developer's leftover (`[DNT]`, `zzOLD`, `UNUSED`, `REUSE ME`) | `review` |
 

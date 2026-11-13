@@ -28,10 +28,18 @@ Rules, by the kind of thing:
     item-starts      an item starts the quest: that is the item's own data, not followed here: review
   It needs its quest and its NPC or object to exist in the world. A pair whose only missing piece is a quest that
   is itself ready to add is ready too: it comes with its quest.
+- an NPC the world lacks (`npc`):
+    record-seen-live   the server sent the NPC's record (name, title, kind, model) to a client of the live game:
+                       add. Its template can be written
+    (the pair rules)   no such record, but sources state it exists: hold, because nothing says what it looks
+                       like, or review when their word is not enough
+    looks-internal     its name reads like a developer's leftover: review, whatever recorded it
+    only-claimed       nothing describes it, claims only name it: review
+  A pair or a quest that only waits for an NPC that is ready comes with it, and is private when the NPC is.
 - a quest the world lacks (`quest`):
     record-seen-live   the server sent the quest's record to a client of the live game, and a source that may give
                        rows recorded it: the quest exists. It is added once a giver and an ender pass the rules
-                       above and exist in the world
+                       above and exist in the world, or are NPCs that are ready themselves
     record-not-live    its record was only seen before the live game: review
     looks-internal     its name reads like a developer's leftover ("[DNT]", "zzOLD", "UNUSED", "REUSE ME"): review
 
@@ -148,11 +156,49 @@ def decide_pairs(registry, kind, claims, world, removed=()):
     return out, agreed
 
 
-def decide_quests(records, gives, takes, world):
+def decide_npcs(registry, records, entries, world, needed=None):
+    """Decisions for the NPCs the world lacks.
+
+    `records` is {npc: (name, title, [Evidence of the server's record])}; `entries` is {npc: (name, note, [Evidence])}
+    for what other sources say about it; `needed` is {npc: how many claims that pass a rule wait for it}. An NPC
+    that is in `needed` and in neither of the others is decided too: only claims name it."""
+    needed = needed or {}
+    out = []
+    for npc in sorted(set(records) | set(entries) | set(needed)):
+        if npc in world['npcs']:
+            continue
+        name, title, recorded = records.get(npc, ('', '', []))
+        said_name, said, stated = entries.get(npc, ('', '', []))
+        name = name or said_name
+        recorded = strongest(recorded)
+        giving = [w for w in recorded if w.use != 'reference']
+        notes = ([f'title: {title}'] if title else []) + ([said] if said else [])
+        if needed.get(npc):
+            notes.append(f'{needed[npc]} claims wait for it' if needed[npc] > 1 else '1 claim waits for it')
+        witnesses = recorded + strongest(stated)
+        if not witnesses:
+            out.append(Decision('npc', 'npc', npc, 0, 'review', 'only-claimed', 'private', '', ['nothing describes it: claims only name it'], notes, []))
+        elif INTERNAL.search(name):
+            allowed = 'public' if any(w.use == 'public' for w in witnesses) else 'private'
+            out.append(Decision('npc', 'npc', npc, 0, 'review', 'looks-internal', allowed, name, [], notes, witnesses))
+        elif any(w.live for w in giving):
+            allowed = 'public' if any(w.live and w.use == 'public' for w in giving) else 'private'
+            out.append(Decision('npc', 'npc', npc, 0, 'add', 'record-seen-live', allowed, name, [], notes, witnesses))
+        else:
+            witnesses = strongest(stated) + recorded
+            verdict, rule, allowed = weigh(registry, witnesses)
+            needs = ['no record of it from the live game: what it looks like is not known'] if verdict == 'add' else []
+            out.append(Decision('npc', 'npc', npc, 0, 'hold' if verdict == 'add' else verdict, rule, allowed, name, needs, notes, witnesses))
+    return out
+
+
+def decide_quests(records, gives, takes, world, coming=None):
     """Decisions for the quests the world lacks.
 
     `records` is {quest: (name, [Evidence of its record])}; `gives` and `takes` are the decisions of decide_pairs
-    plus what the world holds, as {quest: [(subject_kind, subject, verdict, allowed)]}."""
+    plus what the world holds, as {quest: [(subject_kind, subject, verdict, allowed)]}; `coming` is {npc: allowed}
+    for the NPCs that are ready to add: a giver among them counts as there, and is private when its NPC is."""
+    coming = coming or {}
     out = []
     for quest, (name, witnesses) in sorted(records.items()):
         if quest in world['quests']:
@@ -171,7 +217,7 @@ def decide_quests(records, gives, takes, world):
         for role, sides in (('giver', sorted(gives.get(quest, []))), ('ender', sorted(takes.get(quest, [])))):
             things = [s for s in sides if s[0] != 'item']
             sure = [s for s in things if s[2] in ('add', 'hold', 'held')]         # passes a rule, whatever else it needs
-            there = [s for s in sure if s[1] in world['npcs' if s[0] == 'npc' else 'objects']]
+            there = [s for s in sure if s[1] in world['npcs' if s[0] == 'npc' else 'objects'] or (s[0] == 'npc' and s[1] in coming)]
             if not sides:
                 needs.append(f'no {role} known')
             elif not things:
@@ -181,10 +227,14 @@ def decide_quests(records, gives, takes, world):
             elif not there:
                 needs.append(f'its {role} has no template: ' + ', '.join(f'{s[0]} {s[1]}' for s in sure[:4]))
             else:
-                if not any(s[1] in world['npcs_spawned' if s[0] == 'npc' else 'objects_spawned'] for s in there):
-                    notes.append(f'its {role} is not spawned: ' + ', '.join(f'{s[0]} {s[1]}' for s in there[:4]))
+                arriving = [s for s in there if s[0] == 'npc' and s[1] not in world['npcs']]         # it comes with its NPC
+                standing = [s for s in there if s not in arriving]
+                if arriving and not any(s[1] in world['npcs_spawned' if s[0] == 'npc' else 'objects_spawned'] for s in standing):
+                    notes.append(f'its {role} comes with NPC ' + ', '.join(str(s[1]) for s in arriving[:4]))
+                elif not any(s[1] in world['npcs_spawned' if s[0] == 'npc' else 'objects_spawned'] for s in standing):
+                    notes.append(f'its {role} is not spawned: ' + ', '.join(f'{s[0]} {s[1]}' for s in standing[:4]))
                 notes.append(f'{role}: ' + ', '.join(f'{s[0]} {s[1]}' for s in there[:6]))
-                if all(s[3] == 'private' for s in there):
+                if all(s[3] == 'private' or (s in arriving and coming[s[1]] == 'private') for s in there):
                     allowed = 'private'
         if verdict == 'add' and needs:
             verdict = 'hold'
@@ -192,9 +242,9 @@ def decide_quests(records, gives, takes, world):
     return out
 
 
-def resolve(registry, world, claims, records, removed=None):
+def resolve(registry, world, claims, records, removed=None, npc_records=None, npc_entries=None):
     """(decisions, summary) from both sides. The summary keeps the kinds in the order they were decided."""
-    removed = removed or {}
+    removed, npc_records, npc_entries = removed or {}, npc_records or {}, npc_entries or {}
     pairs, summary = [], collections.OrderedDict()
     by_quest = {'gives': collections.defaultdict(list), 'takes': collections.defaultdict(list)}
     agreed = {}
@@ -206,15 +256,35 @@ def resolve(registry, world, claims, records, removed=None):
                 by_quest[kind][quest].append((subject_kind, subject, 'held', 'public'))
             for d in made:
                 by_quest[kind][d.object].append((d.subject_kind, d.subject, d.verdict, d.allowed))
-    quests = decide_quests(records, by_quest['gives'], by_quest['takes'], world)
-    ready = {d.subject for d in quests if d.verdict == 'add'}
-    for index, d in enumerate(pairs):              # a pair that only waits for a quest that is ready comes with it
-        if d.verdict == 'hold' and d.kind in by_quest and d.object in ready and d.needs == [f'quest {d.object} is not in the world']:
-            pairs[index] = d._replace(verdict='add', needs=[], notes=d.notes + [f'comes with quest {d.object}'])
+    waiting = collections.Counter()               # every NPC the claims name and the world lacks; counted: the claims that pass a rule
+    for d in pairs:
+        if d.subject_kind == 'npc' and d.subject not in world['npcs']:
+            waiting[d.subject] += d.verdict == 'hold'
+    npcs = decide_npcs(registry, npc_records, npc_entries, world, waiting)
+    coming = {d.subject: d.allowed for d in npcs if d.verdict == 'add'}
+    quests = decide_quests(records, by_quest['gives'], by_quest['takes'], world, coming)
+    ready = {d.subject: d.allowed for d in quests if d.verdict == 'add'}
+    for index, d in enumerate(pairs):              # a pair that only waits for a quest or an NPC that is ready comes with it
+        if d.verdict not in ('hold', 'review'):
+            continue
+        met = {}                                   # the needs that what is ready answers, and whether that may be published
+        if d.kind in by_quest and d.object in ready:
+            met[f'quest {d.object} is not in the world'] = (f'quest {d.object}', ready[d.object])
+        if d.subject_kind == 'npc' and d.subject in coming:
+            met[f'NPC {d.subject} has no template'] = (f'NPC {d.subject}', coming[d.subject])
+        answered = [met[need] for need in d.needs if need in met]
+        if not answered:
+            continue
+        left = [need for need in d.needs if need not in met]
+        comes = d.verdict == 'hold' and not left      # else it still waits, or is for a person: what is ready is only noted
+        pairs[index] = d._replace(verdict='add' if comes else d.verdict, needs=left,
+                                  notes=d.notes + [f'comes with {what}' if comes else f'{what} is ready to add' for what, _allowed in answered],
+                                  allowed='private' if any(allowed == 'private' for _what, allowed in answered) else d.allowed)
     for kind in PAIRS:
         summary[kind] = dict(collections.Counter(d.verdict for d in pairs if d.kind == kind), agreed=agreed[kind])
+    summary['npc'] = dict(collections.Counter(d.verdict for d in npcs), agreed=sum(1 for n in set(npc_records) | set(npc_entries) if n in world['npcs']))
     summary['quest'] = dict(collections.Counter(d.verdict for d in quests), agreed=sum(1 for q in records if q in world['quests']))
-    return pairs + quests, summary
+    return pairs + npcs + quests, summary
 
 
 # ------------------------------------------------------------------ reading both sides
@@ -292,6 +362,53 @@ def load_claims(db, registry, database='tracker'):
         for kind, pair in taken_back(row['subject_kind'], int(row['subject']), parts):
             removed[kind].add(pair)
     return claims, records, removed
+
+
+def npc_records(registry, rows):
+    """{npc: (name, title, [Evidence])} from the stored records of NPCs, rows of (source, npc, build, samples, name,
+    title). The name and the title are one record's words, never a mix: the newest build's, and a source that may
+    give rows before one that may not."""
+    records, best = {}, {}
+    for source, npc, build, samples, name, title in rows:
+        if source not in registry.sources:
+            continue
+        rank = (registry.source(source)['use'] != 'reference', build)
+        if name and (npc not in best or rank >= best[npc][0]):
+            best[npc] = (rank, name, title or '')
+        records[npc] = records.get(npc, []) + evidence(registry, source, build, samples, {})
+    return {npc: (best[npc][1] if npc in best else '', best[npc][2] if npc in best else '', witnesses) for npc, witnesses in records.items()}
+
+
+def load_npcs(db, registry, database='tracker'):
+    """({npc: (name, title, [Evidence])} from the records the server sent to clients, {npc: (name, what is said of
+    it, [Evidence])} from the entries other sources keep about an NPC)."""
+    clean = lambda value: value if value not in (None, 'null') else ''
+    records = npc_records(registry, [
+        (row['source'], int(row['subject']), int(row['build']), int(row['samples']), clean(row['name']), clean(row['title']))
+        for row in db.query(f"SELECT source, subject, build, samples, JSON_UNQUOTE(JSON_EXTRACT(data, '$.name')) name, "
+                            f"JSON_UNQUOTE(JSON_EXTRACT(data, '$.title')) title FROM {facts.FACTS} "
+                            f"WHERE kind = 'creature' AND subject_kind = 'npc' ORDER BY build, source", database)])
+    entries = {}
+    for row in db.query(f"SELECT source, subject, build, samples, data FROM {facts.FACTS} WHERE kind = 'entry' AND subject_kind = 'npc' "
+                        f"ORDER BY source, build", database):
+        if row['source'] not in registry.sources:
+            continue
+        try:
+            data = json.loads(row['data'])
+        except ValueError:
+            continue
+        parts = data.get('parts') if isinstance(data, dict) else None
+        parts = [part for part in parts.values() if isinstance(part, dict)] if isinstance(parts, dict) else []
+        names = [part['name'] for part in parts if isinstance(part.get('name'), str) and part['name']]
+        levels = sorted({part[field] for part in parts for field in ('minLevel', 'maxLevel')
+                         if isinstance(part.get(field), int) and not isinstance(part[field], bool)})
+        titles = [part['subName'] for part in parts if isinstance(part.get('subName'), str) and part['subName']]
+        said = ', '.join(filter(None, [f'level {levels[0]}' + (f'-{levels[-1]}' if levels[-1] != levels[0] else '') if levels else '',
+                                       f'<{titles[0]}>' if titles else '']))
+        name, note, witnesses = entries.get(int(row['subject']), ('', '', []))
+        entries[int(row['subject'])] = (name or (names[0] if names else ''), note or (f"{row['source']}: {said}" if said else ''),
+                                        witnesses + evidence(registry, row['source'], int(row['build']), int(row['samples']), data))
+    return records, entries
 
 
 def taken_back(entity, subject, parts):

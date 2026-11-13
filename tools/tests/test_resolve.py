@@ -260,6 +260,19 @@ class Quests(unittest.TestCase):
         self.assertEqual(made[205].allowed, 'private')                 # every giver comes from a source that may not be published
         self.assertIn('its ender is not spawned: object 50', made[205].notes)
 
+    def test_an_npc_that_is_ready_counts_as_there(self):
+        records = {q: (f'Quest {q}', [eg()]) for q in (220, 221, 222)}
+        ender = [('npc', 1, 'held', 'public')]
+        made = {d.subject: d for d in resolve.decide_quests(
+            records, {220: [('npc', 9, 'hold', 'public'), ('npc', 3, 'hold', 'public')],        # NPC 3 is there, not spawned
+                      221: [('npc', 9, 'hold', 'public'), ('npc', 1, 'hold', 'private')],       # NPC 1 is there and spawned
+                      222: [('npc', 8, 'hold', 'public')]},                                     # NPC 8 is not ready
+            {220: ender, 221: ender, 222: ender}, WORLD, {9: 'private'})}
+        self.assertEqual({q: (d.verdict, d.allowed) for q, d in made.items()}, {220: ('add', 'public'), 221: ('add', 'private'), 222: ('hold', 'public')})
+        self.assertEqual(made[220].notes, ['its giver comes with NPC 9', 'giver: npc 3, npc 9', 'ender: npc 1'])
+        self.assertEqual(made[221].notes, ['giver: npc 1, npc 9', 'ender: npc 1'])
+        self.assertEqual(made[222].needs, ['its giver has no template: npc 8'])
+
     def test_one_publishable_giver_is_enough_to_publish(self):
         made = self.decide({207: ('Mixed', [eg()])}, {207: [('npc', 1, 'hold', 'private'), ('npc', 2, 'hold', 'public')]}, {207: [('npc', 1, 'held', 'public')]})
         self.assertEqual((made[207].verdict, made[207].allowed), ('add', 'public'))
@@ -285,6 +298,57 @@ class Quests(unittest.TestCase):
         self.assertEqual({q: d.rule for q, d in fine.items()}, {500: 'record-seen-live', 501: 'record-seen-live', 502: 'looks-internal'})
 
 
+class Npcs(unittest.TestCase):
+    def decide(self, records, entries, needed=None):
+        return {d.subject: d for d in resolve.decide_npcs(REGISTRY, records, entries, WORLD, needed)}
+
+    def test_a_record_from_the_live_game_is_enough_to_write_the_template(self):
+        made = self.decide({9: ('Rix Xizzix', 'Lost and Found', [eg(70790), eg(LIVE)]), 1: ('Already there', '', [eg()])},
+                           {9: ('Rix', 'questie: level 45, <Lost and Found>', [questie('generated'), questie('trace')])}, {9: 3})
+        self.assertEqual(list(made), [9])
+        npc = made[9]
+        self.assertEqual((npc.verdict, npc.rule, npc.allowed, npc.name, npc.needs), ('add', 'record-seen-live', 'public', 'Rix Xizzix', []))
+        self.assertEqual(npc.notes, ['title: Lost and Found', 'questie: level 45, <Lost and Found>', '3 claims wait for it'])
+        self.assertEqual(npc.witnesses, [eg(LIVE), questie('trace'), questie('generated')])
+
+    def test_without_a_record_nothing_says_what_it_looks_like(self):
+        made = self.decide({11: ('Beta only', '', [eg(BETA)])},
+                           {10: ('Listed', 'questie: level 5', [questie('generated')]), 11: ('', '', [questie('trace')]),
+                            12: ('Hand fix only', '', [questie('fix')]), 2: ('In the world', '', [questie('trace')])})
+        self.assertEqual({n: (d.verdict, d.rule, d.name) for n, d in made.items()}, {
+            10: ('hold', 'trusted-source', 'Listed'), 11: ('hold', 'seen-live', 'Beta only'), 12: ('review', 'one-claim', 'Hand fix only')})
+        self.assertEqual(made[10].needs, ['no record of it from the live game: what it looks like is not known'])
+        self.assertEqual(made[12].needs, [])
+        self.assertEqual(made[11].witnesses, [questie('trace'), eg(BETA)])
+
+    def test_whose_record_it_is(self):
+        reference = Evidence('wowhead', '', LIVE, 1, 'wowhead', True, 'reference')
+        made = self.decide({13: ('Private', '', [ICY]), 14: ('Reference', '', [reference]), 15: ('Both', '', [ICY, eg(BETA)]),
+                            16: ('A reference saw it live', '', [reference])}, {16: ('', '', [questie('generated')])})
+        self.assertEqual({n: (d.verdict, d.rule, d.allowed) for n, d in made.items()}, {
+            13: ('add', 'record-seen-live', 'private'), 14: ('review', 'reference-only', 'private'), 15: ('add', 'record-seen-live', 'private'),
+            16: ('hold', 'trusted-source', 'public')})         # a reference's record is no record to write a template from
+
+    def test_a_developer_s_leftover_is_for_a_person(self):
+        made = self.decide({17: ('[DNT] Bunny', '', [eg()]), 18: ('', '', [eg()])}, {18: ('zzOLD Vendor', '', [questie('generated')])})
+        self.assertEqual({n: (d.verdict, d.rule, d.allowed, d.name) for n, d in made.items()}, {
+            17: ('review', 'looks-internal', 'public', '[DNT] Bunny'), 18: ('review', 'looks-internal', 'public', 'zzOLD Vendor')})
+
+    def test_an_npc_only_claims_name(self):
+        made = self.decide({}, {}, {19: 2, 20: 0, 1: 5})
+        self.assertEqual({n: (d.verdict, d.rule, d.allowed, d.needs, d.notes, d.witnesses) for n, d in made.items()}, {
+            19: ('review', 'only-claimed', 'private', ['nothing describes it: claims only name it'], ['2 claims wait for it'], []),
+            20: ('review', 'only-claimed', 'private', ['nothing describes it: claims only name it'], [], [])})
+
+    def test_the_name_and_title_are_one_record_s_words(self):
+        rows = [('eglink', 9, BETA, 1, 'Old Name', 'Old Title'), ('eglink', 9, LIVE, 2, 'New Name', ''),      # the newest has no title: none, not the old one
+                ('wowhead', 9, LIVE + 1, 1, 'A reference', 'Its title'), ('eglink', 10, LIVE, 1, '', ''), ('nobody', 11, LIVE, 1, 'Unknown source', ''),
+                ('wowhead', 12, LIVE, 1, 'Only a reference names it', '')]
+        records = resolve.npc_records(REGISTRY, rows)
+        self.assertEqual({npc: (name, title, len(witnesses)) for npc, (name, title, witnesses) in records.items()}, {
+            9: ('New Name', '', 3), 10: ('', '', 1), 12: ('Only a reference names it', '', 1)})
+
+
 class Whole(unittest.TestCase):
     def test_resolve_ties_the_kinds_together(self):
         claims = {'gives': {('npc', 1, 200): [questie('trace')], ('npc', 2, 100): [eg()], ('npc', 9, 200): [eg()], ('npc', 1, 201): [eg()]},
@@ -292,15 +356,68 @@ class Whole(unittest.TestCase):
                   'sells': {('npc', 2, 900): [eg()]}}
         records = {200: ('New quest', [eg()]), 100: ('Old quest', [eg()]), 201: ('No ender', [eg()])}
         decisions, summary = resolve.resolve(REGISTRY, WORLD, claims, records)
-        self.assertEqual(list(summary), ['gives', 'takes', 'sells', 'quest'])
+        self.assertEqual(list(summary), ['gives', 'takes', 'sells', 'npc', 'quest'])
         # the pairs of a quest that is ready come with it; a pair that also lacks its NPC, or whose quest is on hold, stays on hold
         self.assertEqual(summary, {'gives': {'add': 2, 'hold': 2, 'agreed': 0}, 'takes': {'add': 1, 'agreed': 0}, 'sells': {'agreed': 1},
-                                   'quest': {'add': 1, 'hold': 1, 'agreed': 1}})
+                                   'npc': {'review': 1, 'agreed': 0}, 'quest': {'add': 1, 'hold': 1, 'agreed': 1}})
         by = {(d.kind, d.subject, d.object): d for d in decisions}
         self.assertEqual((by[('quest', 200, 0)].verdict, by[('quest', 200, 0)].notes), ('add', ['giver: npc 1', 'ender: npc 2']))
         self.assertEqual((by[('gives', 1, 200)].verdict, by[('gives', 1, 200)].needs, by[('gives', 1, 200)].notes), ('add', [], ['comes with quest 200']))
-        self.assertEqual((by[('gives', 9, 200)].verdict, by[('gives', 9, 200)].needs), ('hold', ['NPC 9 has no template', 'quest 200 is not in the world']))
+        # the quest comes, the NPC does not: nothing describes NPC 9, claims only name it
+        self.assertEqual((by[('gives', 9, 200)].verdict, by[('gives', 9, 200)].needs, by[('gives', 9, 200)].notes),
+                         ('hold', ['NPC 9 has no template'], ['quest 200 is ready to add']))
+        self.assertEqual((by[('npc', 9, 0)].verdict, by[('npc', 9, 0)].rule, by[('npc', 9, 0)].needs, by[('npc', 9, 0)].notes),
+                         ('review', 'only-claimed', ['nothing describes it: claims only name it'], ['1 claim waits for it']))
         self.assertEqual((by[('gives', 1, 201)].verdict, by[('quest', 201, 0)].needs), ('hold', ['no ender known']))
+
+    def test_what_waits_for_an_npc_comes_with_it(self):
+        claims = {'gives': {('npc', 9, 200): [eg()], ('npc', 9, 100): [eg()], ('npc', 8, 100): [eg()]},
+                  'takes': {('npc', 9, 200): [questie('trace')]},
+                  'sells': {('npc', 9, 901): [questie('generated')], ('npc', 8, 901): [questie('generated')]}}
+        records = {200: ('Only the new NPC knows', [eg()])}
+        decisions, summary = resolve.resolve(REGISTRY, WORLD, claims, records, npc_records={9: ('Rix Xizzix', '', [eg()]), 1: ('There', '', [eg()])},
+                                             npc_entries={8: ('No model', '', [questie('generated')])})
+        by = {(d.kind, d.subject, d.object): d for d in decisions}
+        self.assertEqual((by[('npc', 9, 0)].verdict, by[('npc', 9, 0)].notes), ('add', ['4 claims wait for it']))
+        self.assertEqual((by[('npc', 8, 0)].verdict, by[('npc', 8, 0)].notes), ('hold', ['2 claims wait for it']))
+        # the quest's only giver and ender is the NPC that comes; its pairs wait for both and get both
+        self.assertEqual((by[('quest', 200, 0)].verdict, by[('quest', 200, 0)].notes),
+                         ('add', ['its giver comes with NPC 9', 'giver: npc 9', 'its ender comes with NPC 9', 'ender: npc 9']))
+        self.assertEqual((by[('gives', 9, 200)].verdict, by[('gives', 9, 200)].notes), ('add', ['comes with NPC 9', 'comes with quest 200']))
+        self.assertEqual((by[('gives', 9, 100)].verdict, by[('gives', 9, 100)].notes), ('add', ['comes with NPC 9']))
+        self.assertEqual((by[('sells', 9, 901)].verdict, by[('sells', 9, 901)].rule), ('add', 'trusted-source'))
+        self.assertEqual((by[('gives', 8, 100)].verdict, by[('sells', 8, 901)].verdict), ('hold', 'hold'))       # its NPC is on hold itself
+        self.assertEqual(summary['npc'], {'add': 1, 'hold': 1, 'agreed': 1})
+
+    def test_only_what_waits_for_nothing_else_comes(self):
+        claims = {'gives': {('npc', 9, 200): [questie('fix')],                 # one claim only: for a person, ready NPC or not
+                            ('npc', 9, 201): [eg()],                           # its quest stays on hold: so does the pair
+                            ('npc', 90, 100): [eg()], ('npc', 1, 200): [eg()]},
+                  'takes': {('npc', 1, 200): [eg()]}}
+        records = {200: ('Ready', [eg()]), 201: ('No ender', [eg()])}
+        decisions, _summary = resolve.resolve(REGISTRY, WORLD, claims, records, npc_records={9: ('Rix Xizzix', '', [eg()])},
+                                              npc_entries={90: ('Not the same NPC', '', [questie('generated')])})
+        by = {(d.kind, d.subject, d.object): d for d in decisions}
+        self.assertEqual((by[('npc', 9, 0)].verdict, by[('npc', 9, 0)].notes), ('add', ['1 claim waits for it']))     # the review pair does not count
+        self.assertEqual((by[('gives', 9, 200)].verdict, by[('gives', 9, 200)].rule, by[('gives', 9, 200)].needs, by[('gives', 9, 200)].notes),
+                         ('review', 'one-claim', [], ['NPC 9 is ready to add', 'quest 200 is ready to add']))
+        self.assertEqual((by[('gives', 9, 201)].verdict, by[('gives', 9, 201)].needs, by[('gives', 9, 201)].notes),
+                         ('hold', ['quest 201 is not in the world'], ['NPC 9 is ready to add']))
+        self.assertEqual((by[('gives', 90, 100)].verdict, by[('gives', 90, 100)].needs), ('hold', ['NPC 90 has no template']))
+        self.assertEqual(by[('npc', 90, 0)].verdict, 'hold')
+
+    def test_what_comes_with_something_private_is_private(self):
+        claims = {'gives': {('npc', 9, 200): [eg()], ('npc', 9, 100): [eg()]}, 'takes': {('npc', 9, 200): [eg()], ('npc', 1, 201): [eg()]},
+                  'sells': {('npc', 9, 901): [eg()]}}
+        records = {200: ('Its NPC is private', [eg()]), 201: ('Half private', [eg()])}
+        claims['gives'][('npc', 9, 201)] = [eg()]
+        decisions, _summary = resolve.resolve(REGISTRY, WORLD, claims, records, npc_records={9: ('From a private source', '', [ICY])})
+        by = {(d.kind, d.subject, d.object): d for d in decisions}
+        self.assertEqual((by[('npc', 9, 0)].verdict, by[('npc', 9, 0)].allowed), ('add', 'private'))
+        for key in (('quest', 200, 0), ('gives', 9, 200), ('takes', 9, 200), ('gives', 9, 100), ('sells', 9, 901), ('quest', 201, 0), ('gives', 9, 201)):
+            self.assertEqual((by[key].verdict, by[key].allowed), ('add', 'private'), key)
+        self.assertEqual((by[('takes', 1, 201)].verdict, by[('takes', 1, 201)].allowed, by[('takes', 1, 201)].notes),
+                         ('add', 'private', ['comes with quest 201']))        # its quest cannot be published, so neither can it
 
     def test_what_the_world_holds_counts_for_a_missing_quest(self):
         world = dict(WORLD, gives=WORLD['gives'] | {('npc', 1, 210)}, takes=WORLD['takes'] | {('object', 50, 210)})
@@ -362,12 +479,18 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
                        Fact('gives', 'npc', 2, 100, LIVE, 2, {}),
                        Fact('sells', 'npc', 2, 900, LIVE, 1, {'listings': []}), Fact('sells', 'npc', 2, 901, LIVE, 1, {'listings': []}),
                        Fact('sells', 'npc', 3, 900, LIVE, 1, {}), Fact('sells', 'npc', 2, 903, LIVE, 1, {}), Fact('sells', 'npc', 4, 904, LIVE, 1, {}),
-                       Fact('sells', 'npc', 2, 77, LIVE, 1, {})],
+                       Fact('sells', 'npc', 2, 77, LIVE, 1, {}), Fact('sells', 'npc', 9, 905, LIVE, 1, {}),
+                       Fact('creature', 'npc', 9, 0, BETA, 1, {'name': 'Old name', 'title': None}),
+                       Fact('creature', 'npc', 9, 0, LIVE, 2, {'name': "Rix 'Xizzix'", 'title': 'Lost and Found', 'displays': [{'displayId': 116260}]}),
+                       Fact('creature', 'npc', 1, 0, LIVE, 2, {'name': 'There'})],
             'questie': [Fact('takes', 'object', 50, 200, 0, 1, {'parts': {'trace': ['quest.finishedBy_add'], 'generated': ['quest.finishedBy']}}),
                         Fact('gives', 'npc', 3, 201, 0, 0, {'parts': {'fix': ['npc.questStarts']}}),
                         Fact('gives', 'npc', 4, 101, 0, 0, {'parts': {'generated': ['npc.questStarts']}}),
                         Fact('entry', 'npc', 2, 0, 0, 0, {'parts': {'fix': {'questStarts_remove': [100]}}}),
-                        Fact('entry', 'npc', 3, 0, 0, 0, {'parts': {'fix': {'name': 'not a _remove field, only the text'}}})],
+                        Fact('entry', 'npc', 3, 0, 0, 0, {'parts': {'fix': {'name': 'not a _remove field, only the text'}}}),
+                        Fact('entry', 'npc', 9, 0, 0, 1, {'parts': {'generated': {'name': 'Rix Xizzix', 'minLevel': 44, 'maxLevel': 45, 'subName': 'Lost and Found'},
+                                                                    'trace': {'minLevel': 45, 'maxLevel': True}}}),
+                        Fact('entry', 'npc', 8, 0, 0, 0, {'parts': {'generated': {'name': 'No Model', 'minLevel': 5, 'maxLevel': 5}}})],
         }
         for source, rows in stored.items():
             path = os.path.join(cls.folder.name, source + '.sql')
@@ -391,15 +514,25 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
         self.assertEqual(records[200][0], "Kobold's énd")                          # the newest build's title
         self.assertEqual(records[201][0], '')
         self.assertEqual(removed, {'gives': {('npc', 2, 100)}, 'takes': set(), 'sells': set()})
-        decisions, summary = resolve.resolve(REGISTRY, world, claims, records, removed)
+        npc_records, npc_entries = resolve.load_npcs(self.db, REGISTRY)
+        self.assertEqual((npc_records[9][0], npc_records[9][1], len(npc_records[9][2])), ("Rix 'Xizzix'", 'Lost and Found', 2))       # the newest build's words
+        self.assertEqual(npc_entries[9][:2], ('Rix Xizzix', 'questie: level 44-45, <Lost and Found>'))
+        self.assertEqual(npc_entries[8][:2], ('No Model', 'questie: level 5'))
+        self.assertEqual(npc_entries[3][:2], ('not a _remove field, only the text', ''))
+        decisions, summary = resolve.resolve(REGISTRY, world, claims, records, removed, npc_records, npc_entries)
         path = os.path.join(self.folder.name, 'decisions.sql')
         resolve.write_sql(path, decisions, summary)
         self.db.execute_file(path, 'tracker')
         when, stored_summary = resolve.stored_summary(self.db)
         self.assertTrue(when)
-        self.assertEqual(list(stored_summary), ['gives', 'takes', 'sells', 'quest'])
+        self.assertEqual(list(stored_summary), ['gives', 'takes', 'sells', 'npc', 'quest'])
         self.assertEqual(stored_summary, {'gives': {'add': 2, 'review': 2, 'agreed': 2}, 'takes': {'add': 1, 'agreed': 0},
-                                          'sells': {'add': 2, 'agreed': 4}, 'quest': {'add': 1, 'hold': 1, 'agreed': 1}})
+                                          'sells': {'add': 3, 'agreed': 4}, 'npc': {'add': 1, 'hold': 1, 'agreed': 3},      # three NPCs the sources describe are there already
+                                          'quest': {'add': 1, 'hold': 1, 'agreed': 1}})
+        npcs = {row['subject']: row for row in resolve.stored(self.db, 'npc')[0]}
+        self.assertEqual((npcs[9]['verdict'], npcs[9]['rule'], npcs[9]['name']), ('add', 'record-seen-live', "Rix 'Xizzix'"))
+        self.assertEqual(npcs[9]['notes'], ['title: Lost and Found', 'questie: level 44-45, <Lost and Found>', '1 claim waits for it'])
+        self.assertEqual((npcs[8]['verdict'], npcs[8]['needs']), ('hold', ['no record of it from the live game: what it looks like is not known']))
         rows, total = resolve.stored(self.db, 'quest')
         quests = {row['subject']: row for row in rows}
         self.assertEqual(total, 2)
@@ -407,9 +540,10 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
         self.assertEqual(quests[200]['notes'], ['giver: npc 1', 'its ender is not spawned: object 50', 'ender: object 50'])
         self.assertEqual([(w['source'], w['build'], w['live']) for w in quests[200]['witnesses']], [('eglink', LIVE, True)])
         self.assertEqual((quests[201]['verdict'], quests[201]['needs']), ('hold', ['its giver is one claim only: npc 3', 'no ender known']))
-        self.assertEqual([row['object'] for row in resolve.stored(self.db, 'sells', 'add')[0]], [77, 901])       # 77 is a currency row in the world, not an item
+        self.assertEqual([row['object'] for row in resolve.stored(self.db, 'sells', 'add')[0]], [77, 901, 905])  # 77 is a currency row in the world, not an item
+        self.assertEqual(resolve.stored(self.db, 'sells', 'add')[0][2]['notes'], ['comes with NPC 9'])
         self.assertEqual(resolve.stored(self.db, 'sells', 'review'), ([], 0))
-        self.assertEqual(resolve.stored(self.db, 'sells', limit=1)[1], 2)
+        self.assertEqual(resolve.stored(self.db, 'sells', limit=1)[1], 3)
         self.assertEqual(len(resolve.stored(self.db, 'sells', limit=-3)[0]), 1)
         gives = {(row['subject'], row['object']): (row['verdict'], row['rule']) for row in resolve.stored(self.db, 'gives')[0]}
         self.assertEqual(gives, {(1, 200): ('add', 'seen-live'), (2, 100): ('review', 'removed-by-hand'), (3, 201): ('review', 'one-claim'),
