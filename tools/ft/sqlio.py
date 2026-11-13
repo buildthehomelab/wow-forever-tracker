@@ -1,5 +1,6 @@
 """Tiny MySQL access through the mysql command-line client (no Python driver needed)."""
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -32,10 +33,15 @@ def _client_file(account=None):
     return handle.name
 
 
+_ESCAPE = re.compile(r'\\(.)', re.S)
+_ESCAPES = {'t': '\t', 'n': '\n', '0': '\0', '\\': '\\'}
+
+
 def _unescape(value):
     if value == 'NULL':
         return None
-    return value.replace('\\t', '\t').replace('\\n', '\n').replace('\\0', '\0').replace('\\\\', '\\')
+    # in one pass: replacing "\n" before "\\" would turn an escaped backslash followed by an n into a line break
+    return _ESCAPE.sub(lambda match: _ESCAPES.get(match.group(1), match.group(0)), value)
 
 
 def query(sql, database='world', account=None):

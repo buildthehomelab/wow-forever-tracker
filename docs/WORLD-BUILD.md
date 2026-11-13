@@ -165,6 +165,48 @@ Limits:
 - `world why` tells apart "the release's row" and "no such row" only for rows nothing touched.
 - The hotfixes database is not replayed yet.
 
+## Facts: what each source says
+
+The layers above the server's world are not databases: they are claims. "This NPC offers that quest", "this vendor
+sells that item for this much", "this is the quest's record as the server sent it". `world facts <source>` reads a
+pinned source and stores its claims in one shape, in the tracker's own database:
+
+```bash
+python tools/tracker.py world pin eglink      # the version to read
+python tools/tracker.py world facts eglink    # download what is missing, read it, replace that source's facts
+python tools/tracker.py world facts           # what is stored: per source and kind
+```
+
+| Kind | About | Says |
+|---|---|---|
+| `gives`, `takes` | an NPC or object, and a quest | who offers a quest, who takes it back |
+| `sells` | an NPC and an item | every way the vendor lists it: costs, stack, limited stock |
+| `teaches` | an NPC and a spell | costs, level, skill line and rank |
+| `drops` | an NPC, object or container, and an item | per way of looting (alone, in a group, on a quest, through which spell): drops, loot windows, kills, the source's own chance |
+| `gathers`, `fishes` | an NPC through a spell (skinning, pick pocketing); the water of a map | the same |
+| `coins` | an NPC, object or container | the money looted, per way of looting |
+| `talked`, `seen` | an NPC or object | a player opened its window; it was seen or fought: levels, rank, reactions, where |
+| `quest`, `creature`, `object` | one of them | its record as the server sent it to a client |
+| `objective`, `turn_in` | a quest | an objective counted while doing it; what handing it in gave |
+
+Each fact keeps its source, the client build it was recorded on, the source's own record, and how much stands behind
+it, in the kind's own unit: loot windows that show every item (a group's window does not, so a drop only seen in
+groups has none) for loot and money, windows opened for `talked`, sightings for `seen`, players for the others.
+Nothing is weighed or worked out at this point: the numbers are the source's, a drop seen once is stored like one
+seen a thousand times, a beta build like a live one. Only a long list of positions is cut to 40, with the number
+there were. The rules that weigh facts come next, and read only this table, so a new source is one reader and
+nothing else.
+
+Tables: `ft_world_facts` (source, kind, subject, object, build, samples, data) and `ft_world_sources` (the version
+read, its licence and use, when, how many records could not be read). Loading a source replaces its facts in one
+transaction; the analysis does not touch these tables.
+
+Sources read so far:
+
+| Source | Reads |
+|---|---|
+| `eglink` | Every WoW Forever build of the pinned commit: `npcs`, `creatures`, `vendors`, `trainers`, `loot`, `quests`, `creature_details`, `object_details`, `objectives`, `turn_ins`. Not read yet: boss loot rolls (`loot`'s `rolls`), flights, game rules, the texts and the hotfix caches. Downloads go to `data/eglink/<commit>/`, the folder the website's EG Link import also uses; a file that is not whole is not kept, and one found broken stops the reading |
+
 ## Tests
 
 ```bash
@@ -172,8 +214,8 @@ python -m unittest discover -s tools/tests
 ```
 
 Standard library only, no database and no network: the registry's rules (a source without a licence is never public,
-witness groups, the most restricted use wins), every pin type against recorded answers, and the replay's file guard,
-order and trigger statements.
+witness groups, the most restricted use wins), every pin type against recorded answers, the replay's file guard,
+order and trigger statements, and the facts read from a small copy of each source's files.
 
 One class replays a small world on a real MySQL server, under an account it creates with rights on the scratch
 database only, and checks every origin. It runs when `FT_TEST_CONFIG` names a `config.ini` of a **throwaway** server

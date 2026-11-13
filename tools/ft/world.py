@@ -1,8 +1,9 @@
 """The `world` commands of tools/tracker.py: the world build's layers, sources and pins, and the replay of the server's
 world into a scratch database (docs/WORLD-BUILD.md)."""
+import collections
 import os
 
-from . import layers, replay, sqlio
+from . import facts, layers, replay, sqlio
 from .config import CONFIG, DATA
 
 LOCK = os.path.join(DATA, 'world', 'layers.lock.json')
@@ -77,7 +78,50 @@ def run_why(args):
         print('  no update file touched it')
 
 
+def show_facts():
+    try:
+        sources, kinds = facts.summary(sqlio)
+    except RuntimeError as error:
+        raise SystemExit(f'facts: {str(error).strip()}')
+    if not sources:
+        print('no facts loaded yet: tracker.py world facts <source>   (' + ', '.join(sorted(facts.READERS)) + ')')
+        return
+    for source, pin, licence, allowed, count, left_out, loaded in sources:
+        print(f'{source}  {pin[:24]}  {licence}, {allowed}  loaded {loaded}  {count} facts' + (f', {left_out} records left out' if left_out else ''))
+        for _source, kind, n, subjects, first, last in (k for k in kinds if k[0] == source):
+            print(f'  {kind:10} {n:>8}  about {subjects:>6} things  builds {first} to {last}')
+
+
+def run_facts(args):
+    if not args.source:
+        return show_facts()
+    registry = layers.load()
+    if args.source not in facts.READERS or args.source not in registry.sources:
+        raise SystemExit(f'no facts are read from {args.source} yet (sources read: ' + ', '.join(sorted(facts.READERS)) + ')')
+    source = registry.source(args.source)
+    pin = (layers.read_lock(LOCK).get('sources', {}).get(args.source) or {}).get('version')
+    if not pin:
+        raise SystemExit(f'{args.source} is not pinned yet: python tools/tracker.py world pin {args.source}')
+    folder = os.path.join(DATA, args.source, pin)
+    skipped = collections.Counter()
+    path = os.path.join(DATA, 'world', f'facts-{args.source}.sql')
+    try:
+        fetched = facts.FETCHERS[args.source](pin, folder, log=print)
+        counts = facts.write_sql(path, args.source, pin, source['licence'], source['use'], facts.READERS[args.source](folder, skipped), skipped)
+        if not counts:
+            raise facts.SourceError(f'no fact could be read from {folder}')
+        sqlio.execute_file(path, 'tracker')
+    except (facts.SourceError, RuntimeError) as error:
+        raise SystemExit(f'{args.source}: {str(error).strip()}')
+    print(f'{fetched} files downloaded, {sum(counts.values())} facts loaded into {CONFIG.db("tracker")}')
+    if source.get('credit'):
+        print('credit: ' + source['credit'])
+    show_facts()
+
+
 def run(args):
+    if args.world_command == 'facts':
+        return run_facts(args)
     if args.world_command == 'replay':
         return run_replay(args)
     if args.world_command == 'why':

@@ -6,6 +6,7 @@
     python tools/tracker.py world layers | pin [source ...]
     python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
     python tools/tracker.py world why <table> <key> [<key> ...]
+    python tools/tracker.py world facts [source]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -20,7 +21,8 @@ public Forever tooltips (cached in data/wowhead). The Forge spawns them.
 `world` is the world build (docs/WORLD-BUILD.md): `layers` lists the layers and their sources, `pin` records the
 newest version of each source in data/world/layers.lock.json, `replay` rebuilds the server's world (release dump plus
 update files, in the updater's order) in the scratch database named by [build] database and records which file wrote
-each row, and `why` answers where one row comes from. Only the scratch database is written.
+each row, and `why` answers where one row comes from. Only the scratch database is written. `facts <source>` reads
+what a pinned source says (who gives a quest, what a vendor sells, what drops) into the tracker's own database.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
@@ -308,6 +310,8 @@ def main():
     rep.add_argument('--keep-going', action='store_true', help='record a failing file and go on (default: stop, as the updater does)')
     rep.add_argument('--trust-account', action='store_true',
                      help='run although the MySQL account can write to other databases: only on a throwaway server that holds nothing else')
+    fact = world_sub.add_parser('facts', help='read what a source says into the tracker database, or list what is stored')
+    fact.add_argument('source', nargs='?', help='the source to read (eglink); without it: what is stored')
     why = world_sub.add_parser('why', help='where a row of the replayed world comes from')
     why.add_argument('table')
     why.add_argument('key', nargs='+', help="the row's key values, in the order of the table's key columns")
