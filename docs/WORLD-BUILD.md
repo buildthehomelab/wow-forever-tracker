@@ -188,6 +188,7 @@ python tools/tracker.py world facts           # what is stored: per source and k
 | `talked`, `seen` | an NPC or object | a player opened its window; it was seen or fought: levels, rank, reactions, where |
 | `quest`, `creature`, `object` | one of them | its record as the server sent it to a client |
 | `objective`, `turn_in` | a quest | an objective counted while doing it; what handing it in gave |
+| `text` | a quest | what was said when it was offered, asked about and handed in: the wordings seen, the most seen first (twelve at most) |
 | `entry` | a quest, NPC, object or item | its entry in a database people keep by hand, in that database's own fields |
 
 Each fact keeps its source, the client build it was recorded on, the source's own record, and how much stands behind
@@ -209,7 +210,7 @@ Sources read so far:
 |---|---|
 | `rxpguides` | RestedXP's levelling guides (RXPGuides), the Forever guide files the addon's own list names, at the pinned commit. A guide is written by hand, step by step. A step that names exactly one NPC, by its id, and has the player accept or turn in a quest there states who gives or takes that quest: only those steps are read (`gives`, `takes`). Each fact keeps the steps that say it, ten at most: the guide, the NPC's name as written, where the step sends the player last, the step's filter and season tags, the line's own filter. A guide's own filter (a whole guide written for one faction) is not kept. Not read, because who gives the quest is then not stated: a step that names its NPC by name only or names several, and a step its authors switched off. Counted as left out: a step whose one target is something to click (an object, which the guide does not tell from an NPC) and a quest id that is not a plain number. A `.goto` is where the player should stand, not where something spawns. Steps about quests the Classic Era client already has, Season of Discovery included (`tools/baseline/classic-era.json`), are left out: most are the Classic guide's own lines carried over. Its licence is non-commercial and share-alike, so it is `private`: it counts as a witness and never gives a published row; and it is written, not recorded, so it is never a live recording by itself. A guide file that is cut short stops the reading |
 | `questie` | QuestieDB's twelve Forever correction files of the pinned commit. Its Forever data is the Classic database with converted coordinates, plus corrections; only the corrections say something about Forever, so only they are read, and each fact names the part that says it: `trace` (what players' QuestieTrace recordings showed on live Forever), `generated` (the reviewed delta QuestieDB generates for Forever; it is built from Wowhead's pages, so it is no second witness beside Wowhead), `fix` (a correction written by hand), `dynamic:<table>` (a hand correction that depends on the player, with the table it stands in: one faction's quest giver is not the other's). Who gives and takes a quest, what drops and sells an item, and each quest's, NPC's, object's and item's whole correction as an `entry`, kept whole. A name used as a value stays a name (`raceIDs.NIGHT_ELF+raceIDs.HUMAN`), one used as a key keeps its last part (`ELWYNN_FOREST`). A `_remove` correction and a plain empty list ("none") stay in the entry and state no fact; in QuestieDB a hand fix's plain list replaces the generated one, which only the entries show. Facts are not tied to a client build. A file that is missing, cut short, or written in a way the reader does not know (code where data should be, a function that returns two tables) stops the reading; a value of a shape it does not know is counted and left out, never guessed at. A thirteenth file added upstream is not noticed |
-| `eglink` | Every WoW Forever build of the pinned commit: `npcs`, `creatures`, `vendors`, `trainers`, `loot`, `quests`, `creature_details`, `object_details`, `objectives`, `turn_ins`. Not read yet: boss loot rolls (`loot`'s `rolls`), flights, game rules, the texts and the hotfix caches. Downloads go to `data/eglink/<commit>/`, the folder the website's EG Link import also uses; a file that is not whole is not kept, and one found broken stops the reading |
+| `eglink` | Every WoW Forever build of the pinned commit: `npcs`, `creatures`, `vendors`, `trainers`, `loot`, `quests`, `creature_details`, `object_details`, `objectives`, `turn_ins`, and the quest texts of `texts`. Not read yet: boss loot rolls (`loot`'s `rolls`), flights, game rules, the other texts (gossip, greetings, books) and the hotfix caches. Downloads go to `data/eglink/<commit>/`, the folder the website's EG Link import also uses; a file that is not whole is not kept, and one found broken stops the reading |
 
 ## Rules: what the world should hold and does not
 
@@ -445,6 +446,7 @@ every recorded Forever quest holds, or left to the table's default; nothing is g
 | `quest_classic_money` | the money, exactly, when the record states any |
 | `quest_reward_display_spell` | the spells shown as rewards, in the record's order |
 | `quest_template_addon` | `AllowableClasses`: QuestieDB's word, else the class of a class category (a quest filed under "Paladin" is a paladin's); `PrevQuestID`: the one quest QuestieDB says comes before, when the world has it |
+| `quest_offer_reward`, `quest_request_items` | what the NPC says when the quest is handed in, and while it is not done yet: the text a recording of the live game shows in that window, from a text fact (below) |
 
 How it was checked: for the 463 quests the replayed world holds from a recording of build 70124 or later that EG Link
 also recorded, the rows made here were compared with the world's, column by column. Each column agrees on 97 to
@@ -456,12 +458,26 @@ A quest's text is kept to the character (line breaks and backslashes are written
 `sql_mode` nor a repository's line-end rules can change it). A quest goes in whole or not at all: only while the world
 has no row of it in any of these tables, none of its objective ids is another quest's, and no file added it before.
 
+**What the NPC says at the turn-in** is not in the record: it is what a player's client showed in the quest's window
+(`text` facts). A text comes with its quest when the recordings of the live game have it in one wording, over every
+build; two wordings are two answers (the NPC speaks otherwise to another class, the text changed, or the recorder
+guessed a word on one of them), and none is taken. The manifest names the recording each text is from (`texts`). Line breaks are written as `$B`, as most of the world's own texts have them. A text only a source
+without a licence recorded stays out of a row that may be published. A quest is not refused for a text the world
+holds already: that text stays, and only what the file added is recorded as its own. A quest an earlier export
+carries is not written again, so a text recorded after that export does not reach it yet.
+
+How it was checked: for the quests the replayed world and EG Link both have a text of, EG Link's is the world's
+(apart from line breaks and the case of `$N`) for 817 of 876 hand-in texts and 547 of 560 progress texts. Where
+they differ, about a third are a word the recorder could not turn back into what the server holds: a race or class
+name where the server has `$R` or `$C` (or the reverse), or one sex's word where the server has both
+(`$Ghis:her;`). Such a text reads right for the player who recorded it and can read wrong for another.
+
 What a quest's rows do not hold is left to the table's default or not written, and listed in every manifest
 (`left_to_defaults`): the money columns of `quest_template` (the money is exact in `quest_classic_money` instead),
 `RewardFactionFlags` and the other columns no record carries, the POI and portrait columns, an objective's own
 `Flags` (32 for every objective: what four in five recorded Forever objectives hold), the rest of
-`quest_template_addon`, what the NPC says and does at the turn-in (`quest_offer_reward`, `quest_request_items`,
-`quest_details`), `quest_poi`, and the texts and rewards a record gives for a player condition. A field a record
+`quest_template_addon`, the turn-in texts no recording has in one wording and their emotes, `quest_details`,
+`quest_poi`, and the texts and rewards a record gives for a player condition. A field a record
 carries that is not read is named per quest (`unread`), so nothing is dropped in silence. A record that does not fit
 the columns (a reputation tier outside -9 to 9, a zone and a category at once, text the file cannot hold) holds its
 quest back with the reason.

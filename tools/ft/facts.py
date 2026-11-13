@@ -20,6 +20,9 @@ facts, and nothing after it needs to know the source's format:
     object        object             -        the object's record as the server sent it
     objective     quest              index    an objective counted while a player did the quest
     turn_in       quest              -        what handing the quest in gave
+    text          quest              -        what was said when the quest was offered (accept), asked about
+                                              (progress) and handed in (complete): the wordings seen, the most
+                                              seen first (MAX_WORDINGS of them at most)
     entry         quest, npc,        -        its entry in a database people keep by hand (QuestieDB's corrections), in
                   object, item                that database's own fields
 
@@ -41,7 +44,7 @@ from . import luadata
 
 FACTS, SOURCES = 'ft_world_facts', 'ft_world_sources'
 KINDS = ('gives', 'takes', 'sells', 'teaches', 'drops', 'gathers', 'fishes', 'coins', 'talked', 'seen', 'quest', 'creature', 'object',
-         'objective', 'turn_in', 'entry')
+         'objective', 'turn_in', 'text', 'entry')
 SUBJECTS = ('npc', 'object', 'item', 'quest', 'uimap')
 Fact = collections.namedtuple('Fact', 'kind subject_kind subject object build samples data')
 
@@ -93,7 +96,7 @@ def _capped(record, without=()):
 EGLINK_REPO = 'JIVESCORP/eg-link-output-wowf'
 EGLINK_PRODUCT = 'wowf'
 EGLINK_DATASETS = ('npcs', 'creatures', 'vendors', 'trainers', 'loot', 'quests.enUS', 'creature_details.enUS', 'object_details.enUS',
-                   'objectives', 'turn_ins')
+                   'objectives', 'turn_ins', 'texts.enUS')
 VERSION = re.compile(r'\d+\.\d+\.\d+\.(\d+)')
 COMMIT = re.compile(r'[0-9a-f]{40}')
 LOOTED = {'npc': 'npc', 'object': 'object', 'item': 'item', 'fishing': 'uimap'}
@@ -236,12 +239,36 @@ def _eglink_turn_ins(build, dataset, skipped):
         yield Fact('turn_in', 'quest', quest, 0, build, max([_count(s.get('sources')) for s in seen] or [0]), {'seen': seen})
 
 
+TEXT_MOMENTS = ('accept', 'progress', 'complete')
+MAX_WORDINGS = 12
+
+
+def _eglink_texts(build, dataset, skipped):
+    """What a quest's NPC said, per moment: [{'text', 'sources', 'times', 'template'}], the most seen first. `template`
+    is 'questCache' for a text read from the client's quest cache and absent for one read in the quest's window."""
+    for key, said in _records(dataset, 'quests'):
+        quest = _id(key)
+        if quest is None or not isinstance(said, dict):
+            skipped['texts.enUS'] += 1
+            continue
+        data = {}
+        for moment in TEXT_MOMENTS:
+            lines = [line for line in said.get(moment) or [] if isinstance(line, dict) and isinstance(line.get('text'), str) and line['text'].strip()] \
+                if isinstance(said.get(moment), list) else []
+            lines.sort(key=lambda line: (-_count(line.get('times')), line['text']))
+            if lines:
+                data[moment] = [dict({'text': line['text'], 'sources': _count(line.get('sources')), 'times': _count(line.get('times'))},
+                                     **({'template': str(line['template'])[:32]} if line.get('template') else {})) for line in lines[:MAX_WORDINGS]]
+        if data:
+            yield Fact('text', 'quest', quest, 0, build, max(line['sources'] for lines in data.values() for line in lines), data)
+
+
 EGLINK_READERS = {
     'npcs': _eglink_npcs, 'creatures': _eglink_creatures, 'vendors': _eglink_vendors, 'trainers': _eglink_trainers, 'loot': _eglink_loot,
     'quests.enUS': _eglink_records('quest', 'quest', 'quests', 'quests.enUS'),
     'creature_details.enUS': _eglink_records('creature', 'npc', 'creatures', 'creature_details.enUS'),
     'object_details.enUS': _eglink_records('object', 'object', 'objects', 'object_details.enUS'),
-    'objectives': _eglink_objectives, 'turn_ins': _eglink_turn_ins,
+    'objectives': _eglink_objectives, 'turn_ins': _eglink_turn_ins, 'texts.enUS': _eglink_texts,
 }
 
 

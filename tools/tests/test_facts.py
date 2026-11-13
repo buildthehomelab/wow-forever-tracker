@@ -64,6 +64,11 @@ BUILD = {
     'objectives': {'quests': {'1014': {'1': {'type': 'item', 'required': 1, 'gains': 1, 'sources': 1, 'positions': MANY}, 'x': {}}, '1015': ['odd']},
                    'completed': {'2843': {}}},
     'turn_ins': {'quests': {'1109': [{'xp': 6950, 'money': 0, 'sources': 2}, 'junk', {'xp': 7000, 'sources': 1}], '1110': 'junk'}, 'withLegacy': {}},
+    'texts.enUS': {'quests': {'91724': {'accept': [{'text': 'From the cache.', 'template': 'questCache', 'sources': 1, 'times': 1}, {'text': 'Take these, $N.', 'sources': 2, 'times': 5}],
+                                        'complete': [{'text': 'Rarely said.', 'sources': 1, 'times': 1}, {'text': 'Well done.\n\nHere.', 'sources': 3, 'times': 4, 'speakers': {'npc:5': 4}},
+                                                     {'text': '   '}, 'junk', {'text': 5}], 'objectives': [{'text': 'Not a window.'}], 'progress': 'junk'},
+                              '91725': {'objectives': [{'text': 'Only the log.'}]}, '91726': 'junk', 'x': {}},
+                   'gossip': {'npc:1': [{'text': 'Hello.'}]}},
     'game_rules': {'rules': {'1': 2}},
 }
 
@@ -100,7 +105,7 @@ class EgLink(unittest.TestCase):
             self.assertEqual(fact.build, 70862)
         self.assertEqual(collections.Counter(f.kind for f in self.facts), {
             'talked': 3, 'gives': 2, 'takes': 1, 'seen': 1, 'sells': 2, 'teaches': 1, 'drops': 4, 'gathers': 2, 'fishes': 1, 'coins': 2,
-            'quest': 1, 'creature': 1, 'object': 1, 'objective': 1, 'turn_in': 1})
+            'quest': 1, 'creature': 1, 'object': 1, 'objective': 1, 'turn_in': 1, 'text': 1})
 
     def test_who_gives_and_takes_a_quest(self):
         self.assertEqual(self.by[('gives', 'npc', 240, 35)], Fact('gives', 'npc', 240, 35, 70862, 3, {'title': 'Further Concerns', 'level': 10, 'repeatable': False}))
@@ -171,8 +176,16 @@ class EgLink(unittest.TestCase):
         self.assertEqual(self.by[('turn_in', 'quest', 1109, 0)],
                          Fact('turn_in', 'quest', 1109, 0, 70862, 2, {'seen': [{'xp': 6950, 'money': 0, 'sources': 2}, {'xp': 7000, 'sources': 1}]}))
 
+    def test_what_was_said_in_a_quest_s_windows(self):
+        said = self.by[('text', 'quest', 91724, 0)]
+        self.assertEqual((said.samples, said.build), (3, 70862))
+        # per moment, the most seen wording first; what is not a text is left out, and so is a moment nothing was said in
+        self.assertEqual(said.data, {'accept': [{'text': 'Take these, $N.', 'sources': 2, 'times': 5}, {'text': 'From the cache.', 'sources': 1, 'times': 1, 'template': 'questCache'}],
+                                     'complete': [{'text': 'Well done.\n\nHere.', 'sources': 3, 'times': 4}, {'text': 'Rarely said.', 'sources': 1, 'times': 1}]})
+        self.assertNotIn(('text', 'quest', 91725, 0), self.by)              # the log's line is the record's: no window said anything
+
     def test_what_could_not_be_read_is_counted_not_guessed(self):
-        self.assertEqual(dict(self.skipped), {'npcs': 4, 'creatures': 1, 'vendors': 1, 'trainers': 1, 'loot': 4, 'objectives': 2, 'turn_ins': 1})
+        self.assertEqual(dict(self.skipped), {'npcs': 4, 'creatures': 1, 'vendors': 1, 'trainers': 1, 'loot': 4, 'objectives': 2, 'turn_ins': 1, 'texts.enUS': 2})
 
     def test_builds_in_order_and_a_missing_folder(self):
         with tempfile.TemporaryDirectory() as folder:
