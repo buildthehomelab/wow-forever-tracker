@@ -43,6 +43,13 @@ NN 900 keeps Forge files after the other files of the same day; the operation nu
 - **A deployed file is never edited**: the updater would run it, and every later custom file, again. A later fix is a
   new operation and a new file.
 
+## The world build's files
+
+The [world build](WORLD-BUILD.md) writes its own files for the same repository (`python tools/tracker.py world export`):
+`YYYY_MM_DD_NNN_world_everlake_build.sql` (NNN from 950), with a manifest in the repository's `build/` folder. They
+use the same ledger and are as safe to run again; their rows come from the build's decisions, not from a Forge
+operation, and a row the ledger says a file added before is never added again.
+
 ## Before you commit
 
 Check the data repository's open pull requests for the same rows: the files skip rows that already exist, so an

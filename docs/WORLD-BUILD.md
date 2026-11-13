@@ -300,10 +300,70 @@ that may be published, because the record's values are what gets written.
 would make everything look missing.
 
 Tables: `ft_world_decisions` (kind, subject, object, verdict, rule, allowed, name, needs, notes, witnesses) and
-`ft_world_resolved` (when, the summary). A resolve replaces them whole. Approving, rejecting and exporting decisions
-come with the next step; so do drops, trainers, spawn positions and the fields of rows the world already has. Not
+`ft_world_resolved` (when, the summary). A resolve replaces them whole. Approving and rejecting decisions by hand
+come later; so do drops, trainers, spawn positions and the fields of rows the world already has. Not
 followed yet: a QuestieDB hand fix whose plain list replaces a generated one (only `_remove` is read), and a build
 of a test realm later than `live_from` (it counts as live).
+
+## Export: the decisions that are ready, as an update file
+
+```bash
+python tools/tracker.py world export --dry-run                       # plan it and try it, write nothing
+python tools/tracker.py world export --out <checkout of your data repository> [--private-out <folder>]
+```
+
+`world export` writes the decisions with the verdict `add` as the kind of file the core's updater applies from
+`sql/custom/world`:
+
+| Written | Where |
+|---|---|
+| `YYYY_MM_DD_NNN_world_everlake_build.sql`: the rows that may be published | `<out>/sql/world/` (default `data/world/export/public`) |
+| `YYYY_MM_DD_NNN_world_everlake_build_private.sql`: the rows only a source without a licence to publish states | `<private out>/sql/world/` (default `data/world/export/private`) |
+| `<the file's name>.json`: which decision each row carries (rule, witnesses), the pins of its sources, the file's SHA-1, what was held back and why | `build/` of the same folder |
+
+NNN starts at 950, so a build file runs after the day's other files (the Forge's exports use 900), and the public
+file sorts before the private one of the same export: a private row may need a public one, never the other way
+round. A number is used once a file or a manifest carries it. Nothing is committed or pushed: the files are yours to
+review and commit.
+
+A file that may be published names only sources that may be: a private or reference source that also witnessed a row
+stays out of the file, its ledger note and its manifest.
+
+**What a file may do**
+
+- **Running it again changes nothing, and it never changes a row it did not add.** Each table's rows go through a
+  temporary stage table; only the missing ones are inserted.
+- **A row goes in only while the world is as the decision saw it**: its NPC or object and its quest exist, the
+  vendor does not list the item at any price, nobody borrows the vendor's list, and no earlier file added the row
+  before (a row the server's owners took out stays out).
+- **Every row is recorded** in the server's ledger `everlake_import_rows`: table, key, file, and as its note the rule
+  that passed it and the sources that state it (`seen-live: eglink@70938, questie:trace`). Rows carry
+  `VerifiedBuild` 0: they are not a recording of the server. Each row also has its meaning beside it in the file
+  (`-- Jason Mathers gives Bottles and Baubles`).
+- **An NPC that gets its first quest or its first item also gets the flag** (quest giver, vendor) on its template, or
+  players could not use the row. A spawn that overrides its template's flags is not touched.
+- **A deployed file is never edited.** A later fix is a later export.
+
+**Tried before it is written.** The file's statements run twice on the replayed world, inside a transaction that is
+rolled back, so the scratch database stays what the replay made it. The first run must add every row and record it;
+a row the world does not take is left out and reported; a second run that adds or removes a row or sets a flag, or
+a statement the world refuses, stops the export and nothing is written. The tables are counted again after the
+rollback: a world that kept anything (a table that does not roll back) is reported loudly. A file name the world's
+ledger already knows is refused too: two different files of one name would make the updater run the second as a
+changed first.
+
+**What is written today, and what is held back**
+
+| Decision | Written as | Held back when |
+|---|---|---|
+| an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest or its NPC is itself only ready to add (their rows are not written yet); the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
+| a vendor sells an item | `npc_vendor`, a plain row: sold for money, in endless supply, in the next free slot | no recording of the live game shows the vendor's window with a money price for it: a list that only says "sold by" does not say what it costs. Also: it costs items or a currency (the extended cost id is not known), its stock is limited (the restock time is not known), a newer recording says one of those even if it may not give the row itself, another vendor borrows this vendor's list |
+| a quest, an NPC the world lacks | not yet | always: quest rows and NPC templates are the next writers |
+
+The summary names every reason with its count. A decision an earlier export in the same folders carries is not
+written again, whatever the world holds by now: point `--out` at the data repository's checkout and its `build/`
+folder is the record of what was exported. Once a file is merged there, the next `world replay --data` holds its
+rows and the next `world resolve` no longer asks for them.
 
 ## Tests
 
@@ -317,7 +377,7 @@ order and trigger statements, and the facts read from a small copy of each sourc
 
 One class replays a small world on a real MySQL server, under an account it creates with rights on the scratch
 database only, and checks every origin. It runs when `FT_TEST_CONFIG` names a `config.ini` of a **throwaway** server
-whose user may create and drop databases and accounts, and is skipped otherwise. The database tests of the facts and of the rules also create and drop that server's `[database]
+whose user may create and drop databases and accounts, and is skipped otherwise. The database tests of the facts, of the rules and of the export also create and drop that server's `[database]
 tracker` database: one more reason to point them at a throwaway server only:
 
 ```bash
