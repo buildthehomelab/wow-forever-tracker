@@ -19,10 +19,11 @@ The rules a file follows:
   a row the world refuses is left out and reported, and a second run that adds anything stops the export.
 - A decision an earlier export in the same folder already carries is not written again.
 
-What is written today: quests (ft/quests.py: the quest's row from the record the server sent, its objectives,
-levels, money and reward spells), the quest starters and enders of NPCs and objects, and vendor items whose price a
-recording of the live game shows to be money. Everything else that is ready is held back with its reason (NPC
-templates are not written yet, and what waits for them waits with them).
+What is written today: the templates of NPCs that are friendly to players (ft/npcs.py: what the NPC looks like from
+the record the server sent, its level from a source that states it, its faction a stand-in by side), quests
+(ft/quests.py: the quest's row from the record, its objectives, levels, money and reward spells), the quest starters
+and enders of NPCs and objects, and vendor items whose price a recording of the live game shows to be money.
+Everything else that is ready is held back with its reason, and what waits for it waits with it.
 
 This module reads no configuration. Databases are reached through objects with `query(sql, database)`.
 """
@@ -32,7 +33,7 @@ import json
 import os
 import re
 
-from . import facts, quests, replay, resolve
+from . import facts, npcs, quests, replay, resolve
 
 LEDGER, STAGE, CHECK = 'everlake_import_rows', 'everlake_build_stage', 'everlake_build_check'
 LEDGER_DDL = (
@@ -53,14 +54,17 @@ DATE = re.compile(r'^\d{4}-\d{2}-\d{2}\Z')
 SETS = ('public', 'private')
 RELATIONS = {('gives', 'npc'): 'creature_queststarter', ('takes', 'npc'): 'creature_questender',
              ('gives', 'object'): 'gameobject_queststarter', ('takes', 'object'): 'gameobject_questender'}
-VENDOR, QUEST = 'npc_vendor', 'quest_template'
-ORDER = (QUEST, 'creature_queststarter', 'creature_questender', 'gameobject_queststarter', 'gameobject_questender', VENDOR)
-QUESTS, OBJECTIVES = 'everlake_build_quests', 'everlake_build_objectives'
+VENDOR, QUEST, NPC = 'npc_vendor', 'quest_template', 'creature_template'
+ORDER = (NPC, QUEST, 'creature_queststarter', 'creature_questender', 'gameobject_queststarter', 'gameobject_questender', VENDOR)     # what others need comes first
+QUESTS, OBJECTIVES, NPCS, MODELS = 'everlake_build_quests', 'everlake_build_objectives', 'everlake_build_npcs', 'everlake_build_models'
+NPC_CHILDREN = (('creature_template_difficulty', 'Entry', ('Entry', 'DifficultyID')), ('creature_template_model', 'CreatureID', ('CreatureID', 'Idx')),
+                ('creature_classic_level', 'entry', ('entry',)))
 # the tables a quest's own rows go to, with the column that names the quest and the key the ledger records
 CHILDREN = (('quest_objectives', 'QuestID', ('ID',)), ('quest_classic_level', 'ID', ('ID',)), ('quest_template_classic_level', 'ID', ('ID', 'LevelType')),
             ('quest_classic_money', 'ID', ('ID',)), ('quest_reward_display_spell', 'QuestID', ('QuestID', 'Idx')), ('quest_template_addon', 'ID', ('ID',)))
-VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell')            # the tables with a VerifiedBuild column: 0, not a recording
-KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, VENDOR: 4}, **{table: len(key) for table, _quest, key in CHILDREN})
+# the tables with a VerifiedBuild column: 0, not a recording
+VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell', NPC, 'creature_template_difficulty', 'creature_template_model')
+KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, NPC: 1, VENDOR: 4}, **{table: len(key) for table, _parent, key in CHILDREN + NPC_CHILDREN})
 QUESTGIVER_FLAG, VENDOR_FLAG, QUESTGIVER_OBJECT = 2, 128, 2
 BATCH = 200
 REFUSED = ('the replayed world does not take it: it holds the row by now, an earlier file added it and it was taken out since, '
@@ -126,9 +130,34 @@ def priced(windows):
     return reason, whose
 
 
-def quest_row(decision, known, world):
+def npc_row(decision, known, extra):
+    """(Row, '') for an NPC that is ready, or (None, why it cannot be written). `known` is what load_npcs found for
+    it: its record, its level and whom it is friendly to. `extra['model_info']` holds the display ids the world can
+    show (creature_model_info): an NPC whose model is not among them could not be loaded."""
+    npc = decision['subject']
+    if not known or known.get('record') is None:
+        return None, 'no record a row may be written from'
+    friendly_to, whose = npcs.side(known.get('stated'), known.get('reactions'), known.get('talked'), known.get('fought', False), known.get('against', ()))
+    if not friendly_to:
+        return None, whose
+    if not known.get('level'):
+        return None, 'nothing states its level'
+    made, problems = npcs.rows(npc, known['record'], known['level'][:2], friendly_to)
+    if problems:
+        return None, 'its record cannot be written: ' + problems[0]
+    unknown = [model['CreatureDisplayID'] for model in made.models if model['CreatureDisplayID'] not in extra.get('model_info', ())]
+    if unknown:
+        return None, f"the world has no size for its model: creature_model_info (display {unknown[0]})"
+    allowed = 'private' if 'private' in (decision['allowed'], known['use']) else 'public'
+    data = {'npc': made, 'record': f"{known['source']}@{known['build']}", 'side': friendly_to, 'side_how': whose, 'side_from': known['side_source'] if whose == 'questie' else known['seen_source'],
+            'level_from': known['level'][2]}
+    data['sources'] = {known['source'], data['side_from'], data['level_from']} | ({known['seen_source']} if known.get('talked') is not None else set())
+    return Row(NPC, (npc,), note(decision, allowed), made.template['name'], allowed, decision, data), ''
+
+
+def quest_row(decision, known, world, arriving=()):
     """(Row, '') for a quest that is ready, or (None, why it cannot be written). `known` is what load_quests found
-    for it: the record a row may be written from, and what QuestieDB adds."""
+    for it: the record a row may be written from, and what QuestieDB adds. `arriving` holds the NPCs written with it."""
     quest = decision['subject']
     if not known:
         return None, 'no record a row may be written from'
@@ -136,7 +165,7 @@ def quest_row(decision, known, world):
     if problems:
         return None, 'its record cannot be written: ' + problems[0]
     for kind, label_, there in (('npc', 'NPC', world['npcs']), ('object', 'object', world['objects'])):
-        lacking = [number for number in quests.targets(made)[kind] if number not in there]
+        lacking = [number for number in quests.targets(made)[kind] if number not in there and not (kind == 'npc' and number in arriving)]
         if lacking:
             return None, f'an objective needs an {label_} that has no template ({label_} {lacking[0]})'
     allowed = 'private' if 'private' in (decision['allowed'], known['use']) else 'public'
@@ -144,27 +173,37 @@ def quest_row(decision, known, world):
     addon = {'AllowableClasses': known.get('classes') or made.classes, 'PrevQuestID': previous if previous in world['quests'] else 0}
     stated = bool(known.get('classes') or addon['PrevQuestID'])                  # QuestieDB's word is in the row: it is named as a source
     data = {'quest': made, 'addon': addon if any(addon.values()) else None, 'record': f"{known['source']}@{known['build']}",
+            'needs': [number for number in quests.targets(made)['npc'] if number not in world['npcs']],          # the NPCs written with it that it cannot do without
             'sources': {known['source']} | ({known['addon_source']} if stated else set()),
             'from_questiedb': {key: value for key, value in (('AllowableClasses', known.get('classes', 0)), ('PrevQuestID', addon['PrevQuestID'])) if value}}
     return Row(QUEST, (quest,), note(decision, allowed), made.template['LogTitle'], allowed, decision, data), ''
 
 
-def plan(ready, world, prices, extra, records=None):
+def plan(ready, world, prices, extra, records=None, creatures=None):
     """(rows to write, what is held back) for the decisions that are ready.
 
     `ready` are stored decisions (dicts) with the verdict add; `world` is resolve.load_world's; `prices` is
     {(npc, item): [(use, build, listings)]}; `extra` holds what only the export asks the world: `borrowed` (the
     vendors whose list another vendor borrows), `quest_objects` (the objects of the quest giver kind) and `names`;
-    `records` is load_quests' {quest: what a row may be written from}.
+    `records` is load_quests' {quest: what a row may be written from}, `creatures` load_npcs' the same for NPCs.
 
     A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all: a quest whose
     givers all wait (for an NPC template) waits with them, and so do its other pairs."""
     rows, held = [], []
     names = dict(extra.get('names', {}))
+    arriving = {}                        # the NPCs that can be written: what waits for one of them comes with it
+    for d in ready:
+        if d['kind'] == 'npc':
+            row, why = npc_row(d, (creatures or {}).get(d['subject']), extra)
+            if row:
+                arriving[d['subject']] = row
+                names[('npc', d['subject'])] = row.comment
+            else:
+                held.append(Held(d, why))
     coming = {}                          # the quests that can be written, before their givers and enders are looked at
     for d in ready:
         if d['kind'] == 'quest':
-            row, why = quest_row(d, (records or {}).get(d['subject']), world)
+            row, why = quest_row(d, (records or {}).get(d['subject']), world, arriving)
             if row:
                 coming[d['subject']] = row
                 names[('quest', d['subject'])] = row.comment
@@ -183,12 +222,10 @@ def plan(ready, world, prices, extra, records=None):
 
     for d in ready:
         kind, subject_kind, subject, other = d['kind'], d['subject_kind'], d['subject'], d['object']
-        if kind == 'quest':
+        if kind in ('quest', 'npc'):
             continue
-        elif kind == 'npc':
-            held.append(Held(d, 'NPC templates are not written yet'))
-        elif subject_kind == 'npc' and subject not in world['npcs']:
-            held.append(Held(d, 'it waits for its NPC: NPC templates are not written yet'))
+        elif subject_kind == 'npc' and subject not in world['npcs'] and subject not in arriving:
+            held.append(Held(d, 'it waits for its NPC, which is held back'))
         elif leftover(subject_kind, subject):
             held.append(Held(d, f"the world's {'NPC' if subject_kind == 'npc' else subject_kind} reads like a developer's leftover: for a person"))
         elif kind in ('gives', 'takes') and leftover('quest', other):
@@ -215,7 +252,7 @@ def plan(ready, world, prices, extra, records=None):
                 rows.append(Row(VENDOR, (subject, other, 0, 1), note(d, allowed), f"{name('npc', subject)} sells {name('item', other)}", allowed, d))
         else:
             held.append(Held(d, 'no writer for this kind of decision'))
-    rows, dropped = settle([coming[quest] for quest in sorted(coming)] + rows, world)
+    rows, dropped = settle([arriving[npc] for npc in sorted(arriving)] + [coming[quest] for quest in sorted(coming)] + rows, world)
     return rows, held + [Held(row.decision, why) for row, why in dropped]
 
 
@@ -224,7 +261,9 @@ def settle(rows, world, present=()):
     takes it, a pair needs its quest, and what may be published must not need what may not:
 
     - a quest with no giver or no ender among the world's pairs and the rows is dropped, and its pairs with it;
-    - a quest whose only givers (or enders) are private is private itself, and so is every pair of a private quest.
+    - a quest whose only givers (or enders) are private is private itself, and so is every pair of a private quest;
+    - what needs an NPC that is written with it (its quest pairs, its vendor items, a quest with an objective on it)
+      is dropped when the NPC is, and private when the NPC is.
 
     `present` holds the (table, key) of rows an earlier export carries: they reach the world before this file."""
     rows, dropped = list(rows), []
@@ -233,8 +272,25 @@ def settle(rows, world, present=()):
         if table in RELATIONS.values():
             there['giver' if 'starter' in table else 'ender'].add(key[1])
     known = set(world['quests']) | {key[0] for table, key in present if table == QUEST}
+    standing = set(world['npcs']) | {key[0] for table, key in present if table == NPC}
     private = lambda row: row._replace(allowed='private', note=note(row.decision, 'private'))
+
+    def needed(row):                     # the NPCs a row cannot do without, other than the world's own
+        if row.table == QUEST:
+            return [number for number in row.data.get('needs', ()) if number not in standing]
+        return [row.key[0]] if (row.table == VENDOR or row.table.startswith('creature_quest')) and row.key[0] not in standing else []
     while True:
+        written, kept, changed = {row.key[0]: row.allowed for row in rows if row.table == NPC}, [], False
+        for row in rows:                 # first what hangs on an NPC: it goes where the NPC goes, or nowhere
+            lacking = [number for number in needed(row) if number not in written]
+            if lacking:
+                dropped.append((row, 'it waits for its NPC, which is held back' if row.table != QUEST else f'an objective needs an NPC that is held back (NPC {lacking[0]})'))
+                changed = True
+                continue
+            if row.allowed == 'public' and any(written[number] == 'private' for number in needed(row)):
+                row, changed = private(row), True
+            kept.append(row)
+        rows = kept
         sides = {(role, anyone): set(there[role]) for role in ('giver', 'ender') for anyone in (True, False)}
         for row in rows:
             if row.table in RELATIONS.values():
@@ -242,7 +298,7 @@ def settle(rows, world, present=()):
                 sides[(role, True)].add(row.key[1])
                 if row.allowed == 'public':
                     sides[(role, False)].add(row.key[1])
-        kept, written, changed = [], {}, False
+        kept, written = [], {}
         for row in rows:
             if row.table != QUEST:
                 kept.append(row)
@@ -308,6 +364,8 @@ def text_literal(value):
 def value_literal(value):
     if isinstance(value, bool):
         raise ExportError('a yes or no where a number or a text belongs')
+    if value is None:
+        return 'NULL'
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
@@ -358,26 +416,62 @@ def quest_block(rows, file):
         out += staged_like(OBJECTIVES, 'quest_objectives', children['quest_objectives'], ', `taken` TINYINT NOT NULL DEFAULT 0')
         out.append(f"UPDATE {quote(OBJECTIVES)} p SET p.`taken` = 1 WHERE EXISTS (SELECT 1 FROM `quest_objectives` o WHERE o.`ID` = p.`ID`) "
                    f"OR EXISTS (SELECT 1 FROM {quote(LEDGER)} r WHERE r.`tbl` = 'quest_objectives' AND r.`k1` = p.`ID`)")
+        # nor does an objective name an NPC or an object the world has no template of (an NPC of this file went in above, or did not)
+        out.append(f"UPDATE {quote(OBJECTIVES)} p SET p.`taken` = 1 WHERE (p.`Type` IN (0, 3) AND p.`ObjectID` > 0 AND NOT EXISTS (SELECT 1 FROM `creature_template` c WHERE c.`entry` = p.`ObjectID`)) "
+                   f"OR (p.`Type` = 2 AND p.`ObjectID` > 0 AND NOT EXISTS (SELECT 1 FROM `gameobject_template` g WHERE g.`entry` = p.`ObjectID`))")
         free.append(f"NOT EXISTS (SELECT 1 FROM {quote(OBJECTIVES)} p WHERE p.`QuestID` = s.`ID` AND p.`taken` = 1)")
     out.append(f"UPDATE {quote(QUESTS)} s SET s.`missing` = 1 WHERE " + ' AND '.join(free))
     columns = ', '.join(quote(c) for c in made[0].template)
     out.append(f"INSERT INTO {quote(QUEST)} ({columns}, `VerifiedBuild`) SELECT {columns}, 0 FROM {quote(QUESTS)} s WHERE s.`missing` = 1 ORDER BY s.`n`")
     out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, `k1`, `file`, `note`) SELECT {literal(QUEST)}, s.`ID`, {literal(file)}, s.`note` FROM {quote(QUESTS)} s WHERE s.`missing` = 1")
-    for table, column, key in CHILDREN:
+    out += brought(CHILDREN, children, QUESTS, 'ID', {'quest_objectives': OBJECTIVES}, file)
+    out.append(f'DROP TEMPORARY TABLE {quote(QUESTS)}')
+    return out
+
+
+def brought(tables, children, parents, parent_key, staged_before, file):
+    """The statements that add the rows a quest or an NPC brings with it: each child table's rows go in for the
+    parents this file added (`missing` in the parents' stage), and are recorded under the parent's note.
+    `staged_before` names the stage tables that exist already ({table: stage})."""
+    out = []
+    for table, column, key in tables:
         records = children[table]
         if not records:
             continue
-        stage = OBJECTIVES if table == 'quest_objectives' else STAGE
-        if stage == STAGE:
+        stage = staged_before.get(table, STAGE)
+        if table not in staged_before:
             out += staged_like(STAGE, table, records)
         names = ', '.join(quote(c) for c in records[0])
-        taken = f"FROM {quote(stage)} p JOIN {quote(QUESTS)} s ON s.`ID` = p.{quote(column)} WHERE s.`missing` = 1"
+        taken = f"FROM {quote(stage)} p JOIN {quote(parents)} s ON s.{quote(parent_key)} = p.{quote(column)} WHERE s.`missing` = 1"
         out.append(f"INSERT INTO {quote(table)} ({names}{', `VerifiedBuild`' if table in VERIFIED else ''}) "
                    f"SELECT {', '.join('p.' + quote(c) for c in records[0])}{', 0' if table in VERIFIED else ''} {taken} ORDER BY p.`n`")
         out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, {', '.join(f'`k{i + 1}`' for i in range(len(key)))}, `file`, `note`) "
                    f"SELECT {literal(table)}, {', '.join('p.' + quote(c) for c in key)}, {literal(file)}, s.`note` {taken}")
         out.append(f'DROP TEMPORARY TABLE {quote(stage)}')
-    out.append(f'DROP TEMPORARY TABLE {quote(QUESTS)}')
+    return out
+
+
+def npc_block(rows, file):
+    """The NPC templates: each goes in whole or not at all. An NPC is taken while the world has no row of it in any of
+    its tables, the world can show every one of its models (creature_model_info), and no file added it before."""
+    made = [row.data['npc'] for row in rows]
+    out = staged_like(NPCS, NPC, [npc.template for npc in made], ", `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0",
+                      [(row.note, row.comment) for row in rows])
+    children = {'creature_template_difficulty': [npc.difficulty for npc in made], 'creature_template_model': [model for npc in made for model in npc.models],
+                'creature_classic_level': [collections.OrderedDict(entry=npc.template['entry'], level_min=npc.level[0], level_max=npc.level[1]) for npc in made]}
+    out += staged_like(MODELS, 'creature_template_model', children['creature_template_model'], ', `unknown` TINYINT NOT NULL DEFAULT 0')
+    out.append(f"UPDATE {quote(MODELS)} p SET p.`unknown` = 1 WHERE NOT EXISTS (SELECT 1 FROM `creature_model_info` i WHERE i.`DisplayID` = p.`CreatureDisplayID`)")
+    keyed = ', '.join(literal(table) for table in (NPC,) + tuple(table for table, _column, _key in NPC_CHILDREN))
+    free = [f"NOT EXISTS (SELECT 1 FROM {quote(NPC)} t WHERE t.`entry` = s.`entry`)",
+            f"NOT EXISTS (SELECT 1 FROM {quote(LEDGER)} r WHERE r.`tbl` IN ({keyed}) AND r.`k1` = s.`entry`)"]
+    free += [f"NOT EXISTS (SELECT 1 FROM {quote(table)} c WHERE c.{quote(column)} = s.`entry`)" for table, column, _key in NPC_CHILDREN]
+    free.append(f"NOT EXISTS (SELECT 1 FROM {quote(MODELS)} p WHERE p.`CreatureID` = s.`entry` AND p.`unknown` = 1)")
+    out.append(f"UPDATE {quote(NPCS)} s SET s.`missing` = 1 WHERE " + ' AND '.join(free))
+    columns = ', '.join(quote(c) for c in made[0].template)
+    out.append(f"INSERT INTO {quote(NPC)} ({columns}, `VerifiedBuild`) SELECT {columns}, 0 FROM {quote(NPCS)} s WHERE s.`missing` = 1 ORDER BY s.`n`")
+    out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, `k1`, `file`, `note`) SELECT {literal(NPC)}, s.`entry`, {literal(file)}, s.`note` FROM {quote(NPCS)} s WHERE s.`missing` = 1")
+    out += brought(NPC_CHILDREN, children, NPCS, 'entry', {'creature_template_model': MODELS}, file)
+    out.append(f'DROP TEMPORARY TABLE {quote(NPCS)}')
     return out
 
 
@@ -450,7 +544,7 @@ def body(rows, file):
     for table in ORDER:
         mine = sorted((row for row in rows if row.table == table), key=lambda row: row.key)
         if mine:
-            out += quest_block(mine, file) if table == QUEST else vendor_block(mine, file) if table == VENDOR else relation_block(table, mine, file)
+            out += (npc_block if table == NPC else quest_block if table == QUEST else vendor_block if table == VENDOR else lambda r, f: relation_block(table, r, f))(mine, file)
     return out
 
 
@@ -526,13 +620,17 @@ def manifest(file, content, kind, rows, pins, against, held):
             'rows': [dict({'table': row.table, 'key': list(row.key), 'kind': row.decision['kind'], 'rule': row.decision['rule'],
                            'witnesses': [label(w) for w in named(row.decision, kind)], 'says': row.comment}, **described(row))
                      for row in sorted(rows, key=lambda row: (ORDER.index(row.table), row.key))],
-            'left_to_defaults': list(quests.LEFT) if any(row.table == QUEST for row in rows) else [],
+            'left_to_defaults': (list(npcs.LEFT) if any(row.table == NPC for row in rows) else []) + (list(quests.LEFT) if any(row.table == QUEST for row in rows) else []),
             'held_back': dict(sorted(collections.Counter(grouped(h.reason) for h in held).items()))}
 
 
 def described(row):
     """What the manifest adds for a row that brings rows of its own: where a quest's values come from, and how many
     rows of each table come with it."""
+    if row.table == NPC:
+        npc = row.data['npc']
+        return {'record': row.data['record'], 'side': row.data['side'], 'side_from': f"{row.data['side_from']}: {row.data['side_how']}", 'faction': npc.template['faction'],
+                'level': list(npc.level), 'level_from': row.data['level_from'], 'models': len(npc.models), 'unread': list(npc.unread)}
     if row.table != QUEST:
         return {}
     quest, addon = row.data['quest'], row.data['addon']
@@ -612,6 +710,101 @@ def load_quests(db, registry, wanted, database='tracker'):
     return out
 
 
+def load_npcs(db, registry, wanted, database='tracker'):
+    """{npc: what an NPC's rows may be written from} for the NPCs in `wanted`:
+
+    - `record`, `use`, `source`, `build`: the newest creature record a source that may give rows recorded on the live
+      game, a publishable source first;
+    - `talked`: the side the newest recording of a player opening its window gives it ('' when none), absent when no
+      publishable source recorded one; `reactions`: how players of each side saw it, every sighting together;
+      `seen_source`: whose recordings those are;
+    - `fought`: a sighting on the live game says players killed or fought it; `against`: the sides a source that may
+      not give rows saw it below neutral. Both only ever hold an NPC back, so any source that records play counts;
+    - `stated`, `side_source`: QuestieDB's friendlyToFaction (a publishable source's entry; its players' recordings
+      are read after its generated list and its hand fix last, and a part that names the field replaces it);
+    - `level`: (min, max, whose word): QuestieDB's, else the levels players saw it at."""
+    out, best, seen = {}, {}, {}
+    wanted = sorted(wanted)
+    number = lambda value, high: isinstance(value, int) and not isinstance(value, bool) and 0 < value <= high
+    for start in range(0, len(wanted), 2000):
+        ids = ', '.join(map(str, wanted[start:start + 2000]))
+        for row in db.query(f"SELECT source, kind, subject, build, data FROM {facts.FACTS} WHERE kind IN ('creature', 'seen', 'talked') AND subject_kind = 'npc' "
+                            f"AND subject IN ({ids}) ORDER BY source, build", database):
+            if row['source'] not in registry.sources:
+                continue
+            use, build, npc = registry.source(row['source'])['use'], int(row['build']), int(row['subject'])
+            if use == 'reference' or not registry.witness(row['source'], '', build)[1]:
+                continue
+            try:
+                data = json.loads(row['data'])
+            except ValueError:
+                data = None
+            if row['kind'] == 'creature':
+                rank = (use == 'public', build, row['source'])
+                if npc not in best or rank > best[npc]:
+                    best[npc] = rank
+                    out.setdefault(npc, {}).update(use=use, source=row['source'], build=build, record=data)
+                continue
+            if not isinstance(data, dict):
+                continue
+            mine = seen.setdefault(npc, {'reactions': {}, 'levels': set(), 'against': set(), 'fought': False, 'source': ''})
+            reactions = data['reactions'] if isinstance(data.get('reactions'), dict) else {}
+            if row['kind'] == 'seen' and (data.get('deaths') or data.get('xp') or data.get('combatLog')):
+                mine['fought'] = True
+            if use != 'public':                      # a source that may not give rows can still say "not a friend"
+                mine['against'] |= {who[0] for who, values in reactions.items() if who in ('Alliance', 'Horde') and isinstance(values, list)
+                                    and any(isinstance(v, int) and not isinstance(v, bool) and v < npcs.NEUTRAL for v in values)}
+                continue
+            mine['source'] = row['source']
+            if row['kind'] == 'talked':              # rows come oldest first: the newest recording's side stays
+                mine['talked'] = data['side'] if data.get('side') in ('Alliance', 'Horde') else ''
+            for who, values in reactions.items():
+                if isinstance(values, list):
+                    mine['reactions'].setdefault(who, []).extend(values)
+            levels = data.get('levels')
+            for level in levels if isinstance(levels, (dict, list)) else ():
+                if number(level, 255) or (isinstance(level, str) and re.fullmatch(r'[0-9]{1,3}', level) and 0 < int(level) <= 255):
+                    mine['levels'].add(int(level))
+        for row in db.query(f"SELECT source, subject, data FROM {facts.FACTS} WHERE kind = 'entry' AND subject_kind = 'npc' AND subject IN ({ids}) "
+                            f"ORDER BY source, build", database):
+            npc = int(row['subject'])
+            if npc not in out or row['source'] not in registry.sources or registry.source(row['source'])['use'] != 'public':
+                continue
+            try:
+                parts = json.loads(row['data']).get('parts')
+            except (ValueError, AttributeError):
+                continue
+            for part in ('generated', 'trace', 'fix'):
+                fields = parts.get(part) if isinstance(parts, dict) else None
+                if not isinstance(fields, dict):
+                    continue
+                if 'friendlyToFaction' in fields:
+                    out[npc].update(stated=fields['friendlyToFaction'], side_source=row['source'])
+                if 'minLevel' in fields or 'maxLevel' in fields:
+                    low, high = fields.get('minLevel'), fields.get('maxLevel')
+                    out[npc]['level'] = (low, high, row['source']) if number(low, 255) and number(high, 255) and low <= high else None
+    for npc, known in out.items():
+        mine = seen.get(npc)
+        if mine:
+            known.update(reactions=mine['reactions'], seen_source=mine['source'], fought=mine['fought'], against=sorted(mine['against']))
+            if 'talked' in mine:
+                known['talked'] = mine['talked']
+            if not known.get('level') and mine['levels'] and mine['source']:
+                known['level'] = (min(mine['levels']), max(mine['levels']), mine['source'])
+    return {npc: known for npc, known in out.items() if 'record' in known}
+
+
+def load_model_info(db, build, creatures):
+    """The display ids among the NPCs' models that the world can show (it has their size in creature_model_info)."""
+    wanted = sorted({display['displayId'] for known in creatures.values() if isinstance(known.get('record'), dict)
+                     for display in (known['record'].get('displays') if isinstance(known['record'].get('displays'), list) else ()) if isinstance(display, dict)
+                     and isinstance(display.get('displayId'), int) and not isinstance(display.get('displayId'), bool) and 0 < display['displayId'] < 2 ** 32})
+    out = set()
+    for start in range(0, len(wanted), 2000):
+        out |= {int(row['DisplayID']) for row in db.query(f"SELECT DisplayID FROM creature_model_info WHERE DisplayID IN ({', '.join(map(str, wanted[start:start + 2000]))})", build)}
+    return out
+
+
 def load_pins(db, sources, database='tracker'):
     wanted = ', '.join(facts.sql_value(s) for s in sorted(sources)) or "''"
     return {row['source']: row['pin'] for row in db.query(f'SELECT source, pin FROM {facts.SOURCES} WHERE source IN ({wanted})', database)}
@@ -661,6 +854,8 @@ def trial(db, build, files):
         return {file: set() for file, _rows in files}
     if QUEST in tables:
         tables += [table for table, _quest, _key in CHILDREN]
+    if NPC in tables:
+        tables += [table for table, _npc, _key in NPC_CHILDREN]
     names = ', '.join(literal(file) for file, _rows in files)
     has_ledger = bool(db.query(f"SHOW TABLES LIKE '{LEDGER}'", build))
     # what is measured before, between and after the runs: the rows of each table, and the two flags the file may set
@@ -715,7 +910,9 @@ def export(db, build, tracker, registry, world, folders, date, write=True, datab
     ready = load_ready(tracker, database)
     extra = load_extra(db, build, ready, tracker, registry, database)
     records = load_quests(tracker, registry, {d['subject'] for d in ready if d['kind'] == 'quest'}, database)
-    rows, held = plan(ready, world, load_prices(tracker, registry, database), extra, records)
+    creatures = load_npcs(tracker, registry, {d['subject'] for d in ready if d['kind'] == 'npc'}, database)
+    extra['model_info'] = load_model_info(db, build, creatures)
+    rows, held = plan(ready, world, load_prices(tracker, registry, database), extra, records, creatures)
     before = carried(folders.values())
     earlier = [row for row in rows if (row.table, row.key) in before]
     rows = [row for row in rows if (row.table, row.key) not in before]

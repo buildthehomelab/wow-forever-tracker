@@ -356,15 +356,57 @@ changed first.
 
 | Decision | Written as | Held back when |
 |---|---|---|
-| a quest the world lacks | `quest_template` and the quest's own rows (below), from the record the server sent | no record a row may be written from; the record does not fit the columns; an objective needs an NPC or an object that has no template; nobody who could start or end it can be written yet (its giver waits for an NPC template) |
-| an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest is held back, or its NPC is itself only ready to add (NPC templates are not written yet); the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
+| an NPC the world lacks | `creature_template` and the NPC's own rows (below), from the record the server sent | no record a row may be written from; no player was seen to treat it as a friend (nothing states whom it is friendly to, or only a list does); players fought it, or a side saw it hostile (a monster); nothing states its level; the world has no size for its model (`creature_model_info`); the record does not fit the columns |
+| a quest the world lacks | `quest_template` and the quest's own rows (below), from the record the server sent | no record a row may be written from; the record does not fit the columns; an objective needs an NPC or an object that has no template and is not written with it; nobody who could start or end it can be written yet |
+| an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest or its NPC is held back; the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
 | a vendor sells an item | `npc_vendor`, a plain row: sold for money, in endless supply, in the next free slot | no recording of the live game shows the vendor's window with a money price for it: a list that only says "sold by" does not say what it costs. Also: it costs items or a currency (the extended cost id is not known), its stock is limited (the restock time is not known), a newer recording says one of those even if it may not give the row itself, another vendor borrows this vendor's list |
-| an NPC the world lacks | not yet | always: NPC templates are the next writer |
 
-A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all: in the file the
-quest comes first, then the pairs that hang on it. What may be published never needs what may not: a quest whose
+In the file, what others need comes first: NPC templates, then quests, then the pairs and vendor items that hang on
+them. What needs an NPC that is written with it (its quest pairs, its vendor items, a quest with an objective on it)
+is left out when the NPC is, and private when the NPC is.
+
+A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all. What may be published never needs what may not: a quest whose
 only giver (or ender) is private is private itself, and so is every pair of a private quest. The same is checked
 again after the earlier exports' rows and the rows the trial refused are taken out.
+
+**An NPC's rows** (`tools/ft/npcs.py`). The record is what the client's creature cache holds: what the NPC looks like.
+It is not all the server knows of it, and the writer is plain about what it adds and what it leaves out.
+
+| Table | From |
+|---|---|
+| `creature_template` | the record: name, title, cursor, classification, type, family, class, movement id, the creatures it counts as. Constants of every NPC recorded on Forever: attack times 2000, `unit_flags2` 2048 |
+| `creature_template.faction` | **a stand-in by side.** No source states an NPC's faction id. What is recorded is whom it is friendly to (below). The row gets that side's generic faction: 84 Alliance, 83 Horde, 35 both. Its quests and its goods then reach the players they should; whose guards defend it and whose reputation it is tied to is not known, and an NPC of one side is an enemy of the other |
+| `creature_template_difficulty` | the record: health and mana modifier, difficulty id, type flags |
+| `creature_template_model` | the record's models, scale and probability, in its order |
+| `creature_classic_level` | a source that states the level: QuestieDB's entry, else the levels players saw it at |
+
+**Whom an NPC is friendly to.** Only an NPC that players were seen to treat as a friend is written, never one a list
+alone calls friendly (QuestieDB's list also names monsters):
+
+- a player **talked to it** on the live game (opened its quest, goods or gossip window). Its side is the one the
+  recording gives it; when it gives none, QuestieDB's `friendlyToFaction`; else the side that saw it friendly;
+- or a side's players saw it **friendly** (a reaction above neutral) and never below neutral. Neutral alone says
+  nothing: a deer is neutral. A side that never saw it is not said to be its friend;
+- players **fought it** (a sighting with kills, experience or a combat log): no friend, whatever else is said;
+- a side whose players saw it below neutral is never part of its side. A source that may not give rows can still
+  say so.
+
+A monster needs how hard it hits, its armour and its loot, and no source in the build states those. What the NPC
+does is not written here either: the rows that give it a quest or an item set its quest giver or vendor flag. **No
+spawn is written**: a template says what the NPC is, not where it stands; `tracker.py locate` and the Forge place
+NPCs the content needs.
+
+An NPC goes in whole or not at all: only while the world has no row of it in any of these tables, the world can show
+every one of its models (it has their size in `creature_model_info`; the server does not create a creature whose
+model has none), and no file added it before. The file itself checks the same when it runs, and holds a quest back
+whose objective names an NPC or an object the world has no template of.
+
+How it was checked: for the 600 NPCs the replayed world holds from a recording of build 70124 or later that EG Link
+also recorded, name, title, classification, type, family and class agree on 97 to 100 %, the models on 597, the
+health and mana modifiers on 593 and 600. For the faction there is nothing to agree with: among those NPCs the
+generic faction is the world's own for 58 % of the ones friendly to both sides and for none of the one-sided ones
+(the world gives those their own town's or tribe's faction), which is why it is called a stand-in and named in every
+manifest row (`side`, `side_from`, `faction`).
 
 **A quest's rows** (`tools/ft/quests.py`). The record is what the client's quest cache holds: the server's own answer
 to "what is quest N", as EG Link recorded it on the live game. A field of a row is the record's value, a constant
