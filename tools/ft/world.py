@@ -146,13 +146,14 @@ def run_resolve(args):
             raise SystemExit(f"resolve: the replay did not finish ({', '.join(unfinished)} files): run world replay again first")
         world = resolve.load_world(db, build)
         claims, records, removed = resolve.load_claims(sqlio, registry)
+        npc_records, npc_entries = resolve.load_npcs(sqlio, registry)
     except RuntimeError as error:
         raise SystemExit(f'resolve: {str(error).strip()}\n(the replayed world and the facts are needed first: world replay, world facts <source>)')
     if not world['quests'] or not world['npcs']:
         raise SystemExit('resolve: the replayed world holds no quest or no NPC: run world replay again first')
     if not any(claims.values()) and not records:
         raise SystemExit('resolve: no facts are stored: python tools/tracker.py world facts <source>')
-    decisions, summary = resolve.resolve(registry, world, claims, records, removed)
+    decisions, summary = resolve.resolve(registry, world, claims, records, removed, npc_records, npc_entries)
     path = os.path.join(DATA, 'world', 'decisions.sql')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     resolve.write_sql(path, decisions, summary)
@@ -171,7 +172,8 @@ def run_decisions(args):
     except RuntimeError as error:
         raise SystemExit(f'decisions: {str(error).strip()}')
     for row in rows:
-        what = f"quest {row['subject']} {row['name']}" if row['kind'] == 'quest' else f"{row['subject_kind']} {row['subject']} {row['kind']} {row['object']}"
+        what = (f"{row['kind']} {row['subject']} {row['name']}" if row['kind'] in ('quest', 'npc')
+                else f"{row['subject_kind']} {row['subject']} {row['kind']} {row['object']}")
         said = ', '.join(f"{w['source']}{':' + w['part'] if w['part'] else ''}{' @' + str(w['build']) if w['build'] else ''}{' live' if w['live'] else ''}"
                          for w in row['witnesses'])
         print(f"{row['verdict']:6} {what}  [{row['rule']}, {row['allowed']}]  {said}")

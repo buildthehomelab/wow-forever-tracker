@@ -8,7 +8,7 @@
     python tools/tracker.py world why <table> <key> [<key> ...]
     python tools/tracker.py world facts [source]
     python tools/tracker.py world resolve
-    python tools/tracker.py world decisions [quest|gives|takes|sells] [--verdict add|hold|review] [--limit N]
+    python tools/tracker.py world decisions [quest|npc|gives|takes|sells] [--verdict add|hold|review] [--limit N]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -318,7 +318,7 @@ def main():
     fact.add_argument('source', nargs='?', help='the source to read (eglink); without it: what is stored')
     world_sub.add_parser('resolve', help='weigh the facts against the replayed world and store what the world should hold and does not')
     dec = world_sub.add_parser('decisions', help='the last resolve: a summary, or the decisions of one kind')
-    dec.add_argument('kind', nargs='?', choices=('quest', 'gives', 'takes', 'sells'), help='list the decisions of this kind')
+    dec.add_argument('kind', nargs='?', choices=('quest', 'npc', 'gives', 'takes', 'sells'), help='list the decisions of this kind')
     dec.add_argument('--verdict', choices=('add', 'hold', 'review'))
     dec.add_argument('--limit', type=int, default=50)
     why = world_sub.add_parser('why', help='where a row of the replayed world comes from')
