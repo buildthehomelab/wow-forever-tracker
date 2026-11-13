@@ -54,6 +54,29 @@ class Price(unittest.TestCase):
         self.assertEqual(export.priced([('private', LIVE + 9, MONEY), ('public', LIVE, limited)])[0], 'its stock is limited: the restock time is not known')
         self.assertEqual(export.priced([('private', LIVE, MONEY)]), ('', 'private'))
 
+    def test_an_item_nobody_recorded_is_sold_as_the_world_s_other_vendors_sell_it(self):
+        L = export.Listing
+        self.assertEqual(export.elsewhere([L(2, True, True), L(3, True, True), L(4, True, False)], 1), ('', 2))        # two spawned vendors; a third that is not
+        self.assertEqual(export.elsewhere([L(2, True, True), L(2, True, True)], 1), ('', 1))                           # one vendor listing it twice is one vendor
+        nobody = 'no recording of the live game shows what it costs, and no other vendor players can reach sells it'
+        self.assertEqual(export.elsewhere([], 1), (nobody, 0))
+        self.assertEqual(export.elsewhere([L(1, True, True)], 1), (nobody, 0))                # its own row says nothing about how others sell it
+        self.assertEqual(export.elsewhere([L(2, True, False)], 1), (nobody, 0))               # a vendor nobody can reach, or a leftover: not a vendor of the world
+        other = 'no recording of the live game shows what it costs, and other vendors sell it for a currency, with a condition or in limited stock'
+        self.assertEqual(export.elsewhere([L(2, True, True), L(3, False, True)], 1), (other, 0))
+        self.assertEqual(export.elsewhere([L(2, True, True), L(3, False, False)], 1), (other, 0))     # even one that is not spawned: the item is not always plain
+        self.assertEqual(export.elsewhere([L(2, True, True), L(1, False, True)], 1), ('', 1))
+
+    def test_a_recording_that_may_not_give_a_row_can_still_speak_against_a_plain_one(self):
+        limited, currency = [{'costs': {'5': 25}, 'limited': True}], [{'costItems': [{'currencyId': 515, 'amount': 50}]}]
+        self.assertEqual(export.said_before([('other', 70450, limited)]), 'its stock is limited: the restock time is not known')
+        self.assertEqual(export.said_before([('other', 70450, currency), ('other', 70500, MONEY)]), '')          # the newest of them
+        self.assertEqual(export.said_before([('other', 70500, MONEY + MONEY)]), 'the vendor lists it more than once: one row cannot say that')
+        self.assertEqual(export.said_before([('other', 70450, None)]), '')                  # unreadable, or without a price: it says nothing against
+        self.assertEqual(export.said_before([('other', 70450, [{'stack': 1}])]), '')
+        self.assertEqual(export.said_before([('public', LIVE, limited)]), '')               # a recording that counts is priced()'s to read
+        self.assertEqual(export.priced([('other', 70450, MONEY)]), ('no recording of the live game shows what it costs', 'public'))
+
 
 class Plan(unittest.TestCase):
     def plan(self, decisions, prices=None):
@@ -97,7 +120,7 @@ class Plan(unittest.TestCase):
             ('quest', 200, 0): 'no record a row may be written from', ('npc', 9, 0): 'no record a row may be written from',
             ('gives', 9, 100): 'it waits for its NPC, which is held back', ('sells', 9, 900): 'it waits for its NPC, which is held back',
             ('gives', 1, 200): 'it waits for its quest, which is held back', ('takes', 60, 100): 'its object has no template',
-            ('gives', 51, 100): 'its object is not of the quest giver kind', ('sells', 2, 901): 'no recording of the live game shows what it costs',
+            ('gives', 51, 100): 'its object is not of the quest giver kind', ('sells', 2, 901): 'no recording of the live game shows what it costs, and no other vendor players can reach sells it',
             ('sells', 3, 900): 'other vendors borrow its list: a row here would reach them too', ('gives', 5, 100): 'no writer for this kind of decision'})
 
     def test_nothing_hangs_on_a_row_the_world_holds_as_a_leftover(self):
@@ -108,6 +131,39 @@ class Plan(unittest.TestCase):
         self.assertEqual([h.reason for h in held], ["the world's quest reads like a developer's leftover: for a person"]
                          + ["the world's NPC reads like a developer's leftover: for a person"] * 2
                          + ["the world's object reads like a developer's leftover: for a person"])
+
+    def test_a_vendor_item_without_a_recording_follows_the_world_s_other_vendors(self):
+        L = export.Listing
+        extra = dict(EXTRA, sold={900: [L(2, True, True), L(7, True, True)], 901: [L(2, True, True), L(7, False, True)], 902: [L(1, True, True)]})
+        decisions = [ready('sells', 'npc', 1, 900, rule='trusted-source'), ready('sells', 'npc', 1, 901), ready('sells', 'npc', 1, 902), ready('sells', 'npc', 2, 900),
+                     ready('sells', 'npc', 3, 900), ready('sells', 'npc', 2, 901, allowed='private')]
+        limited = [{'costs': {'5': 25}, 'limited': True}]
+        rows, held = export.plan(decisions, WORLD, {(2, 900): [('public', LIVE, limited)], (2, 901): [('public', LIVE, MONEY)]}, extra)
+        self.assertEqual([(row.key, row.allowed, row.data['sold']) for row in rows], [
+            ((1, 900, 0, 1), 'public', "no recording: the world's other vendors of it (2) all sell it for money, in endless supply"),
+            ((2, 901, 0, 1), 'private', 'a recording of the live game shows it sold for money, in endless supply')])
+        self.assertEqual(export.described(rows[0]), {'sold': rows[0].data['sold']})
+        self.assertEqual({(h.decision['subject'], h.decision['object']): h.reason for h in held}, {
+            (1, 901): 'no recording of the live game shows what it costs, and other vendors sell it for a currency, with a condition or in limited stock',
+            (1, 902): 'no recording of the live game shows what it costs, and no other vendor players can reach sells it',
+            (2, 900): 'its stock is limited: the restock time is not known',          # a recording decides: the other vendors are not asked
+            (3, 900): 'other vendors borrow its list: a row here would reach them too'})
+        # a recording from before the live game cannot give the row, but it holds back what the other vendors would give
+        currency = [{'costItems': [{'currencyId': 515, 'amount': 50}]}]
+        rows, held = export.plan(decisions[:1], WORLD, {(1, 900): [('other', 70450, currency)]}, extra)
+        self.assertEqual((rows, held[0].reason), ([], 'no recording of the live game shows what it costs, and an earlier recording says: '
+                                                      'it costs items or a currency: the extended cost is not known'))
+        self.assertEqual([row.key for row in export.plan(decisions[:1], WORLD, {(1, 900): [('other', 70450, MONEY)]}, extra)[0]], [(1, 900, 0, 1)])
+        # a private recording alone makes a private row; where the world's vendors say the same, the row can be published
+        rows, _held = export.plan([ready('sells', 'npc', 1, 900), ready('sells', 'npc', 1, 902)], WORLD,
+                                  {(1, 900): [('private', LIVE, MONEY)], (1, 902): [('private', LIVE, MONEY)]}, extra)
+        self.assertEqual([(row.key, row.allowed, row.data['sold'][:12]) for row in rows], [((1, 900, 0, 1), 'public', 'no recording'), ((1, 902, 0, 1), 'private', 'a recording ')])
+        self.assertEqual(export.plan([ready('sells', 'npc', 1, 900)], WORLD, {(1, 900): [('private', LIVE, limited)]}, extra)[1][0].reason,
+                         'its stock is limited: the restock time is not known')                # the private recording says it is not plain: nothing overrules it
+        # a decision only a private source states stays private, whatever the price rests on
+        self.assertEqual([row.allowed for row in export.plan([ready('sells', 'npc', 1, 900, allowed='private')], WORLD, {}, extra)[0]], ['private'])
+        self.assertEqual(export.plan([ready('sells', 'npc', 1, 900)], WORLD, {}, {k: v for k, v in EXTRA.items() if k != 'sold'})[1][0].reason,
+                         'no recording of the live game shows what it costs, and no other vendor players can reach sells it')
 
     def test_a_private_decision_or_a_private_price_makes_a_private_row(self):
         rows, _held = self.plan([ready('gives', 'npc', 1, 100, allowed='private'), ready('sells', 'npc', 1, 900), ready('sells', 'npc', 2, 900)],
@@ -630,6 +686,46 @@ INSERT INTO npc_vendor (entry, slot, item, ExtendedCost) VALUES (2, 1, 800, 0), 
     def run_export(self, date='2026-11-13', write=True):
         return export.export(self.db, self.WORLD_DB, self.db, REGISTRY, self.world(), self.folders, date, write)
 
+    def test_how_the_world_s_vendors_list_an_item(self):
+        self.db.execute("""
+INSERT INTO creature VALUES (1, 2), (2, 2), (3, 6), (4, 7), (5, 3);
+INSERT INTO creature_template VALUES (6, '[DNT] Test Vendor', 128), (7, 'Greeter', 2), (8, 'Never Placed', 128), (10, NULL, 128);
+INSERT INTO npc_vendor (entry, slot, item, maxcount, incrtime, PlayerConditionID, BonusListIDs) VALUES
+  (6, 1, 800, 0, 0, 0, NULL), (7, 1, 800, 0, 0, 0, ''), (8, 1, 800, 0, 0, 0, NULL), (4, 1, 801, 2, 7200, 0, NULL), (6, 2, 801, 0, 0, 9, NULL), (8, 2, 801, 0, 0, 0, '5'),
+  (77, 1, 800, 0, 0, 0, NULL), (10, 1, 800, 0, 0, 0, NULL), (2, 8, 802, 0, 0, 0, NULL), (4, 2, 802, 0, 0, 0, NULL);
+INSERT INTO npc_vendor (entry, slot, item, type) VALUES (2, 9, 900, 2);
+CREATE TABLE game_event_npc_vendor (eventEntry tinyint, guid bigint unsigned, slot smallint, item int unsigned, maxcount int unsigned NOT NULL DEFAULT 0,
+  incrtime int unsigned NOT NULL DEFAULT 0, ExtendedCost int unsigned NOT NULL DEFAULT 0, type tinyint unsigned NOT NULL DEFAULT 1, BonusListIDs mediumtext,
+  PlayerConditionID int unsigned NOT NULL DEFAULT 0, IgnoreFiltering tinyint unsigned NOT NULL DEFAULT 0);
+INSERT INTO game_event_npc_vendor (eventEntry, guid, slot, item, ExtendedCost) VALUES (1, 5, 1, 802, 44), (1, 5, 2, 800, 0);
+""", self.WORLD_DB)
+        asked = [{'kind': 'sells', 'subject_kind': 'npc', 'subject': 1, 'object': item} for item in (800, 801, 802, 900, 900, 950)] + [
+            {'kind': 'gives', 'subject_kind': 'npc', 'subject': 1, 'object': 100}]
+        sold = export.load_extra(self.db, self.WORLD_DB, asked)['sold']
+        L = export.Listing
+        # Bert is spawned and a vendor. Not vendors players can reach: one that reads like a leftover, a greeter without the vendor flag,
+        # one never placed, one without a template, one without a name, and Cora, who sells it during an event only
+        self.assertEqual(sorted(sold[800]), [L(2, True, True), L(3, True, False), L(6, True, False), L(7, True, False), L(8, True, False), L(10, True, False), L(77, True, False)])
+        # limited stock, a condition, a bonus list: none of them plain
+        self.assertEqual(sorted(sold[801]), [L(2, True, True), L(4, False, False), L(6, False, False), L(8, False, False)])
+        self.assertEqual(sorted(sold[802]), [L(2, True, True), L(3, False, False), L(4, True, False)])          # for a currency during the event; Dora is not placed
+        self.assertEqual(sold[900], [L(2, False, True)])                # for an extended cost; the currency row of the same number is not an item
+        self.assertNotIn(950, sold)
+        self.assertEqual(export.elsewhere(sold[800], 1), ('', 1))
+        self.assertEqual(export.elsewhere(sold[802], 1)[1], 0)
+
+        # the row goes in on the replayed world like any other, and what an export added is not the world's own word afterwards
+        rows, held = export.plan([ready('sells', 'npc', 1, 800, rule='trusted-source')], self.world(), {}, export.load_extra(self.db, self.WORLD_DB, asked))
+        self.assertEqual((held, rows[0].data), ([], {'sold': "no recording: the world's other vendors of it (1) all sell it for money, in endless supply"}))
+        file = '2026_11_13_950_world_everlake_build.sql'
+        self.assertEqual(export.trial(self.db, self.WORLD_DB, [(file, rows)]), {file: {('npc_vendor', (1, 800, 0, 1))}})
+        self.db.execute(export.LEDGER_DDL + ";\nINSERT INTO everlake_import_rows (tbl, k1, k2, k3, k4, file, note) VALUES ('npc_vendor', 2, 800, 0, 1, 'earlier.sql', '')",
+                        self.WORLD_DB)
+        again = export.load_extra(self.db, self.WORLD_DB, asked)['sold']
+        self.assertNotIn(L(2, True, True), again[800])                  # Bert's row was an export's: the rule does not rest on it
+        self.assertEqual(export.elsewhere(again[800], 1)[1], 0)
+        self.assertIn(L(2, True, True), again[801])
+
     def test_from_decisions_to_a_file_the_world_takes_once(self):
         before = self.state()
         self.assertIsNone(before['ledger'])
@@ -934,7 +1030,7 @@ CREATE TABLE creature_questender LIKE creature_queststarter;
 CREATE TABLE gameobject_queststarter LIKE creature_queststarter;
 CREATE TABLE gameobject_questender LIKE creature_queststarter;
 CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEFAULT 0, item int NOT NULL, maxcount int unsigned NOT NULL DEFAULT 0,
-  incrtime int unsigned NOT NULL DEFAULT 0, ExtendedCost int unsigned NOT NULL DEFAULT 0, type tinyint unsigned NOT NULL DEFAULT 1,
+  incrtime int unsigned NOT NULL DEFAULT 0, ExtendedCost int unsigned NOT NULL DEFAULT 0, type tinyint unsigned NOT NULL DEFAULT 1, BonusListIDs mediumtext,
   PlayerConditionID int unsigned NOT NULL DEFAULT 0, IgnoreFiltering tinyint unsigned NOT NULL DEFAULT 0, VerifiedBuild int DEFAULT 0, PRIMARY KEY (entry, item, ExtendedCost, type));
 """, cls.WORLD_DB)
 

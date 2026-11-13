@@ -22,7 +22,8 @@ The rules a file follows:
 What is written today: the templates of NPCs that are friendly to players (ft/npcs.py: what the NPC looks like from
 the record the server sent, its level from a source that states it, its faction a stand-in by side), quests
 (ft/quests.py: the quest's row from the record, its objectives, levels, money and reward spells), the quest starters
-and enders of NPCs and objects, and vendor items whose price a recording of the live game shows to be money.
+and enders of NPCs and objects, and vendor items sold for money in endless supply: a recording of the live game
+shows it, or, where nobody recorded the vendor's window, the world's other vendors all sell the item that way.
 Everything else that is ready is held back with its reason, and what waits for it waits with it.
 
 This module reads no configuration. Databases are reached through objects with `query(sql, database)`.
@@ -71,6 +72,11 @@ REFUSED = ('the replayed world does not take it: it holds the row by now, an ear
            'or something else holds its place')
 
 Row = collections.namedtuple('Row', 'table key note comment allowed decision data', defaults=(None,))
+# how one vendor of the world lists an item: for money in endless supply (plain) or not; real = a spawned vendor, not a leftover
+Listing = collections.namedtuple('Listing', 'npc plain real')
+NO_RECORDING = 'no recording of the live game shows what it costs'
+NOT_PLAIN = ('the vendor lists it more than once: one row cannot say that', 'it costs items or a currency: the extended cost is not known',
+             'its stock is limited: the restock time is not known')
 Held = collections.namedtuple('Held', 'decision reason')
 
 
@@ -99,35 +105,63 @@ def note(decision, allowed='private'):
     return (decision['rule'] + ': ' + ', '.join(label(w) for w in named(decision, allowed)))[:255]
 
 
+def listed(listings):
+    """Why a recording of a vendor's window does not show the item as a plain sale, or ''."""
+    if not isinstance(listings, list) or not listings or not all(isinstance(entry, dict) for entry in listings):
+        return 'its recording cannot be read'
+    if len(listings) > 1:
+        return NOT_PLAIN[0]
+    entry = listings[0]
+    if entry.get('costItems') or entry.get('bartered'):
+        return NOT_PLAIN[1]
+    if entry.get('limited') or entry.get('stockMax'):
+        return NOT_PLAIN[2]
+    if not isinstance(entry.get('costs'), dict) or not entry['costs']:
+        return 'its recording shows no price'
+    return ''
+
+
 def priced(windows):
-    """(why the item cannot be written as a plain vendor row, or '', whose word the price is: public or private).
+    """(why a recording does not make the item a plain vendor row, or '', whose word the price is: public or private).
 
-    `windows` are the recordings of the vendor's window that list the item, as (use, build, listings). The newest
-    recording a publishable source made gives the row, else the newest private one; a newer private recording that
-    says otherwise holds it back. A plain row says "sold for money, in endless supply": it is only written when the
-    recording says exactly that."""
-    def read(listings):
-        if not isinstance(listings, list) or not listings or not all(isinstance(entry, dict) for entry in listings):
-            return 'its recording cannot be read'
-        if len(listings) > 1:
-            return 'the vendor lists it more than once: one row cannot say that'
-        entry = listings[0]
-        if entry.get('costItems') or entry.get('bartered'):
-            return 'it costs items or a currency: the extended cost is not known'
-        if entry.get('limited') or entry.get('stockMax'):
-            return 'its stock is limited: the restock time is not known'
-        if not isinstance(entry.get('costs'), dict) or not entry['costs']:
-            return 'its recording shows no price'
-        return ''
-
+    `windows` are the recordings of the vendor's window that list the item, as (use, build, listings); only those of
+    the live game by a source that may give rows count here (use public or private). The newest recording a
+    publishable source made gives the row, else the newest private one; a newer private recording that says otherwise
+    holds it back. A plain row says "sold for money, in endless supply": a recording gives it only when it says
+    exactly that. With no recording, plan() asks the world's other vendors (elsewhere)."""
     newest = {use: max((w for w in windows if w[0] == use), key=lambda w: w[1], default=None) for use in ('public', 'private')}
     if not newest['public'] and not newest['private']:
-        return 'no recording of the live game shows what it costs', 'public'
+        return NO_RECORDING, 'public'
     whose = 'public' if newest['public'] else 'private'
-    reason = read(newest[whose][2])
+    reason = listed(newest[whose][2])
     if not reason and whose == 'public' and newest['private'] and newest['private'][1] > newest['public'][1]:
-        reason = read(newest['private'][2])           # a newer recording says otherwise: it may not give the row, it can hold it back
+        reason = listed(newest['private'][2])         # a newer recording says otherwise: it may not give the row, it can hold it back
     return reason, whose
+
+
+def said_before(windows):
+    """What the newest recording that may not give a row (one from before the live game, or a reference's) says
+    against a plain sale, or ''. It cannot give the row; it can keep the world's other vendors from giving it."""
+    newest = max((w for w in windows if w[0] == 'other'), key=lambda w: w[1], default=None)
+    reason = listed(newest[2]) if newest else ''
+    return reason if reason in NOT_PLAIN else ''
+
+
+def elsewhere(listings, vendor):
+    """(why the world's other vendors do not say how the item is sold, or '', how many of them sell it).
+
+    `listings` are the world's own vendor rows of the item (Listing), without the rows an export added. An item no
+    recording shows the price of is still written as a plain row when the world already sells it: at least one other
+    vendor that players can reach sells it, and every other vendor that lists it, reachable or not, does so for money,
+    in endless supply. Measured on the world's own rows, a vendor's row is plain 13,252 times out of 13,270 when the
+    item's other vendors say so."""
+    others = [entry for entry in listings if entry.npc != vendor]
+    real = {entry.npc for entry in others if entry.real}
+    if not real:
+        return NO_RECORDING + ', and no other vendor players can reach sells it', 0
+    if not all(entry.plain for entry in others):
+        return NO_RECORDING + ', and other vendors sell it for a currency, with a condition or in limited stock', 0
+    return '', len(real)
 
 
 def npc_row(decision, known, extra):
@@ -184,7 +218,8 @@ def plan(ready, world, prices, extra, records=None, creatures=None):
 
     `ready` are stored decisions (dicts) with the verdict add; `world` is resolve.load_world's; `prices` is
     {(npc, item): [(use, build, listings)]}; `extra` holds what only the export asks the world: `borrowed` (the
-    vendors whose list another vendor borrows), `quest_objects` (the objects of the quest giver kind) and `names`;
+    vendors whose list another vendor borrows), `quest_objects` (the objects of the quest giver kind), `sold` (how the
+    world's vendors list an item: {item: [Listing]}) and `names`;
     `records` is load_quests' {quest: what a row may be written from}, `creatures` load_npcs' the same for NPCs.
 
     A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all: a quest whose
@@ -242,14 +277,26 @@ def plan(ready, world, prices, extra, records=None, creatures=None):
                 rows.append(Row(RELATIONS[(kind, subject_kind)], (subject, other), note(d, d['allowed']),
                                 f"{name(subject_kind, subject)} {verb} {name('quest', other)}", d['allowed'], d))
         elif kind == 'sells' and subject_kind == 'npc':
-            reason, whose = priced(prices.get((subject, other), []))
+            windows = prices.get((subject, other), [])
+            reason, whose = priced(windows)
+            sold = 'a recording of the live game shows it sold for money, in endless supply'
+            if reason == NO_RECORDING or (not reason and whose == 'private'):
+                # nobody recorded this vendor's window, or only a source that may not be published did: how the world's
+                # other vendors sell the item, unless an earlier recording of this vendor says it is not a plain sale
+                why, vendors = elsewhere(extra.get('sold', {}).get(other, ()), subject)
+                before = said_before(windows)
+                if not why and before:
+                    why = f'{NO_RECORDING}, and an earlier recording says: {before}'
+                if reason == NO_RECORDING or not why:
+                    reason, whose = why, 'public'
+                    sold = f"no recording: the world's other vendors of it ({vendors}) all sell it for money, in endless supply"
             if subject in extra['borrowed']:
                 reason = 'other vendors borrow its list: a row here would reach them too'
             if reason:
                 held.append(Held(d, reason))
             else:
                 allowed = 'private' if 'private' in (d['allowed'], whose) else 'public'
-                rows.append(Row(VENDOR, (subject, other, 0, 1), note(d, allowed), f"{name('npc', subject)} sells {name('item', other)}", allowed, d))
+                rows.append(Row(VENDOR, (subject, other, 0, 1), note(d, allowed), f"{name('npc', subject)} sells {name('item', other)}", allowed, d, {'sold': sold}))
         else:
             held.append(Held(d, 'no writer for this kind of decision'))
     rows, dropped = settle([arriving[npc] for npc in sorted(arriving)] + [coming[quest] for quest in sorted(coming)] + rows, world)
@@ -631,6 +678,8 @@ def described(row):
         npc = row.data['npc']
         return {'record': row.data['record'], 'side': row.data['side'], 'side_from': f"{row.data['side_from']}: {row.data['side_how']}", 'faction': npc.template['faction'],
                 'level': list(npc.level), 'level_from': row.data['level_from'], 'models': len(npc.models), 'unread': list(npc.unread)}
+    if row.table == VENDOR:
+        return {'sold': row.data['sold']} if row.data else {}
     if row.table != QUEST:
         return {}
     quest, addon = row.data['quest'], row.data['addon']
@@ -649,14 +698,16 @@ def load_ready(db, database='tracker'):
 
 
 def load_prices(db, registry, database='tracker'):
-    """{(npc, item): [(use, build, listings)]}: the recordings of the live game that show a vendor's window."""
+    """{(npc, item): [(use, build, listings)]}: the recordings that show a vendor's window. `use` is the source's
+    (public, private) for a recording of the live game, and 'other' for one that may not give a row: a reference's, or
+    one from before the live game."""
     out = collections.defaultdict(list)
     for row in db.query(f"SELECT source, subject, object, build, data FROM {facts.FACTS} WHERE kind = 'sells' AND subject_kind = 'npc'", database):
         if row['source'] not in registry.sources:
             continue
         use, build = registry.source(row['source'])['use'], int(row['build'])
         if use == 'reference' or not registry.witness(row['source'], '', build)[1]:
-            continue
+            use = 'other'                            # a reference's, or from before the live game: it gives no row
         try:
             listings = json.loads(row['data']).get('listings')
         except (ValueError, AttributeError):
@@ -811,7 +862,8 @@ def load_pins(db, sources, database='tracker'):
 
 
 def load_extra(db, build, ready, tracker=None, registry=None, database='tracker'):
-    """What only the export asks: the vendors whose list is borrowed, the quest giver objects, and the names of what
+    """What only the export asks: the vendors whose list is borrowed, the quest giver objects, how the world's vendors
+    list the items the ready decisions sell (`sold`: {item: [Listing]}), and the names of what
     the ready decisions speak of (item names come from the vendor recordings of sources that may be published: the
     world database holds none)."""
     numbers = lambda sql: {int(next(iter(row.values()))) for row in db.query(sql, build)}
@@ -833,8 +885,27 @@ def load_extra(db, build, ready, tracker=None, registry=None, database='tracker'
             public = registry is not None and row['source'] in registry.sources and registry.source(row['source'])['use'] == 'public'
             if public and int(row['id']) in ids['item'] and row['name'] not in (None, 'null'):
                 names[('item', int(row['id']))] = row['name']
+    sold = collections.defaultdict(list)                 # how the world's vendors list the items the ready decisions sell
+    wanted = sorted({d['object'] for d in ready if d['kind'] == 'sells' and d['object'] > 0})
+    plain = "({0}.ExtendedCost = 0 AND {0}.maxcount = 0 AND {0}.incrtime = 0 AND {0}.PlayerConditionID = 0 AND COALESCE({0}.BonusListIDs, '') = '') plain"
+    has = lambda table: bool(wanted) and bool(db.query(f"SHOW TABLES LIKE '{table}'", build))
+    # a row an export added is not the world's own word: the rule must not rest on what it wrote itself
+    own = f"AND NOT EXISTS (SELECT 1 FROM {quote(LEDGER)} l WHERE l.tbl = '{VENDOR}' AND l.k1 = v.entry AND l.k2 = v.item) " if has(LEDGER) else ''
+    events = has('game_event_npc_vendor')
+    for start in range(0, len(wanted), 2000):
+        ids = ', '.join(map(str, wanted[start:start + 2000]))
+        for row in db.query(
+                f"SELECT v.item, v.entry, {plain.format('v')}, COALESCE(t.name, '') name, COALESCE(t.npcflag, 0) & {VENDOR_FLAG} vendor, "
+                "EXISTS (SELECT 1 FROM creature c WHERE c.id = v.entry) spawned "
+                f"FROM npc_vendor v LEFT JOIN creature_template t ON t.entry = v.entry WHERE v.type = 1 AND v.item IN ({ids}) {own}", build):
+            real = int(row['vendor']) and int(row['spawned']) and row['name'] and not resolve.INTERNAL.search(row['name'])
+            sold[int(row['item'])].append(Listing(int(row['entry']), bool(int(row['plain'])), bool(real)))
+        if events:                                       # sold during an event only: it says how the item is sold, not that it can be bought today
+            for row in db.query(f"SELECT g.item, c.id entry, {plain.format('g')} FROM game_event_npc_vendor g JOIN creature c ON c.guid = g.guid "
+                                f"WHERE g.type = 1 AND g.item IN ({ids})", build):
+                sold[int(row['item'])].append(Listing(int(row['entry']), bool(int(row['plain'])), False))
     return {'borrowed': numbers('SELECT DISTINCT -item FROM npc_vendor WHERE item < 0'),
-            'quest_objects': numbers(f'SELECT entry FROM gameobject_template WHERE type = {QUESTGIVER_OBJECT}'), 'names': names}
+            'quest_objects': numbers(f'SELECT entry FROM gameobject_template WHERE type = {QUESTGIVER_OBJECT}'), 'names': names, 'sold': dict(sold)}
 
 
 def replayed(db, build):
@@ -937,7 +1008,7 @@ def export(db, build, tracker, registry, world, folders, date, write=True, datab
     for kind, (file, mine) in zip(SETS, split()):
         if not mine:
             continue
-        sources = {w['source'] for row in mine for w in named(row.decision, kind)} | {source for row in mine if row.data for source in row.data['sources']}
+        sources = {w['source'] for row in mine for w in named(row.decision, kind)} | {source for row in mine if row.data for source in row.data.get('sources', ())}
         pins = load_pins(tracker, sources, database)
         content = text(file, mine, pins, registry.credits(sorted(sources)), f"{against['files']} update files, the newest {against['newest']}", kind == 'private')
         path = os.path.join(folders[kind], 'sql', 'world', file)
