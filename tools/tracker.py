@@ -9,6 +9,7 @@
     python tools/tracker.py world facts [source]
     python tools/tracker.py world resolve
     python tools/tracker.py world decisions [quest|npc|gives|takes|sells] [--verdict add|hold|review] [--limit N]
+    python tools/tracker.py world export [--out <data repository>] [--private-out <folder>] [--date YYYY-MM-DD] [--dry-run]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -26,7 +27,9 @@ update files, in the updater's order) in the scratch database named by [build] d
 each row, and `why` answers where one row comes from. Only the scratch database is written. `facts <source>` reads
 what a pinned source says (who gives a quest, what a vendor sells, what drops) into the tracker's own database.
 `resolve` weighs those facts against the replayed world by named rules and stores what the world should hold and
-does not, each decision with its witnesses; `decisions` lists them.
+does not, each decision with its witnesses; `decisions` lists them. `export` writes the decisions that are ready as an
+update file for your data repository (and a second one for what may not be published), after trying it twice on the
+replayed world inside a transaction it rolls back.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
@@ -321,6 +324,11 @@ def main():
     dec.add_argument('kind', nargs='?', choices=('quest', 'npc', 'gives', 'takes', 'sells'), help='list the decisions of this kind')
     dec.add_argument('--verdict', choices=('add', 'hold', 'review'))
     dec.add_argument('--limit', type=int, default=50)
+    exp = world_sub.add_parser('export', help='write the decisions that are ready as update files for a data repository')
+    exp.add_argument('--out', help='a checkout of the data repository: the file goes to its sql/world, its manifest to build/ (default data/world/export/public)')
+    exp.add_argument('--private-out', help='the folder of the set that may not be published (default data/world/export/private)')
+    exp.add_argument('--date', help='the date in the file name, YYYY-MM-DD (default today)')
+    exp.add_argument('--dry-run', action='store_true', help='plan and try it on the replayed world, write nothing')
     why = world_sub.add_parser('why', help='where a row of the replayed world comes from')
     why.add_argument('table')
     why.add_argument('key', nargs='+', help="the row's key values, in the order of the table's key columns")

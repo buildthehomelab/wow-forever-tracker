@@ -3,7 +3,9 @@ world into a scratch database (docs/WORLD-BUILD.md)."""
 import collections
 import os
 
-from . import facts, layers, replay, resolve, sqlio
+import datetime
+
+from . import export, facts, layers, replay, resolve, sqlio
 from .config import CONFIG, DATA
 
 LOCK = os.path.join(DATA, 'world', 'layers.lock.json')
@@ -136,15 +138,59 @@ def show_resolved():
         print(f"  {kind:8} {counts.get('agreed', 0):>13} " + ' '.join(f'{counts.get(v, 0):>7}' for v in VERDICTS))
 
 
+def replayed_world(db, build, what):
+    """The replayed world as sets, refused when the replay stopped half way: everything would look missing."""
+    unfinished = [f"{row['n']} {row['state']}" for row in db.query(f'SELECT state, COUNT(*) n FROM {replay.FILES} GROUP BY state', build)
+                  if row['state'] != 'applied']
+    if unfinished:
+        raise SystemExit(f"{what}: the replay did not finish ({', '.join(unfinished)} files): run world replay again first")
+    return resolve.load_world(db, build)
+
+
+def run_export(args):
+    registry = layers.load()
+    db, build = build_database()
+    folders = {'public': args.out or os.path.join(DATA, 'world', 'export', 'public'),
+               'private': args.private_out or os.path.join(DATA, 'world', 'export', 'private')}
+    real = {kind: os.path.realpath(path) for kind, path in folders.items()}
+    if os.path.commonpath([real['public'], real['private']]) in real.values():      # the same folder, or one inside the other
+        raise SystemExit('export: the private set needs a folder of its own, outside the public one')
+    date = args.date or datetime.date.today().isoformat()
+    try:
+        if not export.DATE.match(date):
+            raise ValueError
+        datetime.date.fromisoformat(date)
+    except ValueError:
+        raise SystemExit(f'export: --date {date}: write it as YYYY-MM-DD')
+    try:
+        world = replayed_world(db, build, 'export')
+        if not resolve.stored_summary(sqlio)[0]:
+            raise SystemExit('export: nothing is resolved yet: python tools/tracker.py world resolve')
+        result = export.export(db, build, sqlio, registry, world, folders, date, write=not args.dry_run)
+    except (RuntimeError, OSError) as error:
+        raise SystemExit(f'export: {str(error).strip()}\n(the replayed world and the decisions are needed first: world replay, world resolve)')
+    except export.ExportError as error:
+        raise SystemExit(f'export: {error}')
+    for kind, (path, rows) in result['files'].items():
+        print(f"{kind}: {len(rows)} rows ({export.counts(rows)}){' would go' if args.dry_run else ''} into {path}")
+    if not result['files']:
+        print('nothing to write')
+    if result['earlier']:
+        print(f"{len(result['earlier'])} rows are in an earlier export of these folders already: not written again")
+    reasons = collections.Counter(held.reason for held in result['held'])
+    if reasons:
+        print(f"held back: {sum(reasons.values())}")
+        for reason, count in reasons.most_common():
+            print(f'  {count:>6}  {reason}')
+    if result['files'] and not args.dry_run:
+        print('tried twice on the replayed world and rolled back: the first run adds every row, the second changes nothing')
+
+
 def run_resolve(args):
     registry = layers.load()
     db, build = build_database()
     try:
-        unfinished = [f"{row['n']} {row['state']}" for row in db.query(f'SELECT state, COUNT(*) n FROM {replay.FILES} GROUP BY state', build)
-                      if row['state'] != 'applied']
-        if unfinished:        # a world that stopped half way would make everything look missing
-            raise SystemExit(f"resolve: the replay did not finish ({', '.join(unfinished)} files): run world replay again first")
-        world = resolve.load_world(db, build)
+        world = replayed_world(db, build, 'resolve')
         claims, records, removed = resolve.load_claims(sqlio, registry)
         npc_records, npc_entries = resolve.load_npcs(sqlio, registry)
     except RuntimeError as error:
@@ -192,6 +238,8 @@ def run(args):
         return run_resolve(args)
     if args.world_command == 'decisions':
         return run_decisions(args)
+    if args.world_command == 'export':
+        return run_export(args)
     if args.world_command == 'facts':
         return run_facts(args)
     if args.world_command == 'replay':

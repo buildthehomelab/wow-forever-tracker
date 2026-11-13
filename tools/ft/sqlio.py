@@ -61,6 +61,24 @@ def query(sql, database='world', account=None):
     return [dict(zip(header, map(_unescape, line.split('\t')))) for line in lines[1:] if line]
 
 
+def script(sql, database, account=None):
+    """Runs our own statements through the client's standard input and returns the rows of what they select, as query
+    does: for a script too long for a command line. The client stops at the first statement that fails."""
+    cnf = _client_file(account)
+    try:
+        result = subprocess.run([_mysql(), f'--defaults-extra-file={cnf}', '--batch', CONFIG.db(database)], input=sql.encode('utf-8'), capture_output=True)
+        if result.returncode:
+            raise RuntimeError(result.stderr.decode('utf-8', 'replace').strip())
+        out = result.stdout.decode('utf-8', 'replace').replace('\r\n', '\n')
+    finally:
+        os.unlink(cnf)
+    lines = out.split('\n')
+    if not lines or not lines[0]:
+        return []
+    header = lines[0].split('\t')
+    return [dict(zip(header, map(_unescape, line.split('\t')))) for line in lines[1:] if line]
+
+
 def column(sql, database='world'):
     return [next(iter(row.values())) for row in query(sql, database)]
 
@@ -108,6 +126,9 @@ class Account:
 
     def execute(self, sql, database):
         return execute(sql, database, self.account)
+
+    def script(self, sql, database):
+        return script(sql, database, self.account)
 
     def execute_file(self, path, database):
         return execute_file(path, database, self.account, binary=True)
