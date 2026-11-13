@@ -15,6 +15,9 @@ services:
       FT_DB_WORLD: world
       FT_DB_HOTFIXES: hotfixes
       FT_DB_AUTH: auth
+      # The world build (docs/WORLD-BUILD.md): its own account, with rights on its scratch database only
+      # FT_BUILD_USER: tracker_build
+      # FT_BUILD_PASSWORD: change-me-as-well
       FT_ADMIN_PASSWORD: change-me-too  # local administrator "admin" (FT_ADMIN_USER)
     volumes:
       - tracker-data:/opt/forever-tracker/data

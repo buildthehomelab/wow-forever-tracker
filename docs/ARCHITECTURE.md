@@ -38,12 +38,13 @@ loot), pickpocketing, skinning, fishing, a spawned vendor, the shop, a container
 a quest that can be done, or a craft that can be learned. Quests, items and crafts depend on each other, so the
 analysis repeats until nothing changes.
 
-## The world build (`tools/ft/layers.py`, `tools/ft/world.py`)
+## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/world.py`)
 
 | File | |
 |---|---|
 | `tools/world/layers.json` | The layers and every source: layer, licence, credit, use (`public`, `private`, `reference`), witness group, how its newest version is found |
 | `ft/layers.py` | Reads and checks that registry; counts independent witnesses; says whether a row may be published; looks up and locks each source's version. No configuration, no database: tested alone (`tools/tests`) |
+| `ft/replay.py` | Rebuilds the server's world in a scratch database (release dump, then update files in the updater's order) with triggers that log every row change under the file being applied; `why()` reads a row's origin back. Refuses an account that can write outside the scratch database, and reads each file before it runs |
 | `ft/world.py` | The `world` commands of `tracker.py` |
 
 See [WORLD-BUILD.md](WORLD-BUILD.md).

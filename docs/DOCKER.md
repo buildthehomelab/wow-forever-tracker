@@ -59,6 +59,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_DB_USER`, `FT_DB_PASSWORD` | `tracker`, *required* | MySQL user |
 | `FT_DB_TRACKER` | `forever_tracker` | Database of the tracker's `ft_*` tables |
 | `FT_DB_WORLD`, `FT_DB_HOTFIXES`, `FT_DB_AUTH` | `world`, `hotfixes`, `auth` | Your server's databases |
+| `FT_BUILD_DB`, `FT_BUILD_USER`, `FT_BUILD_PASSWORD` | `ft_world_build`, none, none | The [world build](WORLD-BUILD.md)'s scratch database and its own MySQL account: every right on that database, no right to write anywhere else |
 | `FT_SERVER_DATA` | `/server/data` | Server data folder inside the container |
 | `FT_DBC_LOCALE` | `enUS` | Locale folder of the DB2 files (`enUS` or `frFR`) |
 | `FT_CLIENT_DBC` | `$FT_SERVER_DATA/dbc` | Official DB2 files for the snapshot (a folder with `<locale>` sub-folders, or flat) |
