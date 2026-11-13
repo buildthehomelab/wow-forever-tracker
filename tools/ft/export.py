@@ -19,8 +19,9 @@ The rules a file follows:
   a row the world refuses is left out and reported, and a second run that adds anything stops the export.
 - A decision an earlier export in the same folder already carries is not written again.
 
-What is written today: the quest starters and enders of NPCs and objects, and vendor items whose price a recording
-of the live game shows to be money. Everything else that is ready is held back with its reason (quest rows and NPC
+What is written today: quests (ft/quests.py: the quest's row from the record the server sent, its objectives,
+levels, money and reward spells), the quest starters and enders of NPCs and objects, and vendor items whose price a
+recording of the live game shows to be money. Everything else that is ready is held back with its reason (NPC
 templates are not written yet, and what waits for them waits with them).
 
 This module reads no configuration. Databases are reached through objects with `query(sql, database)`.
@@ -31,7 +32,7 @@ import json
 import os
 import re
 
-from . import facts, replay, resolve
+from . import facts, quests, replay, resolve
 
 LEDGER, STAGE, CHECK = 'everlake_import_rows', 'everlake_build_stage', 'everlake_build_check'
 LEDGER_DDL = (
@@ -52,15 +53,26 @@ DATE = re.compile(r'^\d{4}-\d{2}-\d{2}\Z')
 SETS = ('public', 'private')
 RELATIONS = {('gives', 'npc'): 'creature_queststarter', ('takes', 'npc'): 'creature_questender',
              ('gives', 'object'): 'gameobject_queststarter', ('takes', 'object'): 'gameobject_questender'}
-VENDOR = 'npc_vendor'
-ORDER = ('creature_queststarter', 'creature_questender', 'gameobject_queststarter', 'gameobject_questender', VENDOR)
+VENDOR, QUEST = 'npc_vendor', 'quest_template'
+ORDER = (QUEST, 'creature_queststarter', 'creature_questender', 'gameobject_queststarter', 'gameobject_questender', VENDOR)
+QUESTS, OBJECTIVES = 'everlake_build_quests', 'everlake_build_objectives'
+# the tables a quest's own rows go to, with the column that names the quest and the key the ledger records
+CHILDREN = (('quest_objectives', 'QuestID', ('ID',)), ('quest_classic_level', 'ID', ('ID',)), ('quest_template_classic_level', 'ID', ('ID', 'LevelType')),
+            ('quest_classic_money', 'ID', ('ID',)), ('quest_reward_display_spell', 'QuestID', ('QuestID', 'Idx')), ('quest_template_addon', 'ID', ('ID',)))
+VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell')            # the tables with a VerifiedBuild column: 0, not a recording
+KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, VENDOR: 4}, **{table: len(key) for table, _quest, key in CHILDREN})
 QUESTGIVER_FLAG, VENDOR_FLAG, QUESTGIVER_OBJECT = 2, 128, 2
 BATCH = 200
 REFUSED = ('the replayed world does not take it: it holds the row by now, an earlier file added it and it was taken out since, '
            'or something else holds its place')
 
-Row = collections.namedtuple('Row', 'table key note comment allowed decision')
+Row = collections.namedtuple('Row', 'table key note comment allowed decision data', defaults=(None,))
 Held = collections.namedtuple('Held', 'decision reason')
+
+
+def grouped(reason):
+    """A reason without the one thing it names in brackets, for counting."""
+    return re.sub(r' \([^()]*\)$', '', reason)
 
 
 class ExportError(Exception):
@@ -114,14 +126,54 @@ def priced(windows):
     return reason, whose
 
 
-def plan(ready, world, prices, extra):
+def quest_row(decision, known, world):
+    """(Row, '') for a quest that is ready, or (None, why it cannot be written). `known` is what load_quests found
+    for it: the record a row may be written from, and what QuestieDB adds."""
+    quest = decision['subject']
+    if not known:
+        return None, 'no record a row may be written from'
+    made, problems = quests.rows(quest, known['record'])
+    if problems:
+        return None, 'its record cannot be written: ' + problems[0]
+    for kind, label_, there in (('npc', 'NPC', world['npcs']), ('object', 'object', world['objects'])):
+        lacking = [number for number in quests.targets(made)[kind] if number not in there]
+        if lacking:
+            return None, f'an objective needs an {label_} that has no template ({label_} {lacking[0]})'
+    allowed = 'private' if 'private' in (decision['allowed'], known['use']) else 'public'
+    previous = known.get('previous', 0)
+    addon = {'AllowableClasses': known.get('classes') or made.classes, 'PrevQuestID': previous if previous in world['quests'] else 0}
+    stated = bool(known.get('classes') or addon['PrevQuestID'])                  # QuestieDB's word is in the row: it is named as a source
+    data = {'quest': made, 'addon': addon if any(addon.values()) else None, 'record': f"{known['source']}@{known['build']}",
+            'sources': {known['source']} | ({known['addon_source']} if stated else set()),
+            'from_questiedb': {key: value for key, value in (('AllowableClasses', known.get('classes', 0)), ('PrevQuestID', addon['PrevQuestID'])) if value}}
+    return Row(QUEST, (quest,), note(decision, allowed), made.template['LogTitle'], allowed, decision, data), ''
+
+
+def plan(ready, world, prices, extra, records=None):
     """(rows to write, what is held back) for the decisions that are ready.
 
     `ready` are stored decisions (dicts) with the verdict add; `world` is resolve.load_world's; `prices` is
     {(npc, item): [(use, build, listings)]}; `extra` holds what only the export asks the world: `borrowed` (the
-    vendors whose list another vendor borrows), `quest_objects` (the objects of the quest giver kind) and `names`."""
+    vendors whose list another vendor borrows), `quest_objects` (the objects of the quest giver kind) and `names`;
+    `records` is load_quests' {quest: what a row may be written from}.
+
+    A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all: a quest whose
+    givers all wait (for an NPC template) waits with them, and so do its other pairs."""
     rows, held = [], []
-    names = extra.get('names', {})
+    names = dict(extra.get('names', {}))
+    coming = {}                          # the quests that can be written, before their givers and enders are looked at
+    for d in ready:
+        if d['kind'] == 'quest':
+            row, why = quest_row(d, (records or {}).get(d['subject']), world)
+            if row:
+                coming[d['subject']] = row
+                names[('quest', d['subject'])] = row.comment
+            else:
+                held.append(Held(d, why))
+    seen = collections.Counter(o['ID'] for row in coming.values() for o in row.data['quest'].objectives)
+    for quest, row in list(coming.items()):          # two records that claim one objective id: neither is written
+        if any(seen[o['ID']] > 1 for o in row.data['quest'].objectives):
+            held.append(Held(coming.pop(quest).decision, 'an objective id of its record is also another quest\'s'))
 
     def name(kind, number):
         return names.get((kind, number)) or f'{kind} {number}'
@@ -132,7 +184,7 @@ def plan(ready, world, prices, extra):
     for d in ready:
         kind, subject_kind, subject, other = d['kind'], d['subject_kind'], d['subject'], d['object']
         if kind == 'quest':
-            held.append(Held(d, 'quest rows are not written yet'))
+            continue
         elif kind == 'npc':
             held.append(Held(d, 'NPC templates are not written yet'))
         elif subject_kind == 'npc' and subject not in world['npcs']:
@@ -142,8 +194,8 @@ def plan(ready, world, prices, extra):
         elif kind in ('gives', 'takes') and leftover('quest', other):
             held.append(Held(d, "the world's quest reads like a developer's leftover: for a person"))
         elif (kind, subject_kind) in RELATIONS:
-            if other not in world['quests']:
-                held.append(Held(d, 'it waits for its quest: quest rows are not written yet'))
+            if other not in world['quests'] and other not in coming:
+                held.append(Held(d, 'it waits for its quest, which is held back'))
             elif subject_kind == 'object' and subject not in world['objects']:
                 held.append(Held(d, 'its object has no template'))
             elif subject_kind == 'object' and subject not in extra['quest_objects']:
@@ -163,7 +215,59 @@ def plan(ready, world, prices, extra):
                 rows.append(Row(VENDOR, (subject, other, 0, 1), note(d, allowed), f"{name('npc', subject)} sells {name('item', other)}", allowed, d))
         else:
             held.append(Held(d, 'no writer for this kind of decision'))
-    return rows, held
+    rows, dropped = settle([coming[quest] for quest in sorted(coming)] + rows, world)
+    return rows, held + [Held(row.decision, why) for row, why in dropped]
+
+
+def settle(rows, world, present=()):
+    """(the rows that can stand together, [(row, why it cannot)]). A quest needs someone who gives it and someone who
+    takes it, a pair needs its quest, and what may be published must not need what may not:
+
+    - a quest with no giver or no ender among the world's pairs and the rows is dropped, and its pairs with it;
+    - a quest whose only givers (or enders) are private is private itself, and so is every pair of a private quest.
+
+    `present` holds the (table, key) of rows an earlier export carries: they reach the world before this file."""
+    rows, dropped = list(rows), []
+    there = {'giver': {quest for _kind, _subject, quest in world.get('gives', ())}, 'ender': {quest for _kind, _subject, quest in world.get('takes', ())}}
+    for table, key in present:
+        if table in RELATIONS.values():
+            there['giver' if 'starter' in table else 'ender'].add(key[1])
+    known = set(world['quests']) | {key[0] for table, key in present if table == QUEST}
+    private = lambda row: row._replace(allowed='private', note=note(row.decision, 'private'))
+    while True:
+        sides = {(role, anyone): set(there[role]) for role in ('giver', 'ender') for anyone in (True, False)}
+        for row in rows:
+            if row.table in RELATIONS.values():
+                role = 'giver' if 'starter' in row.table else 'ender'
+                sides[(role, True)].add(row.key[1])
+                if row.allowed == 'public':
+                    sides[(role, False)].add(row.key[1])
+        kept, written, changed = [], {}, False
+        for row in rows:
+            if row.table != QUEST:
+                kept.append(row)
+                continue
+            lacking = [role for role in ('giver', 'ender') if row.key[0] not in sides[(role, True)]]
+            if lacking:
+                dropped.append((row, f'no {lacking[0]} of it can be written yet'))
+                changed = True
+                continue
+            if row.allowed == 'public' and any(row.key[0] not in sides[(role, False)] for role in ('giver', 'ender')):
+                row, changed = private(row), True
+            written[row.key[0]] = row.allowed
+            kept.append(row)
+        rows = []
+        for row in kept:
+            if row.table in RELATIONS.values() and row.key[1] not in known:
+                if row.key[1] not in written:
+                    dropped.append((row, 'it waits for its quest, which is held back'))
+                    changed = True
+                    continue
+                if written[row.key[1]] == 'private' and row.allowed == 'public':
+                    row, changed = private(row), True
+            rows.append(row)
+        if not changed:
+            return rows, dropped
 
 
 # ------------------------------------------------------------------ the file
@@ -179,6 +283,102 @@ def literal(text):
     """A string for the file, read the same whatever the server's sql_mode: no backslash, no control character, a quote
     written twice."""
     return "'" + re.sub(r'[\x00-\x1f\x7f]+', ' ', str(text)).replace('\\', '/').replace("'", "''") + "'"
+
+
+def text_literal(value):
+    """A text for the file, kept to the character: line breaks and backslashes are written as CHAR(), so the text is
+    the same under any sql_mode and whatever a repository does to the file's own line ends."""
+    parts, codes = [], []
+    for piece in re.split(r'([\x00-\x1f\x7f\\])', str(value)):
+        if len(piece) == 1 and (piece < ' ' or piece in '\x7f\\'):
+            if piece != '\x00':
+                codes.append(str(ord(piece)))
+            continue
+        if not piece:
+            continue
+        if codes:
+            parts.append(f"CHAR({', '.join(codes)} USING utf8mb4)")
+            codes = []
+        parts.append("'" + piece.replace("'", "''") + "'")
+    if codes:
+        parts.append(f"CHAR({', '.join(codes)} USING utf8mb4)")
+    return parts[0] if len(parts) == 1 and parts[0].startswith("'") else f"CONCAT({', '.join(parts)})" if parts else "''"
+
+
+def value_literal(value):
+    if isinstance(value, bool):
+        raise ExportError('a yes or no where a number or a text belongs')
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    return text_literal(value)
+
+
+def staged_like(stage, table, records, extra='', about=None):
+    """The statements that make a stage table with the columns of `table` that `records` (dicts of one shape) name,
+    typed as the world types them, and fill it. `extra` declares more columns; `about` gives each line's note (the
+    stage then has a `note` column) and comment."""
+    columns = list(records[0])
+    out = [f"CREATE TEMPORARY TABLE {quote(stage)} (`n` INT NOT NULL PRIMARY KEY{extra}) SELECT {', '.join(quote(c) for c in columns)} FROM {quote(table)} WHERE 0"]
+    head = f"INSERT INTO {quote(stage)} (`n`, {', '.join(quote(c) for c in columns)}{', `note`' if about else ''}) VALUES\n"
+    for start in range(0, len(records), BATCH):
+        lines = []
+        for offset, record in enumerate(records[start:start + BATCH]):
+            if list(record) != columns:
+                raise ExportError(f'{table}: two rows of one block name different columns')
+            index = start + offset
+            line = f"({index + 1}, {', '.join(value_literal(v) for v in record.values())}{', ' + literal(about[index][0]) if about else ''})"
+            lines.append(line + ('' if index == min(start + BATCH, len(records)) - 1 else ',') + (f' -- {comment(about[index][1])}' if about else ''))
+        out.append(head + '\n'.join(lines) + '\n')
+    return out
+
+
+def quest_block(rows, file):
+    """The quests: each goes in whole or not at all. A quest is taken while the world has no row of it in any of its
+    tables, none of its objective ids is another quest's, and no file added it before; then its own rows follow."""
+    made = [row.data['quest'] for row in rows]
+    out = staged_like(QUESTS, QUEST, [quest.template for quest in made], ", `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0",
+                      [(row.note, row.comment) for row in rows])
+    children = {
+        'quest_objectives': [objective for quest in made for objective in quest.objectives],
+        'quest_classic_level': [collections.OrderedDict(ID=q.template['ID'], QuestLevel=q.level[0], MinLevel=q.level[1], MaxLevel=0) for q in made],
+        'quest_template_classic_level': [collections.OrderedDict(ID=q.template['ID'], LevelType=quests.LEVEL_TYPE, QuestLevel=q.level[0]) for q in made],
+        'quest_classic_money': [collections.OrderedDict(ID=q.template['ID'], RewardMoney=q.money, RewardMoneyMaxLevel=0) for q in made if q.money],
+        'quest_reward_display_spell': [collections.OrderedDict(QuestID=q.template['ID'], Idx=index, SpellID=spell, PlayerConditionID=0, Type=kind)
+                                       for q in made for index, (spell, kind) in enumerate(q.spells)],
+        'quest_template_addon': [collections.OrderedDict(ID=row.key[0], **row.data['addon']) for row in rows if row.data['addon']],
+    }
+    # No statement reads a stage table or the ledger twice: MySQL cannot reopen a temporary table, and a trial's ledger may be one.
+    keyed = ', '.join(literal(table) for table in (QUEST,) + tuple(table for table, _column, _key in CHILDREN if table != 'quest_objectives'))
+    free = [f"NOT EXISTS (SELECT 1 FROM {quote(QUEST)} t WHERE t.`ID` = s.`ID`)",
+            f"NOT EXISTS (SELECT 1 FROM {quote(LEDGER)} r WHERE r.`tbl` IN ({keyed}) AND r.`k1` = s.`ID`)"]          # no file added it, or a row of it, before
+    free += [f"NOT EXISTS (SELECT 1 FROM {quote(table)} c WHERE c.{quote(column)} = s.`ID`)" for table, column, _key in CHILDREN]
+    if children['quest_objectives']:              # none of its objective ids is another quest's, now or in a file's past
+        out += staged_like(OBJECTIVES, 'quest_objectives', children['quest_objectives'], ', `taken` TINYINT NOT NULL DEFAULT 0')
+        out.append(f"UPDATE {quote(OBJECTIVES)} p SET p.`taken` = 1 WHERE EXISTS (SELECT 1 FROM `quest_objectives` o WHERE o.`ID` = p.`ID`) "
+                   f"OR EXISTS (SELECT 1 FROM {quote(LEDGER)} r WHERE r.`tbl` = 'quest_objectives' AND r.`k1` = p.`ID`)")
+        free.append(f"NOT EXISTS (SELECT 1 FROM {quote(OBJECTIVES)} p WHERE p.`QuestID` = s.`ID` AND p.`taken` = 1)")
+    out.append(f"UPDATE {quote(QUESTS)} s SET s.`missing` = 1 WHERE " + ' AND '.join(free))
+    columns = ', '.join(quote(c) for c in made[0].template)
+    out.append(f"INSERT INTO {quote(QUEST)} ({columns}, `VerifiedBuild`) SELECT {columns}, 0 FROM {quote(QUESTS)} s WHERE s.`missing` = 1 ORDER BY s.`n`")
+    out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, `k1`, `file`, `note`) SELECT {literal(QUEST)}, s.`ID`, {literal(file)}, s.`note` FROM {quote(QUESTS)} s WHERE s.`missing` = 1")
+    for table, column, key in CHILDREN:
+        records = children[table]
+        if not records:
+            continue
+        stage = OBJECTIVES if table == 'quest_objectives' else STAGE
+        if stage == STAGE:
+            out += staged_like(STAGE, table, records)
+        names = ', '.join(quote(c) for c in records[0])
+        taken = f"FROM {quote(stage)} p JOIN {quote(QUESTS)} s ON s.`ID` = p.{quote(column)} WHERE s.`missing` = 1"
+        out.append(f"INSERT INTO {quote(table)} ({names}{', `VerifiedBuild`' if table in VERIFIED else ''}) "
+                   f"SELECT {', '.join('p.' + quote(c) for c in records[0])}{', 0' if table in VERIFIED else ''} {taken} ORDER BY p.`n`")
+        out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, {', '.join(f'`k{i + 1}`' for i in range(len(key)))}, `file`, `note`) "
+                   f"SELECT {literal(table)}, {', '.join('p.' + quote(c) for c in key)}, {literal(file)}, s.`note` {taken}")
+        out.append(f'DROP TEMPORARY TABLE {quote(stage)}')
+    out.append(f'DROP TEMPORARY TABLE {quote(QUESTS)}')
+    return out
 
 
 def staged(columns, rows):
@@ -250,7 +450,7 @@ def body(rows, file):
     for table in ORDER:
         mine = sorted((row for row in rows if row.table == table), key=lambda row: row.key)
         if mine:
-            out += vendor_block(mine, file) if table == VENDOR else relation_block(table, mine, file)
+            out += quest_block(mine, file) if table == QUEST else vendor_block(mine, file) if table == VENDOR else relation_block(table, mine, file)
     return out
 
 
@@ -323,10 +523,22 @@ def carried(folders):
 def manifest(file, content, kind, rows, pins, against, held):
     return {'file': file, 'sha1': hashlib.sha1(content.encode('utf-8')).hexdigest(), 'set': kind,
             'generator': 'ForeverTracker: python tools/tracker.py world export', 'sources': dict(sorted(pins.items())), 'world': against,
-            'rows': [{'table': row.table, 'key': list(row.key), 'kind': row.decision['kind'], 'rule': row.decision['rule'],
-                      'witnesses': [label(w) for w in named(row.decision, kind)], 'says': row.comment}
+            'rows': [dict({'table': row.table, 'key': list(row.key), 'kind': row.decision['kind'], 'rule': row.decision['rule'],
+                           'witnesses': [label(w) for w in named(row.decision, kind)], 'says': row.comment}, **described(row))
                      for row in sorted(rows, key=lambda row: (ORDER.index(row.table), row.key))],
-            'held_back': dict(sorted(collections.Counter(h.reason for h in held).items()))}
+            'left_to_defaults': list(quests.LEFT) if any(row.table == QUEST for row in rows) else [],
+            'held_back': dict(sorted(collections.Counter(grouped(h.reason) for h in held).items()))}
+
+
+def described(row):
+    """What the manifest adds for a row that brings rows of its own: where a quest's values come from, and how many
+    rows of each table come with it."""
+    if row.table != QUEST:
+        return {}
+    quest, addon = row.data['quest'], row.data['addon']
+    return {'record': row.data['record'], 'with': {'quest_objectives': len(quest.objectives), 'quest_reward_display_spell': len(quest.spells),
+                                                  'quest_classic_money': int(bool(quest.money)), 'quest_template_addon': int(bool(addon))},
+            'from_questiedb': row.data['from_questiedb'], 'classes': (addon or {}).get('AllowableClasses', 0), 'unread': list(quest.unread)}
 
 
 # ------------------------------------------------------------------ reading both sides
@@ -352,6 +564,51 @@ def load_prices(db, registry, database='tracker'):
         except (ValueError, AttributeError):
             listings = None
         out[(int(row['subject']), int(row['object']))].append((use, build, listings))
+    return out
+
+
+def load_quests(db, registry, wanted, database='tracker'):
+    """{quest: {'use', 'source', 'build', 'record', and what QuestieDB adds: 'classes', 'previous', 'addon_source'}} for
+    the quests in `wanted`. The record is the newest one a source that may give rows recorded on the live game, a
+    publishable source first. QuestieDB (a publishable source's entry) adds what no record holds: the classes the
+    quest is for, and the one quest that must be done before it; its hand fix is read after its generated list."""
+    out, best = {}, {}
+    wanted = sorted(wanted)
+    for start in range(0, len(wanted), 2000):
+        ids = ', '.join(map(str, wanted[start:start + 2000]))
+        for row in db.query(f"SELECT source, subject, build, data FROM {facts.FACTS} WHERE kind = 'quest' AND subject_kind = 'quest' AND subject IN ({ids})", database):
+            if row['source'] not in registry.sources:
+                continue
+            use, build, quest = registry.source(row['source'])['use'], int(row['build']), int(row['subject'])
+            if use == 'reference' or not registry.witness(row['source'], '', build)[1]:
+                continue
+            rank = (use == 'public', build, row['source'])
+            if quest not in best or rank > best[quest]:
+                try:
+                    record = json.loads(row['data'])
+                except ValueError:
+                    record = None
+                best[quest], out[quest] = rank, {'use': use, 'source': row['source'], 'build': build, 'record': record}
+        for row in db.query(f"SELECT source, subject, data FROM {facts.FACTS} WHERE kind = 'entry' AND subject_kind = 'quest' AND subject IN ({ids}) "
+                            f"ORDER BY source, build", database):
+            quest = int(row['subject'])
+            if quest not in out or row['source'] not in registry.sources or registry.source(row['source'])['use'] != 'public':
+                continue
+            try:
+                parts = json.loads(row['data']).get('parts')
+            except (ValueError, AttributeError):
+                continue
+            for part in ('generated', 'fix'):
+                fields = parts.get(part) if isinstance(parts, dict) else None
+                if not isinstance(fields, dict):
+                    continue
+                number = lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 < value < 2 ** 32
+                if 'requiredClasses' in fields:          # a part that names the field replaces it: with its value, or with nothing when that is not a class mask
+                    out[quest].update(classes=fields['requiredClasses'] if number(fields['requiredClasses']) else 0, addon_source=row['source'])
+                if 'preQuestSingle' in fields:           # one quest before it is a row's PrevQuestID; none, or one of several, is not
+                    before = fields['preQuestSingle']
+                    single = isinstance(before, list) and len(before) == 1 and number(before[0])
+                    out[quest].update(previous=before[0] if single else 0, addon_source=row['source'])
     return out
 
 
@@ -402,6 +659,8 @@ def trial(db, build, files):
     tables = [table for table in ORDER if any(row.table == table for _file, rows in files for row in rows)]
     if not tables:
         return {file: set() for file, _rows in files}
+    if QUEST in tables:
+        tables += [table for table, _quest, _key in CHILDREN]
     names = ', '.join(literal(file) for file, _rows in files)
     has_ledger = bool(db.query(f"SHOW TABLES LIKE '{LEDGER}'", build))
     # what is measured before, between and after the runs: the rows of each table, and the two flags the file may set
@@ -439,10 +698,9 @@ def trial(db, build, files):
         moved = ', '.join(f'{t} {seen[1][t]} -> {seen[2][t]}' for t in seen[1] if seen[1][t] != seen[2].get(t))
         raise ExportError(f'running the file a second time changed the world ({moved}): nothing is written')
     added = {file: set() for file, _rows in files}
-    width = {table: 4 if table == VENDOR else 2 for table in ORDER}
     for row in result:
         if int(row['step']) == 9:
-            key = tuple(int(row[c]) for c in 'abcd')[:width[row['tbl']]]
+            key = tuple(int(row[c]) for c in 'abcd')[:KEYS[row['tbl']]]
             added[row['file']].add((row['tbl'], key))
     for table in tables:                    # every row the tables gained is in the ledger: nothing went in unrecorded
         gained, recorded = seen[1][table] - seen[0][table], sum(1 for keys in added.values() for t, _key in keys if t == table)
@@ -456,27 +714,33 @@ def export(db, build, tracker, registry, world, folders, date, write=True, datab
     files ({set: (path, rows)}), held ([Held]), earlier (how many rows an earlier export carries), refused ([Row])."""
     ready = load_ready(tracker, database)
     extra = load_extra(db, build, ready, tracker, registry, database)
-    rows, held = plan(ready, world, load_prices(tracker, registry, database), extra)
+    records = load_quests(tracker, registry, {d['subject'] for d in ready if d['kind'] == 'quest'}, database)
+    rows, held = plan(ready, world, load_prices(tracker, registry, database), extra, records)
     before = carried(folders.values())
     earlier = [row for row in rows if (row.table, row.key) in before]
-    rows = sorted((row for row in rows if (row.table, row.key) not in before), key=lambda row: (ORDER.index(row.table), row.key))      # the file's order
+    rows = [row for row in rows if (row.table, row.key) not in before]
     number = next_number(folders.values(), date)
     names = {kind: file_name(date, number, kind == 'private') for kind in SETS}
-    split = lambda: [(names[kind], [row for row in rows if row.allowed == kind]) for kind in SETS]
-    added = trial(db, build, split())
-    refused = [row for row in rows if (row.table, row.key) not in added[names[row.allowed]]]
-    if refused:                             # the world is not as the decision saw it (an earlier file added the row and it was taken out since)
-        rows = [row for row in rows if row not in refused]
-        held += [Held(row.decision, REFUSED) for row in refused]
+    split = lambda: [(names[kind], sorted((row for row in rows if row.allowed == kind), key=lambda row: (ORDER.index(row.table), row.key))) for kind in SETS]
+    refused = []
+    for _round in range(6):                 # what the world does not take is left out, and with it what cannot stand without it; then tried again
+        rows, dropped = settle(rows, world, set(before))
+        held += [Held(row.decision, why) for row, why in dropped]
         added = trial(db, build, split())
-        if any((row.table, row.key) not in added[names[row.allowed]] for row in rows):
-            raise ExportError('the replayed world refuses rows it accepted a moment ago: nothing is written')
+        missed = [row for row in rows if (row.table, row.key) not in added[names[row.allowed]]]
+        if not missed:
+            break
+        refused += missed
+        rows = [row for row in rows if row not in missed]
+        held += [Held(row.decision, REFUSED) for row in missed]
+    else:
+        raise ExportError('the replayed world keeps refusing rows it accepted a moment ago: nothing is written')
     against = replayed(db, build)
     files, writes = {}, []
     for kind, (file, mine) in zip(SETS, split()):
         if not mine:
             continue
-        sources = {w['source'] for row in mine for w in named(row.decision, kind)}
+        sources = {w['source'] for row in mine for w in named(row.decision, kind)} | {source for row in mine if row.data for source in row.data['sources']}
         pins = load_pins(tracker, sources, database)
         content = text(file, mine, pins, registry.credits(sorted(sources)), f"{against['files']} update files, the newest {against['newest']}", kind == 'private')
         path = os.path.join(folders[kind], 'sql', 'world', file)
