@@ -194,6 +194,232 @@ class EgLink(unittest.TestCase):
                          [474, 474, None, None, None, None, None, None, None, None, None])
 
 
+def lua(module, body, more=''):
+    return (f'local {module} = QuestieLoader:CreateModule("{module}")\nlocal QuestieDB = QuestieLoader:ImportModule("QuestieDB")\n\n'
+            f'function {module}:Load()\n    local npcKeys = QuestieDB.npcKeys\n\n    return {{\n{body}\n    }}\nend\n{more}')
+
+
+QUESTIE = {
+    'foreverQuestFixes.lua': lua('ForeverQuestFixes', '[91758] = { [questKeys.preQuestSingle] = {91752}, },',
+                                 # as QuestieDB writes what depends on the player: tables kept in locals, one of them returned
+                                 'function ForeverQuestFixes:LoadDynamic()\n    local questKeys = QuestieDB.questKeys\n\n'
+                                 '    local questFixesHorde = {\n        [92000] = { [questKeys.startedBy] = {{240}} },\n    }\n\n'
+                                 '    local questFixesAlliance = {\n        [92000] = { [questKeys.startedBy] = {{241}}, [questKeys.questLevel] = 7 },\n    }\n\n'
+                                 '    if UnitFactionGroup("Player") == "Horde" then\n        return questFixesHorde\n    else\n'
+                                 '        return questFixesAlliance\n    end\nend\n'),
+    'foreverNPCFixes.lua': lua('ForeverNpcFixes', '[384] = { -- Katie Hunter <Horse Breeder>\n'
+                               '    [npcKeys.npcFlags] = npcFlags.VENDOR, -- base data adds a wrong innkeeper bit\n    [npcKeys.questStarts_remove] = {5},\n},'),
+    'foreverObjectFixes.lua': lua('ForeverObjectFixes', ''),
+    'foreverItemFixes.lua': lua('ForeverItemFixes', ''),
+    'generated/foreverBaseQuest.lua': lua('ForeverBaseQuest', '[91758] = { -- Follow That Kobold! : https://example.invalid/quest=91758\n'
+                                          '    [questKeys.startedBy] = {{197},nil,{12345}},\n'
+                                          '    [questKeys.requiredRaces] = raceIDs.NIGHT_ELF + raceIDs.HUMAN,\n},'),
+    'generated/foreverBaseNpc.lua': lua('ForeverBaseNpc', '[197] = { [npcKeys.questStarts_add] = {91758}, [npcKeys.minLevel] = 5, },\n'
+                                        '[167] = { [npcKeys.questStarts] = {86776}, },'),
+    'generated/foreverBaseObject.lua': lua('ForeverBaseObject', ''),
+    'generated/foreverBaseItem.lua': lua('ForeverBaseItem', '[190232] = {\n    [itemKeys.vendors_add] = {74},\n    [itemKeys.startQuest] = 91758,\n'
+                                         '    [itemKeys.itemDrops] = {20708},\n    [itemKeys.npcDrops] = {3782, "x", 1.5},\n},'),
+    'traces/foreverQuestTraces.lua': lua('ForeverQuestTraces', '[91758] = {\n    [questKeys.name] = "Follow That Kobold!",\n'
+                                         '    [questKeys.startedBy_add] = {{197}},\n    [questKeys.finishedBy_add] = {nil,{35}},\n},\n'
+                                         '[465] = {\n    [questKeys.finishedBy_add] = {nil, {630696}},\n},'),
+    'traces/foreverNpcTraces.lua': lua('ForeverNpcTraces', '[197] = {\n    [npcKeys.name] = "Marshal McBride",\n'
+                                       '    [npcKeys.questStarts_add] = {91758,92479},\n    [npcKeys.questEnds_add] = {91752},\n'
+                                       '    [npcKeys.spawns] = {[zoneIDs.ELWYNN_FOREST] = {{48.92,41.61}}},\n},\n["oops"] = { [npcKeys.questStarts_add] = {1} },'),
+    'traces/foreverObjectTraces.lua': lua('ForeverObjectTraces', '[35] = { [objectKeys.questEnds_add] = {91758}, },'),
+    'traces/foreverItemTraces.lua': lua('ForeverItemTraces', '[190232] = {\n    [itemKeys.name] = "Withered Scarf",\n'
+                                        '    [itemKeys.npcDrops_add] = {3782,3784},\n    [itemKeys.objectDrops_add] = {386691},\n},'),
+}
+
+
+def questie_tree(folder, files=QUESTIE):
+    for name, text in files.items():
+        path = os.path.join(folder, 'src', 'corrections', 'Forever', name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(text)
+
+
+class Questie(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.TemporaryDirectory()
+        questie_tree(cls.folder.name)
+        cls.skipped = collections.Counter()
+        cls.facts = list(facts.questie(cls.folder.name, cls.skipped))
+        cls.by = {(f.kind, f.subject_kind, f.subject, f.object): f for f in cls.facts}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.folder.cleanup()
+
+    def parts(self, *key):
+        return self.by[key].data['parts']
+
+    def test_the_file_list_is_the_twelve_forever_correction_files(self):
+        self.assertEqual(sorted(facts.QUESTIE_FILES), sorted('src/corrections/Forever/' + name for name in QUESTIE))
+        self.assertEqual(facts.QUESTIE_FILES['src/corrections/Forever/traces/foreverNpcTraces.lua'], ('npc', 'trace'))
+        self.assertEqual(facts.QUESTIE_FILES['src/corrections/Forever/foreverNPCFixes.lua'], ('npc', 'fix'))
+        self.assertEqual(facts.QUESTIE_FILES['src/corrections/Forever/generated/foreverBaseItem.lua'], ('item', 'generated'))
+
+    def test_every_fact_is_storable_and_none_hides_another(self):
+        self.assertEqual(len(self.by), len(self.facts))
+        for fact in self.facts:
+            self.assertIsNotNone(facts.check(fact), fact)
+            self.assertEqual(fact.build, 0)                          # not tied to a client build
+        self.assertEqual(collections.Counter(f.kind for f in self.facts), {'gives': 7, 'takes': 3, 'drops': 4, 'sells': 1, 'entry': 8})
+
+    def test_who_gives_a_quest_and_which_part_said_so(self):
+        # the quest's file and the NPC's file say the same thing: one fact, both fields, per part
+        self.assertEqual(self.parts('gives', 'npc', 197, 91758), {'generated': ['quest.startedBy', 'npc.questStarts_add'],
+                                                                  'trace': ['quest.startedBy_add', 'npc.questStarts_add']})
+        self.assertEqual(self.by[('gives', 'npc', 197, 91758)].samples, 1)       # players recorded it
+        self.assertEqual((self.parts('gives', 'npc', 197, 92479), self.by[('gives', 'npc', 197, 92479)].samples), ({'trace': ['npc.questStarts_add']}, 1))
+        self.assertEqual((self.parts('gives', 'npc', 167, 86776), self.by[('gives', 'npc', 167, 86776)].samples), ({'generated': ['npc.questStarts']}, 0))
+        self.assertEqual(self.parts('gives', 'item', 12345, 91758), {'generated': ['quest.startedBy']})      # third list: items
+        self.assertEqual(self.parts('gives', 'item', 190232, 91758), {'generated': ['item.startQuest']})
+        # what depends on the player keeps the table it stands in: one side's giver is not the other's
+        self.assertEqual(self.parts('gives', 'npc', 240, 92000), {'dynamic:questFixesHorde': ['quest.startedBy']})
+        self.assertEqual(self.parts('gives', 'npc', 241, 92000), {'dynamic:questFixesAlliance': ['quest.startedBy']})
+        self.assertEqual(self.parts('entry', 'quest', 92000, 0), {'dynamic:questFixesHorde': {'startedBy': [[240]]},
+                                                                  'dynamic:questFixesAlliance': {'startedBy': [[241]], 'questLevel': 7}})
+        self.assertNotIn(('gives', 'npc', 384, 5), self.by)                      # a _remove correction states no fact
+
+    def test_who_takes_a_quest(self):
+        self.assertEqual(self.parts('takes', 'npc', 197, 91752), {'trace': ['npc.questEnds_add']})
+        self.assertEqual(self.parts('takes', 'object', 35, 91758), {'trace': ['quest.finishedBy_add', 'object.questEnds_add']})    # second list: objects
+        self.assertEqual(self.parts('takes', 'object', 630696, 465), {'trace': ['quest.finishedBy_add']})
+
+    def test_what_drops_and_sells_an_item(self):
+        self.assertEqual(self.parts('drops', 'npc', 3782, 190232), {'generated': ['item.npcDrops'], 'trace': ['item.npcDrops_add']})
+        self.assertEqual(self.parts('drops', 'npc', 3784, 190232), {'trace': ['item.npcDrops_add']})
+        self.assertEqual(self.parts('drops', 'object', 386691, 190232), {'trace': ['item.objectDrops_add']})
+        self.assertEqual(self.parts('drops', 'item', 20708, 190232), {'generated': ['item.itemDrops']})
+        self.assertEqual(self.parts('sells', 'npc', 74, 190232), {'generated': ['item.vendors_add']})
+
+    def test_entries_keep_the_database_s_own_words(self):
+        npc = self.parts('entry', 'npc', 197, 0)
+        self.assertEqual(npc, {'generated': {'questStarts_add': [91758], 'minLevel': 5},
+                               'trace': {'name': 'Marshal McBride', 'questStarts_add': [91758, 92479], 'questEnds_add': [91752],
+                                         'spawns': {'ELWYNN_FOREST': [[48.92, 41.61]]}}})
+        self.assertEqual(self.parts('entry', 'npc', 384, 0), {'fix': {'npcFlags': 'npcFlags.VENDOR', 'questStarts_remove': [5]}})
+        quest = self.parts('entry', 'quest', 91758, 0)
+        self.assertEqual(list(quest), ['fix', 'generated', 'trace'])
+        self.assertEqual(quest['generated']['requiredRaces'], 'raceIDs.NIGHT_ELF+raceIDs.HUMAN')     # a name is kept as a name, not looked up
+        self.assertEqual(quest['trace']['finishedBy_add'], [None, [35]])
+        self.assertEqual((self.by[('entry', 'npc', 384, 0)].samples, self.by[('entry', 'npc', 197, 0)].samples), (0, 1))
+
+    def test_what_is_not_an_id_is_counted(self):
+        self.assertEqual(dict(self.skipped), {'foreverNpcTraces.lua': 1, 'foreverBaseItem.lua': 2})
+
+    def test_a_file_missing_or_written_another_way_stops_the_reading(self):
+        with tempfile.TemporaryDirectory() as folder:
+            questie_tree(folder, {k: v for k, v in QUESTIE.items() if k != 'traces/foreverItemTraces.lua'})
+            with self.assertRaises(facts.SourceError) as missing:
+                list(facts.questie(folder))
+            self.assertIn('foreverItemTraces.lua', str(missing.exception))
+        for broken in ('local t = 5\n', lua('ForeverNpcTraces', '[1] = { [npcKeys.name] = function() return 1 end },')):
+            with tempfile.TemporaryDirectory() as folder:
+                questie_tree(folder, dict(QUESTIE, **{'traces/foreverNpcTraces.lua': broken}))
+                with self.assertRaises(facts.SourceError) as unknown:
+                    list(facts.questie(folder))
+                self.assertIn('foreverNpcTraces.lua', str(unknown.exception))
+
+    def test_a_shape_it_does_not_know_is_counted_never_guessed(self):
+        odd = lua('ForeverBaseQuest', '[1] = { [questKeys.startedBy] = {197} },\n'                       # a flat list: npcs? objects?
+                                      '[2] = { [questKeys.startedBy] = {{5},{6},{7},{8}} },\n'            # a fourth list
+                                      '[3] = { [questKeys.finishedBy] = 9 },\n'
+                                      '[4] = { [questKeys.startedBy] = {{"12", 3.5, true, 13}} },\n'
+                                      '[5] = { [questKeys.startedBy] = {}, [questKeys.finishedBy] = {nil,{}} },')
+        with tempfile.TemporaryDirectory() as folder:
+            questie_tree(folder, dict({name: lua('X', '') for name in QUESTIE}, **{'generated/foreverBaseQuest.lua': odd}))
+            skipped = collections.Counter()
+            found = [(f.kind, f.subject_kind, f.subject, f.object) for f in facts.questie(folder, skipped) if f.kind != 'entry']
+        self.assertEqual(found, [('gives', 'npc', 13, 4)])
+        self.assertEqual(dict(skipped), {'foreverBaseQuest.lua': 6})        # three shapes, three values that are not ids
+
+    def test_only_the_tables_of_its_functions_are_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            text = 'Somewhere.else = {\n    [50] = { questStarts = {1} },\n}\n' + lua('ForeverNpcTraces', '[60] = { [npcKeys.questStarts_add] = {2} },')
+            questie_tree(folder, dict({name: lua('X', '') for name in QUESTIE}, **{'traces/foreverNpcTraces.lua': text}))
+            self.assertEqual([(f.kind, f.subject) for f in facts.questie(folder)], [('gives', 60), ('entry', 60)])
+
+    def test_ids_that_happen_to_count_from_one_are_still_ids(self):
+        with tempfile.TemporaryDirectory() as folder:
+            questie_tree(folder, dict(QUESTIE, **{'traces/foreverNpcTraces.lua': lua('ForeverNpcTraces', '[1] = { [npcKeys.questStarts_add] = {7} },\n'
+                                                                                     '[2] = { [npcKeys.questEnds_add] = {7} },')}))
+            found = {(f.kind, f.subject, f.object) for f in facts.questie(folder) if f.subject_kind == 'npc' and f.object == 7}
+            self.assertEqual(found, {('gives', 1, 7), ('takes', 2, 7)})
+
+    def test_fetch(self):
+        asked = []
+
+        def fetch(url):
+            asked.append(url.replace(f'https://raw.githubusercontent.com/Questie/QuestieDB/{COMMIT}/', ''))
+            return b'function X:Load()\n    return {}\nend\n'
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(facts.fetch_questie(COMMIT, folder, fetch), 12)
+            self.assertEqual(asked, list(facts.QUESTIE_FILES))
+            self.assertEqual(facts.fetch_questie(COMMIT, folder, fetch), 0)
+            self.assertEqual(list(facts.questie(folder)), [])                # twelve empty files: nothing to say
+        cut = QUESTIE['traces/foreverNpcTraces.lua'].encode()[:200]
+        for body in (b'404: Not Found', b'<html><body>return to the home page</body></html>', cut, b'function X:Load()\n    return answer\nend\n'):
+            with tempfile.TemporaryDirectory() as folder:
+                with self.assertRaises(facts.SourceError) as refused:
+                    facts.fetch_questie(COMMIT, folder, lambda url: body)
+                self.assertIn('foreverQuestFixes.lua', str(refused.exception))                  # the file is named
+                self.assertEqual([names for _root, _dirs, names in os.walk(folder) if names], [])      # and not kept
+
+        def unreachable(url):
+            raise OSError('no route')
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(facts.SourceError) as refused:
+            facts.fetch_questie(COMMIT, folder, unreachable)
+        self.assertIn('foreverQuestFixes.lua', str(refused.exception))
+        for pin in ('master', '', None, 'a' * 40 + '\n'):
+            with self.assertRaises(facts.SourceError):
+                facts.fetch_questie(pin, '/nonexistent', fetch)
+
+
+class Lua(unittest.TestCase):
+    def test_values(self):
+        from ft import luadata
+        value = luadata.parse_value('{ "a\\"b", \'c\\\'d\', 12, -3.5, 0x10, true, false, nil, [[\nlong\n]], "caf\\195\\169", }')
+        self.assertEqual(value, ['a"b', "c'd", 12, -3.5, 16, True, False, None, 'long\n', 'café'])     # a long string drops its first line break
+        self.assertEqual(luadata.parse_value('{ [k.name] = "x", [5] = {1, 2}, plain = l10n("text"), sum = 1 + 2, ["Mr. Smith"] = k.A + k.B }'),
+                         {'name': 'x', '5': [1, 2], 'plain': 'text', 'sum': 3, 'Mr. Smith': 'k.A+k.B'})
+        self.assertEqual(luadata.parse_value('{ -- a comment with a } brace\n  1, --[[ and { another ]] 2 }'), [1, 2])
+
+    def test_what_is_not_plain_data_is_refused_not_guessed(self):
+        from ft import luadata
+        for text in ('', '{1,', '{[k.a]=5-1}', '{1 2 3}', '{1+2*3}', '{4/2}', '{1..2}', '{ f = function() end }', '{ a = b and c }', '{1} {2}',
+                     '{ "open', '{ [[open', '{' * 3):
+            with self.assertRaises(ValueError, msg=text):
+                luadata.parse_value(text)
+        self.assertEqual(luadata.parse_value('{ a = 1 + 2, b = k.A + k.B, c = 2 + k.A }'), {'a': 3, 'b': 'k.A+k.B', 'c': '2+k.A'})
+
+    def test_tables_of_a_file(self):
+        from ft import luadata
+        found = luadata.tables('X.data = [[return {\n[1] = {"a",nil,3},\n}]]\nlocal y = { 1, 2 }\nfunction M:Load()\n  return { [7] = { [k.a] = 1 } }\nend\n')
+        self.assertEqual(found, {'X.data': [['a', None, 3]], 'y': [1, 2], 'M:Load': {'7': {'a': 1}}})    # keys 1..n in order are a list
+        self.assertIn('_skipped', luadata.tables('function M:Load()\n  return { [1] = { [k.a] = function() end } }\nend\n'))
+
+    def test_tables_a_function_keeps_in_locals(self):
+        from ft import luadata
+        found = luadata.tables('function M:LoadDynamic()\n    local keys = Q.keys\n    local horde = {\n        [7] = { [k.a] = 1 },\n    }\n'
+                               '    local alliance = {\n        [7] = { [k.a] = 2, [k.name] = [[Foo]] },\n    }\n'
+                               '    if f() then\n        return horde\n    end\n    return alliance\nend\n')
+        self.assertEqual(found, {'M:LoadDynamic/horde': {'7': {'a': 1}}, 'M:LoadDynamic/alliance': {'7': {'a': 2, 'name': 'Foo'}}})
+
+    def test_a_function_it_cannot_follow_is_reported(self):
+        from ft import luadata
+        two = luadata.tables('function M:Load()\n    if x then\n        return { [1] = {} }\n    end\n    return { [2] = {} }\nend\n')
+        self.assertEqual(list(two), ['_skipped'])
+        self.assertIn('returns 2 tables', two['_skipped'][0])
+        self.assertIn('_skipped', luadata.tables('function M:Load()\n    return build()\nend\n'))
+        commented = luadata.tables('function M:Load()\n    -- return { [1] = {} }\n    return { [2] = {} }\nend\n')
+        self.assertEqual(commented, {'M:Load': {'2': {}}})
+        self.assertEqual(luadata.tables('function M:Nothing()\n    doSomething()\nend\n'), {})
+
+
 class Fetch(unittest.TestCase):
     INDEX = {'products': {'wowf': {'1.60.1.70862': {'vendors': {'records': 2}, 'loot': {'records': 1}, 'game_rules': {'records': 9}},
                                    '1.60.1.70790': {'vendors': {'records': 1}}, '../../etc': {'vendors': {}}, '1.60.1.1': 'odd',

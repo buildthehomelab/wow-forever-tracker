@@ -20,6 +20,8 @@ facts, and nothing after it needs to know the source's format:
     object        object             -        the object's record as the server sent it
     objective     quest              index    an objective counted while a player did the quest
     turn_in       quest              -        what handing the quest in gave
+    entry         quest, npc,        -        its entry in a database people keep by hand (QuestieDB's corrections), in
+                  object, item                that database's own fields
 
 `samples` is what stands behind the claim, in the kind's own unit: loot windows that show every item (not a
 group's) for drops, gathers, fishes and coins; windows opened for talked; sightings for seen; players for the
@@ -35,9 +37,11 @@ import os
 import re
 import urllib.request
 
+from . import luadata
+
 FACTS, SOURCES = 'ft_world_facts', 'ft_world_sources'
 KINDS = ('gives', 'takes', 'sells', 'teaches', 'drops', 'gathers', 'fishes', 'coins', 'talked', 'seen', 'quest', 'creature', 'object',
-         'objective', 'turn_in')
+         'objective', 'turn_in', 'entry')
 SUBJECTS = ('npc', 'object', 'item', 'quest', 'uimap')
 Fact = collections.namedtuple('Fact', 'kind subject_kind subject object build samples data')
 
@@ -296,8 +300,137 @@ def fetch_eglink(commit, folder, fetch=http_bytes, log=lambda message: None):
     return downloaded
 
 
-READERS = {'eglink': eglink}
-FETCHERS = {'eglink': fetch_eglink}
+# ------------------------------------------------------------------ QuestieDB
+# QuestieDB's Forever data is the Classic database with its coordinates converted, plus corrections. Only the
+# corrections say something about Forever, and each kind says it with another weight, so a fact names its part:
+#   trace      what players' QuestieTrace recordings showed on live Forever
+#   generated  the reviewed delta QuestieDB generates for Forever (new quests, NPCs, items; changed levels)
+#   fix        a correction written by hand
+#   dynamic:x  a hand correction that depends on the player: x is the table it stands in (questFixesHorde ...)
+# The converted Classic base is not read: it is what Classic had, not what anybody saw in Forever.
+QUESTIE_REPO = 'Questie/QuestieDB'
+QUESTIE_FOLDER = 'src/corrections/Forever'
+QUESTIE_FILES = collections.OrderedDict(
+    (f'{QUESTIE_FOLDER}/{folder}forever{name}.lua', (entity, part))
+    for part, folder, names in (('fix', '', ('QuestFixes', 'NPCFixes', 'ObjectFixes', 'ItemFixes')),
+                                ('generated', 'generated/', ('BaseQuest', 'BaseNpc', 'BaseObject', 'BaseItem')),
+                                ('trace', 'traces/', ('QuestTraces', 'NpcTraces', 'ObjectTraces', 'ItemTraces')))
+    for name, entity in zip(names, ('quest', 'npc', 'object', 'item')))
+# field (and field_add) of an entity: the facts it states, as (kind, the entity is the subject?, the other side's kind
+# per position when the value is a list of lists, else the other side's kind)
+QUESTIE_RELATIONS = {
+    'quest': {'startedBy': ('gives', False, ('npc', 'object', 'item')), 'finishedBy': ('takes', False, ('npc', 'object'))},
+    'npc': {'questStarts': ('gives', True, 'quest'), 'questEnds': ('takes', True, 'quest')},
+    'object': {'questStarts': ('gives', True, 'quest'), 'questEnds': ('takes', True, 'quest')},
+    'item': {'npcDrops': ('drops', False, 'npc'), 'objectDrops': ('drops', False, 'object'), 'itemDrops': ('drops', False, 'item'),
+             'vendors': ('sells', False, 'npc'), 'startQuest': ('gives', True, 'quest')},
+}
+
+
+def _ids(value, skipped, name):
+    """The ids of a Lua list of ids (or of one id). Only whole numbers are ids: anything else, and a value that is
+    not a list, is counted and left out."""
+    if isinstance(value, dict) and not value:        # {} reads as an empty table: no id
+        return []
+    if isinstance(value, dict):
+        skipped[name] += 1
+        return []
+    out = []
+    for one in (value if isinstance(value, list) else [value]):
+        if one is None:
+            continue
+        if isinstance(one, int) and not isinstance(one, bool) and _id(one) is not None:
+            out.append(one)
+        else:
+            skipped[name] += 1
+    return out
+
+
+def questie(folder, skipped=None):
+    """The facts of a QuestieDB download (`folder` holds the repository's files under their own paths).
+
+    Who gives and takes a quest, what drops and sells an item, each with the parts that say it and the field that
+    said it ({'parts': {'trace': ['npc.questStarts_add'], 'generated': ['quest.startedBy']}}); and each entity's
+    whole correction as an `entry` fact, in QuestieDB's own field names. `samples` is 1 when players' recordings
+    (trace) state the fact, else 0. A fact is not tied to a client build (build 0). A `_remove` correction, and a
+    plain empty list (which means "none"), stay in the entry and give no fact: nothing here says that something is
+    not so. A plain list of a hand fix replaces the generated one in QuestieDB: rules that need that read the entries."""
+    skipped = collections.Counter() if skipped is None else skipped
+    relations, entries = collections.OrderedDict(), collections.OrderedDict()
+    for path, (entity, part) in QUESTIE_FILES.items():
+        name = os.path.basename(path)
+        try:
+            with open(os.path.join(folder, path), encoding='utf-8') as handle:
+                tables = luadata.tables(handle.read())
+        except (OSError, ValueError) as error:
+            raise SourceError(f'{os.path.join(folder, path)} cannot be read ({error}): delete it and run again') from None
+        # a table whose ids happen to be 1, 2, 3 ... comes back from the parser as a list
+        found = {function: ({str(i): entry for i, entry in enumerate(table, 1)} if isinstance(table, list) else table)
+                 for function, table in tables.items() if ':' in function and isinstance(table, (dict, list))}     # the tables of its functions
+        if tables.get('_skipped') or not found:
+            raise SourceError(f"{path} is not written the way this reader knows ({'; '.join(tables.get('_skipped') or ['no table found'])[:200]})")
+        for function, table in found.items():
+            said_by = part if 'Dynamic' not in function else 'dynamic:' + function.partition('/')[2] if '/' in function else 'dynamic'
+            for key, entry in table.items():
+                subject = _id(key)
+                if subject is None or not isinstance(entry, dict):
+                    skipped[name] += 1
+                    continue
+                entries.setdefault((entity, subject), {}).setdefault(said_by, {}).update(entry)
+                for field, (kind, entity_is_subject, other) in QUESTIE_RELATIONS[entity].items():
+                    for stated in (field, field + '_add'):
+                        if entry.get(stated) is None:
+                            continue
+                        if isinstance(other, tuple):          # {creatures, objects, items}: a list per kind of thing
+                            lists = [] if entry[stated] == {} else entry[stated] if isinstance(entry[stated], list) else None     # {}: none
+                            if lists is None or len(lists) > len(other) or not all(ids is None or isinstance(ids, (list, dict)) for ids in lists):
+                                skipped[name] += 1            # another shape than the one known: not guessed at
+                                continue
+                            pairs = [(other[i], one) for i, ids in enumerate(lists) for one in _ids(ids, skipped, name)]
+                        else:
+                            pairs = [(other, one) for one in _ids(entry[stated], skipped, name)]
+                        for other_kind, other_id in pairs:
+                            fact = (kind, entity, subject, other_id) if entity_is_subject else (kind, other_kind, other_id, subject)
+                            said = relations.setdefault(fact, {}).setdefault(said_by, [])
+                            if f'{entity}.{stated}' not in said:
+                                said.append(f'{entity}.{stated}')
+    for (kind, subject_kind, subject, other), parts in relations.items():
+        yield Fact(kind, subject_kind, subject, other, 0, int('trace' in parts), {'parts': parts})
+    for (entity, subject), parts in entries.items():
+        yield Fact('entry', entity, subject, 0, 0, int('trace' in parts), {'parts': parts})
+
+
+def fetch_questie(commit, folder, fetch=http_bytes, log=lambda message: None):
+    """Downloads QuestieDB's Forever correction files of a commit into `folder`, under their own paths, skipping
+    the ones already there. Returns how many it downloaded."""
+    if not COMMIT.fullmatch(commit or ''):
+        raise SourceError(f'QuestieDB is pinned by a commit, not {commit!r}')
+    downloaded = 0
+    try:
+        for path in QUESTIE_FILES:
+            target = os.path.join(folder, path)
+            if os.path.isfile(target):
+                continue
+            try:
+                body = fetch(f'https://raw.githubusercontent.com/{QUESTIE_REPO}/{commit}/{path}')
+            except (OSError, http.client.HTTPException) as error:
+                raise ValueError(f'{path}: {type(error).__name__}: {error}') from None
+            read = luadata.tables(body.decode('utf-8', 'replace'))  # kept only when it reads: no error page, no cut download
+            if read.get('_skipped') or not any(':' in function for function in read):
+                raise ValueError(f"{path} does not read as a corrections file ({'; '.join(read.get('_skipped') or ['no table'])[:160]})")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target + '.part', 'wb') as handle:
+                handle.write(body)
+            os.replace(target + '.part', target)
+            downloaded += 1
+            log(f'QuestieDB {os.path.basename(path)}')
+    except (OSError, ValueError, http.client.HTTPException) as error:
+        raise SourceError(f'QuestieDB could not be downloaded ({error})') from None
+    return downloaded
+
+
+READERS = {'eglink': eglink, 'questie': questie}
+FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie}
 
 
 # ------------------------------------------------------------------ storing
