@@ -379,6 +379,196 @@ class Questie(unittest.TestCase):
                 facts.fetch_questie(pin, '/nonexistent', fetch)
 
 
+GUIDE = '''local L = GetLocale() if L and RXP.enabledLocale[L] then return end
+--Skyborne leveling guide: Part 1
+RXPGuides.RegisterGuide([[
+#forever
+#version 1
+#name 1-9 Zephras Isle
+#next 9-13 Zephras Isle
+
+step
+    .goto 2521,42.82,23.41
+    >>|Tinterface/worldmap/chatbubble_64grey.blp:20|tTalk to |cRXP_FRIENDLY_Ailee Farheart::251362|r.
+    .accept 92460 >>Accept Coming of Age
+    .target Ailee Farheart::251362
+step << Alliance/!Shaman
+    .goto 2521,42.07,23.49
+    .goto 2521,43.00,24.00
+    .turnin 92460 >>Turn in Coming of Age
+    .target Rorian the Dayseeker::251361
+    .accept 92461,1 >>Accept Harmony in Balance << Priest
+    --.accept 99999 >>Accept A Commented Quest
+step
+    #completewith next
+    .goto 2521,44.23,26,40,0
+    >>Kill |cRXP_ENEMY_Juvenile Vuldren::251370|r
+    .complete 92461,1
+    .mob Juvenile Vuldren::251370
+step
+    >>Talk to two people
+    .accept 92470 >>Accept Two Givers
+    .target Elatrell Featherlight::251368
+    .target +Someone Else::251369
+step
+    .accept 92471 >>Accept Named Only
+    .target Deputy Willem
+step
+    .accept 92472 >>Accept Mixed
+    .target Ailee Farheart::251362
+    .target +Brother Danil
+step
+    .accept 92473 >>Accept No Target
+step << skip
+    .accept 92474 >>Accept Switched Off
+    .target Ailee Farheart::251362
+step
+    >>Click on the |cRXP_PICK_Bloodstained Satchel::581822|r
+    .accept 92475 >>Accept Clicked
+    .target Bloodstained Satchel::581822
+step << Shaman -- Shaman accepts now
+    #season 2
+    .accept 92476 >>Accept Tagged << Rogue -- a note
+    .target	Ailee Farheart::251362 -- trailing words
+step
+    .accept 92476 >>Accept Tagged << Rogue
+    .target Ailee Farheart::251362
+step
+    .accept 92476 >>Accept Tagged << Rogue
+    .target Ailee Farheart::251362
+step
+    .goto 1429/0,-136.48,-8933.47
+    .accept 783 >>Accept A Threat Within
+    .turnin -92480 >>Turn in something odd
+    .target Deputy Willem::823
+]])
+
+RXPGuides.RegisterGuide([[
+#forever
+#name 9-13 Zephras Isle
+step
+    .turnin 92461 >>Turn in Harmony in Balance
+    .target +Rorian the Dayseeker::251361 << Horde
+    .target Rorian the Dayseeker::251361 << Alliance
+]])
+'''
+
+
+class RxpGuides(unittest.TestCase):
+    KNOWN = {783}                     # what the Classic Era client already has
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.TemporaryDirectory()
+        for name in ('RestedXP-Skyborne.lua', 'dungeon/RestedXP-Skyborne.lua'):
+            path = os.path.join(cls.folder.name, 'Guides', 'forever', name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(GUIDE if '/' not in name else GUIDE.split('RXPGuides.RegisterGuide')[0] + 'RXPGuides.RegisterGuide([[\n#forever\n#name Dungeons\n'
+                             'step\n    .accept 92460 >>Accept Coming of Age\n    .target Ailee Farheart::251362\n]])\n')
+        cls.skipped = collections.Counter()
+        cls.facts = list(facts.rxpguides(cls.folder.name, cls.skipped, cls.KNOWN))
+        cls.by = {(f.kind, f.subject, f.object): f for f in cls.facts}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.folder.cleanup()
+
+    def test_only_steps_that_name_one_npc_by_id(self):
+        self.assertEqual(sorted(self.by), [('gives', 251361, 92461), ('gives', 251362, 92460), ('gives', 251362, 92476), ('takes', 251361, 92460),
+                                           ('takes', 251361, 92461)])
+        for fact in self.facts:
+            self.assertIsNotNone(facts.check(fact), fact)
+            self.assertEqual((fact.subject_kind, fact.build, fact.samples), ('npc', 0, 0))     # written, not recorded
+        # two NPCs (92470), a name without an id (92471), one of each (92472), nobody (92473), a commented line (99999): no fact
+        self.assertFalse({92470, 92471, 92472, 92473, 99999} & {f.object for f in self.facts})
+        self.assertNotIn(92474, {f.object for f in self.facts})                     # a step its authors switched off
+        self.assertNotIn(581822, {f.subject for f in self.facts})                   # something to click is not an NPC
+
+    def test_a_step_keeps_what_it_said(self):
+        self.assertEqual(self.by[('gives', 251362, 92460)].data, {'steps': [
+            {'guide': 'RestedXP-Skyborne.lua: 1-9 Zephras Isle', 'npc': 'Ailee Farheart', 'goto': '2521,42.82,23.41'},
+            {'guide': 'dungeon/RestedXP-Skyborne.lua: Dungeons', 'npc': 'Ailee Farheart'}]})
+        step = self.by[('gives', 251361, 92461)].data['steps'][0]
+        # where the step sends the player last (the earlier lines are the way there), the step's filter, and the line's own
+        self.assertEqual(step, {'guide': 'RestedXP-Skyborne.lua: 1-9 Zephras Isle', 'npc': 'Rorian the Dayseeker', 'goto': '2521,43.00,24.00',
+                                'for': 'Alliance/!Shaman', 'only': 'Priest'})
+        self.assertNotIn('only', self.by[('takes', 251361, 92460)].data['steps'][0])
+
+    def test_comments_tags_and_repeats(self):
+        tagged = self.by[('gives', 251362, 92476)].data['steps']
+        self.assertEqual(tagged, [
+            {'guide': 'RestedXP-Skyborne.lua: 1-9 Zephras Isle', 'npc': 'Ailee Farheart', 'for': 'Shaman', 'tags': ['#season 2'], 'only': 'Rogue'},
+            {'guide': 'RestedXP-Skyborne.lua: 1-9 Zephras Isle', 'npc': 'Ailee Farheart', 'only': 'Rogue'}])     # said twice more the same way: once
+
+    def test_the_same_npc_written_twice_is_one_npc(self):
+        taken = self.by[('takes', 251361, 92461)].data['steps']
+        self.assertEqual(taken, [{'guide': 'RestedXP-Skyborne.lua: 9-13 Zephras Isle', 'npc': 'Rorian the Dayseeker'}])
+
+    def test_quests_the_classic_client_has_are_not_read(self):
+        self.assertNotIn(783, {f.object for f in self.facts})
+        everything = {(f.kind, f.subject, f.object) for f in facts.rxpguides(self.folder.name, known=set())}
+        self.assertIn(('gives', 823, 783), everything)
+
+    def test_what_is_not_a_plain_quest_id_is_counted(self):
+        self.assertEqual(dict(self.skipped), {'RestedXP-Skyborne.lua': 2})                   # .turnin -92480, and the satchel to click
+
+    def test_the_shipped_list_of_classic_quests(self):
+        known = facts.classic_quests()
+        self.assertIn(783, known)
+        self.assertNotIn(92460, known)
+
+    def test_at_most_ten_steps_are_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Guides', 'forever', 'Many.lua')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w') as handle:
+                handle.write('RXPGuides.RegisterGuide([[\n#name Many\n' + ''.join(
+                    f'step\n    .goto 1,{i},{i}\n    .accept 92460\n    .target A::5\n' for i in range(14)) + ']])\n')
+            self.assertEqual(len(list(facts.rxpguides(folder, known=set()))[0].data['steps']), 10)
+
+    def test_a_file_that_is_no_guide_stops_the_reading(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Guides', 'forever', 'Broken.lua')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w') as handle:
+                handle.write('<html>404</html>')
+            with self.assertRaises(facts.SourceError):
+                list(facts.rxpguides(folder, known=set()))
+            with open(path, 'w') as handle:                          # a second guide that never ends: a download cut short
+                handle.write(GUIDE + 'RXPGuides.RegisterGuide([[\n#name Cut\nstep\n    .accept 92460\n    .target A::5\n')
+            with self.assertRaises(facts.SourceError) as cut:
+                list(facts.rxpguides(folder, known=set()))
+            self.assertIn('3 guides begin and 2 can be read', str(cut.exception))
+        self.assertEqual(list(facts.rxpguides(os.path.join(self.folder.name, 'nowhere'), known=set())), [])
+        with self.assertRaises(facts.SourceError):
+            facts.classic_quests(os.path.join(self.folder.name, 'no-baseline.json'))
+
+    def test_fetch(self):
+        listing = ('<Ui>\n    <Script file="Guides/Import.lua"/>\n\t<Script file="Guides/forever/RestedXP-Skyborne.lua"/>\n'
+                   '    <!-- <Script file="Guides/forever/Retired.lua"/> -->\n'
+                   '    <Script file="Guides/forever/dungeon/Alliance-1-13_Human.lua"/>\n    <Script file="Guides/SurvivalGuide/A-Classic.lua"/>\n</Ui>\n')
+        asked = []
+
+        def fetch(url):
+            asked.append(url.replace(f'https://raw.githubusercontent.com/RestedXP/RXPGuides/{COMMIT}/', ''))
+            return listing.encode() if url.endswith('.xml') else GUIDE.encode()
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(facts.fetch_rxpguides(COMMIT, folder, fetch), 2)
+            self.assertEqual(asked, ['Guides/GuideList-forever.xml', 'Guides/forever/RestedXP-Skyborne.lua', 'Guides/forever/dungeon/Alliance-1-13_Human.lua'])
+            self.assertEqual(facts.fetch_rxpguides(COMMIT, folder, fetch), 0)
+            self.assertEqual(len(list(facts.rxpguides(folder, known=set()))), 6)      # the five of the first guide, and the Classic quest
+        for bad_listing, bad_body in ((listing, b'<html>404</html>'), (listing, GUIDE.encode()[:300]), ('<Ui></Ui>', GUIDE.encode()),
+                                      ('<Script file="Guides/forever/../../etc/passwd.lua"/>', GUIDE.encode()),
+                                      ('<Script file="Guides/forever/a/b/c.lua"/>', GUIDE.encode())):
+            with tempfile.TemporaryDirectory() as folder:
+                with self.assertRaises(facts.SourceError):
+                    facts.fetch_rxpguides(COMMIT, folder, lambda url: bad_listing.encode() if url.endswith('.xml') else bad_body)
+                self.assertEqual([names for _root, _dirs, names in os.walk(folder) if names], [])
+        with self.assertRaises(facts.SourceError):
+            facts.fetch_rxpguides('main', '/nonexistent', fetch)
+
+
 class Lua(unittest.TestCase):
     def test_values(self):
         from ft import luadata
