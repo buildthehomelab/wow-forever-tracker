@@ -237,8 +237,9 @@ because no source mentions it.
 | Rule | When | Verdict |
 |---|---|---|
 | `seen-live` | A recording on the live game states it: EG Link on a build of the live game, a QuestieTrace recording | `add` |
-| `two-witnesses` | No live recording, but two independent witnesses state it. The parts of one source are one witness, and so are sources of one witness group | `add` |
-| `one-claim` | One witness's word, not recorded on live: a list generated from another site's pages, a hand correction, a beta build | `review` |
+| `trusted-source` | No live recording, but a source the registry trusts by itself states it | `add` |
+| `two-witnesses` | Neither, but two independent witnesses state it. The parts of one source are one witness, and so are sources of one witness group | `add` |
+| `one-claim` | One witness's word, not recorded on live and not trusted by itself: a hand correction, a beta build | `review` |
 | `reference-only` | Only sources that may never give a row state it | `review` |
 | `removed-by-hand` | A source's own hand correction takes the claim back (QuestieDB's `_remove`) | `review` |
 | `item-starts` | An item starts the quest: that is the item's own data, not followed here | `review` |
@@ -265,6 +266,15 @@ is live, and only for a fact from such a build; a source made of parts says whic
 part really is (QuestieDB: `trace` is live; `generated` is Wowhead's word; `fix` and `dynamic` are QuestieDB's own).
 A registry without `live_from`, or with a part's `live` written as text, is refused rather than read as "everything
 is live".
+
+Which source is **trusted by itself** is also the registry's word (`trusted` on a source or on one of its parts): a
+judgement about a source's record, written down where it can be read and changed. Today one is: QuestieDB's
+`generated` list. It is Wowhead's data (the reference players have relied on since the game's early days), reviewed by
+QuestieDB and shipped to Questie's users, and it is published under QuestieDB's licence, so its rows may be published. Wowhead read directly stays a reference: it confirms, it never gives a row. Trust is about
+what a source states; that a trusted source does not list something still means nothing (new quests reach it late). A source
+made of parts is trusted part by part, and a source that never gives a row cannot be marked trusted. One limit to
+know: in QuestieDB a hand fix's plain list replaces the generated one, and that is not followed yet (only `_remove`
+is), so a generated claim QuestieDB itself replaced would still be added; at the commit tested there is none.
 
 Each decision also says whether it may be **published**: `public` when a source that may be published states it
 (the row is then written from that source, whoever else witnessed it), `private` when only a source without a

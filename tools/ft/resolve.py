@@ -8,7 +8,8 @@ claims about one thing into a decision, and every decision keeps its reasons:
               review   the facts are not enough to decide: a person looks
     rule      the name of the rule that gave the verdict
     allowed   public or private: whether a source that may be published states it (docs/WORLD-BUILD.md)
-    witnesses who says so: source, part, client build, samples, witness group, recorded on live or not
+    witnesses who says so: source, part, client build, samples, witness group, recorded on live or not, trusted
+              by itself or not
 
 What the world already holds is not decided again (it is counted as agreed), and nothing is ever removed because no
 source mentions it: that nobody recorded something is not evidence that it is gone.
@@ -17,8 +18,10 @@ Rules, by the kind of thing:
 
 - who gives a quest, who takes it, what a vendor sells (`gives`, `takes`, `sells`):
     seen-live        a recording on the live game states it: add
-    two-witnesses    no live recording, but two independent witnesses state it: add. Two parts of one source, or
-                     two sources of one witness group, are one witness
+    trusted-source   no live recording, but a source the registry trusts by itself states it (QuestieDB's
+                     generated list: Wowhead's data, reviewed and shipped by Questie): add
+    two-witnesses    neither, but two independent witnesses state it: add. Two parts of one source, or two
+                     sources of one witness group, are one witness
     one-claim        one witness's word, not recorded on live: review
     reference-only   only sources that may never give a row state it: review
     removed-by-hand  a source's hand correction takes the claim back: review
@@ -51,7 +54,7 @@ SCHEMA = [
 ]
 PAIRS = ('gives', 'takes', 'sells')
 INTERNAL = re.compile(r'^\s*[\[<(]|^\s*zz|UNUSED|DEPRECATED|REUSE|\bDNT\b|\bNYI\b|\bTEST\b|\btest quest\b', re.I)
-Evidence = collections.namedtuple('Evidence', 'source part build samples group live use')
+Evidence = collections.namedtuple('Evidence', 'source part build samples group live use trusted', defaults=(False,))
 Decision = collections.namedtuple('Decision', 'kind subject_kind subject object verdict rule allowed name needs notes witnesses')
 
 
@@ -64,10 +67,10 @@ def evidence(registry, source, build, samples, data):
         out = []
         for part in parts:
             group, live = registry.witness(source, part)
-            out.append(Evidence(source, part, 0, 1 if live else 0, group, live, about['use']))
+            out.append(Evidence(source, part, 0, 1 if live else 0, group, live, about['use'], registry.trusted(source, part)))
         return out
     group, live = registry.witness(source, '', build)
-    return [Evidence(source, '', build, samples, group, live, about['use'])]
+    return [Evidence(source, '', build, samples, group, live, about['use'], registry.trusted(source))]
 
 
 def strongest(witnesses):
@@ -105,6 +108,8 @@ def weigh(registry, witnesses):
     allowed = 'public' if any(w.use == 'public' for w in giving) else 'private'
     if any(w.live for w in giving):
         return 'add', 'seen-live', allowed
+    if any(w.trusted for w in giving):
+        return 'add', 'trusted-source', allowed
     if independent(registry, witnesses) >= 2:
         return 'add', 'two-witnesses', allowed
     return 'review', 'one-claim', allowed

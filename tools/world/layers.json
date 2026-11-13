@@ -85,7 +85,7 @@
       "url": "https://github.com/Questie/QuestieDB",
       "parts": {
         "trace": {"group": "questie", "live": true},
-        "generated": {"group": "wowhead"},
+        "generated": {"group": "wowhead", "trusted": true},
         "fix": {"group": "questie"},
         "dynamic": {"group": "questie"}
       },

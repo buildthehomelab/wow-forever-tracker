@@ -26,7 +26,10 @@ def eg(build=LIVE, samples=2):
 
 def questie(part):
     group, live = REGISTRY.witness('questie', part)
-    return Evidence('questie', part, 0, int(live), group, live, 'public')
+    return Evidence('questie', part, 0, int(live), group, live, 'public', REGISTRY.trusted('questie', part))
+
+
+UNTRUSTED = questie('generated')._replace(trusted=False)        # the same list, were the registry not to trust it
 
 
 def other(source, live=False):
@@ -81,6 +84,8 @@ class Witness(unittest.TestCase):
         self.assertTrue(any('without ":"' in p for p in problems(lambda d: source(d, 'questie')['parts'].update({'dynamic:x': {}}))))
         self.assertTrue(any('group is a name' in p for p in problems(lambda d: source(d, 'questie')['parts']['fix'].update(group=''))))
         self.assertTrue(any('recorded is true or false' in p for p in problems(lambda d: source(d, 'eglink').update(recorded='yes'))))
+        self.assertTrue(any('trusted is true or false' in p for p in problems(lambda d: source(d, 'eglink').update(trusted='yes'))))
+        self.assertTrue(any('trusted is true or false' in p for p in problems(lambda d: source(d, 'questie')['parts']['fix'].update(trusted=1))))
 
     def test_evidence_of_a_stored_fact(self):
         self.assertEqual(resolve.evidence(REGISTRY, 'eglink', LIVE, 3, {'title': 'x'}), [Evidence('eglink', '', LIVE, 3, 'eglink', True, 'public')])
@@ -99,27 +104,57 @@ class Weigh(unittest.TestCase):
         self.assertEqual(weigh(questie('trace')), ('add', 'seen-live', 'public'))
         self.assertEqual(weigh(eg(samples=0), questie('generated')), ('add', 'seen-live', 'public'))
 
+    def test_a_source_the_registry_trusts_by_itself(self):
+        self.assertTrue(REGISTRY.trusted('questie', 'generated'))       # Wowhead's data, reviewed and shipped by Questie
+        for part in ('trace', 'fix', 'dynamic:questFixesHorde', 'no-such-part', ''):
+            self.assertFalse(REGISTRY.trusted('questie', part), part)
+        self.assertEqual([sid for sid in REGISTRY.sources if REGISTRY.trusted(sid)], [])               # no source as a whole
+        self.assertEqual(weigh(questie('generated')), ('add', 'trusted-source', 'public'))
+        self.assertEqual(weigh(questie('generated'), questie('fix')), ('add', 'trusted-source', 'public'))
+        self.assertEqual(weigh(questie('generated'), eg()), ('add', 'seen-live', 'public'))             # a live recording is still the better reason
+        trusted_reference = Evidence('wowhead', '', 0, 1, 'wowhead', False, 'reference', True)
+        self.assertEqual(weigh(trusted_reference), ('review', 'reference-only', 'private'))            # trust does not make a reference give rows
+        self.assertEqual(weigh(trusted_reference, UNTRUSTED), ('review', 'one-claim', 'public'))       # nor lend its trust to another's row
+        trusted_private = Evidence('icyveins', '', 0, 1, 'eglink', False, 'private', True)
+        self.assertEqual(weigh(trusted_private), ('add', 'trusted-source', 'private'))
+        self.assertEqual(weigh(questie('generated'), eg(BETA)), ('add', 'trusted-source', 'public'))   # the first reason that holds is the one given
+
+    def test_trust_is_given_part_by_part_and_fails_closed(self):
+        with open(layers.REGISTRY, encoding='utf-8') as handle:
+            raw = json.load(handle)
+        questie_source = next(s for s in raw['sources'] if s['id'] == 'questie')
+        questie_source['trusted'] = True                               # the whole source marked: its parts still speak for themselves
+        questie_source['parts']['dynamic']['trusted'] = True
+        registry = layers.Registry(raw)
+        self.assertTrue(registry.trusted('questie', 'generated') and registry.trusted('questie', 'dynamic:questFixesHorde'))
+        for part in ('trace', 'fix', 'a-part-added-upstream-later', ''):
+            self.assertFalse(registry.trusted('questie', part), part)
+        next(s for s in raw['sources'] if s['id'] == 'eglink')['trusted'] = True
+        self.assertTrue(layers.Registry(raw).trusted('eglink'))        # a source without parts is trusted as a whole
+        next(s for s in raw['sources'] if s['id'] == 'wowhead')['trusted'] = True
+        self.assertTrue(any('never gives a row' in p for p in layers.validate(raw)))
+
     def test_two_independent_witnesses_without_a_live_recording(self):
-        self.assertEqual(weigh(eg(BETA), questie('generated')), ('add', 'two-witnesses', 'public'))
+        self.assertEqual(weigh(eg(BETA), UNTRUSTED), ('add', 'two-witnesses', 'public'))
         self.assertEqual(weigh(eg(BETA), questie('fix')), ('add', 'two-witnesses', 'public'))
         self.assertEqual(weigh(other('wowhead'), questie('fix')), ('add', 'two-witnesses', 'public'))      # a reference confirms; QuestieDB gives the row
 
     def test_one_source_is_one_witness_whatever_its_parts(self):
-        self.assertEqual(weigh(questie('fix'), questie('generated'), questie('dynamic:questFixesAlliance')), ('review', 'one-claim', 'public'))
-        self.assertEqual(weigh(questie('generated')), ('review', 'one-claim', 'public'))
+        self.assertEqual(weigh(questie('fix'), UNTRUSTED, questie('dynamic:questFixesAlliance')), ('review', 'one-claim', 'public'))
+        self.assertEqual(weigh(questie('fix')), ('review', 'one-claim', 'public'))
         self.assertEqual(weigh(eg(BETA)), ('review', 'one-claim', 'public'))
 
     def test_sources_of_one_witness_group_are_one_witness(self):
         self.assertEqual(resolve.independent(REGISTRY, [other('norgannondb'), other('cmangos')]), 1)      # compiled from it
         self.assertEqual(weigh(other('norgannondb'), other('cmangos')), ('review', 'one-claim', 'public'))
-        self.assertEqual(weigh(other('wowhead'), questie('generated')), ('review', 'one-claim', 'public'))  # the generated list is Wowhead's word
+        self.assertEqual(weigh(other('wowhead'), UNTRUSTED), ('review', 'one-claim', 'public'))             # the generated list is Wowhead's word
         self.assertEqual(weigh(eg(BETA), other('icyveins')), ('review', 'one-claim', 'public'))             # Icy Veins holds EG Link's rows
         self.assertEqual(resolve.independent(REGISTRY, [eg(), questie('trace'), other('norgannondb'), other('vmangos')]), 3)
         self.assertEqual(resolve.independent(REGISTRY, []), 0)
 
     def test_whether_it_may_be_published(self):
         self.assertEqual(weigh(ICY), ('add', 'seen-live', 'private'))                       # only a source without a licence states it
-        self.assertEqual(weigh(ICY, questie('generated')), ('add', 'seen-live', 'public'))   # a publishable source states the same thing
+        self.assertEqual(weigh(ICY, questie('fix')), ('add', 'seen-live', 'public'))         # a publishable source states the same thing
         self.assertEqual(weigh(other('wowhead')), ('review', 'reference-only', 'private'))
         self.assertEqual(weigh(other('wowhead'), eg(BETA)), ('add', 'two-witnesses', 'public'))
         self.assertEqual(weigh(), ('review', 'reference-only', 'private'))
@@ -127,7 +162,7 @@ class Weigh(unittest.TestCase):
     def test_a_reference_can_confirm_but_not_be_the_live_recording(self):
         live_reference = Evidence('wowhead', '', LIVE, 1, 'wowhead', True, 'reference')
         self.assertEqual(weigh(live_reference), ('review', 'reference-only', 'private'))
-        self.assertEqual(weigh(live_reference, questie('generated')), ('review', 'one-claim', 'public'))
+        self.assertEqual(weigh(live_reference, UNTRUSTED), ('review', 'one-claim', 'public'))
 
     def test_strongest_keeps_one_witness_per_source_and_part(self):
         kept = resolve.strongest([eg(BETA, 9), eg(LIVE, 1), eg(70790, 4), questie('generated'), questie('generated'), questie('trace')])
@@ -151,15 +186,17 @@ class Pairs(unittest.TestCase):
             ('npc', 3, 101): [questie('trace')],               # the NPC is not spawned: still added, noted
             ('npc', 9, 100): [eg()],                           # no template
             ('npc', 2, 555): [eg()],                           # the quest is not in the world
-            ('object', 50, 100): [questie('generated')],       # one claim
+            ('object', 50, 100): [questie('fix')],             # one claim
             ('object', 51, 100): [eg()],                       # an object without a template
-            ('npc', 9, 556): [questie('generated')],           # one claim and nothing there: for a person, not on hold
+            ('npc', 9, 556): [questie('fix')],                 # one claim and nothing there: for a person, not on hold
+            ('npc', 4, 101): [questie('generated')],           # a trusted source by itself
+            ('npc', 9, 101): [questie('generated')],           # trusted, but its NPC is not there
         })
         self.assertEqual(agreed, 0)
         self.assertEqual({k: (d.verdict, d.rule) for k, d in made.items()}, {
             ('npc', 2, 100): ('add', 'seen-live'), ('npc', 3, 101): ('add', 'seen-live'), ('npc', 9, 100): ('hold', 'seen-live'),
             ('npc', 2, 555): ('hold', 'seen-live'), ('object', 50, 100): ('review', 'one-claim'), ('object', 51, 100): ('hold', 'seen-live'),
-            ('npc', 9, 556): ('review', 'one-claim')})
+            ('npc', 9, 556): ('review', 'one-claim'), ('npc', 4, 101): ('add', 'trusted-source'), ('npc', 9, 101): ('hold', 'trusted-source')})
         self.assertEqual(made[('npc', 9, 100)].needs, ['NPC 9 has no template'])
         self.assertEqual(made[('object', 51, 100)].needs, ['object 51 has no template'])
         self.assertEqual(made[('npc', 2, 555)].needs, ['quest 555 is not in the world'])
@@ -169,13 +206,14 @@ class Pairs(unittest.TestCase):
         self.assertEqual(made[('npc', 2, 100)].witnesses, [eg()])
 
     def test_an_item_that_starts_a_quest_is_not_followed_here(self):
-        made, _agreed = self.decide('gives', {('item', 777, 100): [eg(), questie('trace')]})
+        made, _agreed = self.decide('gives', {('item', 777, 100): [eg(), questie('trace'), questie('generated')]})
         self.assertEqual((made[('item', 777, 100)].verdict, made[('item', 777, 100)].rule), ('review', 'item-starts'))
 
     def test_a_claim_a_hand_correction_takes_back_is_for_a_person(self):
-        made, _agreed = self.decide('gives', {('npc', 2, 100): [questie('trace')], ('npc', 3, 100): [questie('trace')]}, removed={('npc', 2, 100)})
-        self.assertEqual({k: (d.verdict, d.rule) for k, d in made.items()},
-                         {('npc', 2, 100): ('review', 'removed-by-hand'), ('npc', 3, 100): ('add', 'seen-live')})
+        made, _agreed = self.decide('gives', {('npc', 2, 100): [questie('trace')], ('npc', 3, 100): [questie('trace')],
+                                              ('npc', 4, 100): [questie('generated')]}, removed={('npc', 2, 100), ('npc', 4, 100)})
+        self.assertEqual({k: (d.verdict, d.rule) for k, d in made.items()},       # even what a trusted list says
+                         {('npc', 2, 100): ('review', 'removed-by-hand'), ('npc', 3, 100): ('add', 'seen-live'), ('npc', 4, 100): ('review', 'removed-by-hand')})
 
     def test_a_vendor_needs_no_quest(self):
         made, agreed = self.decide('sells', {('npc', 2, 900): [eg()], ('npc', 2, 901): [eg()], ('npc', 8, 901): [ICY]})
@@ -326,7 +364,8 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
                        Fact('sells', 'npc', 3, 900, LIVE, 1, {}), Fact('sells', 'npc', 2, 903, LIVE, 1, {}), Fact('sells', 'npc', 4, 904, LIVE, 1, {}),
                        Fact('sells', 'npc', 2, 77, LIVE, 1, {})],
             'questie': [Fact('takes', 'object', 50, 200, 0, 1, {'parts': {'trace': ['quest.finishedBy_add'], 'generated': ['quest.finishedBy']}}),
-                        Fact('gives', 'npc', 3, 201, 0, 0, {'parts': {'generated': ['npc.questStarts']}}),
+                        Fact('gives', 'npc', 3, 201, 0, 0, {'parts': {'fix': ['npc.questStarts']}}),
+                        Fact('gives', 'npc', 4, 101, 0, 0, {'parts': {'generated': ['npc.questStarts']}}),
                         Fact('entry', 'npc', 2, 0, 0, 0, {'parts': {'fix': {'questStarts_remove': [100]}}}),
                         Fact('entry', 'npc', 3, 0, 0, 0, {'parts': {'fix': {'name': 'not a _remove field, only the text'}}})],
         }
@@ -359,7 +398,7 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
         when, stored_summary = resolve.stored_summary(self.db)
         self.assertTrue(when)
         self.assertEqual(list(stored_summary), ['gives', 'takes', 'sells', 'quest'])
-        self.assertEqual(stored_summary, {'gives': {'add': 1, 'review': 2, 'agreed': 2}, 'takes': {'add': 1, 'agreed': 0},
+        self.assertEqual(stored_summary, {'gives': {'add': 2, 'review': 2, 'agreed': 2}, 'takes': {'add': 1, 'agreed': 0},
                                           'sells': {'add': 2, 'agreed': 4}, 'quest': {'add': 1, 'hold': 1, 'agreed': 1}})
         rows, total = resolve.stored(self.db, 'quest')
         quests = {row['subject']: row for row in rows}
@@ -373,9 +412,13 @@ CREATE TABLE game_event_npc_vendor (eventEntry int, guid int, item int); INSERT 
         self.assertEqual(resolve.stored(self.db, 'sells', limit=1)[1], 2)
         self.assertEqual(len(resolve.stored(self.db, 'sells', limit=-3)[0]), 1)
         gives = {(row['subject'], row['object']): (row['verdict'], row['rule']) for row in resolve.stored(self.db, 'gives')[0]}
-        self.assertEqual(gives, {(1, 200): ('add', 'seen-live'), (2, 100): ('review', 'removed-by-hand'), (3, 201): ('review', 'one-claim')})
+        self.assertEqual(gives, {(1, 200): ('add', 'seen-live'), (2, 100): ('review', 'removed-by-hand'), (3, 201): ('review', 'one-claim'),
+                                 (4, 101): ('add', 'trusted-source')})
+        trusted = next(row for row in resolve.stored(self.db, 'gives', 'add')[0] if row['object'] == 101)
+        self.assertEqual([(w['part'], w['trusted']) for w in trusted['witnesses']], [('generated', True)])
         ender = resolve.stored(self.db, 'takes')[0][0]
         self.assertEqual(sorted((w['part'], w['group'], w['live']) for w in ender['witnesses']), [('generated', 'wowhead', False), ('trace', 'questie', True)])
+        self.assertEqual(ender['rule'], 'seen-live')
         self.assertEqual(ender['notes'], ['object 50 is not spawned', 'comes with quest 200'])
         # resolving again replaces what was there
         resolve.write_sql(path, [], {})
