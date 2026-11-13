@@ -38,6 +38,16 @@ loot), pickpocketing, skinning, fishing, a spawned vendor, the shop, a container
 a quest that can be done, or a craft that can be learned. Quests, items and crafts depend on each other, so the
 analysis repeats until nothing changes.
 
+## The world build (`tools/ft/layers.py`, `tools/ft/world.py`)
+
+| File | |
+|---|---|
+| `tools/world/layers.json` | The layers and every source: layer, licence, credit, use (`public`, `private`, `reference`), witness group, how its newest version is found |
+| `ft/layers.py` | Reads and checks that registry; counts independent witnesses; says whether a row may be published; looks up and locks each source's version. No configuration, no database: tested alone (`tools/tests`) |
+| `ft/world.py` | The `world` commands of `tracker.py` |
+
+See [WORLD-BUILD.md](WORLD-BUILD.md).
+
 ## Tables
 
 | Table | |

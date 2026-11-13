@@ -1,0 +1,123 @@
+{
+  "layers": [
+    {"key": "vanilla", "name": "Vanilla 1.12", "role": "Classic content Forever kept unchanged; reference to restore a row the base lost."},
+    {"key": "base", "name": "Server world", "role": "The world as built: the core's release database and its update files, replayed."},
+    {"key": "season", "name": "Season of Discovery era", "role": "Rows for ids the Forever client carries from the Classic Era client."},
+    {"key": "client", "name": "Blizzard's client and hotfixes", "role": "Decides what exists; wins every field the client holds."},
+    {"key": "live", "name": "Live recordings", "role": "What players' addons recorded on live Forever: wins server-held facts when witnessed."},
+    {"key": "corrections", "name": "Reviewed corrections", "role": "A person's decision, with a reason."}
+  ],
+  "sources": [
+    {
+      "id": "vmangos", "name": "VMaNGOS world database", "layer": "vanilla", "group": "vmangos",
+      "licence": "GPL-2.0-or-later", "use": "public",
+      "credit": "VMaNGOS (https://github.com/vmangos/core), GPL-2.0 or later.",
+      "url": "https://github.com/vmangos/core",
+      "pin": {"type": "github-release", "repo": "vmangos/core", "tag": "db_latest", "asset": "db-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].zip"}
+    },
+    {
+      "id": "cmangos", "name": "CMaNGOS classic-db", "layer": "vanilla", "group": "cmangos",
+      "licence": "GPL-3.0", "use": "public",
+      "credit": "CMaNGOS classic-db (https://github.com/cmangos/classic-db), GPL-3.0.",
+      "url": "https://github.com/cmangos/classic-db",
+      "pin": {"type": "github-release", "repo": "cmangos/classic-db", "tag": "latest", "asset": "classic-world-db.zip"}
+    },
+    {
+      "id": "core", "name": "Core release database and update files", "layer": "base", "group": "core",
+      "licence": "GPL-2.0-or-later", "use": "public",
+      "credit": "TrinityCore and its WoW Forever fork (https://github.com/Karrz1/TrinityCore), GPL-2.0 or later.",
+      "url": "https://github.com/Karrz1/TrinityCore",
+      "pin": {"type": "replay"}
+    },
+    {
+      "id": "databaseforever", "name": "EmuForever DatabaseForever", "layer": "base", "group": "core",
+      "licence": "none", "use": "reference",
+      "note": "The core's release database plus generated NPC templates and spawns: never a second witness beside the core.",
+      "url": "https://github.com/EmuForever/DatabaseForever",
+      "pin": {"type": "github-branch", "repo": "EmuForever/DatabaseForever", "branch": "main"}
+    },
+    {
+      "id": "classic-era-client", "name": "Classic Era client tables", "layer": "season", "group": "blizzard",
+      "licence": "game data", "use": "public",
+      "note": "Ids only: which Forever ids come from the Classic Era client (Season of Discovery included).",
+      "url": "https://wago.tools",
+      "pin": {"type": "wago-build", "product": "wow_classic_era"}
+    },
+    {
+      "id": "client", "name": "WoW Forever client tables", "layer": "client", "group": "blizzard",
+      "licence": "game data", "use": "public",
+      "url": "https://wago.tools",
+      "pin": {"type": "wago-build", "product": "wowf"}
+    },
+    {
+      "id": "hotfixes", "name": "WoW Forever hotfix cache", "layer": "client", "group": "blizzard",
+      "licence": "game data", "use": "public",
+      "url": "https://storage.googleapis.com/raidbots-static/wow/forever/enUS/DBCache.bin",
+      "pin": {"type": "url", "url": "https://storage.googleapis.com/raidbots-static/wow/forever/enUS/DBCache.bin"}
+    },
+    {
+      "id": "eglink", "name": "EG Link", "layer": "live", "group": "eglink",
+      "licence": "CC-BY-4.0", "use": "public",
+      "credit": "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0.",
+      "url": "https://github.com/JIVESCORP/eg-link-output-wowf",
+      "pin": {"type": "github-branch", "repo": "JIVESCORP/eg-link-output-wowf", "branch": "main"}
+    },
+    {
+      "id": "icyveins", "name": "Icy Veins WoW Forever database", "layer": "live", "group": "eglink",
+      "licence": "none", "use": "private",
+      "note": "Holds EG Link's rows (all of its quest giver and trainer pairs, 98 % of its vendor pairs, 2026-11-12): the same witness group as EG Link.",
+      "url": "https://db.icy-veins.com/wow-forever",
+      "pin": {"type": "none"}
+    },
+    {
+      "id": "foreverdb", "name": "ForeverDB.net", "layer": "live", "group": "foreverdb",
+      "licence": "GPL-3.0", "use": "public",
+      "credit": "Data from ForeverDB.net, GPL-3.0.",
+      "url": "https://foreverdb.net",
+      "pin": {"type": "none"}
+    },
+    {
+      "id": "questie", "name": "Questie", "layer": "live", "group": "questie",
+      "licence": "GPL-3.0", "use": "public",
+      "credit": "Questie (https://github.com/Questie/Questie), GPL-3.0.",
+      "note": "Its Season of Discovery corrections feed the season layer.",
+      "url": "https://github.com/Questie/Questie",
+      "pin": {"type": "github-branch", "repo": "Questie/Questie", "branch": "master"}
+    },
+    {
+      "id": "norgannondb", "name": "NorgannonDB", "layer": "live", "group": "questie", "also": ["cmangos", "dungeonjournal"],
+      "licence": "GPL-3.0", "use": "public",
+      "credit": "NorgannonDB by Maro (https://github.com/zmarotrix/NorgannonDB), GPL-3.0, with QuestieDB, pfQuest and DungeonJournal as its NOTICE lists.",
+      "note": "Compiled from QuestieDB, pfQuest, cmangos classic-db and DungeonJournal: never a second witness beside any of them. Its DungeonJournal data is published under NorgannonDB's own licence and credit (its author's permission, as its NOTICE says).",
+      "url": "https://github.com/zmarotrix/NorgannonDB",
+      "pin": {"type": "github-branch", "repo": "zmarotrix/NorgannonDB", "branch": "main"}
+    },
+    {
+      "id": "atlasloot", "name": "AtlasLoot Classic Forever", "layer": "live", "group": "atlasloot",
+      "licence": "GPL-2.0", "use": "private",
+      "note": "Private until the addon's licence text is checked for \"or any later version\".",
+      "url": "https://www.curseforge.com/wow/addons/atlasloot-forever",
+      "pin": {"type": "curseforge", "project": 1422985, "name": "AtlasLoot-Classic-Forever-"}
+    },
+    {
+      "id": "dungeonjournal", "name": "Forever Dungeon Journal", "layer": "live", "group": "dungeonjournal",
+      "licence": "unknown", "use": "private",
+      "note": "The addon read by itself: private until its licence is checked. (NorgannonDB carries a copy with its author's permission.)",
+      "url": "",
+      "pin": {"type": "none"}
+    },
+    {
+      "id": "wowhead", "name": "Wowhead Forever tooltips", "layer": "live", "group": "wowhead",
+      "licence": "none", "use": "reference",
+      "note": "Names a thing and tags Season of Discovery leftovers. It does not decide what exists: the client's tables do.",
+      "url": "https://www.wowhead.com/forever",
+      "pin": {"type": "none"}
+    },
+    {
+      "id": "forge", "name": "The Forge", "layer": "corrections", "group": "forge",
+      "licence": "own", "use": "public",
+      "url": "",
+      "pin": {"type": "none"}
+    }
+  ]
+}

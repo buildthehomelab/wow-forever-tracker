@@ -3,6 +3,7 @@
     python tools/tracker.py snapshot --dbc <folder with frFR/enUS DB2> --build 70425 [--date 2026-10-18]
     python tools/tracker.py analyse [--wowhead]
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
+    python tools/tracker.py world layers | pin [source ...]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -13,6 +14,9 @@ the game databases.
 `locate` finds the creatures and world objects the server never spawned although the content needs them
 (quest givers, objectives, vendors, trainers, loot, bosses) and where they stand, from the maps of Wowhead's
 public Forever tooltips (cached in data/wowhead). The Forge spawns them.
+
+`world` is the world build (docs/WORLD-BUILD.md): `layers` lists the layers and their sources, `pin` records the
+newest version of each source in data/world/layers.lock.json.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
@@ -34,7 +38,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import content as official_content, forge, locator, output, rules, server, sqlio, tooltips  # noqa: E402
+from ft import content as official_content, forge, locator, output, rules, server, sqlio, tooltips, world  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
@@ -287,8 +291,15 @@ def main():
     locate.add_argument('--refresh', action='store_true', help='ask Wowhead again even for the resources already cached')
     locate.add_argument('--limit', type=int, default=0, help='ask Wowhead for at most N new resources this time')
     locate.add_argument('--offline', action='store_true', help='only use the Wowhead answers already cached')
+    world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
+    world_sub = world_parser.add_subparsers(dest='world_command', required=True)
+    world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
+    pin = world_sub.add_parser('pin', help='look up the newest version of every source and write data/world/layers.lock.json')
+    pin.add_argument('sources', nargs='*', help='only these source ids (default: all)')
     args = parser.parse_args()
-    if args.command == 'snapshot':
+    if args.command == 'world':
+        world.run(args)
+    elif args.command == 'snapshot':
         snapshot(args)
     elif args.command == 'locate':
         locator.run(args)
