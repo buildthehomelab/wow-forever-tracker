@@ -177,7 +177,7 @@ def run_export(args):
         print('nothing to write')
     if result['earlier']:
         print(f"{len(result['earlier'])} rows are in an earlier export of these folders already: not written again")
-    reasons = collections.Counter(held.reason for held in result['held'])
+    reasons = collections.Counter(export.grouped(held.reason) for held in result['held'])
     if reasons:
         print(f"held back: {sum(reasons.values())}")
         for reason, count in reasons.most_common():

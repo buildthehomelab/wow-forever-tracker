@@ -38,7 +38,7 @@ loot), pickpocketing, skinning, fishing, a spawned vendor, the shop, a container
 a quest that can be done, or a craft that can be learned. Quests, items and crafts depend on each other, so the
 analysis repeats until nothing changes.
 
-## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/facts.py`, `tools/ft/luadata.py`, `tools/ft/resolve.py`, `tools/ft/export.py`, `tools/ft/world.py`)
+## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/facts.py`, `tools/ft/luadata.py`, `tools/ft/resolve.py`, `tools/ft/export.py`, `tools/ft/quests.py`, `tools/ft/world.py`)
 
 | File | |
 |---|---|
@@ -49,6 +49,7 @@ analysis repeats until nothing changes.
 | `ft/luadata.py` | Reads the Lua data files addons ship as plain values: tables, strings, numbers; a name stays a name, a table that holds code is not read |
 | `ft/resolve.py` | The rules: weighs the facts against the replayed world (`seen-live`, `trusted-source`, `two-witnesses`, `one-claim`, `removed-by-hand`, `item-starts`, `record-seen-live`, `record-not-live`, `looks-internal`, `only-claimed`) and stores what the world should hold and does not in `ft_world_decisions`, each decision with its rule, its witnesses and what it still needs. An NPC the world lacks is a decision too: ready only with a record of it from the live game, and what waits for a ready NPC comes with it |
 | `ft/export.py` | The export: writes the decisions that are ready as an update file for the data repository (and a second one for what may not be published), each row guarded, recorded in the server's ledger and listed in a manifest; tries the file twice on the replayed world inside a transaction it rolls back before writing it |
+| `ft/quests.py` | A quest's rows from the record the server sent to a client: the measured column mapping, what is a constant, what is left to the table's default. No database |
 | `ft/world.py` | The `world` commands of `tracker.py` |
 
 See [WORLD-BUILD.md](WORLD-BUILD.md).

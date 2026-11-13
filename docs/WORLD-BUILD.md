@@ -356,9 +356,52 @@ changed first.
 
 | Decision | Written as | Held back when |
 |---|---|---|
-| an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest or its NPC is itself only ready to add (their rows are not written yet); the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
+| a quest the world lacks | `quest_template` and the quest's own rows (below), from the record the server sent | no record a row may be written from; the record does not fit the columns; an objective needs an NPC or an object that has no template; nobody who could start or end it can be written yet (its giver waits for an NPC template) |
+| an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest is held back, or its NPC is itself only ready to add (NPC templates are not written yet); the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
 | a vendor sells an item | `npc_vendor`, a plain row: sold for money, in endless supply, in the next free slot | no recording of the live game shows the vendor's window with a money price for it: a list that only says "sold by" does not say what it costs. Also: it costs items or a currency (the extended cost id is not known), its stock is limited (the restock time is not known), a newer recording says one of those even if it may not give the row itself, another vendor borrows this vendor's list |
-| a quest, an NPC the world lacks | not yet | always: quest rows and NPC templates are the next writers |
+| an NPC the world lacks | not yet | always: NPC templates are the next writer |
+
+A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all: in the file the
+quest comes first, then the pairs that hang on it. What may be published never needs what may not: a quest whose
+only giver (or ender) is private is private itself, and so is every pair of a private quest. The same is checked
+again after the earlier exports' rows and the rows the trial refused are taken out.
+
+**A quest's rows** (`tools/ft/quests.py`). The record is what the client's quest cache holds: the server's own answer
+to "what is quest N", as EG Link recorded it on the live game. A field of a row is the record's value, a constant
+every recorded Forever quest holds, or left to the table's default; nothing is guessed.
+
+| Table | From the record |
+|---|---|
+| `quest_template` | type, info, flags (three), start item, next quest, reward spell, time limit; `QuestSortID` (the zone, or minus the category); XP difficulty and multiplier; `AllowableRaces` (64 bits); reward items (4), item drops (4), choice items (6), currencies (4); reputation (5): the faction, `RewardFactionValue` = the tier, the override; title, objectives text, description, area description, completion log |
+| `quest_template`, constants | `RewardFactionCapIn` 7, `AcceptedSoundKitID` 890, `CompleteSoundKitID` 878, `Expansion` -2 |
+| `quest_objectives` | Forever's own objective id, type, order, storage index, object, amount, description |
+| `quest_classic_level`, `quest_template_classic_level` | the level it is offered from, and the level shown in the log (`LevelType` 2) |
+| `quest_classic_money` | the money, exactly, when the record states any |
+| `quest_reward_display_spell` | the spells shown as rewards, in the record's order |
+| `quest_template_addon` | `AllowableClasses`: QuestieDB's word, else the class of a class category (a quest filed under "Paladin" is a paladin's); `PrevQuestID`: the one quest QuestieDB says comes before, when the world has it |
+
+How it was checked: for the 463 quests the replayed world holds from a recording of build 70124 or later that EG Link
+also recorded, the rows made here were compared with the world's, column by column. Each column agrees on 97 to
+100 % of them, the objectives on 450 of 463, and where they differ the record is the newer word (a reward changed on
+live after the world's recording). The class of a class category is the class the world's own row carries for 303 of
+308 such quests.
+
+A quest's text is kept to the character (line breaks and backslashes are written as `CHAR()`, so neither the server's
+`sql_mode` nor a repository's line-end rules can change it). A quest goes in whole or not at all: only while the world
+has no row of it in any of these tables, none of its objective ids is another quest's, and no file added it before.
+
+What a quest's rows do not hold is left to the table's default or not written, and listed in every manifest
+(`left_to_defaults`): the money columns of `quest_template` (the money is exact in `quest_classic_money` instead),
+`RewardFactionFlags` and the other columns no record carries, the POI and portrait columns, an objective's own
+`Flags` (32 for every objective: what four in five recorded Forever objectives hold), the rest of
+`quest_template_addon`, what the NPC says and does at the turn-in (`quest_offer_reward`, `quest_request_items`,
+`quest_details`), `quest_poi`, and the texts and rewards a record gives for a player condition. A field a record
+carries that is not read is named per quest (`unread`), so nothing is dropped in silence. A record that does not fit
+the columns (a reputation tier outside -9 to 9, a zone and a category at once, text the file cannot hold) holds its
+quest back with the reason.
+
+QuestieDB's hand fix is read after its generated list, and a fix that names a field replaces it, also with nothing:
+a fix that says "no class" or "several quests before it" clears what the generated list said.
 
 The summary names every reason with its count. A decision an earlier export in the same folders carries is not
 written again, whatever the world holds by now: point `--out` at the data repository's checkout and its `build/`
