@@ -429,8 +429,164 @@ def fetch_questie(commit, folder, fetch=http_bytes, log=lambda message: None):
     return downloaded
 
 
-READERS = {'eglink': eglink, 'questie': questie}
-FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie}
+# ------------------------------------------------------------------ RestedXP guides
+# RXPGuides is a levelling guide written by hand: steps a player follows. A step that names one NPC by its id and
+# has the player accept or turn in a quest there states who gives or takes that quest:
+#     step
+#         .goto 2521,42.07,23.49
+#         .turnin 92460 >>Turn in Coming of Age
+#         .target Rorian the Dayseeker::251361
+#         .accept 92461 >>Accept Harmony in Balance
+# Nothing else is read. A step that names its NPC by name only, or names several, states nothing a reader may use
+# without guessing; a `.goto` is where the player should stand, not where something spawns. Steps about quests the
+# Classic Era client already has are left out: most are the Classic guide's own lines carried over, not something
+# written about Forever.
+RXP_REPO = 'RestedXP/RXPGuides'
+RXP_LIST = 'Guides/GuideList-forever.xml'
+RXP_PATH = re.compile(r'Guides/forever/(?:[\w.+ -]+/)?[\w.+ -]+\.lua')
+RXP_GUIDE = re.compile(r'RegisterGuide\(\s*\[(=*)\[(.*?)\]\1\]', re.S)
+RXP_QUEST = re.compile(r'\.(accept|turnin)\s+(-?\d+)')
+RXP_STEPS = 10
+BASELINE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'baseline', 'classic-era.json')
+
+
+def classic_quests(path=BASELINE):
+    """The quest ids of the Classic Era client, Season of Discovery included (tools/baseline/classic-era.json)."""
+    try:
+        with open(path, encoding='utf-8') as handle:
+            ranges = json.load(handle)['tables']['QuestV2']
+    except (OSError, ValueError, KeyError) as error:
+        raise SourceError(f'{path} cannot be read ({type(error).__name__}: {error})') from None
+    return {quest for first, last in ranges for quest in range(first, last + 1)}
+
+
+def rxp_steps(text):
+    """(guide name, [step lines]) of every step of every guide in a file. Comments are dropped, also after a line's
+    own words. A file with a guide this reader cannot find the end of is refused (SourceError)."""
+    blocks = list(RXP_GUIDE.finditer(text))
+    if len(blocks) != text.count('RegisterGuide('):
+        raise SourceError(f"{text.count('RegisterGuide(')} guides begin and {len(blocks)} can be read to their end")
+    for block in blocks:
+        name, step = '', None
+        for raw in block.group(2).split('\n'):
+            line = raw.split('--', 1)[0].strip()
+            if not line:
+                continue
+            if step is None and line.startswith('#name '):
+                name = line[6:].strip()
+            if re.match(r'step\b', line):
+                if step:
+                    yield name, step
+                step = [line]
+            elif step is not None:
+                step.append(line)
+        if step:
+            yield name, step
+
+
+def rxpguides(folder, skipped=None, known=None):
+    """The facts of a RestedXP guides download (`folder` holds the repository's Forever guide files under their own
+    paths): `gives` and `takes`, from the steps that name exactly one NPC, by id, and accept or turn in a quest
+    there. Each fact keeps the steps that state it (guide, the NPC's name as written, where the step sends the
+    player last, the step's own filter and tags, the line's own filter), at most RXP_STEPS of them. `samples` is 0:
+    a guide is written, not recorded. `known` is the set of quest ids the Classic Era client has (read from
+    tools/baseline when not given): steps about those are not read.
+
+    Not read, because who gives the quest is then not stated: a step that names several things or one by name only,
+    a step the authors switched off (`step << skip`). Counted as left out: a step whose one target is something to
+    click (`RXP_PICK_`: an object, which a `.target` line does not tell from an NPC), and a quest id that is not a
+    plain number (`.turnin -123`)."""
+    skipped = collections.Counter() if skipped is None else skipped
+    known = classic_quests() if known is None else known
+    root = os.path.join(folder, 'Guides', 'forever')
+    files = sorted(os.path.join(base, name) for base, _dirs, names in os.walk(root) for name in names if name.endswith('.lua'))
+    stated = collections.OrderedDict()
+    for path in files:
+        label = os.path.relpath(path, root).replace(os.sep, '/')
+        try:
+            with open(path, encoding='utf-8') as handle:
+                steps = list(rxp_steps(handle.read()))
+        except (OSError, ValueError) as error:
+            raise SourceError(f'{path} cannot be read ({error}): delete it and run again') from None
+        except SourceError as error:
+            raise SourceError(f'{path}: {error}: delete it and run again') from None
+        if not steps:
+            raise SourceError(f'{path} holds no guide: delete it and run again')
+        for guide, step in steps:
+            targets = [re.split(r'\s', line, maxsplit=1)[1].split('<<')[0].strip() for line in step if re.match(r'\.target\s', line)]
+            ids = {m.group(1) for m in (re.search(r'::(\d+)$', target) for target in targets) if m}
+            quests = [(m.group(1), int(m.group(2)), line) for line in step for m in [RXP_QUEST.match(line)] if m]
+            switched_off = '<<' in step[0] and 'skip' in step[0].split('<<', 1)[1].split()
+            if not quests or not targets or switched_off:
+                continue
+            if len(ids) != 1 or any(not re.search(r'::\d+$', target) for target in targets):
+                continue                                   # several things, or one named by name only: who is not stated
+            only_id = next(iter(ids))
+            if any(re.search(r'RXP_PICK_[^|]*::' + only_id + r'\b', line) for line in step):
+                skipped[label] += 1                        # something to click: an object, not an NPC
+                continue
+            npc = _id(only_id)
+            said = {'guide': f'{label}: {guide}' if guide else label, 'npc': targets[0].rsplit('::', 1)[0].lstrip('+').strip()}
+            where = [re.split(r'\s', line, maxsplit=1)[1].split('<<')[0].strip() for line in step if re.match(r'\.goto\s', line)]
+            if where:
+                said['goto'] = where[-1]                   # the earlier ones are the way there
+            if '<<' in step[0]:
+                said['for'] = step[0].split('<<', 1)[1].strip()
+            tags = [line for line in step if re.match(r'#(season|era|som|sod)\b', line)]
+            if tags:
+                said['tags'] = tags
+            for action, quest, line in quests:
+                if npc is None or _id(quest) is None:      # `.turnin -123` and the like: not a plain quest id
+                    skipped[label] += 1
+                    continue
+                if quest in known:
+                    continue
+                entry = dict(said, **({'only': line.split('<<', 1)[1].strip()} if '<<' in line else {}))
+                kept = stated.setdefault(('gives' if action == 'accept' else 'takes', npc, quest), [])
+                if entry not in kept and len(kept) < RXP_STEPS:
+                    kept.append(entry)
+    for (kind, npc, quest), kept in stated.items():
+        yield Fact(kind, 'npc', npc, quest, 0, 0, {'steps': kept})
+
+
+def fetch_rxpguides(commit, folder, fetch=http_bytes, log=lambda message: None):
+    """Downloads the Forever guide files of a RestedXP guides commit into `folder`, under their own paths, skipping
+    the ones already there. The addon's own list (GuideList-forever.xml) says which they are. Returns how many it
+    downloaded."""
+    if not COMMIT.fullmatch(commit or ''):
+        raise SourceError(f'the RestedXP guides are pinned by a commit, not {commit!r}')
+    base = f'https://raw.githubusercontent.com/{RXP_REPO}/{commit}'
+    downloaded = 0
+    try:
+        listing = fetch(f'{base}/{RXP_LIST}').decode('utf-8', 'replace')
+        paths = sorted(set(re.findall(r'file="(Guides/forever/[^"]+)"', re.sub(r'<!--.*?-->', '', listing, flags=re.S))))
+        if not paths:
+            raise ValueError(f'{RXP_LIST} lists no Forever guide')
+        for path in paths:
+            if not RXP_PATH.fullmatch(path) or '..' in path:          # a name we did not expect never becomes a path
+                raise ValueError(f'{RXP_LIST} lists a path this reader does not follow: {path[:80]}')
+            target = os.path.join(folder, path)
+            if os.path.isfile(target):
+                continue
+            try:
+                body = fetch(f'{base}/{path}'.replace(' ', '%20'))
+            except (OSError, http.client.HTTPException) as error:
+                raise ValueError(f'{path}: {type(error).__name__}: {error}') from None
+            if b'RegisterGuide' not in body or not body.rstrip().endswith(b']])'):      # every guide file ends its last guide so
+                raise ValueError(f'{path} does not read as a guide file')
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target + '.part', 'wb') as handle:
+                handle.write(body)
+            os.replace(target + '.part', target)
+            downloaded += 1
+            log(f'RestedXP {os.path.basename(path)}')
+    except (OSError, ValueError, http.client.HTTPException) as error:
+        raise SourceError(f'the RestedXP guides could not be downloaded ({error})') from None
+    return downloaded
+
+
+READERS = {'eglink': eglink, 'questie': questie, 'rxpguides': rxpguides}
+FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie, 'rxpguides': fetch_rxpguides}
 
 
 # ------------------------------------------------------------------ storing

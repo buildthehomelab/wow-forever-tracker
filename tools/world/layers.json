@@ -100,6 +100,13 @@
       "pin": {"type": "github-branch", "repo": "zmarotrix/NorgannonDB", "branch": "main"}
     },
     {
+      "id": "rxpguides", "name": "RestedXP guides (RXPGuides)", "layer": "live", "group": "rxpguides",
+      "licence": "CC-BY-NC-SA-4.0", "use": "private",
+      "note": "A levelling guide written by hand, not a recording. Non-commercial and share-alike: its rows may not go into a GPL data repository, so it only counts as a witness. Read: the steps that name one NPC by id and accept or turn in a quest the Classic Era client (Season of Discovery included) does not have.",
+      "url": "https://github.com/RestedXP/RXPGuides",
+      "pin": {"type": "github-branch", "repo": "RestedXP/RXPGuides", "branch": "main"}
+    },
+    {
       "id": "atlasloot", "name": "AtlasLoot Classic Forever", "layer": "live", "group": "atlasloot",
       "licence": "GPL-2.0", "use": "private",
       "note": "Private until the addon's licence text is checked for \"or any later version\".",
