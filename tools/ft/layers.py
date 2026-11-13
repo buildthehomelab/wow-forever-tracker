@@ -40,6 +40,7 @@ class Registry:
         self.layers = data['layers']
         self.sources = {source['id']: source for source in data['sources']}
         self.order = {layer['key']: rank for rank, layer in enumerate(self.layers)}
+        self.live_from = int(data.get('live_from') or 0)
 
     def source(self, source_id):
         if source_id not in self.sources:
@@ -66,6 +67,22 @@ class Registry:
             merged.append(groups)
         return len(merged)
 
+    def witness(self, source_id, part='', build=0):
+        """(witness group, recorded on live Forever?) of what a source states.
+
+        A source made of parts that weigh differently says so in `parts`: players' recordings are live, a generated
+        list or a hand correction is not, and a part may belong to another witness group than its source (a list
+        built from another site's pages is that site's word). A part written "name:detail" is looked up by its name.
+        Without parts, a source that says its facts are recordings of play (`recorded`) is live when the fact comes
+        from a build of the live game (`live_from` and later); a fact without a build is not, and no other source is."""
+        source = self.source(source_id)
+        about = (source.get('parts') or {}).get(str(part).partition(':')[0])
+        if about is not None:
+            return about.get('group', source['group']), about.get('live') is True
+        if source.get('parts'):
+            return source['group'], False
+        return source['group'], source.get('recorded') is True and self.live_from > 0 and bool(build) and build >= self.live_from
+
     def use(self, source_ids):
         """The most restricted use among the sources that set a value: `public`, `private` or `reference`."""
         uses = [USES.index(self.source(s)['use']) for s in source_ids]
@@ -86,6 +103,9 @@ def validate(data):
     problems = []
     if not isinstance(data, dict) or not isinstance(data.get('layers'), list) or not isinstance(data.get('sources'), list):
         return ['the registry needs a list of layers and a list of sources']
+    live_from = data.get('live_from')
+    if not isinstance(live_from, int) or isinstance(live_from, bool) or live_from <= 0:
+        problems.append('live_from must be the first client build of the live game')
     layer_keys = [layer.get('key') if isinstance(layer, dict) else None for layer in data['layers']]
     if len(set(layer_keys)) != len(layer_keys) or not all(layer_keys):
         problems.append('layers need distinct keys')
@@ -112,6 +132,19 @@ def validate(data):
                 problems.append(f'{sid}: a published source needs its credit line')
         if not isinstance(source.get('also', []), list):
             problems.append(f'{sid}: also must be a list of witness groups')
+        parts = source.get('parts', {})
+        if not isinstance(parts, dict) or not all(isinstance(about, dict) for about in parts.values()):
+            problems.append(f'{sid}: parts must name each part with its group and whether it is live')
+        else:
+            for name, about in parts.items():
+                if not name or ':' in name:
+                    problems.append(f'{sid}: a part is named without ":" ({name!r})')
+                if not isinstance(about.get('live', False), bool):
+                    problems.append(f'{sid}: part {name}: live is true or false')
+                if not (isinstance(about.get('group', sid), str) and about.get('group', sid)):
+                    problems.append(f'{sid}: part {name}: group is a name')
+        if not isinstance(source.get('recorded', False), bool):
+            problems.append(f'{sid}: recorded is true or false')
         pin = source.get('pin')
         if not isinstance(pin, dict) or pin.get('type') not in PIN_TYPES:
             problems.append(f"{sid}: unknown pin type {pin.get('type') if isinstance(pin, dict) else pin!r}")

@@ -7,6 +7,8 @@
     python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
     python tools/tracker.py world why <table> <key> [<key> ...]
     python tools/tracker.py world facts [source]
+    python tools/tracker.py world resolve
+    python tools/tracker.py world decisions [quest|gives|takes|sells] [--verdict add|hold|review] [--limit N]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
@@ -23,6 +25,8 @@ newest version of each source in data/world/layers.lock.json, `replay` rebuilds 
 update files, in the updater's order) in the scratch database named by [build] database and records which file wrote
 each row, and `why` answers where one row comes from. Only the scratch database is written. `facts <source>` reads
 what a pinned source says (who gives a quest, what a vendor sells, what drops) into the tracker's own database.
+`resolve` weighs those facts against the replayed world by named rules and stores what the world should hold and
+does not, each decision with its witnesses; `decisions` lists them.
 
 --wowhead names the quests new in Forever that the server does not know, through Wowhead's public Forever
 tooltip service (slow and polite, cached in data/wowhead-quests.json). It also asks about every item players cannot get, the new class and
@@ -312,6 +316,11 @@ def main():
                      help='run although the MySQL account can write to other databases: only on a throwaway server that holds nothing else')
     fact = world_sub.add_parser('facts', help='read what a source says into the tracker database, or list what is stored')
     fact.add_argument('source', nargs='?', help='the source to read (eglink); without it: what is stored')
+    world_sub.add_parser('resolve', help='weigh the facts against the replayed world and store what the world should hold and does not')
+    dec = world_sub.add_parser('decisions', help='the last resolve: a summary, or the decisions of one kind')
+    dec.add_argument('kind', nargs='?', choices=('quest', 'gives', 'takes', 'sells'), help='list the decisions of this kind')
+    dec.add_argument('--verdict', choices=('add', 'hold', 'review'))
+    dec.add_argument('--limit', type=int, default=50)
     why = world_sub.add_parser('why', help='where a row of the replayed world comes from')
     why.add_argument('table')
     why.add_argument('key', nargs='+', help="the row's key values, in the order of the table's key columns")
