@@ -121,6 +121,10 @@ chown root:www-data "$CONFIG"
 chmod 640 "$CONFIG"
 umask 022
 chown www-data:www-data "$DATA"
+# sessions live in the data volume (docker/php.ini), so a restart logs nobody out; the web server alone reads them
+mkdir -p "$DATA/sessions"
+chown www-data:www-data "$DATA/sessions"
+chmod 700 "$DATA/sessions"
 say "config.ini written (database ${FT_DB_USER:-tracker}@${FT_DB_HOST:-mysql}, world ${FT_DB_WORLD:-world}, hotfixes ${FT_DB_HOTFIXES:-hotfixes})"
 
 # no import survives a restart: a lock left by one would grey out its button

@@ -48,6 +48,9 @@ write access, and keep the live ones read-only.
    is in `docker compose logs` and in the Forge, like *Run again*.
 3. Apache starts at once; pages fill in when the analysis is done.
 
+Logins are kept in the data volume (`data/sessions/`), so a restart or a new image logs nobody out. A session left
+alone for 7 days ends.
+
 A new client build on the server therefore gets its own snapshot, and the changelog compares it with the previous
 one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data tracker python3 tools/tracker.py analyse`.
 
