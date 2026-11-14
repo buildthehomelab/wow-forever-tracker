@@ -195,6 +195,49 @@ class Fetch(unittest.TestCase):
         self.assertEqual(client.unlocked(70862, {'0DA4670DB36FB2A9'}), [])
 
 
+class Check(unittest.TestCase):
+    """"Check the client now" and the container's own check: the build, then the hotfixes, then whether to analyse."""
+
+    def run_check(self, build, hot):
+        lines, asked = [], []
+
+        def one(name, answer):
+            def ask():
+                asked.append(name)
+                if isinstance(answer, Exception):
+                    raise answer
+                return {'code': answer, 'message': name + ' ' + str(answer)}
+            return ask
+        return client.check(one('build', build), one('hotfixes', hot), lines.append), lines, asked
+
+    def test_nothing_new_is_no_reason_to_analyse(self):
+        new, lines, asked = self.run_check(client.UP_TO_DATE, 3)
+        self.assertFalse(new)
+        self.assertEqual(asked, ['build', 'hotfixes'])   # the build first: its hotfixes need its snapshot
+        self.assertEqual(lines, ['client: build 3', 'hotfixes: hotfixes 3'])
+
+    def test_a_new_build_or_new_hotfixes_call_for_the_analysis(self):
+        self.assertTrue(self.run_check(client.FETCHED, 3)[0])
+        self.assertTrue(self.run_check(client.UP_TO_DATE, 0)[0])
+        self.assertFalse(self.run_check(client.REFUSED, 2)[0])   # a refused build and an unusable cache store nothing
+
+    def test_a_server_that_does_not_answer_does_not_stop_the_other(self):
+        new, lines, asked = self.run_check(RuntimeError('HTTP Error 503: Service Unavailable'), 0)
+        self.assertTrue(new)
+        self.assertEqual(asked, ['build', 'hotfixes'])
+        new, lines, asked = self.run_check(client.FETCHED, OSError('Traceback of a proxy'))
+        self.assertTrue(new)
+
+    def test_its_lines_never_read_as_a_crash(self):
+        # the website takes "Error" or "Traceback" in the run's log for a run that died (app/forge.php, analysis_status)
+        _, lines, _ = self.run_check(RuntimeError('HTTP Error 503'), OSError('Traceback'))
+        self.assertEqual(len(lines), 2)
+        self.assertFalse(any('Error' in line or 'Traceback' in line for line in lines), lines)
+        said = []
+        client.calm(said.append)('URLError: <urlopen error timed out>')
+        self.assertEqual(said, ['URLerror: <urlopen error timed out>'])
+
+
 class Shipped(unittest.TestCase):
     def test_every_snapshot_table_has_a_file_id(self):
         files = client.files()

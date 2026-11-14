@@ -48,6 +48,8 @@ switch ($action) {
         json_out(analysis_start());
     case 'locate':
         json_out(analysis_start('locate'));
+    case 'client_check':
+        json_out(analysis_start('check'));
     case 'analysis_status':
         json_out(['ok' => true] + analysis_status());
 }

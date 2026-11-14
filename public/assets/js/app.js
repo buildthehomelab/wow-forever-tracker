@@ -460,18 +460,26 @@
   const analysis = $('[data-analysis]');
   if (analysis) {
     const start = $('[data-analysis-start]', analysis), log = $('[data-analysis-log]', analysis), label = $('[data-analysis-text]', analysis);
+    const check = $('[data-analysis-check]', analysis);   // the live client build and hotfixes first, then the analysis
     const poll = () => api({ action: 'analysis_status' }).then((data) => {
       analysis.dataset.running = data.running ? 1 : 0;
       if (data.log) { log.hidden = false; log.textContent = data.log; log.scrollTop = log.scrollHeight; }
       if (data.running) { label.textContent = L('Running…', 'En cours…'); setTimeout(poll, 2500); }
       else {
         start.disabled = false;
-        label.textContent = data.failed ? L('Failed, see the log.', 'Échec, voir le journal.') : L('Finished. Reload to see the new results.', 'Terminée. Rechargez pour voir les nouveaux résultats.');
+        if (check) check.disabled = false;
+        label.textContent = data.failed ? L('Failed, see the log.', 'Échec, voir le journal.')
+          : /analysis was not run/.test(data.log || '') ? L('Nothing new on Blizzard’s servers.', 'Rien de nouveau sur les serveurs de Blizzard.')   // a check that found nothing (tracker.py check)
+          : L('Finished. Reload to see the new results.', 'Terminée. Rechargez pour voir les nouveaux résultats.');
       }
     }).catch(() => setTimeout(poll, 5000));
     start.addEventListener('click', () => {
-      start.disabled = true;
+      start.disabled = true; if (check) check.disabled = true;
       api({ action: analysis.dataset.command === 'locate' ? 'locate' : 'analyse' }).then((data) => { if (!data.ok) toast(esc(data.message || ''), 'error'); poll(); }).catch((e) => { toast(esc(e.message), 'error'); start.disabled = false; });
+    });
+    if (check) check.addEventListener('click', () => {
+      start.disabled = true; check.disabled = true;
+      api({ action: 'client_check' }).then((data) => { if (!data.ok) toast(esc(data.message || ''), 'error'); poll(); }).catch((e) => { toast(esc(e.message), 'error'); start.disabled = false; check.disabled = false; });
     });
     if (analysis.dataset.running === '1') poll();
   }
