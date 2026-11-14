@@ -40,6 +40,13 @@ $leftLabels = [
     'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
     'trainer_level_unknown' => t('class spells without a known level', 'sorts de classe sans niveau connu'), 'trainer_previous_rank_unknown' => t('higher ranks whose previous rank is unknown', 'rangs supérieurs dont le rang précédent est inconnu'),
     'trainer_skill_unknown' => t('profession entries with an unknown skill', 'entrées de métier à la compétence inconnue'), 'trainer_profession_skill_unknown' => t('profession entries without a skill rank', 'entrées de métier sans rang de compétence'),
+    // Wowhead quest enders (app/wowhead.php)
+    'not_looked_up_yet' => t('quests not looked up on Wowhead yet (run it again)', 'quêtes pas encore consultées sur Wowhead (relancez)'),
+    'not_on_wowhead' => t('quests Wowhead does not know', 'quêtes inconnues de Wowhead'),
+    'no_ender_named' => t('quests whose Wowhead summary names nobody to return to', 'quêtes dont le résumé Wowhead ne nomme personne chez qui revenir'),
+    'name_not_on_server' => t('enders Wowhead names that no spawned creature of this server is called', 'valideurs nommés par Wowhead dont aucun PNJ placé de ce serveur ne porte le nom'),
+    'name_not_unique' => t('enders Wowhead names that several spawned creatures are called', 'valideurs nommés par Wowhead dont plusieurs PNJ placés portent le nom'),
+    'icyveins_lookup_limit_reached_run_again' => t('Icy Veins lookup limit of one run reached: run it again for the rest', 'limite de consultations Icy Veins d’un passage atteinte : relancez pour la suite'),
 ];
 $megabytes = fn(int $bytes) => number($bytes / 1048576, 1) . ' MB';
 page_start(t('Imports', 'Imports'), 'admin');
