@@ -65,10 +65,18 @@ read their versions from, so that an export can name the exact versions it was m
 |---|---|
 | `github-branch` | a branch's head commit |
 | `github-release` | a release's file and its date (VMaNGOS and CMaNGOS publish their current world this way; the date counts because a file can be rebuilt under the same name) |
+| `github-latest-release` | the release a project marks as its latest, whatever its tag (a draft or a pre-release is not), and that release's file (Karrz tags each WoW Forever release anew: `v0.1.36`) |
 | `curseforge` | an addon's newest file (AtlasLoot Classic Forever) |
 | `wago-build` | a product's newest client build on wago.tools (`wowf`, `wow_classic_era`) |
 | `url` | a file's content (the public mirror of Blizzard's hotfix cache) |
 | `replay` | the core's own files, read where you point the build |
+
+**A new release of the base.** The core's update files come from Karrz's WoW Forever releases, so `world pin`
+watches them (`karrz`): when a release is out, the command says `moved: karrz` and the lock names its tag (it says so
+too the first time, and when a release's file is rebuilt under the same tag). The pin
+does not put the release into the world by itself. The replay reads the core you point it at, and a core that carries
+changes of its own takes a release in through its own merge; once it has, replay again, resolve again, and the export
+no longer offers what the release brought.
 
 ## Replaying the server's world
 

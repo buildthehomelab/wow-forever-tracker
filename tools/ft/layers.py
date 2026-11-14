@@ -23,7 +23,8 @@ USES = ('public', 'private', 'reference')            # from the least to the mos
 # licences whose rows may be published in a GPL-3.0 data repository, with their credit
 PUBLISHABLE = {'GPL-2.0-or-later', 'GPL-3.0', 'CC-BY-4.0', 'MIT', 'game data', 'own'}
 # pin type: the fields it needs
-PIN_TYPES = {'github-branch': ('repo',), 'github-release': ('repo', 'tag'), 'curseforge': ('project',), 'wago-build': ('product',),
+PIN_TYPES = {'github-branch': ('repo',), 'github-release': ('repo', 'tag'), 'github-latest-release': ('repo',), 'curseforge': ('project',),
+             'wago-build': ('product',),
              'url': ('url',), 'replay': (), 'none': ()}
 USER_AGENT = 'ForeverTracker (world build)'
 
@@ -208,15 +209,22 @@ def resolve(pin, fetch_json=http_json, fetch_digest=http_digest):
     if kind == 'github-branch':
         commit = fetch_json(f"https://api.github.com/repos/{pin['repo']}/commits/{pin.get('branch') or 'HEAD'}")
         return {'version': commit['sha'], 'date': (commit.get('commit', {}).get('committer') or {}).get('date', '')}
-    if kind == 'github-release':
-        release = fetch_json(f"https://api.github.com/repos/{pin['repo']}/releases/tags/{pin['tag']}")
+    if kind in ('github-release', 'github-latest-release'):
+        latest = kind == 'github-latest-release'            # a project that tags each release anew: the newest one, whatever its tag
+        release = fetch_json(f"https://api.github.com/repos/{pin['repo']}/releases/" + ('latest' if latest else f"tags/{pin['tag']}"))
+        tag = str(release.get('tag_name') or '') if latest else pin['tag']
+        if latest and not tag:
+            raise LookupError(f"{pin['repo']}: its newest release has no tag")
         assets = [a for a in release.get('assets', []) if fnmatch.fnmatch(a.get('name', ''), pin.get('asset', '*'))]
         if not assets:
-            raise LookupError(f"{pin['repo']} {pin['tag']}: no asset named {pin.get('asset', '*')}")
+            raise LookupError(f"{pin['repo']} {tag}: no asset named {pin.get('asset', '*')}")
         asset = max(assets, key=lambda a: a.get('updated_at', ''))
         # the file's date is part of the version: some releases rebuild a file under the same name
-        return {'version': f"{asset['name']}@{asset.get('updated_at', '')}", 'file': asset['name'], 'date': asset.get('updated_at', ''),
-                'url': asset.get('browser_download_url', ''), 'size': asset.get('size', 0)}
+        found = {'version': f"{asset['name']}@{asset.get('updated_at', '')}", 'file': asset['name'], 'date': asset.get('updated_at', ''),
+                 'url': asset.get('browser_download_url', ''), 'size': asset.get('size', 0)}
+        if latest:
+            found.update(version=f"{tag} {found['version']}", tag=tag)
+        return found
     if kind == 'curseforge':
         listing = fetch_json(f"https://www.curseforge.com/api/v1/mods/{pin['project']}/files")
         files = [f for f in listing.get('data', []) if str(f.get('fileName', '')).startswith(pin.get('name', ''))]
