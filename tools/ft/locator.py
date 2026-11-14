@@ -18,7 +18,7 @@ import math
 import os
 import re
 
-from . import sqlio
+from . import sqlio, summons
 from .config import DATA
 from .content import builds, table
 from .geo import Geo
@@ -111,6 +111,12 @@ def candidates():
             for bid, map_id in names.get(normal(r['name']), []):
                 add('npc', r['entry'], 'boss', 'boss', bid)
                 found[('npc', int(r['entry']))]['map'] = map_id
+
+    # What a script, a summon group or an event brings in needs no spawn row: spawning it for good would put a
+    # second Reginald Windsor in Stormwind. (The analysis already counts them as present; this is the same list.)
+    summoned_npc, summoned_go, _core = summons.known()
+    for key in [k for k in found if k[1] in (summoned_npc if k[0] == 'npc' else summoned_go)]:
+        del found[key]
 
     # names
     for kind, table_name in (('npc', 'creature_template'), ('go', 'gameobject_template')):

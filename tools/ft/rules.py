@@ -37,11 +37,15 @@ TOWER_TAXI = {84, 85, 86, 87}
 def evaluate_all(content, ctx):
     log('evaluating availability')
     known = ctx['known']
-    npc_spawned, go_spawned = ctx['spawned_npc'], ctx['spawned_go']
+    # In the world: spawned, or brought in by a script, a summon group or a spell (ft.summons). Trainers stay with
+    # the spawned ones: nobody trains at a creature that is there for a minute.
+    npc_placed, go_placed = ctx['spawned_npc'], ctx['spawned_go']
+    npc_spawned, go_spawned = npc_placed | ctx.get('summoned_npc', set()), go_placed | ctx.get('summoned_go', set())
+    kill_credit = ctx.get('kill_credit', {})
 
     trainer_npcs = {}
     for npc, trainer in ctx['trainers']:
-        if npc in npc_spawned:
+        if npc in npc_placed:
             trainer_npcs.setdefault(trainer, set()).add(npc)
     ctx['trainer_npcs'] = trainer_npcs
     trained = {spell for trainer, spell in ctx['trainer_spells'] if trainer in trainer_npcs}
@@ -241,7 +245,7 @@ def evaluate_all(content, ctx):
         checks.append(check(any(e[2] for e in end), 'ender', L(en or 'No quest ender.', fr or 'Aucun valideur.'), 2))
         problems = []
         for kind, obj, amount in objectives.get(quest_id, []):
-            if kind == 0 and obj not in npc_spawned:
+            if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned):
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
                 problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
@@ -281,7 +285,7 @@ def evaluate_all(content, ctx):
 
     def boss_match(boss_id, boss, map_id):
         return bosses.find(boss_id, boss, ctx['npc_maps'].get(map_id, []), ctx.get('unspawned_npc', ()), ctx.get('summoned_npc', ()),
-                           bool(ctx['instance_template'].get(map_id)))
+                           bool(ctx['instance_template'].get(map_id)), ctx.get('encounter_npc', {}).get(boss_id, ()))
 
     def dungeon_result(map_id, entity):
         kind = entity['kind']
@@ -313,7 +317,7 @@ def evaluate_all(content, ctx):
 
     def boss_result(boss_id, entity):
         npc, how = boss_match(boss_id, entity, entity['map'])
-        if how == 'summoned':
+        if how in ('summoned', 'scripted'):
             detail = L(f"Not spawned: a script brings in creature {npc['id']} “{npc['name']}”", f"Non placé : un script fait apparaître le PNJ {npc['id']} « {npc['name']} »")
         elif npc:
             detail = L(f"Creature {npc['id']} “{npc['name']}”", f"PNJ {npc['id']} « {npc['name']} »")
@@ -323,6 +327,10 @@ def evaluate_all(content, ctx):
         if how == 'spawned':
             checks.append(check(npc['scripted'], 'boss_script', L('ScriptName or SmartAI', 'ScriptName ou SmartAI') if npc['scripted']
                                 else L('No script: the boss has no mechanics.', 'Pas de script : le boss n’a pas ses mécaniques.'), 2))
+        elif how == 'scripted':
+            # weight 0: said aloud, not counted. Nothing names what summons it; its own script and the instance's are the only sign.
+            checks.append(check(False, 'boss_placed', L('To check in game: no summon of it is known, only its C++ script in a scripted instance.',
+                                                        'À vérifier en jeu : aucune invocation connue, seulement son script C++ dans une instance scriptée.'), 0))
         return checks
 
     def zone_result(zone_id, entity):

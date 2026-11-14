@@ -2,7 +2,7 @@
 import json
 import os
 
-from . import db2, sqlio
+from . import db2, sqlio, summons
 from .config import CONFIG, DATA
 from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
@@ -93,16 +93,24 @@ def server_state():
         npc_maps.setdefault(int(row['map']), []).append({'id': int(row['id']), 'n': int(row['n']), 'name': row['name'] or '',
                                                           'scripted': bool(row['ScriptName']) or row['AIName'] == 'SmartAI'})
     ctx['npc_maps'] = npc_maps
-    # Creatures something brings into the world without a spawn row: a summon group, a SmartAI summon, a summoning
-    # spell. With the unspawned creatures that have a C++ script, they are the bosses a script places (ft.bosses).
-    summoned = ints('SELECT action_param1 FROM smart_scripts WHERE action_type = 12')
-    if sqlio.has_table('creature_summon_groups'):
-        summoned |= ints('SELECT entry FROM creature_summon_groups')
-    summoned |= spell_summons
-    ctx['summoned_npc'] = summoned
+    # Creatures and world objects something brings into the world without a spawn row (ft.summons): the database's
+    # summons, the summoning spells, and what the core's C++ scripts summon. With the creatures an instance script
+    # names as a boss encounter and the unspawned ones that have a C++ script, they are the bosses a script places
+    # (ft.bosses); for loot, vendors and quests a summoned creature is as present as a spawned one (ft.rules).
+    summoned, summoned_go, core = summons.known(spell_summons)
+    ctx['summoned_npc'], ctx['summoned_go'] = summoned, summoned_go
+    ctx['encounter_npc'] = core['encounters']
+    ctx['summon_script'] = core['creatures']
+    bound = {entry for entries in core['encounters'].values() for entry in entries}
     ctx['unspawned_npc'] = [{'id': int(r['entry']), 'name': r['name'] or '', 'script': bool(r['ScriptName'])}
                             for r in q("SELECT ct.entry, ct.name, ct.ScriptName FROM creature_template ct WHERE NOT EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry)")
-                            if r['ScriptName'] or int(r['entry']) in summoned]
+                            if r['ScriptName'] or int(r['entry']) in summoned or int(r['entry']) in bound]
+    # A kill objective may name a credit creature nobody spawns: the creatures that give that credit when they die.
+    kill_credit = {}
+    for r in q('SELECT entry, KillCredit1, KillCredit2 FROM creature_template WHERE KillCredit1 <> 0 OR KillCredit2 <> 0'):
+        for credit in {int(r['KillCredit1'] or 0), int(r['KillCredit2'] or 0)} - {0}:
+            kill_credit.setdefault(credit, set()).add(int(r['entry']))
+    ctx['kill_credit'] = kill_credit
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]

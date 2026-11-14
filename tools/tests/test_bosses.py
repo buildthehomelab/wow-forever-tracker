@@ -84,7 +84,32 @@ class Find(unittest.TestCase):
         ramstein = npc(10439, 'Ramstein the Gorger', script=True)
         self.assertEqual(bosses.find(483, boss('Ramstein the Gorger', STRATHOLME), [], [ramstein]), (None, None))
         found, how = bosses.find(483, boss('Ramstein the Gorger', STRATHOLME), [], [ramstein], instance_scripted=True)
+        self.assertEqual((found['id'], how), (10439, 'scripted'))  # a guess: no summon of him is known
+        found, how = bosses.find(483, boss('Ramstein the Gorger', STRATHOLME), [], [ramstein], summoned={10439}, instance_scripted=True)
         self.assertEqual((found['id'], how), (10439, 'summoned'))
+
+    def test_the_creature_the_instance_script_names_is_the_boss(self):
+        # the core's Zul'Farrak script counts creature 7273 as encounter 594 and creates it from a variable:
+        # no table and no SummonCreature(NPC_...) call says so, and the template has no script of its own
+        gahzrilla = npc(7273, "Gahz'rilla", script=False)
+        self.assertEqual(bosses.find(594, boss("Gahz'rilla", 209), [], [gahzrilla]), (None, None))
+        found, how = bosses.find(594, boss("Gahz'rilla", 209), [], [gahzrilla], bound=[7273])
+        self.assertEqual((found['id'], how), (7273, 'summoned'))
+        # spawned under another name than the client's: the script's word is enough
+        found, how = bosses.find(2810, boss('Ras Frostwhisperer', 289), [npc(1, 'Scholomance Student'), npc(10508, 'Ras Frostwhisper')], bound=[10508])
+        self.assertEqual((found['id'], how), (10508, 'spawned'))
+
+    def test_an_exact_name_wins_over_a_longer_one(self):
+        spawned = [npc(15589, "Eye of C'Thun"), npc(15727, "C'Thun")]
+        self.assertEqual(bosses.find(717, boss("C'Thun", 531), spawned)[0]['id'], 15727)
+
+    def test_a_name_inside_another_word_is_not_the_boss(self):
+        self.assertEqual(bosses.find(1084, boss('Onyxia', 249), [npc(12129, 'Onyxian Warder')]), (None, None))
+        self.assertEqual(bosses.find(793, boss('Hakkar', 309), [npc(11830, 'Hakkari Priest')]), (None, None))
+
+    def test_a_long_name_a_letter_or_two_off(self):
+        found, _ = bosses.find(2810, boss('Ras Frostwhisperer', 289), [npc(10508, 'Ras Frostwhisper')])
+        self.assertEqual(found['id'], 10508)
 
     def test_a_template_nothing_brings_in_stays_a_gap(self):
         template = npc(260001, 'Nanaya', script=False)
