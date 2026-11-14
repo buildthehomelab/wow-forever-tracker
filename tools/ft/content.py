@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 
-from . import db2
+from . import db2, hotfixes
 from .config import BUILDS, CONFIG
 
 # Tables compared build after build (the changelog).
@@ -53,7 +53,13 @@ def table(folder, name, locale='frFR'):
         path = os.path.join(folder, locale, name + '.db2')
         if not os.path.isfile(path):
             path = os.path.join(folder, 'enUS' if locale == 'frFR' else 'frFR', name + '.db2')
-        _cache[key] = list(db2.Table(path, name)) if os.path.isfile(path) else []
+        if os.path.isfile(path):
+            source = db2.Table(path, name)
+            rows = list(source)
+            # Blizzard's hotfixes over the build as it shipped (ft.hotfixes; the public cache is the enUS one)
+            _cache[key] = hotfixes.overlay(folder, source, rows) if os.path.basename(os.path.dirname(path)) == 'enUS' else rows
+        else:
+            _cache[key] = []
     return _cache[key]
 
 
