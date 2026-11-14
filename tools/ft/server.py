@@ -87,6 +87,26 @@ def server_state():
     q = sqlio.query
     ints = lambda sql, db='world': {int(x) for x in sqlio.column(sql, db) if x is not None}
     ctx['spawned_npc'] = ints('SELECT DISTINCT id FROM creature')
+    # SmartAI gossip selection -> linked timed action list -> cast on the invoker.
+    gossip_casts = q('''
+        SELECT DISTINCT npc.entry, cast.action_param1 AS spell
+        FROM creature_template npc
+        JOIN creature_template_gossip menu ON menu.CreatureID = npc.entry
+        JOIN smart_scripts choice ON choice.entryorguid = npc.entry AND choice.source_type = 0
+            AND choice.event_type = 62 AND choice.event_param1 = menu.MenuID
+        JOIN gossip_menu_option opt ON opt.MenuID = menu.MenuID AND opt.OptionID = choice.event_param2
+        JOIN smart_scripts link ON link.entryorguid = npc.entry AND link.source_type = 0
+            AND link.id = choice.link AND link.event_type = 61 AND link.action_type = 80
+        JOIN smart_scripts cast ON cast.entryorguid = link.action_param1 AND cast.source_type = 9
+            AND cast.action_type = 11 AND cast.target_type = 7
+        WHERE npc.AIName = 'SmartAI'
+    ''')
+    ctx['gossip_recipe_spells'] = {
+        recipe
+        for row in gossip_casts
+        if int(row['entry']) in ctx['spawned_npc'] and int(row['spell']) in ctx['known']['spell']
+        for recipe in learn.get(int(row['spell']), ())
+    }
     ctx['spawned_go'] = ints('SELECT DISTINCT id FROM gameobject')
     npc_maps = {}
     for row in q('SELECT c.map, c.id, COUNT(*) n, ct.name, ct.ScriptName, ct.AIName FROM creature c JOIN creature_template ct ON ct.entry = c.id GROUP BY c.map, c.id'):
