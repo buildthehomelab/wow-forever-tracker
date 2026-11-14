@@ -205,6 +205,66 @@ function status_badge(string $status, ?int $score = null): string
 {
     return '<span class="badge is-' . e($status) . '"><i></i>' . e(status_label($status)) . ($score !== null && $status === 'partial' ? ' <b>' . $score . '%</b>' : '') . '</span>';
 }
+
+// ------------------------------------------------------------------ release phases (docs/PHASES.md)
+/** The release phases of the last analysis, numbered from 1: [n => ['key', 'name', 'opens', 'source', 'counts']]. */
+function phases(): array
+{
+    static $list = null;
+    if ($list !== null) return $list;
+    $list = [];
+    foreach (array_values((array)(meta()['phases'] ?? [])) as $i => $p) if (is_array($p) && isset($p['key'])) $list[$i + 1] = $p;
+    return $list;
+}
+/** Number of the last open phase (0: none yet). [phases] current decides when set ("all", "none", a key or a number);
+ *  otherwise each phase opens on its date, in order, so a phase with no date keeps the later ones closed too. */
+function phase_now(): int
+{
+    static $now = null;
+    if ($now !== null) return $now;
+    $list = phases();
+    // config.ini is read with INI_SCANNER_TYPED: an unquoted none / off / no arrives as false, yes / on / true as true
+    $raw = config('phases', 'current', '');
+    $current = $raw === false ? 'none' : ($raw === true ? '' : strtolower(trim((string)$raw)));
+    if ($current === 'all') return $now = count($list);
+    if ($current === 'none') return $now = 0;
+    if ($current !== '' && ctype_digit($current)) return $now = min((int)$current, count($list));
+    foreach ($list as $n => $p) if ($current !== '' && strtolower((string)$p['key']) === $current) return $now = $n;
+    if ($current !== '') error_log("Forever Tracker: [phases] current = \"$current\" names no phase; the phases' dates decide");
+    $now = 0;
+    $today = date('Y-m-d');
+    foreach ($list as $n => $p) {
+        if (empty($p['opens']) || (string)$p['opens'] > $today) break;
+        $now = $n;
+    }
+    return $now;
+}
+/** ", phase" for SELECT lists, once an analysis has written the column (schema 3). */
+function phase_column(string $alias = ''): string { return (int)(meta()['schema'] ?? 0) >= 3 ? ", {$alias}phase" : ''; }
+function phases_pending(): bool { return phase_now() < count(phases()); }
+/** The resource waits for a phase that is not open yet (and the server does not provide it already). */
+function is_later(array $row): bool { return phases_pending() && (int)($row['phase'] ?? 0) > phase_now() && ($row['status'] ?? '') !== 'ok'; }
+/** SQL conditions on ft_entities (alias like "e."): open now, or waiting for a later phase. */
+function released_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase <= " . phase_now() : '1'; }
+function later_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase > " . phase_now() : '0'; }
+function phase_when(array $p): string
+{
+    return !empty($p['opens']) ? sprintf(t('opens %s', 'ouvre le %s'), date(t('M j, Y', 'd/m/Y'), strtotime((string)$p['opens']))) : t('date not announced', 'date non annoncée');
+}
+function phase_title(int $n): string
+{
+    $p = phases()[$n] ?? null;
+    return $p ? (string)$p['name'] . ' · ' . phase_when($p) : '';
+}
+/** status_badge(), or a "Later" badge naming the phase for what a later phase opens. */
+function row_badge(array $row, bool $score = true): string
+{
+    if (!is_later($row)) return status_badge((string)$row['status'], $score ? (int)$row['score'] : null);
+    $name = (string)(phases()[(int)$row['phase']]['name'] ?? '');
+    return '<span class="badge is-later" title="' . e(t('Later', 'Plus tard') . ' · ' . phase_title((int)$row['phase'])) . '"><i class="fas fa-hourglass-half"></i>' . e($name !== '' ? $name : t('Later', 'Plus tard')) . '</span>';
+}
+/** [status, label] for the JSON APIs: "later" for what a later phase opens. */
+function row_status(array $row): array { return is_later($row) ? ['later', t('Later', 'Plus tard')] : [(string)$row['status'], status_label((string)$row['status'])]; }
 function kind_label(string $kind): string
 {
     return ['added' => t('Added', 'Ajouté'), 'modified' => t('Changed', 'Modifié'), 'removed' => t('Removed', 'Supprimé')][$kind] ?? $kind;
@@ -250,10 +310,10 @@ function search_entities(string $q, int $limit = 40): array
 {
     if ($q === '' || !ready()) return [];
     if (ctype_digit($q)) {
-        return rows("SELECT type, id, name, name_en, icon, quality, status, score, internal, is_new FROM ft_entities WHERE id = ? ORDER BY internal, FIELD(type,'dungeon','zone','quest','item','spell') LIMIT ?", [(int)$q, $limit]);
+        return rows("SELECT type, id, name, name_en, icon, quality, status, score, internal, is_new" . phase_column() . " FROM ft_entities WHERE id = ? ORDER BY internal, FIELD(type,'dungeon','zone','quest','item','spell') LIMIT ?", [(int)$q, $limit]);
     }
     $like = '%' . addcslashes($q, '%_\\') . '%';
-    return rows("SELECT type, id, name, name_en, icon, quality, status, score, internal, is_new, (name = ? OR name_en = ?) exact, (name LIKE ? OR name_en LIKE ?) prefix
+    return rows("SELECT type, id, name, name_en, icon, quality, status, score, internal, is_new" . phase_column() . ", (name = ? OR name_en = ?) exact, (name LIKE ? OR name_en LIKE ?) prefix
         FROM ft_entities WHERE (name LIKE ? OR name_en LIKE ?) ORDER BY internal, exact DESC, prefix DESC,
         FIELD(type,'dungeon','boss','zone','quest','mount','pet','toy','talent','recipe','spell','item','achievement','taxi'), CHAR_LENGTH(name) LIMIT ?",
         [$q, $q, addcslashes($q, '%_\\') . '%', addcslashes($q, '%_\\') . '%', $like, $like, $limit]);

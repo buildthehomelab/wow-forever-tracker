@@ -10,7 +10,7 @@ achievements, flight points — checks whether players can really get or do each
 when they cannot, and fixes it: missing core data, trainers, vendors, instances, creatures that were never spawned,
 and loot, vendors and quests from world data files you import.
 
-[Français](README.fr.md) · [Installation](docs/INSTALL.md) · [The Forge](docs/FORGE.md) · [Spawns and imports](docs/SPAWNS.md) · [Configuration](docs/CONFIGURATION.md) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
+[Français](README.fr.md) · [Installation](docs/INSTALL.md) · [The Forge](docs/FORGE.md) · [Spawns and imports](docs/SPAWNS.md) · [Release phases](docs/PHASES.md) · [Configuration](docs/CONFIGURATION.md) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
 ![Overview](docs/screenshots/overview.png)
 

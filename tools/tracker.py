@@ -51,7 +51,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import content as official_content, forge, locator, output, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft import content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
@@ -273,9 +273,12 @@ def analyse(args):
     log('tooltips')
     tips = tooltips.build(content, latest['dir'], quest_names, ctx)
     fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'], wowhead)
+    log('release phases')
+    phase_list, phase_of = phases.run(content, ctx)
     icons = {int(r['fileDataId']): r['name'] for r in sqlio.query('SELECT fileDataId, name FROM armory_icon')} if sqlio.has_table('armory_icon') else {}
     path = os.path.join(DATA, 'import.sql')
-    output.write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tips, fixes, wowhead)
+    output.write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tips, fixes, wowhead,
+                     phase_list, phase_of)
     log(f"loading {os.path.getsize(path) // 1024} KB into {CONFIG.db('tracker')}")
     sqlio.execute_file(path, 'tracker')
     summary = {}

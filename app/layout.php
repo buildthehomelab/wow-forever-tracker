@@ -1,14 +1,15 @@
 <?php
 // Page shell: sidebar, top bar, command palette and footer.
 
-/** Coverage per type for the sidebar and the dashboard: [type => [total, ok, partial, missing, score, new]]. */
+/** Coverage per type for the sidebar and the dashboard: [type => [total, ok, partial, missing, score, new]], of the content open
+ *  now (and what the server already has): the gaps a later release phase opens are counted apart (later_counts()). */
 function coverage(): array
 {
     static $coverage = null;
     if ($coverage !== null) return $coverage;
     $coverage = [];
     if (!ready()) return $coverage;
-    foreach (rows('SELECT type, status, COUNT(*) n, AVG(score) s, SUM(is_new) new_n FROM ft_entities WHERE internal = 0 GROUP BY type, status') as $r) {
+    foreach (rows('SELECT type, status, COUNT(*) n, AVG(score) s, SUM(is_new) new_n FROM ft_entities WHERE internal = 0 AND (status = \'ok\' OR ' . released_sql() . ') GROUP BY type, status') as $r) {
         $c = $coverage[$r['type']] ?? ['total' => 0, 'ok' => 0, 'partial' => 0, 'missing' => 0, 'score_sum' => 0, 'new' => 0];
         $c['total'] += (int)$r['n'];
         $c[$r['status']] = (int)$r['n'];
@@ -18,6 +19,18 @@ function coverage(): array
     }
     foreach ($coverage as $type => $c) $coverage[$type]['score'] = $c['total'] ? $c['score_sum'] / $c['total'] : 0;
     return $coverage;
+}
+
+/** Gaps a release phase not open yet will bring: [phase number => count] (the work list's lines: no internal or duplicate). */
+function later_counts(): array
+{
+    static $counts = null;
+    if ($counts !== null) return $counts;
+    $counts = [];
+    if (!ready() || !phases_pending()) return $counts;
+    foreach (rows("SELECT phase, COUNT(*) n FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND " . later_sql() . " AND JSON_EXTRACT(data, '$.dup') IS NULL GROUP BY phase ORDER BY phase") as $r)
+        $counts[(int)$r['phase']] = (int)$r['n'];
+    return $counts;
 }
 
 function page_start(string $title, string $active = '', string $description = ''): void

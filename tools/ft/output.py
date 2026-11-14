@@ -17,7 +17,7 @@ CREATE TABLE ft_builds_new (build INT PRIMARY KEY, version VARCHAR(32), released
 CREATE TABLE ft_entities_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, name VARCHAR(255) NOT NULL, name_en VARCHAR(255) NOT NULL DEFAULT '',
   sub VARCHAR(120) NOT NULL DEFAULT '', level INT NOT NULL DEFAULT 0, quality TINYINT NOT NULL DEFAULT -1, icon VARCHAR(96) NOT NULL DEFAULT '',
   internal TINYINT NOT NULL DEFAULT 0, is_new TINYINT NOT NULL DEFAULT 0, status ENUM('ok','partial','missing') NOT NULL, score TINYINT NOT NULL, checks JSON, data JSON,
-  first_build INT NOT NULL, changed_build INT NOT NULL, PRIMARY KEY (type, id), KEY ix_status (type, status, internal), KEY ix_name (name), KEY ix_name_en (name_en), KEY ix_changed (changed_build)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  first_build INT NOT NULL, changed_build INT NOT NULL, phase TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (type, id), KEY ix_status (type, status, internal, phase), KEY ix_name (name), KEY ix_name_en (name_en), KEY ix_changed (changed_build)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_changes_new (seq INT AUTO_INCREMENT PRIMARY KEY, build INT NOT NULL, prev_build INT NOT NULL, type VARCHAR(16) NOT NULL, id INT NOT NULL,
   kind ENUM('added','removed','modified') NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', fields JSON, KEY ix_build (build, type, kind), KEY ix_entity (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_meta_new (k VARCHAR(64) PRIMARY KEY, v JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -65,7 +65,11 @@ def covered_elsewhere(content):
     return covered
 
 
-def write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tooltips, fixes, wowhead=None):
+def write_sql(path, build_list, content, changes, results, first_seen, changed_in, icons, quest_names, ctx, server_build, tooltips, fixes, wowhead=None,
+              phase_list=(), phase_of=None):
+    """phase_list / phase_of: the release phases (ft.phases.run): a resource a later phase opens keeps its status and gets
+    the phase's number; the website shows it as Later until that phase opens."""
+    phase_of = phase_of or {}
     e = sqlio.escape
     with open(path, 'w', encoding='utf-8') as out:
         out.write('SET NAMES utf8mb4;\n')
@@ -122,7 +126,7 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
             icon = icons.get(entity.get('icon') or 0, '')
             batch.add(f"({e(kind)},{entity_id},{e(name[:250])},{e(name_en[:250])},{e(str(entity.get('sub', ''))[:120])},{int(entity.get('level') or 0)},"
                       f"{int(entity.get('quality', -1)) if kind == 'item' else -1},{e(icon)},{internal},{1 if baseline.is_new(kind, entity_id, entity) else 0},{e(status)},{score},"
-                      f"{e(dumps(checks))},{e(dumps(data))},{first_seen.get((kind, entity_id), 0)},{changed_in.get((kind, entity_id), 0)})")
+                      f"{e(dumps(checks))},{e(dumps(data))},{first_seen.get((kind, entity_id), 0)},{changed_in.get((kind, entity_id), 0)},{phase_of.get((kind, entity_id), 0)})")
         batch.flush()
         batch = Batch(out, 'ft_changes_new')
         for build, previous, kind, entity_id, change, fields, name in changes:
@@ -139,7 +143,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         batch.flush()
         meta = {'generated_at': datetime.datetime.now().isoformat(timespec='seconds'), 'server_build': server_build,
                 'client_build': build_list[-1]['build'] if build_list else 0, 'hidden': content.get('_meta', {}).get('hidden', {}),
-                'schema': 2,
+                'schema': 3,
+                # release phases in order (number = position + 1): ft_entities.phase holds the number, 0 = released
+                'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
                 'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else []}
         for key, value in meta.items():

@@ -1,0 +1,19 @@
+{
+ "about": "WoW Forever's release phases, in release order. The client already carries content the game has not opened yet; what a phase lists (and everything only it gives: loot, quests, recipes) shows as Later instead of missing until the phase opens. opens: the date it opens (YYYY-MM-DD), or null while Blizzard has not announced one. maps: instances by English name or map id. npcs, objects, quests, items: ids (npcs also by English name). See docs/PHASES.md.",
+ "phases": [
+  {
+   "key": "first-raids",
+   "name": "First raids",
+   "opens": "2026-12-09",
+   "source": "Blizzard's raid preview: Barrow Deeps, Hyjal Summit and Onyxia's Lair open five weeks after launch",
+   "maps": ["Onyxia's Lair", "Hyjal Summit", "Barrow Deeps"]
+  },
+  {
+   "key": "later-raids",
+   "name": "Later raids",
+   "opens": null,
+   "source": "In the client, no date announced",
+   "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"]
+  }
+ ]
+}

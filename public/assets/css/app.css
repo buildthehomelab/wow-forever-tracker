@@ -300,6 +300,9 @@ kbd { font: 500 11px/1 var(--font); padding: 3px 5px; border-radius: 4px; border
 .stat-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 @media (min-width: 1000px) { .stat-tiles:not(.is-compact) { min-width: 400px; } }
 .stat-tiles.is-compact { display: flex; flex-wrap: wrap; align-items: stretch; }
+.stat-tiles.has-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (min-width: 1000px) { .stat-tiles.has-4 { min-width: 520px; } }
+@media (max-width: 520px) { .stat-tiles.has-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat-tile { display: grid; gap: 1px; padding: 10px 12px; }
 .stat-tile strong { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat-tile span { font-size: 12px; color: var(--muted); }
@@ -709,3 +712,19 @@ a.id-link:hover { color: var(--accent-text); }
 .import-tables .checkbox-line { font-size: 13px; }
 .import-tables small { display: block; margin-left: 22px; }.import-tables .checkbox-line { display: block; }
 .import-tables .checkbox-line span { font-weight: 600; }
+
+/* ---------- release phases: what a phase not open yet will bring (docs/PHASES.md) */
+.badge.is-later { color: var(--info); background: var(--info-soft); }
+.badge.is-later i.fas { width: auto; height: auto; background: none; font-size: 10px; }
+.split-counts .is-later { color: var(--info); }
+.tag.is-later { color: var(--info); border-color: color-mix(in srgb, var(--info) 40%, transparent); }
+.stat-tile.is-later strong { color: var(--info); }
+.stack .is-later { background: var(--info); }
+.segmented .is-later input:checked + span { color: var(--info); }
+.entry-hero.is-later { border-top: 3px solid var(--info); }
+.alert.is-later { border-left-color: var(--info); } .alert.is-later > i { color: var(--info); }
+.phase-list { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 2px; }
+.phase-list li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.phase-list small { color: var(--muted); }
+.phase-list span { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--info); font-weight: 600; }
+.wt-foot .is-later { color: #58a6ff; }
