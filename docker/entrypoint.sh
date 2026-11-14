@@ -107,6 +107,7 @@ branch = "${FT_WOWHEAD_BRANCH:-forever}"
 pause = ${FT_WOWHEAD_PAUSE:-0.4}
 analyse = ${FT_WOWHEAD:-1}
 recheck_days = ${FT_WOWHEAD_RECHECK_DAYS:-7}
+refresh_days = ${FT_WOWHEAD_REFRESH_DAYS:-30}
 
 [collector]
 auto_apply = 0

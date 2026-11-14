@@ -300,7 +300,9 @@ function atlasloot_import(bool $ifNew = false): array
     $file = atlasloot_latest();
     if (!$file) return ['ok' => false, 'message' => t('Could not reach AtlasLoot on CurseForge.', 'AtlasLoot est injoignable sur CurseForge.')];
     $mark = atlasloot_dir() . '/imported';
-    if ($ifNew && trim((string)@file_get_contents($mark)) === (string)$file['id']) {
+    // "ask every source again" was pressed since this version was read: read it again, the gaps and the other
+    // sources' measures it is weighed with have moved
+    if ($ifNew && trim((string)@file_get_contents($mark)) === (string)$file['id'] && (int)@filemtime($mark) >= source_refresh_epoch()) {
         return ['ok' => true, 'id' => 0, 'counts' => [], 'ignored' => [], 'message' => sprintf(t('AtlasLoot %s already imported.', 'AtlasLoot %s déjà importé.'), $file['version'])];
     }
     [$path, $error] = atlasloot_fetch($file);

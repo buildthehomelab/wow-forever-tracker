@@ -51,6 +51,12 @@ switch ((string)($input['action'] ?? '')) {
     case 'wowhead_quests':
         require_once FT_APP . '/wowhead.php';
         json_out(wowhead_quest_import());
+    case 'refresh_sources':
+        // every answer a source gave so far is asked again at the next run (nothing is asked now, nothing is deleted)
+        require_once FT_APP . '/wowhead.php';
+        $at = source_refresh_all();
+        json_out($at ? ['ok' => true, 'message' => t('Done: every source is asked again at its next run. Run the analysis again (Wowhead), then the imports. The first runs take as long as the very first ones did.', 'Fait : chaque source sera réinterrogée à sa prochaine exécution. Relancez l’analyse (Wowhead), puis les imports. Les premières exécutions durent autant que les toutes premières.')]
+            : ['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]);
     case 'norgannon':
         require_once FT_APP . '/norgannon.php';
         json_out(norgannon_import());

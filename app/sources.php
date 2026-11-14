@@ -212,10 +212,12 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
-/** The sources, most trusted first, when [sources] trust says nothing: Wowhead, then Questie's data (it comes through
- *  NorgannonDB), then Icy Veins; the others after them. */
-const SOURCE_TRUST = 'wowhead,norgannondb,icyveins,eglink,foreverdb,atlasloot';
+const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
+/** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
+ *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
+ *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
+ *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. */
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,eglink,foreverdb,atlasloot';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -225,9 +227,11 @@ function source_trust(?string $configured = null): array
     foreach (array_merge(explode(',', strtolower($configured)), explode(',', SOURCE_TRUST)) as $name) {
         $name = trim($name);
         if ($name === 'questie') $name = 'norgannondb';
+        if ($name === 'cdn' || $name === 'gameclient') $name = 'client';
         if (isset(SOURCE_MARKS[$name]) && !in_array($name, $order, true)) $order[] = $name;
     }
-    return $order;
+    // wherever a configuration puts it, the client is first: it is the game itself, the others describe it
+    return array_values(array_unique(array_merge(['client'], $order)));
 }
 
 /** The source a Comment or a note names first ("Icy Veins 2026-11-14" -> icyveins), or null: no import wrote it. */
@@ -689,7 +693,8 @@ function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, st
     if (is_file($path)) {
         $data = json_decode((string)file_get_contents($path), true) ?: [];
         $age = time() - (int)($data['fetched'] ?? 0);
-        if ($age < (empty($data['missing']) ? 14 : 7) * 86400) return $data;
+        // kept two weeks (one for "not known"), and asked again whatever its age after "ask every source again"
+        if ($age < (empty($data['missing']) ? 14 : 7) * 86400 && (int)($data['fetched'] ?? 0) >= source_refresh_epoch()) return $data;
     }
     if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) return is_file($path) ? $data : null;
     $wait = max(0.5, icyveins_backoff($failures)) - (microtime(true) - $last);

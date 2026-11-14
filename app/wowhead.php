@@ -10,6 +10,42 @@ require_once FT_APP . '/imports.php';
 const WOWHEAD_PAUSE = 0.4;        // seconds between requests
 const WOWHEAD_MAX_ASK = 500;      // new requests per run (a web request must end); the cache makes the next run go on
 
+/** Where "ask every source again" keeps its moment (a Unix time; tools/ft/wowhead.py reads the same file). */
+function source_refresh_file(): string { return FT_ROOT . '/data/sources-refresh'; }
+
+/** The moment "ask every source again" was last pressed, 0 when never: every answer a source gave before it is asked
+ *  again at the next run, whatever its age (Wowhead, Icy Veins; AtlasLoot's last version is read again). */
+function source_refresh_epoch(): int
+{
+    static $epoch = null;
+    return $epoch ??= (int)trim((string)@file_get_contents(source_refresh_file()));
+}
+
+/** Presses it: from now on every cached answer is older than the moment. Returns the moment, 0 when data/ is not writable. */
+function source_refresh_all(): int
+{
+    @mkdir(dirname(source_refresh_file()), 0775, true);
+    $now = time();
+    return @file_put_contents(source_refresh_file(), $now . "\n", LOCK_EX) === false ? 0 : $now;
+}
+
+/** Between 0.75 and 1.25, fixed for an id: answers fetched in one run do not all come due on the same day (the same
+ *  spread as tools/ft/wowhead.py). */
+function wowhead_spread(int $id): float { return 0.75 + ($id * 2654435761 % 1000) / 2000; }
+
+/** A Wowhead answer is to be asked again: older than the last "ask every source again"; "Wowhead does not know it"
+ *  older than [wowhead] recheck_days; or an answer older than [wowhead] refresh_days, give or take a quarter by id
+ *  (0: kept for good). Wowhead corrects levels and positions: an answer kept for good never learns it. */
+function wowhead_stale(int $fetched, bool $missing, int $id, ?int $now = null, ?int $epoch = null, ?float $refreshDays = null, ?float $recheckDays = null): bool
+{
+    $now ??= time();
+    if ($fetched < ($epoch ?? source_refresh_epoch())) return true;
+    $age = $now - $fetched;
+    if ($missing) return $age > ($recheckDays ?? (float)(config('wowhead', 'recheck_days', 7) ?: 7)) * 86400;
+    $days = $refreshDays ?? max(0.0, (float)config('wowhead', 'refresh_days', 30));
+    return $days > 0 && $age > $days * 86400 * wowhead_spread($id);
+}
+
 /** Tooltip data, ['missing' => true] when Wowhead does not know it, null when not cached and not asked (or unreachable). */
 function wowhead_get(string $kind, int $id, bool $ask = true): ?array
 {
@@ -17,11 +53,11 @@ function wowhead_get(string $kind, int $id, bool $ask = true): ?array
     $path = FT_ROOT . "/data/wowhead/$kind/$id.json";
     if (is_file($path)) {
         $data = json_decode((string)file_get_contents($path), true) ?: null;
-        // "Wowhead does not know it" expires ([wowhead] recheck_days): Wowhead learns what players discover
-        $stale = $data && !empty($data['missing']) && time() - (int)($data['fetched'] ?? 0) > (float)(config('wowhead', 'recheck_days', 7) ?: 7) * 86400;
+        $stale = $data && wowhead_stale((int)($data['fetched'] ?? 0), !empty($data['missing']), $id);
         if (!$stale || !$ask) return $data;
     }
-    if (!$ask || $asked >= WOWHEAD_MAX_ASK) return null;
+    // an answer that is due again and cannot be asked now (the run's share of requests is used up) is still an answer
+    if (!$ask || $asked >= WOWHEAD_MAX_ASK) return $data ?? null;
     $wait = WOWHEAD_PAUSE - (microtime(true) - $last);
     if ($wait > 0) usleep((int)($wait * 1e6));
     $last = microtime(true); $asked++;
@@ -30,8 +66,9 @@ function wowhead_get(string $kind, int $id, bool $ask = true): ?array
     $body = @file_get_contents('https://nether.wowhead.com/' . (config('wowhead', 'branch', 'forever') ?: 'forever') . "/tooltip/$kind/$id?locale=0", false, $context);
     $status = 0;
     foreach ($http_response_header ?? [] as $h) if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) $status = (int)$m[1];
+    $kept = $data ?? null;
     if ($status === 404) $data = ['missing' => true];
-    elseif ($status !== 200 || $body === false) return null;   // asked again next time
+    elseif ($status !== 200 || $body === false) return $kept;   // asked again next time; the old answer is better than none
     else {
         $data = json_decode($body, true);
         if (!is_array($data) || !empty($data['error']) || empty($data['name'])) $data = ['missing' => true];
