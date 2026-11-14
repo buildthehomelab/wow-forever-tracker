@@ -11,11 +11,14 @@ by side and names the creatures where they cannot both be right:
               friend
     sides     the server shows the creature to one side only (a phase or a condition on the player's team), and
               players of the other side saw it or were served by it on live
-    discount  a vendor that served one side only on live, whose faction on the server has no reputation behind it:
-              no reputation discount can apply to its prices
+    discount  a vendor the recordings show selling to one side only, whose faction on the server is a general one
+              (it treats both sides alike and has no reputation behind it): no reputation discount can apply to its
+              prices. The weakest of the three: the other side may simply not have come by.
 
 Only a contradiction is named. Neutral against friendly is not one: that depends on the reputation the player who
-recorded it had earned. A creature nobody spawned is left out (a warlock's demon, a totem: its side is its master's),
+recorded it had earned. For the same reason a faction players can earn reputation with says nothing either way (a
+Gelkis centaur is friendly to the player who earned it and hostile to the next one): such a faction is compared only
+where a side's standing is fixed at the bottom, as the Horde's is with Stormwind. A creature nobody spawned is left out (a warlock's demon, a totem: its side is its master's),
 and a beast that players only saw friendly is somebody's pet unless it also served them. That a side never recorded a creature says nothing either (nobody of that side went there,
 or looked): so a creature the server shows to everyone, which only one side should see, cannot be found this way.
 
@@ -54,6 +57,24 @@ def stance(template, side):
     if int(template.get('FriendGroup') or 0) & group or int(template.get('FactionGroup') or 0) & GROUP[side]:
         return 'friendly'
     return 'neutral'
+
+
+FLOOR = -42000   # a reputation that cannot be earned out of: the other side's cities
+RACE = {ALLIANCE: 1, HORDE: 2}   # a human's and an orc's bit in a race mask
+
+
+def standing(faction, side):
+    """The reputation players of a side start at with a faction, or None when the faction has no reputation. faction:
+    its Faction row. The core's rule: the first of the faction's four entries that names the side's race; 0 when
+    none does."""
+    if not faction or int(faction.get('ReputationIndex') if faction.get('ReputationIndex') is not None else -1) < 0:
+        return None
+    for i in range(1, 5):
+        mask = int(faction.get(f'ReputationRaceMask{i}1') or 0) | int(faction.get(f'ReputationRaceMask{i}2') or 0) << 32
+        classes = int(faction.get(f'ReputationClassMask{i}') or 0)
+        if mask & RACE[side] or (not mask and classes):
+            return int(faction.get(f'ReputationBase{i}') or 0)
+    return 0
 
 
 def recorded(facts, live_from):
@@ -147,9 +168,15 @@ def compare(live, creatures, templates, factions=None, shown=None):
             label = (factions.get(int(template.get('Faction') or 0)) or {}).get('Name')
             which += f' ({label})' if label else ''
         notes = []
+        faction_row = (factions or {}).get(int(template.get('Faction') or 0))
+        earned = False
         for side in SIDES:
             seen, served = told['seen'][side], told['served'][side]
             if not seen and not served:
+                continue
+            start = standing(faction_row, side)
+            if start is not None and start > FLOOR:
+                earned = True   # players earn and lose this faction's reputation: what one of them saw says nothing
                 continue
             ours_stance = stance(template, side)
             welcome = (seen and min(seen) >= 4 and not (beast and not served)) or (served and not (seen and min(seen) <= 2))
@@ -163,6 +190,8 @@ def compare(live, creatures, templates, factions=None, shown=None):
         if notes:
             out.append((entry, name, 'faction', '; '.join(notes)))
             counts['faction'] += 1
+        elif earned:
+            counts['reputation_decides'] += 1
         side_only = (shown or {}).get(entry)
         if side_only:
             other = OTHER[side_only]
@@ -173,8 +202,11 @@ def compare(live, creatures, templates, factions=None, shown=None):
         if factions is not None and int(ours.get('npcflag') or 0) & VENDOR:
             served_sides = [side for side in SIDES if 'Merchant' in told['served'][side]]
             faction = factions.get(int(template.get('Faction') or 0))
-            if len(served_sides) == 1 and not told['seen'][OTHER[served_sides[0]]] and (faction is None or int(faction.get('ReputationIndex') if faction.get('ReputationIndex') is not None else -1) < 0):
-                out.append((entry, name, 'discount', f'a vendor that sold to {served_sides[0]} players only on live; its {which} has no reputation on the server, '
-                                                     'so no reputation discount applies to its prices'))
+            # a general faction: no reputation, and the same to both sides (one side's own faction without a reputation,
+            # as the Revantusk trolls', is Blizzard's choice and gives no discount on live either)
+            general = standing(faction, ALLIANCE) is None and stance(template, ALLIANCE) == stance(template, HORDE)
+            if len(served_sides) == 1 and not told['seen'][OTHER[served_sides[0]]] and general:
+                out.append((entry, name, 'discount', f'a vendor the recordings show selling to {served_sides[0]} players only (the other side may not have come by); '
+                                                     f'its {which} on the server is a general one without a reputation, so no reputation discount applies to its prices'))
                 counts['discount'] += 1
     return out, dict(counts)

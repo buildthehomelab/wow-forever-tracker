@@ -160,6 +160,38 @@ class SameThingAnotherWay(unittest.TestCase):
         self.assertEqual(changes(record(rewards=rewards), world, tiers=TIERS)[0], {('quest_template', 'RewardFactionID1'): [[7, 47]]})
         self.assertEqual(changes(record(), world, tiers=TIERS), ({}, {'quest_value_gone': 1}))   # the record names none
 
+    def test_rewards_in_another_order_are_the_same_rewards(self):
+        two = {'xpDifficulty': 5, 'xpMultiplier': 1, 'choices': [{'itemId': 3578, 'count': 1}, {'itemId': 1561, 'count': 1}],
+               'items': [{'itemId': 118, 'count': 2}, {'itemId': 2589, 'count': 10}],
+               'reputation': [{'factionId': 93, 'tier': 4}, {'factionId': 92, 'tier': -5}]}
+        world = row(RewardChoiceItemID1=1561, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=3578, RewardChoiceItemQuantity2=1,
+                    RewardItem1=2589, RewardAmount1=10, RewardItem2=118, RewardAmount2=2,
+                    RewardFactionID1=92, RewardFactionOverride1=-10000, RewardFactionID2=93, RewardFactionValue2=4)
+        self.assertEqual(changes(record(rewards=two), world, tiers=TIERS), ({}, {'quest_same': 1}))
+
+    def test_a_list_that_really_differs_takes_the_records_slots(self):
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 2589, 'count': 10}],
+                   'choices': [{'itemId': 3578, 'count': 1}, {'itemId': 20083, 'count': 1}]}
+        world = row(RewardChoiceItemID1=1561, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=3578, RewardChoiceItemQuantity2=1)
+        found, _left = changes(record(rewards=rewards), world)
+        self.assertEqual(found, {('quest_template', 'RewardChoiceItemID1'): [[7, 3578]], ('quest_template', 'RewardChoiceItemID2'): [[7, 20083]]})
+
+    def test_a_record_that_names_fewer_rewards_leaves_the_row(self):
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 2589, 'count': 10}], 'choices': [{'itemId': 3578, 'count': 1}],
+                   'reputation': [{'factionId': 93, 'tier': 4}]}
+        world = row(RewardChoiceItemID1=1561, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=3578, RewardChoiceItemQuantity2=1,
+                    RewardFactionID1=92, RewardFactionValue1=5, RewardFactionID2=93, RewardFactionValue2=4)
+        # setting slot 1 to 3578 and leaving slot 2 would give the same item twice: the row stays as it is
+        self.assertEqual(changes(record(rewards=rewards), world, tiers=TIERS), ({}, {'quest_value_gone': 1}))
+
+    def test_a_reputation_that_changed_beside_one_that_did_not(self):
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 2589, 'count': 10}],
+                   'reputation': [{'factionId': 92, 'tier': 4}, {'factionId': 93, 'tier': 6}]}
+        world = row(RewardFactionID1=92, RewardFactionOverride1=7500, RewardFactionID2=93, RewardFactionOverride2=10000)
+        found, _left = changes(record(rewards=rewards), world, tiers=TIERS)
+        # 92 gives 75 points either way and is left as it is written; 93 gives 150 now
+        self.assertEqual(found, {('quest_template', 'RewardFactionValue2'): [[7, 6]], ('quest_template', 'RewardFactionOverride2'): [[7, 0]]})
+
     def test_points(self):
         self.assertEqual((refresh.points(4, 0, TIERS), refresh.points(0, 7500, TIERS), refresh.points(-2, 0, TIERS), refresh.points(0, 0, None)), (75, 75, -25, 0))
         self.assertIsNone(refresh.points(4, 0, None))

@@ -117,6 +117,9 @@ and proposes what differs, as lines of its card (`quest_template.RewardItem1`, `
   - *Text is compared as it reads.* Line breaks (`$B`, a line feed), runs of spaces and the case of a placeholder
     (`$n`, `$N`) do not count; an amount the record writes as a placeholder (`$1oa Gnarlpine Fangs`) and the row as
     its number is the same text.
+  - *Rewards are compared as a list, not slot by slot.* The same items, choices, currencies or reputations in another
+    order are no change. Where the list really differs the slots take the record's; a record that names fewer than
+    the row leaves the row as it is (filling one slot and not clearing another would give a reward twice).
   - *The end text stands in either column.* Older rows hold it in `QuestCompletionLog`, the record in
     `AreaDescription`.
   - *Not compared:* the money and the quest's own level. The server sends both for the player who asked (at the
