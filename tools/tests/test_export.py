@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from ft import export, facts, layers, quests, resolve  # noqa: E402
+from ft import export, facts, layers, npcs, quests, resolve  # noqa: E402
 from ft.facts import Fact  # noqa: E402
 from ft.resolve import Decision, Evidence  # noqa: E402
 
@@ -94,8 +94,8 @@ class Plan(unittest.TestCase):
                                  ready('sells', 'npc', 2, 901), ready('sells', 'npc', 3, 900), ready('gives', 'item', 5, 100)],
                                 {(3, 900): [('public', LIVE, MONEY)]})
         self.assertEqual(held, {
-            ('quest', 200, 0): 'no record a row may be written from', ('npc', 9, 0): 'NPC templates are not written yet',
-            ('gives', 9, 100): 'it waits for its NPC: NPC templates are not written yet', ('sells', 9, 900): 'it waits for its NPC: NPC templates are not written yet',
+            ('quest', 200, 0): 'no record a row may be written from', ('npc', 9, 0): 'no record a row may be written from',
+            ('gives', 9, 100): 'it waits for its NPC, which is held back', ('sells', 9, 900): 'it waits for its NPC, which is held back',
             ('gives', 1, 200): 'it waits for its quest, which is held back', ('takes', 60, 100): 'its object has no template',
             ('gives', 51, 100): 'its object is not of the quest giver kind', ('sells', 2, 901): 'no recording of the live game shows what it costs',
             ('sells', 3, 900): 'other vendors borrow its list: a row here would reach them too', ('gives', 5, 100): 'no writer for this kind of decision'})
@@ -145,7 +145,7 @@ class Quests(unittest.TestCase):
     def test_a_quest_nobody_can_start_or_end_yet_waits_and_its_pairs_with_it(self):
         _rows, held = self.plan([ready('quest', 'quest', 200), ready('gives', 'npc', 9, 200), ready('takes', 'npc', 2, 200),
                                  ready('quest', 'quest', 201), ready('gives', 'npc', 1, 201)], {200: known(), 201: known(dict(RECORD, objectives=[]))})
-        self.assertEqual(held, {('gives', 9, 200): 'it waits for its NPC: NPC templates are not written yet',
+        self.assertEqual(held, {('gives', 9, 200): 'it waits for its NPC, which is held back',
                                 ('quest', 200, 0): 'no giver of it can be written yet',
                                 ('takes', 2, 200): 'it waits for its quest, which is held back',
                                 ('quest', 201, 0): 'no ender of it can be written yet',
@@ -292,6 +292,152 @@ class Quests(unittest.TestCase):
                          ('eglink@70862', 2, [], list(quests.LEFT)))
         self.assertEqual(export.manifest('f.sql', 'x', 'public', rows[1:], {}, {}, [])['left_to_defaults'], [])
         self.assertEqual(export.counts(rows), '1 quest_template, 1 creature_queststarter, 1 creature_questender')
+
+
+CREATURE = {'name': 'Rix Xizzix', 'title': 'Lost and Found', 'classification': 0, 'type': 7, 'unitClass': 1, 'movementInfoId': 1693, 'creatureDifficultyId': 9009,
+            'flags': [134217728, 0, 0], 'hpMultiplier': 1.25, 'energyMultiplier': 1.0, 'displays': [{'displayId': 500, 'probability': 100.0, 'scale': 1.0}]}
+
+
+def creature(record=None, use='public', **more):
+    # a player talked to it (the recording gives no side), QuestieDB names the side and the level
+    return dict({'use': use, 'source': 'eglink' if use == 'public' else 'icyveins', 'build': LIVE, 'record': record or CREATURE, 'stated': 'AH', 'side_source': 'questie',
+                 'talked': '', 'seen_source': 'eglink', 'level': (45, 45, 'questie')}, **more)
+
+
+class Npcs(unittest.TestCase):
+    EXTRA = dict(EXTRA, model_info={500, 501})
+
+    def plan(self, decisions, creatures, records=None, prices=None):
+        rows, held = export.plan(decisions, WORLD, prices or {}, self.EXTRA, records, creatures)
+        return rows, {(h.decision['kind'], h.decision['subject'], h.decision['object']): h.reason for h in held}
+
+    def test_an_npc_comes_with_what_waits_for_it(self):
+        objective = dict(RECORD, objectives=[{'id': 5001, 'typeId': 0, 'objectId': 9, 'storageIndex': 0, 'amount': 1}])
+        rows, held = self.plan([ready('npc', 'npc', 9, rule='record-seen-live'), ready('gives', 'npc', 9, 100), ready('sells', 'npc', 9, 900),
+                                ready('quest', 'quest', 200), ready('gives', 'npc', 9, 200), ready('takes', 'npc', 1, 200)],
+                               {9: creature()}, {200: known(objective)}, {(9, 900): [('public', LIVE, MONEY)]})
+        self.assertEqual(held, {})
+        rows.sort(key=lambda row: (export.ORDER.index(row.table), row.key))            # as the file orders them
+        self.assertEqual([(row.table, row.key) for row in rows], [
+            ('creature_template', (9,)), ('quest_template', (200,)), ('creature_queststarter', (9, 100)), ('creature_queststarter', (9, 200)),
+            ('creature_questender', (1, 200)), ('npc_vendor', (9, 900, 0, 1))])
+        npc = rows[0]
+        self.assertEqual((npc.comment, npc.allowed, npc.note), ('Rix Xizzix', 'public', 'record-seen-live: eglink@70862, questie:trace'))
+        self.assertEqual((npc.data['side'], npc.data['side_how'], npc.data['side_from'], npc.data['level_from'], npc.data['sources'], npc.data['npc'].template['faction']),
+                         ('AH', 'questie', 'questie', 'questie', {'eglink', 'questie'}, 35))
+        self.assertEqual((rows[1].data['needs'], rows[2].comment), ([9], 'Rix Xizzix gives First Steps'))
+        text = ';\n'.join(export.body(rows, 'f.sql'))
+        self.assertLess(text.index('INSERT INTO `creature_template`'), text.index('INSERT INTO `quest_template`'))          # the NPC, then what needs it
+        self.assertLess(text.index('INSERT INTO `quest_template`'), text.index('INSERT INTO `creature_queststarter`'))
+
+    def test_what_keeps_an_npc_from_being_written(self):
+        decisions = [ready('npc', 'npc', number) for number in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18)] + [ready('gives', 'npc', 10, 100), ready('sells', 'npc', 11, 900)]
+        _rows, held = self.plan(decisions, {
+            10: creature(stated=None, talked=None), 11: creature(stated=None, talked=None, reactions={'Horde': [2]}), 12: creature(level=None),
+            17: creature(talked=None), 18: creature(fought=True),
+            13: creature(dict(CREATURE, unitClass=3)), 14: creature(dict(CREATURE, displays=[{'displayId': 500}, {'displayId': 777}])),
+            15: creature(record=None), 16: {'use': 'public', 'source': 'eglink', 'build': LIVE, 'record': None}}, prices={(11, 900): [('public', LIVE, MONEY)]})
+        self.assertEqual(held, {
+            ('npc', 9, 0): 'no record a row may be written from', ('npc', 10, 0): 'nothing states whom it is friendly to',
+            ('npc', 17, 0): 'only a list says whom it is friendly to: no player was seen talking to it',
+            ('npc', 18, 0): 'players fought it: what a monster needs is not known',
+            ('npc', 11, 0): 'it is not friendly to players: what a monster needs is not known', ('npc', 12, 0): 'nothing states its level',
+            ('npc', 13, 0): 'its record cannot be written: unitClass is not a class a creature can have',
+            ('npc', 14, 0): 'the world has no size for its model: creature_model_info (display 777)', ('npc', 16, 0): 'no record a row may be written from',
+            ('gives', 10, 100): 'it waits for its NPC, which is held back', ('sells', 11, 900): 'it waits for its NPC, which is held back'})
+        rows, _held = self.plan([ready('npc', 'npc', 15)], {15: creature()})
+        self.assertEqual(len(rows), 1)                                          # (15 above was given the default record: written)
+        seen = self.plan([ready('npc', 'npc', 9)], {9: creature(stated=None, talked=None, reactions={'Horde': [5]}, level=(3, 4, 'eglink'))})[0][0]
+        self.assertEqual((seen.data['side'], seen.data['side_how'], seen.data['side_from'], seen.data['level_from'], seen.data['sources'], seen.data['npc'].template['faction']),
+                         ('H', 'reactions', 'eglink', 'eglink', {'eglink'}, 83))
+        talked = self.plan([ready('npc', 'npc', 9)], {9: creature(talked='Alliance')})[0][0]              # the recording's side comes before the list's
+        self.assertEqual((talked.data['side'], talked.data['side_how'], talked.data['side_from'], talked.data['npc'].template['faction']), ('A', 'talked', 'eglink', 84))
+
+    def test_what_hangs_on_an_npc_goes_where_it_goes_or_nowhere(self):
+        objective = dict(RECORD, objectives=[{'id': 5001, 'typeId': 0, 'objectId': 9, 'storageIndex': 0, 'amount': 1}])
+        decisions = [ready('npc', 'npc', 9), ready('gives', 'npc', 9, 100), ready('sells', 'npc', 9, 900), ready('quest', 'quest', 200),
+                     ready('gives', 'npc', 1, 200), ready('takes', 'npc', 1, 200)]
+        prices = {(9, 900): [('public', LIVE, MONEY)]}
+        rows, _held = self.plan(decisions, {9: creature()}, {200: known(objective)}, prices)
+        npc, others = rows[0], rows[1:]
+        # the world refused the NPC: nothing that needs it is left, not even the quest that only has an objective on it
+        kept, dropped = export.settle(others, WORLD)
+        self.assertEqual((kept, sorted((row.table, why) for row, why in dropped)), ([], [
+            ('creature_questender', 'it waits for its quest, which is held back'), ('creature_queststarter', 'it waits for its NPC, which is held back'),
+            ('creature_queststarter', 'it waits for its quest, which is held back'), ('npc_vendor', 'it waits for its NPC, which is held back'),
+            ('quest_template', 'an objective needs an NPC that is held back (NPC 9)')]))
+        self.assertEqual(export.settle(others, WORLD, {('creature_template', (9,))}), (others, []))        # an earlier export carries the NPC
+        self.assertEqual(export.settle(rows, WORLD), (rows, []))
+        # an NPC from a record that may not be published: all of it is private
+        rows, _held = self.plan(decisions, {9: creature(use='private')}, {200: known(objective)}, prices)
+        self.assertEqual({row.allowed for row in rows}, {'private'})
+        self.assertEqual(len(rows), 6)
+
+    def test_the_npc_s_statements(self):
+        rows, _held = self.plan([ready('npc', 'npc', 9), ready('npc', 'npc', 10)],
+                                {9: creature(), 10: creature(dict(CREATURE, name="Bare O'Name", title=None, displays=[{'displayId': 500}, {'displayId': 501, 'scale': 0.5}]),
+                                                             stated='A', level=(5, 6, 'questie'))})
+        text = ';\n'.join(export.npc_block(rows, 'f.sql')) + ';\n'
+        self.assertIn('CREATE TEMPORARY TABLE `everlake_build_npcs` (`n` INT NOT NULL PRIMARY KEY, `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0) '
+                      'SELECT `entry`, `KillCredit1`, `KillCredit2`, `name`, `subname`, `IconName`, `faction`, `Classification`, `type`, `family`, `movementId`, `unit_class`, '
+                      '`BaseAttackTime`, `RangeAttackTime`, `unit_flags2` FROM `creature_template` WHERE 0;', text)
+        self.assertIn("(1, 9, 0, 0, 'Rix Xizzix', 'Lost and Found', NULL, 35, 0, 7, 0, 1693, 1, 2000, 2000, 2048, 'seen-live: eglink@70862, questie:trace'), -- Rix Xizzix\n"
+                      "(2, 10, 0, 0, 'Bare O''Name', NULL, NULL, 84, 0, 7, 0, 1693, 1, 2000, 2000, 2048, 'seen-live: eglink@70862, questie:trace') -- Bare O'Name\n;\n", text)
+        for guard in ("NOT EXISTS (SELECT 1 FROM `creature_template` t WHERE t.`entry` = s.`entry`)",
+                      "r.`tbl` IN ('creature_template', 'creature_template_difficulty', 'creature_template_model', 'creature_classic_level') AND r.`k1` = s.`entry`)",
+                      "NOT EXISTS (SELECT 1 FROM `creature_template_difficulty` c WHERE c.`Entry` = s.`entry`)",
+                      "NOT EXISTS (SELECT 1 FROM `creature_classic_level` c WHERE c.`entry` = s.`entry`)",
+                      "UPDATE `everlake_build_models` p SET p.`unknown` = 1 WHERE NOT EXISTS (SELECT 1 FROM `creature_model_info` i WHERE i.`DisplayID` = p.`CreatureDisplayID`);",
+                      "NOT EXISTS (SELECT 1 FROM `everlake_build_models` p WHERE p.`CreatureID` = s.`entry` AND p.`unknown` = 1)"):
+            self.assertIn(guard, text)
+        self.assertIn("(1, 9, 0, 500, 1.0, 100.0),\n(2, 10, 0, 500, 1, 1),\n(3, 10, 1, 501, 0.5, 1)\n;\n", text)
+        self.assertIn("(1, 9, 0, 1.25, 1.0, 9009, 134217728, 0, 0),\n", text)
+        self.assertIn("(1, 9, 45, 45),\n(2, 10, 5, 6)\n;\n", text)
+        self.assertIn("INSERT INTO `creature_template_model` (`CreatureID`, `Idx`, `CreatureDisplayID`, `DisplayScale`, `Probability`, `VerifiedBuild`) "
+                      "SELECT p.`CreatureID`, p.`Idx`, p.`CreatureDisplayID`, p.`DisplayScale`, p.`Probability`, 0 FROM `everlake_build_models` p "
+                      "JOIN `everlake_build_npcs` s ON s.`entry` = p.`CreatureID` WHERE s.`missing` = 1 ORDER BY p.`n`;", text)
+        self.assertIn("SELECT 'creature_template_difficulty', p.`Entry`, p.`DifficultyID`, 'f.sql', s.`note`", text)
+        self.assertEqual((text.count('CREATE TEMPORARY TABLE'), text.count('DROP TEMPORARY TABLE')), (4, 4))
+        made = export.manifest('f.sql', 'x', 'public', rows, {}, {}, [])
+        self.assertEqual(made['rows'][0], {'table': 'creature_template', 'key': [9], 'kind': 'npc', 'rule': 'seen-live', 'witnesses': ['eglink@70862', 'questie:trace'],
+                                           'says': 'Rix Xizzix', 'record': 'eglink@70862', 'side': 'AH', 'side_from': 'questie: questie', 'faction': 35, 'level': [45, 45],
+                                           'level_from': 'questie', 'models': 1, 'unread': []})
+        self.assertEqual(made['left_to_defaults'], list(npcs.LEFT))
+        self.assertEqual(export.counts(rows), '2 creature_template')
+
+    def test_the_record_the_side_and_the_level_of_an_npc(self):
+        class Stored:
+            def __init__(self, rows, entries):
+                self.rows, self.entries = rows, entries
+
+            def query(self, sql, _database):
+                return self.entries if "kind = 'entry'" in sql else self.rows
+        fact = lambda source, kind, npc, build, data: {'source': source, 'kind': kind, 'subject': str(npc), 'build': str(build), 'data': json.dumps(data)}
+        entry = lambda npc, parts, source='questie': {'source': source, 'subject': str(npc), 'data': json.dumps({'parts': parts})}
+        found = export.load_npcs(Stored(
+            [fact('eglink', 'creature', 9, 70450, {'name': 'beta'}), fact('eglink', 'creature', 9, LIVE, {'name': 'live'}), fact('icyveins', 'creature', 9, LIVE + 5, {'name': 'private'}),
+             fact('eglink', 'seen', 9, LIVE, {'reactions': {'Horde': [5]}, 'levels': {'4': 2, '5': 1, '\u00b2': 1}}),
+             fact('eglink', 'seen', 9, LIVE + 1, {'reactions': {'Horde': [6], 'Alliance': [2]}, 'levels': {'7': 1}}),
+             fact('eglink', 'talked', 9, LIVE, {'side': 'Alliance', 'levels': [8]}), fact('eglink', 'talked', 9, LIVE + 1, {'side': 'Horde', 'interactions': ['QuestGiver']}),
+             fact('eglink', 'seen', 9, 70450, {'reactions': {'Alliance': [8]}, 'deaths': 5}), fact('eglink', 'talked', 9, 70450, {'side': 'Alliance'}),      # before the live game
+             fact('icyveins', 'seen', 9, LIVE, {'reactions': {'Alliance': [8], 'Horde': [3]}}),                    # may not give rows: it can only say "not a friend"
+             fact('eglink', 'creature', 10, LIVE, {'name': 'ten'}), fact('eglink', 'talked', 10, LIVE, {'levels': [3]}),
+             fact('eglink', 'creature', 11, LIVE, {'name': 'eleven'}), fact('eglink', 'seen', 11, LIVE, {'reactions': {'Horde': [5]}, 'deaths': 2}),
+             fact('eglink', 'creature', 12, LIVE, {'name': 'twelve'}), fact('icyveins', 'seen', 12, LIVE, {'combatLog': {'entries': 1}, 'levels': {'9': 1}}),
+             fact('eglink', 'seen', 13, LIVE, {'reactions': {'Horde': [5]}}), fact('wowhead', 'creature', 14, LIVE, {'name': 'a reference'}),
+             fact('eglink', 'creature', 15, LIVE, {'name': 'odd', 'displays': 5})],
+            [entry(10, {'generated': {'friendlyToFaction': 'A', 'minLevel': 5, 'maxLevel': 6}, 'trace': {'minLevel': 7, 'maxLevel': 7}, 'fix': {'friendlyToFaction': 'AH'}}),
+             entry(11, {'generated': {'friendlyToFaction': 'A', 'minLevel': 5, 'maxLevel': 6}, 'fix': {'friendlyToFaction': {}, 'minLevel': 9, 'maxLevel': 3}}),
+             entry(12, {'generated': {'minLevel': 5, 'maxLevel': 6}}, 'icyveins')]), REGISTRY, range(9, 20))
+        self.assertEqual(sorted(found), [9, 10, 11, 12, 15])                        # a sighting or a reference's record alone is no record to write from
+        self.assertEqual((found[9]['record'], found[9]['use'], found[9]['build']), ({'name': 'live'}, 'public', LIVE))
+        self.assertEqual((found[9]['reactions'], found[9]['seen_source'], found[9]['level']), ({'Horde': [5, 6], 'Alliance': [2]}, 'eglink', (4, 8, 'eglink')))
+        self.assertEqual((found[9]['talked'], found[9]['fought'], found[9]['against']), ('Horde', False, ['H']))      # the newest recording's side
+        self.assertEqual((found[10]['stated'], found[10]['side_source'], found[10]['level'], found[10]['talked']), ('AH', 'questie', (7, 7, 'questie'), ''))       # the later part replaces
+        self.assertEqual((found[11]['stated'], found[11]['level'], found[11]['fought'], 'talked' in found[11]), ({}, None, True, False))      # also with nothing
+        # a private source's entry and levels are not read, but what it saw of a fight still holds the NPC back
+        self.assertEqual((found[12].get('stated'), found[12].get('level'), found[12]['fought']), (None, None, True))
+        self.assertEqual(export.load_model_info(Stored([{'DisplayID': '500'}], []), 'world', {**found, 16: creature()}), {500})      # junk displays are passed over
 
 
 class File(unittest.TestCase):
@@ -497,7 +643,7 @@ INSERT INTO npc_vendor (entry, slot, item, ExtendedCost) VALUES (2, 1, 800, 0), 
         self.assertEqual(reasons, {
             ('takes', 51, 101): 'its object is not of the quest giver kind', ('sells', 2, 902): 'it costs items or a currency: the extended cost is not known',
             ('sells', 4, 900): 'other vendors borrow its list: a row here would reach them too',
-            ('gives', 9, 100): 'it waits for its NPC: NPC templates are not written yet', ('quest', 200, 0): 'no record a row may be written from',
+            ('gives', 9, 100): 'it waits for its NPC, which is held back', ('quest', 200, 0): 'no record a row may be written from',
             # NPC 2 lists item 900 for an extended cost already: the world refused the plain row in the trial
             ('sells', 2, 900): export.REFUSED,
             ('gives', 2, 100): export.REFUSED})                       # a decision older than the world: Bert gives the quest by now
@@ -722,6 +868,134 @@ CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEF
             again = export.export(self.db, self.WORLD_DB, self.db, REGISTRY, resolve.load_world(self.db, self.WORLD_DB), later, '2026-11-14', write=False)
             self.assertEqual((again['files'], len(again['refused'])), ({}, 6))
             self.assertEqual(self.table('SELECT ID FROM quest_template'), [('100',)])
+
+
+@unittest.skipUnless(os.environ.get('FT_TEST_CONFIG'), 'set FT_TEST_CONFIG to a config.ini of a throwaway MySQL server to run')
+class NpcsOnMySQL(unittest.TestCase):
+    WORLD_DB = 'ft_export_selftest'
+    maxDiff = None
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['FOREVER_TRACKER_CONFIG'] = os.environ['FT_TEST_CONFIG']
+        from ft import sqlio
+        from ft.config import CONFIG
+        cls.db, cls.tracker = sqlio, CONFIG.db('tracker')
+        cls.folder = tempfile.TemporaryDirectory()
+        sqlio.execute(f'DROP DATABASE IF EXISTS `{cls.tracker}`;\nCREATE DATABASE `{cls.tracker}` CHARACTER SET utf8mb4;\n', 'information_schema')
+        eg = Evidence('eglink', '', LIVE, 2, 'eglink', True, 'public')
+        add = lambda kind, subject, other=0: Decision(kind, 'npc', subject, other, 'add', 'record-seen-live' if kind == 'npc' else 'seen-live', 'public', '', [], [], [eg])
+        decisions = [add('npc', 9), add('gives', 9, 100), add('sells', 9, 900),      # friendly to both (QuestieDB), level from QuestieDB
+                     add('npc', 8), add('takes', 8, 100),                            # the world cannot show its model
+                     add('npc', 7),                                                  # players saw it hostile
+                     add('npc', 5),                                                  # only a list calls it friendly
+                     add('npc', 6), add('gives', 6, 100)]                            # friendly to the Horde players who saw it, at levels 3 to 4
+        path = os.path.join(cls.folder.name, 'decisions.sql')
+        resolve.write_sql(path, decisions, {})
+        sqlio.execute_file(path, 'tracker')
+        stored = {'eglink': [Fact('creature', 'npc', 9, 0, LIVE, 2, CREATURE), Fact('creature', 'npc', 8, 0, LIVE, 1, dict(CREATURE, name='No Size', displays=[{'displayId': 777}])),
+                             Fact('talked', 'npc', 9, 0, LIVE, 1, {'interactions': ['QuestGiver', 'Merchant'], 'levels': [45]}),          # no side recorded: QuestieDB names it
+                             Fact('talked', 'npc', 8, 0, LIVE, 1, {'side': 'Alliance', 'levels': [5]}),
+                             Fact('creature', 'npc', 5, 0, LIVE, 1, dict(CREATURE, name='Listed Only')),
+                             Fact('creature', 'npc', 7, 0, LIVE, 1, dict(CREATURE, name='Gnoll')), Fact('seen', 'npc', 7, 0, LIVE, 1, {'reactions': {'Alliance': [2]}, 'levels': {'9': 1}}),
+                             Fact('creature', 'npc', 6, 0, LIVE, 1, dict(CREATURE, name='Grunt', title=None, displays=[{'displayId': 500, 'scale': 1.0}, {'displayId': 501, 'scale': 0.5}])),
+                             Fact('seen', 'npc', 6, 0, LIVE, 1, {'reactions': {'Horde': [5]}, 'levels': {'3': 1, '4': 2}}),
+                             Fact('sells', 'npc', 9, 900, LIVE, 1, {'listings': [{'itemId': 900, 'name': 'Bread', 'costs': {'5': 25}}]})],
+                  'questie': [Fact('entry', 'npc', 9, 0, 0, 0, {'parts': {'generated': {'friendlyToFaction': 'AH', 'minLevel': 45, 'maxLevel': 45}}}),
+                              Fact('entry', 'npc', 5, 0, 0, 0, {'parts': {'generated': {'friendlyToFaction': 'AH', 'minLevel': 60, 'maxLevel': 60}}}),
+                              Fact('entry', 'npc', 8, 0, 0, 0, {'parts': {'generated': {'friendlyToFaction': 'A', 'minLevel': 5, 'maxLevel': 5}}})]}
+        for source, rows in stored.items():
+            path = os.path.join(cls.folder.name, source + '.sql')
+            facts.write_sql(path, source, source[0] * 40, REGISTRY.source(source)['licence'], REGISTRY.source(source)['use'], rows)
+            sqlio.execute_file(path, 'tracker')
+        sqlio.execute(f'DROP DATABASE IF EXISTS `{cls.WORLD_DB}`;\nCREATE DATABASE `{cls.WORLD_DB}` CHARACTER SET utf8mb4;\n', 'information_schema')
+        sqlio.execute("""
+CREATE TABLE ft_replay_files (id int PRIMARY KEY, name varchar(255), source varchar(64), sha256 char(64), state varchar(16), error text);
+INSERT INTO ft_replay_files VALUES (1, 'a.sql', 'core', '', 'applied', NULL);
+CREATE TABLE quest_template (ID int unsigned PRIMARY KEY, LogTitle text); INSERT INTO quest_template VALUES (100, 'First Steps');
+CREATE TABLE creature_template (entry int unsigned NOT NULL DEFAULT 0, KillCredit1 int unsigned NOT NULL DEFAULT 0, KillCredit2 int unsigned NOT NULL DEFAULT 0, name mediumtext,
+  subname mediumtext, IconName varchar(64), faction smallint unsigned NOT NULL DEFAULT 0, npcflag bigint unsigned NOT NULL DEFAULT 0, speed_run float NOT NULL DEFAULT 1.14286,
+  Classification tinyint unsigned NOT NULL DEFAULT 0, BaseAttackTime int unsigned NOT NULL DEFAULT 0, RangeAttackTime int unsigned NOT NULL DEFAULT 0,
+  unit_class tinyint unsigned NOT NULL DEFAULT 0, unit_flags2 int unsigned NOT NULL DEFAULT 0, family int NOT NULL DEFAULT 0, type tinyint unsigned NOT NULL DEFAULT 0,
+  movementId int unsigned NOT NULL DEFAULT 0, VerifiedBuild int NOT NULL DEFAULT 99, PRIMARY KEY (entry));
+INSERT INTO creature_template (entry, name) VALUES (1, 'Anna');
+CREATE TABLE creature_template_difficulty (Entry int unsigned NOT NULL, DifficultyID int NOT NULL DEFAULT 0, HealthModifier float NOT NULL DEFAULT 1, ManaModifier float NOT NULL DEFAULT 1,
+  DamageModifier float NOT NULL DEFAULT 1, CreatureDifficultyID int NOT NULL DEFAULT 0, TypeFlags int unsigned NOT NULL DEFAULT 0, TypeFlags2 int unsigned NOT NULL DEFAULT 0,
+  TypeFlags3 int unsigned NOT NULL DEFAULT 0, VerifiedBuild int NOT NULL DEFAULT 99, PRIMARY KEY (Entry, DifficultyID));
+CREATE TABLE creature_template_model (CreatureID int unsigned NOT NULL, Idx int unsigned NOT NULL DEFAULT 0, CreatureDisplayID int unsigned NOT NULL, DisplayScale float NOT NULL DEFAULT 1,
+  Probability float NOT NULL DEFAULT 0, VerifiedBuild int NOT NULL DEFAULT 99, PRIMARY KEY (CreatureID, Idx));
+CREATE TABLE creature_classic_level (entry int unsigned NOT NULL PRIMARY KEY, level_min tinyint unsigned NOT NULL, level_max tinyint unsigned NOT NULL);
+CREATE TABLE creature_model_info (DisplayID int unsigned NOT NULL PRIMARY KEY, BoundingRadius float NOT NULL DEFAULT 0, CombatReach float NOT NULL DEFAULT 0);
+INSERT INTO creature_model_info VALUES (500, 0.389, 1.5), (501, 0.306, 1.5);
+CREATE TABLE creature (guid int PRIMARY KEY, id int); CREATE TABLE gameobject (guid int PRIMARY KEY, id int);
+CREATE TABLE gameobject_template (entry int unsigned PRIMARY KEY, name text, type tinyint unsigned NOT NULL);
+CREATE TABLE creature_queststarter (id int unsigned, quest int unsigned, VerifiedBuild int NOT NULL DEFAULT 0, PRIMARY KEY (id, quest));
+CREATE TABLE creature_questender LIKE creature_queststarter;
+CREATE TABLE gameobject_queststarter LIKE creature_queststarter;
+CREATE TABLE gameobject_questender LIKE creature_queststarter;
+CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEFAULT 0, item int NOT NULL, maxcount int unsigned NOT NULL DEFAULT 0,
+  incrtime int unsigned NOT NULL DEFAULT 0, ExtendedCost int unsigned NOT NULL DEFAULT 0, type tinyint unsigned NOT NULL DEFAULT 1,
+  PlayerConditionID int unsigned NOT NULL DEFAULT 0, IgnoreFiltering tinyint unsigned NOT NULL DEFAULT 0, VerifiedBuild int DEFAULT 0, PRIMARY KEY (entry, item, ExtendedCost, type));
+""", cls.WORLD_DB)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.db.execute(f'DROP DATABASE IF EXISTS `{cls.tracker}`;\nDROP DATABASE IF EXISTS `{cls.WORLD_DB}`;\n', 'information_schema')
+        cls.folder.cleanup()
+
+    def table(self, sql):
+        return [tuple(row.values()) for row in self.db.query(sql, self.WORLD_DB)]
+
+    def test_an_npc_goes_in_whole_once_and_what_waits_for_it_with_it(self):
+        with tempfile.TemporaryDirectory() as out:
+            folders = {'public': os.path.join(out, 'public'), 'private': os.path.join(out, 'private')}
+            result = export.export(self.db, self.WORLD_DB, self.db, REGISTRY, resolve.load_world(self.db, self.WORLD_DB), folders, '2026-11-13')
+            path, rows = result['files']['public']
+            self.assertEqual([(row.table, row.key) for row in rows], [('creature_template', (6,)), ('creature_template', (9,)), ('creature_queststarter', (6, 100)),
+                                                                      ('creature_queststarter', (9, 100)), ('npc_vendor', (9, 900, 0, 1))])
+            self.assertEqual({(h.decision['kind'], h.decision['subject'], h.decision['object']): h.reason for h in result['held']}, {
+                ('npc', 8, 0): 'the world has no size for its model: creature_model_info (display 777)', ('takes', 8, 100): 'it waits for its NPC, which is held back',
+                ('npc', 7, 0): 'it is not friendly to players: what a monster needs is not known',
+                ('npc', 5, 0): 'only a list says whom it is friendly to: no player was seen talking to it'})
+            self.assertEqual(self.table('SELECT entry FROM creature_template'), [('1',)])              # the trial left nothing
+            with open(os.path.join(folders['public'], 'build', os.path.basename(path)[:-4] + '.json'), encoding='utf-8') as handle:
+                manifest = json.load(handle)
+            self.assertEqual([(r['key'], r['side'], r['side_from'], r['faction'], r['level'], r['level_from']) for r in manifest['rows'][:2]],
+                             [([6], 'H', 'eglink: reactions', 83, [3, 4], 'eglink'), ([9], 'AH', 'questie: questie', 35, [45, 45], 'questie')])
+            self.assertEqual(manifest['left_to_defaults'], list(npcs.LEFT))
+            for _run in (1, 2):
+                self.db.execute_file(path, self.WORLD_DB)
+                self.assertEqual(self.table('SELECT entry, name, subname, IconName, faction, npcflag, Classification, type, unit_class, movementId, BaseAttackTime, '
+                                            'RangeAttackTime, unit_flags2, speed_run, VerifiedBuild FROM creature_template WHERE entry <> 1 ORDER BY entry'), [
+                    # the quest pair and the vendor item set the flags: quest giver for both, vendor for Rix
+                    ('6', 'Grunt', None, None, '83', '2', '0', '7', '1', '1693', '2000', '2000', '2048', '1.14286', '0'),
+                    ('9', 'Rix Xizzix', 'Lost and Found', None, '35', '130', '0', '7', '1', '1693', '2000', '2000', '2048', '1.14286', '0')])
+                self.assertEqual(self.table('SELECT Entry, DifficultyID, HealthModifier, ManaModifier, DamageModifier, CreatureDifficultyID, TypeFlags, VerifiedBuild '
+                                            'FROM creature_template_difficulty ORDER BY Entry'),
+                                 [('6', '0', '1.25', '1', '1', '9009', '134217728', '0'), ('9', '0', '1.25', '1', '1', '9009', '134217728', '0')])
+                self.assertEqual(self.table('SELECT CreatureID, Idx, CreatureDisplayID, DisplayScale, Probability, VerifiedBuild FROM creature_template_model ORDER BY CreatureID, Idx'),
+                                 [('6', '0', '500', '1', '1', '0'), ('6', '1', '501', '0.5', '1', '0'), ('9', '0', '500', '1', '100', '0')])
+                self.assertEqual(self.table('SELECT * FROM creature_classic_level ORDER BY entry'), [('6', '3', '4'), ('9', '45', '45')])
+                self.assertEqual(self.table('SELECT id, quest FROM creature_queststarter ORDER BY id'), [('6', '100'), ('9', '100')])
+                self.assertEqual(self.table('SELECT entry, slot, item FROM npc_vendor'), [('9', '1', '900')])
+                self.assertEqual(self.table("SELECT tbl, k1, k2 FROM everlake_import_rows WHERE tbl LIKE 'creature_template%' OR tbl = 'creature_classic_level' ORDER BY tbl, k1, k2"), [
+                    ('creature_classic_level', '6', '0'), ('creature_classic_level', '9', '0'), ('creature_template', '6', '0'), ('creature_template', '9', '0'),
+                    ('creature_template_difficulty', '6', '0'), ('creature_template_difficulty', '9', '0'),
+                    ('creature_template_model', '6', '0'), ('creature_template_model', '6', '1'), ('creature_template_model', '9', '0')])
+            # the world loses the size of a model: the NPC that shows it is refused by the file itself, and its pair with it
+            self.db.execute('DELETE FROM creature_template WHERE entry IN (6, 9); DELETE FROM creature_template_difficulty; DELETE FROM creature_template_model; '
+                            'DELETE FROM creature_classic_level; DELETE FROM creature_queststarter; DELETE FROM npc_vendor; DELETE FROM everlake_import_rows; '
+                            'DELETE FROM creature_model_info WHERE DisplayID = 501', self.WORLD_DB)
+            self.db.execute_file(path, self.WORLD_DB)
+            self.assertEqual(self.table('SELECT entry FROM creature_template ORDER BY entry'), [('1',), ('9',)])
+            self.assertEqual(self.table('SELECT id, quest FROM creature_queststarter'), [('9', '100')])
+            self.assertEqual(self.table('SELECT CreatureID FROM creature_template_model'), [('9',)])
+            # and what a file added stays out once its owners remove it
+            self.db.execute('DELETE FROM creature_template WHERE entry = 9; DELETE FROM creature_template_difficulty; DELETE FROM creature_template_model; '
+                            'DELETE FROM creature_classic_level; DELETE FROM creature_queststarter; DELETE FROM npc_vendor', self.WORLD_DB)
+            self.db.execute_file(path, self.WORLD_DB)
+            self.assertEqual(self.table('SELECT entry FROM creature_template'), [('1',)])
+            self.assertEqual(self.table('SELECT COUNT(*) FROM creature_queststarter'), [('0',)])
 
 
 if __name__ == '__main__':
