@@ -140,7 +140,9 @@ After a new export, `/reload` in game.
 Writes `creature` / `gameobject` rows in one transaction, with an exact rollback, like the other fixes. Only the
 points that have an existing spawn within 15 yards are written: their height is borrowed from it. The
 **worldserver must be stopped** (it hands out spawn ids itself and would overwrite rows added behind its back); the
-Forge refuses while the remote console answers. Start the worldserver afterwards.
+Forge refuses while the remote console answers. With no remote console configured (`[console] host` empty, as when
+`FT_RA_HOST` is not set) it cannot tell: it then asks you to confirm *"I have stopped the worldserver"* before it
+writes, here and for an import that adds spawns. Start the worldserver afterwards.
 
 ### GM commands
 

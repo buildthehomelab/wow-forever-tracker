@@ -22,9 +22,12 @@ if (($parts[0] ?? '') === 'setup' || $parts === ['api', 'setup']) {
     exit;
 }
 
-// Private trackers only show the login page to visitors.
-$open = in_array($parts[0] ?? '', ['login', 'logout', 'api'], true);
-if (!config('site', 'public', 1) && !is_admin() && !$open) redirect(url('login', ['next' => $_SERVER['REQUEST_URI'] ?? '']));
+// Private trackers only show the login page to visitors. The API answers them 403 instead of a redirect to a page:
+// the search and the tooltips would otherwise hand out names and statuses to anyone who asks.
+if (site_private()) {
+    if (($parts[0] ?? '') === 'api') json_out(['error' => t('Administrators only.', 'Réservé aux administrateurs.')], 403);
+    if (!in_array($parts[0] ?? '', ['login', 'logout'], true)) redirect(url('login', ['next' => $_SERVER['REQUEST_URI'] ?? '']));
+}
 
 $page = static function (string $file, array $vars = []) {
     extract($vars);

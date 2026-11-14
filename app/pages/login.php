@@ -4,21 +4,21 @@ $next = (string)($_GET['next'] ?? $_POST['next'] ?? '');
 if (!str_starts_with($next, base_path()) || str_contains($next, '//')) $next = url('admin');
 if (is_admin()) redirect($next);
 $error = '';
-$_SESSION['ft_attempts'] = array_values(array_filter($_SESSION['ft_attempts'] ?? [], fn($time) => $time > time() - 600));
+unset($_SESSION['ft_attempts']);  // older versions counted failed logins here, where dropping the cookie reset them
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $client = login_client();
     if (!csrf_ok($_POST['csrf'] ?? null)) {
         $error = t('Session expired, please try again.', 'Session expirée, réessayez.');
-    } elseif (count($_SESSION['ft_attempts']) >= 8) {
+    } elseif (!login_attempt($client)) {
         $error = t('Too many attempts. Wait a few minutes.', 'Trop de tentatives. Patientez quelques minutes.');
     } else {
         $account = admin_login((string)($_POST['login'] ?? ''), (string)($_POST['password'] ?? ''), $error);
         if ($account) {
             session_regenerate_id(true);
             $_SESSION['ft_admin'] = $account;
-            $_SESSION['ft_attempts'] = [];
+            login_attempts_clear($client);
             redirect($next);
         }
-        $_SESSION['ft_attempts'][] = time();
     }
 }
 page_start(t('Administrator login', 'Connexion administrateur'), 'login');

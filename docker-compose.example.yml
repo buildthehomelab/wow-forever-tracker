@@ -2,7 +2,11 @@
 # Copy to docker-compose.yml, fill in the values marked "your", then: docker compose up -d --build
 services:
   tracker:
-    build: .
+    build:
+      context: .
+      args:
+        # shown in the footer after the version: FT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+        FT_COMMIT: ${FT_COMMIT:-}
     image: forever-tracker:local
     restart: unless-stopped
     ports:

@@ -226,13 +226,25 @@ function spawn_db_ops(array $plan, int $maxHintDistance = 15): array
     return [$ops, $left];
 }
 
-/** True when the worldserver answers on its remote console port (it then owns the spawn ids). */
-function spawn_world_running(): bool
+/** Whether the worldserver runs, as far as its remote console port tells: 'running' when it answers (it then owns the
+ *  spawn ids), 'stopped' when a configured console does not, 'unknown' when no console is configured ([console] host
+ *  empty): a connection that cannot even be tried says nothing, and used to read as "stopped". */
+function spawn_world_state(): string
 {
-    $socket = @fsockopen((string)config('console', 'host', '127.0.0.1'), (int)config('console', 'port', 3443), $code, $message, 1.5);
-    if (!$socket) return false;
+    $host = trim((string)config('console', 'host', '127.0.0.1'));
+    if ($host === '') return 'unknown';
+    $socket = @fsockopen($host, (int)config('console', 'port', 3443), $code, $message, 1.5);
+    if (!$socket) return 'stopped';
     fclose($socket);
-    return true;
+    return 'running';
+}
+function spawn_world_running(): bool { return spawn_world_state() === 'running'; }
+/** What an administrator must confirm ($stopped, "I have stopped the worldserver") before spawn rows are written
+ *  while nothing can tell whether the worldserver runs. */
+function spawn_world_unknown_message(): string
+{
+    return t('No remote console is configured ([console] host), so the tracker cannot tell whether the worldserver is running. It hands out spawn ids itself: stop it, then confirm that you have stopped it.',
+        'Aucune console distante n’est configurée ([console] host) : le site ne peut pas savoir si le worldserver tourne. Il attribue lui-même les identifiants de placement : arrêtez-le, puis confirmez que vous l’avez arrêté.');
 }
 
 /** The database mode as a Forge plan: [built, left] where left counts the points without a close height hint. */
@@ -251,10 +263,12 @@ function spawn_build_database(array $selection): array
     return [$built, $left];
 }
 
-function spawn_apply_database(array $selection): array
+function spawn_apply_database(array $selection, bool $stopped = false): array
 {
+    $world = spawn_world_state();
+    if ($world === 'unknown' && !$stopped) return ['ok' => false, 'confirm_stopped' => true, 'message' => spawn_world_unknown_message()];
     forge_schema();
-    if (spawn_world_running()) return ['ok' => false, 'message' => t('The worldserver is running: it hands out spawn ids itself, so writing spawns directly could collide with its own. Stop it first, or use the server mode.', 'Le worldserver tourne : il attribue lui-même les identifiants de placement, une écriture directe pourrait entrer en conflit. Arrêtez-le d’abord, ou utilisez le mode serveur.')];
+    if ($world === 'running') return ['ok' => false, 'message' => t('The worldserver is running: it hands out spawn ids itself, so writing spawns directly could collide with its own. Stop it first, or use the server mode.', 'Le worldserver tourne : il attribue lui-même les identifiants de placement, une écriture directe pourrait entrer en conflit. Arrêtez-le d’abord, ou utilisez le mode serveur.')];
     [$built] = spawn_build_database($selection);
     return forge_commit($built, 'spawn');
 }

@@ -70,6 +70,20 @@ function official_quests(): array
     return $out;
 }
 
+/**
+ * What waits for a release phase that is not open yet (docs/PHASES.md), of the given types: [type => [id => true]].
+ * The rule of the "Later" badge: its phase is closed and the server does not provide it already. No import proposes a
+ * vendor, a drop, a giver or a trainer for those: that would release them before their phase.
+ */
+function later_ids(string ...$types): array
+{
+    $out = array_fill_keys($types, []);
+    if (!$types || !phases_pending()) return $out;
+    $marks = implode(',', array_fill(0, count($types), '?'));
+    foreach (rows("SELECT type, id FROM ft_entities WHERE type IN ($marks) AND internal = 0 AND status <> 'ok' AND " . later_sql(), $types) as $r) $out[$r['type']][(int)$r['id']] = true;
+    return $out;
+}
+
 /** Quest enders from Wowhead's quest summaries, for the official quests the server has no ender for, as an import card. */
 function wowhead_quest_import(): array
 {
@@ -79,7 +93,11 @@ function wowhead_quest_import(): array
     // only the client's own quests: the server's quest_template also holds the quests of other versions of the game
     $official = official_quests();
     $quests = array_values(array_filter($quests, fn ($q) => isset($official[(int)$q['ID']])));
-    $left = ['not_looked_up_yet' => 0, 'not_on_wowhead' => 0, 'no_ender_named' => 0, 'name_not_on_server' => 0, 'name_not_unique' => 0];
+    // nor the quests of a release phase that is not open yet: counted, not looked up
+    $later = later_ids('quest')['quest'];
+    $open = array_values(array_filter($quests, fn ($q) => !isset($later[(int)$q['ID']])));
+    $left = ['phase_not_open' => count($quests) - count($open), 'not_looked_up_yet' => 0, 'not_on_wowhead' => 0, 'no_ender_named' => 0, 'name_not_on_server' => 0, 'name_not_unique' => 0];
+    $quests = $open;
     $named = [];
     foreach ($quests as $q) {
         $data = wowhead_get('quest', (int)$q['ID']);

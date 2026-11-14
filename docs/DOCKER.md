@@ -12,6 +12,16 @@ docker compose logs -f tracker                     # the first analysis takes a 
 
 Open `http://127.0.0.1:8090/`.
 
+To see on the page which build runs, give the image its commit when you build it:
+
+```bash
+FT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build     # or: docker build --build-arg FT_COMMIT=$(git rev-parse HEAD) .
+```
+
+The footer then shows its first 8 characters after the version (to administrators only on a private tracker), linked
+to the commit when `FT_REPOSITORY_URL` is set. `FT_COMMIT` is a build argument (`build.args` in the compose file), not
+a setting of the running container. Without it nothing is shown.
+
 ## What it needs
 
 | | |
@@ -48,6 +58,9 @@ write access, and keep the live ones read-only.
    is in `docker compose logs` and in the Forge, like *Run again*.
 3. Apache starts at once; pages fill in when the analysis is done.
 
+Logins are kept in the data volume (`data/sessions/`), so a restart or a new image logs nobody out. A session left
+alone for 7 days ends.
+
 A new client build on the server therefore gets its own snapshot, and the changelog compares it with the previous
 one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data tracker python3 tools/tracker.py analyse`.
 
@@ -73,6 +86,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_GM_LEVEL` | `3` | GM level a game account needs to log in as an administrator |
 | `FT_VENDOR_ENTRY` | `0` | Default vendor the Forge proposes |
 | `FT_PUBLIC` | `1` | `0`: only administrators see the tracker |
+| `FT_TIMEZONE` | `TZ`, else `UTC` | The site's clock, as a [timezone name](https://www.php.net/manual/en/timezones.php) (`Europe/Paris`, `America/Toronto`): the dates it shows, and the midnight at which a [release phase](PHASES.md) opens. An `FT_TIMEZONE` PHP does not know stops the start; such a `TZ` runs as UTC, with a line in the log |
 | `FT_LANGUAGE` | `en` | `en` or `fr`: the default interface language |
 | `FT_LANGUAGES` | `en,fr` | `en`: English only, everywhere (no French names or language switch); `fr`: French only. A change analyses again at the next start |
 | `FT_SITE_NAME`, `FT_HOME_URL`, `FT_HOME_LABEL`, `FT_REPOSITORY_URL` | | `[site]` of [CONFIGURATION.md](CONFIGURATION.md) |
@@ -81,6 +95,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
 | `FT_FORGE_TRAINER_GUESS` | `1` | `0`: no trainer fixes guessed from the client's skill lines; trainer spells come from imports (NorgannonDB) only. A change re-analyses once |
 | `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
+| `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
 | `FT_ATLASLOOT_GUESS` | `1` | `0`: AtlasLoot drops without a measured chance are left out instead of getting an even share of their boss's list |
 | `FT_NORGANNONDB_COMMIT` | empty | NorgannonDB commit the import reads (empty: the tested one) |

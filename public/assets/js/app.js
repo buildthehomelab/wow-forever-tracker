@@ -240,6 +240,20 @@
     }).catch((e) => { toast(esc(e.message), 'error'); button.disabled = false; });
   }));
 
+  // the whole saved SQL of an operation (the history shows the first characters of each script), in the preview
+  // dialog with its copy and download buttons
+  $$('[data-forge-sql]').forEach((button) => button.addEventListener('click', () => {
+    button.disabled = true;
+    api({ action: 'log_sql', log: Number(button.dataset.forgeSql) }).then((data) => {
+      if (!data.ok) return toast(esc(data.message || 'Error'), 'error');
+      sql = { apply: data.apply, rollback: data.rollback }; sqlPart = 'apply'; pending = null;
+      $('[data-forge-warnings]', preview).innerHTML = '';
+      $('[data-sql-meta]', preview).textContent = `#${data.id} · ${data.rows} ${L('rows', 'lignes')}`;
+      $('[data-sql-apply]', preview).hidden = true;
+      showSql(); preview.hidden = false;
+    }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; });
+  }));
+
   // data repository export (history)
   const saveZip = (data) => {
     const bytes = Uint8Array.from(atob(data.zip), (c) => c.charCodeAt(0));
@@ -304,6 +318,7 @@
         else { setStatus(client, false, L('Game client not configured ([client] path): download the addon and copy it into Interface/AddOns.', 'Client du jeu non configuré ([client] path) : téléchargez l’addon et copiez-le dans Interface/AddOns.')); go('install').hidden = true; }
         const dbStatus = $('[data-db-status]', spawnDialog);
         if (data.world_running) setStatus(dbStatus, false, L('The worldserver is running: stop it first (it hands out spawn ids itself).', 'Le worldserver tourne : arrêtez-le d’abord (il attribue lui-même les identifiants).'));
+        else if (data.world_state === 'unknown') setStatus(dbStatus, false, fmt(L('No remote console is configured: the tracker cannot check that the worldserver is stopped, and will ask you to confirm it. %d position(s) can be written, %d need the server or the addon.', 'Aucune console distante configurée : le site ne peut pas vérifier que le worldserver est arrêté et vous demandera de le confirmer. %d position(s) peuvent être écrites, %d nécessitent le serveur ou l’addon.'), data.database, data.database_left));
         else setStatus(dbStatus, data.database > 0, fmt(L('%d position(s) can be written, %d need the server or the addon.', '%d position(s) peuvent être écrites, %d nécessitent le serveur ou l’addon.'), data.database, data.database_left));
         go('database').disabled = data.world_running || !data.database;
       }).catch((e) => toast(esc(e.message), 'error'));
@@ -320,9 +335,13 @@
       }).catch((e) => toast(esc(e.message), 'error')).finally(() => busy(go('server'), false));
     });
     go('database').addEventListener('click', () => {
-      if (!check || !confirm(fmt(L('Write %d spawn(s) in the world database? Keep a backup; the rollback is saved in the history.', 'Écrire %d placement(s) dans la base world ? Gardez une sauvegarde ; l’annulation est enregistrée dans l’historique.'), check.database))) return;
+      if (!check) return;
+      // no remote console to ask whether the worldserver runs: the administrator says so, in as many words
+      const unknown = check.world_state === 'unknown';
+      if (unknown && !confirm(L('The tracker cannot check whether the worldserver is running (no remote console is configured), and the worldserver hands out spawn ids itself.\n\nOK = "I have stopped the worldserver."', 'Le site ne peut pas vérifier si le worldserver tourne (aucune console distante configurée), et le worldserver attribue lui-même les identifiants de placement.\n\nOK = « J’ai arrêté le worldserver. »'))) return;
+      if (!confirm(fmt(L('Write %d spawn(s) in the world database? Keep a backup; the rollback is saved in the history.', 'Écrire %d placement(s) dans la base world ? Gardez une sauvegarde ; l’annulation est enregistrée dans l’historique.'), check.database))) return;
       busy(go('database'), true);
-      api({ action: 'spawn_database', confirm: true, ...chosen() }).then((data) => {
+      api({ action: 'spawn_database', confirm: true, stopped: unknown, ...chosen() }).then((data) => {
         if (data.ok) { toast(fmt(L('%d row(s) written (operation #%d). Start the worldserver to see them.', '%d ligne(s) écrite(s) (opération n°%d). Démarrez le worldserver pour les voir.'), data.rows, data.log)); spawnDialog.hidden = true; }
         else toast(esc(data.message || 'Error'), 'error');
       }).catch((e) => toast(esc(e.message), 'error')).finally(() => busy(go('database'), false));
@@ -374,7 +393,8 @@
     const action = button.dataset.scribe;
     button.disabled = true; button.classList.add('is-busy');
     importApi({ action }).then((data) => {
-      if (!data.ok) return toast(esc(data.message || 'Error'), 'error');
+      // a source with nothing new still replaced its earlier cards that were never applied: show the list as it is now
+      if (!data.ok) { if (data.replaced) setTimeout(() => location.reload(), 2500); return toast(esc(data.message || 'Error'), 'error'); }
       if (data.zip) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([Uint8Array.from(atob(data.zip), (c) => c.charCodeAt(0))], { type: 'application/zip' }));
@@ -382,7 +402,7 @@
         return;
       }
       toast(esc(data.message || ''));
-      if ((action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb') && data.id)) setTimeout(() => location.reload(), 1500);
+      if ((action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   const upload = $('[data-import-upload] input[type=file]');
@@ -411,10 +431,13 @@
     $('[data-import-apply]', card).addEventListener('click', (event) => {
       if (!confirm(L('Add to the server what this file has and the server lacks? Keep a backup; the rollback is saved in the history.', 'Ajouter au serveur ce que ce fichier contient et qui lui manque ? Gardez une sauvegarde ; l’annulation est enregistrée dans l’historique.'))) return;
       const button = event.currentTarget; button.disabled = true; button.classList.add('is-busy');
-      importApi({ action: 'apply', id, tables: tables(), confirm: true }).then((data) => {
+      const apply = (stopped) => importApi({ action: 'apply', id, tables: tables(), confirm: true, stopped }).then((data) => {
+        // spawns, and no remote console to ask whether the worldserver runs: the administrator says so, then it is sent again
+        if (!data.ok && data.confirm_stopped && !stopped && confirm((data.message || '') + '\n\n' + L('OK = "I have stopped the worldserver."', 'OK = « J’ai arrêté le worldserver. »'))) return apply(true);
         if (data.ok && data.log) toast(fmt(L('%d change(s) written (operation #%d). Restart the worldserver, then run the analysis again.', '%d changement(s) écrit(s) (opération n°%d). Redémarrez le worldserver puis relancez l’analyse.'), data.rows, data.log) + (data.warnings && data.warnings.length ? '<br><small>' + esc(data.warnings.join(' ')) + '</small>' : ''));
         else toast(esc(data.message || ''), data.ok ? 'ok' : 'error');
-      }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
+      });
+      apply(false).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
     });
     $('[data-import-delete]', card).addEventListener('click', () => {
       if (!confirm(L('Forget this import? Your server is not changed.', 'Oublier cet import ? Votre serveur n’est pas modifié.'))) return;

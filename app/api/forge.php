@@ -19,6 +19,12 @@ switch ($action) {
         json_out(forge_apply($selection, $options));
     case 'rollback':
         json_out(forge_rollback((int)($input['log'] ?? 0)));
+    case 'log_sql':
+        // the whole saved scripts of one operation: the history page only shows the first characters of each
+        forge_schema();
+        $log = row('SELECT id, kind, created_at, rows_count, sql_apply, sql_rollback FROM ft_forge_log WHERE id = ?', [(int)($input['log'] ?? 0)]);
+        if (!$log) json_out(['ok' => false, 'message' => t('This operation is not in the history.', 'Cette opération n’est pas dans l’historique.')]);
+        json_out(['ok' => true, 'id' => (int)$log['id'], 'rows' => (int)$log['rows_count'], 'apply' => forge_log_script($log, 'apply'), 'rollback' => forge_log_script($log, 'rollback')]);
     case 'datarepo':
         require_once FT_APP . '/datarepo.php';
         json_out(datarepo_export((int)($input['log'] ?? 0)));
@@ -67,15 +73,16 @@ if (str_starts_with($action, 'spawn_')) {
             [$built, $left] = spawn_build_database($picks);
             [$consoleOk, $consoleMessage, $module] = spawn_console_status();
             $addons = spawn_client_addons();
+            $world = spawn_world_state();   // "unknown" (no console configured): the database mode asks to confirm the worldserver is stopped
             json_out(['ok' => true, 'entries' => count($picks), 'points' => count($plan['points']), 'manual' => count($plan['manual']), 'skipped' => $plan['skipped'],
-                'database' => $built['rows'], 'database_left' => $left, 'world_running' => spawn_world_running(), 'warnings' => $plan['warnings'],
+                'database' => $built['rows'], 'database_left' => $left, 'world_running' => $world === 'running', 'world_state' => $world, 'warnings' => $plan['warnings'],
                 'console' => ['ok' => $consoleOk, 'message' => $consoleMessage, 'module' => $module], 'client' => $addons]);
         case 'spawn_server':
             if (empty($input['confirm'])) json_out(['error' => t('Confirmation missing.', 'Confirmation manquante.')], 400);
             json_out(spawn_apply_server($picks));
         case 'spawn_database':
             if (empty($input['confirm'])) json_out(['error' => t('Confirmation missing.', 'Confirmation manquante.')], 400);
-            json_out(spawn_apply_database($picks));
+            json_out(spawn_apply_database($picks, !empty($input['stopped'])));
         case 'spawn_sql':
             [$built] = spawn_build_database($picks);
             json_out(['ok' => true, 'rows' => $built['rows'], 'skipped' => $built['skipped'], 'warnings' => $built['warnings'], 'count' => count($built['items']),

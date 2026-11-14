@@ -37,7 +37,11 @@ const SOURCES = [
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
 ];
 
-/** The analysis' gaps: items players cannot get (not internal), official quests without giver / ender. */
+/**
+ * The analysis' gaps: items players cannot get (not internal), official quests without giver / ender. What waits for
+ * a release phase that is not open yet is no gap today (docs/PHASES.md): it is left out, and kept under 'later'
+ * (items, quests, and the spells no trainer may teach yet) so that a card can say how much that was.
+ */
 function source_gaps(): array
 {
     $ids = function (string $sql, string $database = 'tracker'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
@@ -47,10 +51,28 @@ function source_gaps(): array
     // the server's quest_template holds tens of thousands of quests WoW: Forever does not have (other versions of the
     // game): only the client's own quests are gaps worth a lookup
     $official = official_quests();
+    $later = later_ids('item', 'quest', 'spell', 'recipe');   // a recipe's number is its spell's
+    return source_gap_sets(
+        $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
+        $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'),
+        $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
+        $byItem, $official, ['items' => $later['item'], 'quests' => $later['quest'], 'spells' => $later['spell'] + $later['recipe']]);
+}
+
+/**
+ * The gap sets of source_gaps() from what the databases say, every argument as [id => true]: items players cannot
+ * get, the server's quests without a giver and without an ender, the quests an item starts, the official quests, and
+ * what waits for a release phase ($later: items, quests, spells).
+ */
+function source_gap_sets(array $items, array $noGiver, array $noEnder, array $byItem, array $official, array $later): array
+{
+    $noGiver = array_intersect_key(array_diff_key($noGiver, $byItem), $official);
+    $noEnder = array_intersect_key($noEnder, $official);
     return [
-        'items' => $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
-        'noGiver' => array_intersect_key(array_diff_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'), $byItem), $official),
-        'noEnder' => array_intersect_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'), $official),
+        'items' => array_diff_key($items, $later['items']),
+        'noGiver' => array_diff_key($noGiver, $later['quests']),
+        'noEnder' => array_diff_key($noEnder, $later['quests']),
+        'later' => ['items' => array_intersect_key($items, $later['items']), 'quests' => array_intersect_key($noGiver + $noEnder, $later['quests']), 'spells' => $later['spells']],
     ];
 }
 
@@ -64,7 +86,9 @@ function source_trainer_npcs(): array
 function source_tables(array $ev, string $label, array $gaps): array
 {
     $left = ['vendor_unknown' => 0, 'loot_chance_unknown' => 0, 'loot_known' => 0, 'loot_unknown_creature' => 0, 'object_no_loot' => 0,
-             'quest_unknown' => 0, 'trainer_not_on_server' => 0, 'trainer_level_unknown' => 0, 'trainer_previous_rank_unknown' => 0, 'trainer_known' => 0];
+             'quest_unknown' => 0, 'trainer_not_on_server' => 0, 'trainer_level_unknown' => 0, 'trainer_previous_rank_unknown' => 0, 'trainer_known' => 0,
+             // the gap items and quests no source was asked about, because their release phase is not open yet
+             'phase_not_open' => count($gaps['later']['items'] ?? []) + count($gaps['later']['quests'] ?? []), 'trainer_phase_not_open' => 0];
     $rows = [];
     $build = (int)(meta()['client_build'] ?? 0);
     $ids = function (string $sql, string $database = 'world'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
@@ -156,6 +180,7 @@ function source_tables(array $ev, string $label, array $gaps): array
             if (isset($done["$trainer:$spell"])) continue;
             $done["$trainer:$spell"] = true;
             if (isset($taught["$trainer:$spell"])) { $left['trainer_known']++; continue; }
+            if (isset($gaps['later']['spells'][$spell])) { $left['trainer_phase_not_open']++; continue; }   // a trainer would teach it before its phase
             if (!$line) { $level = (int)$level ?: ($levels[$spell] ?? 0) ?: ($levels[$spell] = wowhead_spell_level($spell)); if (!$level) { $left['trainer_level_unknown']++; continue; } }
             if ($needs === null) {
                 $needs = $needsOf[$spell] ?? null;
@@ -214,12 +239,49 @@ function source_skill_line(string $skill, string $spellName): int
     return 0;
 }
 
+/**
+ * The cards a new card of $source replaces: that source's earlier cards (file "<source>@…") nothing was ever applied
+ * from. $cards: [id => file] of ft_imports; $logs: the history's import operations (items, state of ft_forge_log).
+ * A card an operation was applied from is kept, rolled back since or not (it may be applied in part, and the card
+ * says what the rest is), and so is one whose apply is still being written; a failed apply wrote nothing. The history
+ * keeps its own SQL and rollback: forgetting a card takes nothing from it.
+ */
+function source_stale_cards(string $source, array $cards, array $logs): array
+{
+    $used = [];
+    foreach ($logs as $log) {
+        if (($log['state'] ?? '') === 'failed') continue;
+        $items = is_array($log['items'] ?? null) ? $log['items'] : (json_decode((string)($log['items'] ?? ''), true) ?: []);
+        foreach ($items as $item) if (is_array($item) && ($item['type'] ?? '') === 'import') $used[(int)($item['id'] ?? 0)] = true;
+    }
+    $stale = [];
+    foreach ($cards as $id => $file) if (str_starts_with((string)$file, $source . '@') && !isset($used[(int)$id])) $stale[] = (int)$id;
+    return $stale;
+}
+
+/** Forgets the cards a new card of $source replaces (source_stale_cards); returns how many. */
+function source_supersede(string $source): int
+{
+    import_schema();
+    forge_schema();
+    $cards = array_column(rows('SELECT id, file FROM ft_imports WHERE file LIKE ?', [addcslashes($source, '%_\\') . '@%']), 'file', 'id');
+    if (!$cards) return 0;
+    $stale = source_stale_cards($source, $cards, rows("SELECT items, state FROM ft_forge_log WHERE FIND_IN_SET('import', kind)"));
+    foreach ($stale as $id) import_delete($id);
+    return count($stale);
+}
+
 /** Saves tables as an import card (preview, apply, history, rollback, data repo export). */
 function source_card(string $source, string $name, string $file, array $tables, array $left): array
 {
     import_schema();
-    if (!$tables) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left,
-        'message' => sprintf(t('%s has nothing this server lacks.', '%s n’a rien qui manque à ce serveur.'), SOURCES[$source][0] ?? $source)];
+    // every card is built against the gaps and the database as they are now, so the newest one of a source says all
+    // its earlier ones said and is still true: without this each new AtlasLoot version and each click left one more
+    // card for the same gap. Also when the new card would be empty: the old ones then offer what is no longer missing.
+    $replaced = source_supersede($source);
+    $replacedNote = $replaced ? ' ' . sprintf(t('%d earlier card(s) of this source that were never applied were replaced.', '%d carte(s) précédente(s) de cette source, jamais appliquée(s), ont été remplacée(s).'), $replaced) : '';
+    if (!$tables) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left, 'replaced' => $replaced,
+        'message' => sprintf(t('%s has nothing this server lacks.', '%s n’a rien qui manque à ce serveur.'), SOURCES[$source][0] ?? $source) . $replacedNote];
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = count($entry['groups'][0]['rows']);
     $name .= ' · ' . (SOURCES[$source][1] ?? '');
     rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
@@ -227,19 +289,56 @@ function source_card(string $source, string $name, string $file, array $tables, 
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     import_index($id, $tables);
-    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0,
-            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts)))];
+    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced,
+            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts))) . $replacedNote];
 }
 
-/** GET with a user agent; [status, body]. */
+/** GET with a user agent; [status, body, length]: the size the server announced for the body (Content-Length), null
+ *  when it gave none. A connection that drops or times out half way still hands back what came: only the announced
+ *  size, or the content itself (source_keep), tells a whole answer from a piece of one. */
 function source_http(string $url, int $timeout = 60): array
 {
     $context = stream_context_create(['http' => ['timeout' => $timeout, 'ignore_errors' => true,
         'header' => "User-Agent: ForeverTracker/1.1 (private server admin tool)\r\nAccept: application/json, */*\r\n"]]);
     $body = @file_get_contents($url, false, $context);
-    $status = 0;
-    foreach ($http_response_header ?? [] as $h) if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) $status = (int)$m[1];
-    return [$status, $body === false ? '' : $body];
+    [$status, $length] = source_http_head($http_response_header ?? []);
+    return [$status, $body === false ? '' : $body, $length];
+}
+
+/** [status, announced body size or null] of the last answer in a list of response headers (redirects come first). */
+function source_http_head(array $headers): array
+{
+    $status = 0; $length = null; $encoded = false;
+    foreach ($headers as $h) {
+        if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) { $status = (int)$m[1]; $length = null; $encoded = false; }
+        elseif (preg_match('/^Content-Length:\s*(\d+)\s*$/i', $h, $m)) $length = (int)$m[1];
+        elseif (preg_match('/^Content-Encoding:\s*(?!identity)\S/i', $h)) $encoded = true;   // the size is then the packed one
+    }
+    return [$status, $encoded ? null : $length];
+}
+
+/**
+ * Keeps a downloaded body as $path, when it came whole: its size is the one the server announced ($length, null when
+ * it announced none) and $valid, when given, accepts the content. It is written beside the file and renamed into
+ * place, so neither a download cut short nor a run killed while writing leaves a file that later passes for the real
+ * one (a cut NorgannonDB file was kept for its commit for good; a cut EG Link file read as an empty list). Returns ''
+ * or why it was not kept, which also goes to the error log.
+ */
+function source_keep(string $path, string $body, ?int $length = null, ?callable $valid = null): string
+{
+    if ($length !== null && strlen($body) !== $length) {
+        $problem = sprintf(t('%s bytes came of the %s announced', '%s octets reçus sur les %s annoncés'), number(strlen($body)), number($length));
+    } elseif ($valid !== null && !$valid($body)) {
+        $problem = t('the content is cut short or not what was expected', 'le contenu est tronqué ou inattendu');
+    } else {
+        @mkdir(dirname($path), 0775, true);
+        $part = $path . '.' . getmypid() . '.part';
+        if (@file_put_contents($part, $body) === strlen($body) && @rename($part, $path)) return '';
+        @unlink($part);
+        $problem = t('the file cannot be written', 'le fichier ne peut pas être écrit');
+    }
+    error_log('Forever Tracker: download not kept (' . basename(dirname($path)) . '/' . basename($path) . '): ' . $problem);
+    return $problem;
 }
 
 /** `ns.<name> = {...}` tables of a ForeverDB.net data file (only the named ones are parsed). */
@@ -295,14 +394,16 @@ function eglink_evidence(): array
     foreach ($builds as $b) {
         foreach (EGLINK_FILES as $f) {
             $path = "$dir/$b/$f.json";
-            if (!is_file($path)) {
-                [$status, $body] = source_http('https://raw.githubusercontent.com/' . EGLINK_REPO . "/$commit/data/wowf/$b/$f.json", 120);
+            $d = is_file($path) ? json_decode((string)file_get_contents($path), true) : null;
+            if (!is_array($d)) {
+                // not downloaded yet, or kept cut short by an older version, which then read it as an empty list
+                if (is_file($path)) { error_log("Forever Tracker: EG Link $b/$f.json is no JSON: downloaded again"); @unlink($path); }
+                [$status, $body, $length] = source_http('https://raw.githubusercontent.com/' . EGLINK_REPO . "/$commit/data/wowf/$b/$f.json", 120);
                 if ($status === 404) continue;
-                if ($status !== 200) return ['ok' => false, 'message' => sprintf(t('Could not download EG Link %s/%s.', 'Impossible de télécharger EG Link %s/%s.'), $b, $f)];
-                @mkdir(dirname($path), 0775, true);
-                file_put_contents($path, $body);
+                $d = $status === 200 ? json_decode($body, true) : null;
+                $problem = $status !== 200 ? ($status ? "HTTP $status" : t('no answer', 'pas de réponse')) : source_keep($path, $body, $length, fn() => is_array($d));
+                if ($problem !== '') return ['ok' => false, 'message' => sprintf(t('Could not download EG Link %s/%s (%s).', 'Impossible de télécharger EG Link %s/%s (%s).'), $b, $f, $problem)];
             }
-            $d = json_decode((string)file_get_contents($path), true) ?: [];
             if ($f === 'vendors') foreach ($d['vendors'] ?? $d as $npc => $v) {
                 foreach ((array)($v['entries'] ?? []) as $e) {
                     if (empty($e['itemId']) || !empty($e['costItems'])) continue;   // paid with items or currencies: no cost to give it
@@ -381,9 +482,8 @@ function foreverdb_evidence(): array
         $path = "$dir/" . basename($f['path']);
         if (!is_file($path) || hash_file('sha256', $path) !== $f['sha256']) {
             [$status, $body] = source_http(FOREVERDB . $f['url'], 120);
-            if ($status !== 200 || hash('sha256', $body) !== $f['sha256']) return ['ok' => false, 'message' => sprintf(t('ForeverDB.net %s did not download cleanly.', 'ForeverDB.net %s ne s’est pas téléchargé correctement.'), $f['path'])];
-            @mkdir($dir, 0775, true);
-            file_put_contents($path, $body);
+            // its checksum says the file is whole; source_keep() writes it beside itself and renames it
+            if ($status !== 200 || hash('sha256', $body) !== $f['sha256'] || source_keep($path, $body) !== '') return ['ok' => false, 'message' => sprintf(t('ForeverDB.net %s did not download cleanly.', 'ForeverDB.net %s ne s’est pas téléchargé correctement.'), $f['path'])];
         }
         $text[basename($f['path'], '.lua')] = (string)file_get_contents($path);
     }
@@ -425,8 +525,21 @@ function foreverdb_evidence(): array
 // Asked only about the gaps: items players cannot get, quests without giver / ender, the server's trainers. Polite (two
 // requests a second), cached in data/icyveins/, asked again after 14 days (7 for "not found"): it keeps growing.
 const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
+const ICYVEINS_MAX_FAILURES = 20;   // lookups failing in a row before a run stops (an outage, a block, no network)
 
-function icyveins_get(string $kind, int $id, int &$asked): ?array
+/** The run stops itself: Icy Veins did not answer ICYVEINS_MAX_FAILURES lookups in a row. */
+final class IcyVeinsStopped extends Exception {}
+
+/** Seconds to wait before the lookup that follows $failures failed ones in a row: 1, 2, 4 … up to a minute. A short
+ *  outage then costs a handful of requests, and the 20 failures that stop a run take about a quarter of an hour. */
+function icyveins_backoff(int $failures): int
+{
+    return $failures < 1 ? 0 : (int)min(60, 2 ** min($failures - 1, 6));
+}
+
+/** One answer, from the cache or asked. $failures counts the lookups that got no answer in a row (neither 200 nor
+ *  404; nothing is cached for them, so the next run asks again) and $lastFailure says what the last one was. */
+function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, string &$lastFailure = ''): ?array
 {
     static $last = 0.0;
     $path = FT_ROOT . "/data/icyveins/$kind/$id.json";
@@ -436,16 +549,20 @@ function icyveins_get(string $kind, int $id, int &$asked): ?array
         if ($age < (empty($data['missing']) ? 14 : 7) * 86400) return $data;
     }
     if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) return is_file($path) ? $data : null;
-    $wait = 0.5 - (microtime(true) - $last);
+    $wait = max(0.5, icyveins_backoff($failures)) - (microtime(true) - $last);
     if ($wait > 0) usleep((int)($wait * 1e6));
     $last = microtime(true); $asked++;
     [$status, $body] = source_http(ICYVEINS . "$kind/$id", 30);
     if ($status === 404) $data = ['missing' => true];
-    elseif ($status !== 200) return is_file($path) ? $data : null;
-    else {
+    elseif ($status !== 200) {
+        $failures++;
+        $lastFailure = "$kind $id: " . ($status ? "HTTP $status" : 'no answer');
+        return is_file($path) ? $data : null;
+    } else {
         $full = json_decode($body, true);
         $data = is_array($full) && !empty($full['entity']) ? ['relations' => $full['relations'] ?? []] : ['missing' => true];
     }
+    $failures = 0;
     $data['fetched'] = time();
     @mkdir(dirname($path), 0775, true);
     file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -507,25 +624,42 @@ function icyveins_import(?callable $progress = null): array
     $todo = count($gaps['items']) + count($gaps['noGiver'] + $gaps['noEnder']);
     $trainers = source_trainer_npcs();
     $todo += count($trainers);
-    $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 200 === 0) $progress("$done/$todo looked at, $asked asked"); };
-    foreach (array_keys($gaps['items']) as $item) {
-        icyveins_item_evidence($ev, $item, (array)(icyveins_get('item', $item, $asked)['relations'] ?? [])); $tick();
-    }
-    foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
-        icyveins_quest_evidence($ev, $quest, (array)(icyveins_get('quest', $quest, $asked)['relations'] ?? [])); $tick();
-    }
-    foreach ($trainers as $npc) {
-        $r = icyveins_get('npc', $npc, $asked)['relations'] ?? []; $tick();
-        foreach ((array)($r['addon_trains'] ?? []) as $s) {
-            if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
-            if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) {
-                $ev['left']['trainer_profession_skill_unknown'] = ($ev['left']['trainer_profession_skill_unknown'] ?? 0) + 1;   // no skill rank given
-                continue;
-            }
-            $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
-            $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
-            $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
+    // a line (and a sign of life on the Imports page) every 20 lookups: ten seconds while Icy Veins is asked
+    $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 20 === 0) $progress("$done/$todo looked at, $asked asked"); };
+    // lookups that get no answer are not cached and used to be skipped one after the other: an outage fired thousands
+    // of failing requests. They now slow the run down (icyveins_backoff) and, 20 in a row, stop it.
+    $failures = 0; $lastFailure = '';
+    $get = function (string $kind, int $id) use (&$asked, &$failures, &$lastFailure): array {
+        $data = icyveins_get($kind, $id, $asked, $failures, $lastFailure);
+        if ($failures >= ICYVEINS_MAX_FAILURES) throw new IcyVeinsStopped($lastFailure);
+        return (array)($data['relations'] ?? []);
+    };
+    try {
+        foreach (array_keys($gaps['items']) as $item) {
+            icyveins_item_evidence($ev, $item, $get('item', $item)); $tick();
         }
+        foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
+            icyveins_quest_evidence($ev, $quest, $get('quest', $quest)); $tick();
+        }
+        foreach ($trainers as $npc) {
+            $r = $get('npc', $npc); $tick();
+            foreach ((array)($r['addon_trains'] ?? []) as $s) {
+                if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
+                if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) {
+                    $ev['left']['trainer_profession_skill_unknown'] = ($ev['left']['trainer_profession_skill_unknown'] ?? 0) + 1;   // no skill rank given
+                    continue;
+                }
+                $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
+                $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
+                $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
+            }
+        }
+    } catch (IcyVeinsStopped $stop) {
+        // no card from half the answers: it would replace a fuller one made earlier
+        return ['ok' => false, 'stopped' => true, 'id' => 0, 'counts' => [], 'ignored' => [],
+            'message' => sprintf(t('Icy Veins stopped: %d lookups in a row got no answer (the last one, %s), after %d of %d were looked at. What it answered is kept: start Import Icy Veins again once it answers, and the run goes on from there.',
+                'Icy Veins arrêté : %d requêtes de suite sont restées sans réponse (la dernière, %s), après %d consultations sur %d. Ses réponses sont conservées : relancez Importer Icy Veins quand il répondra, l’import reprendra où il en était.'),
+                ICYVEINS_MAX_FAILURES, $stop->getMessage(), $done, $todo)];
     }
     $label = 'Icy Veins ' . date('Y-m-d');
     [$tables, $left] = source_tables($ev, $label, $gaps);
@@ -535,20 +669,70 @@ function icyveins_import(?callable $progress = null): array
 
 // ------------------------------------------------------------------ background runs (long imports)
 function source_log(string $source): string { return FT_ROOT . "/data/source-$source.log"; }
+function source_lock_file(string $source): string { return FT_ROOT . "/data/source-$source.running"; }
+/** Left by an Icy Veins run while it is in flight (tools/source-import.php): still there after a restart, the
+ *  container goes on with the run (docker/entrypoint.sh). */
+function source_resume_file(string $source): string { return FT_ROOT . "/data/source-$source.resume"; }
 
-function source_running(string $source): bool
+/**
+ * The lock of a source's import: an exclusive flock on data/source-<source>.running, kept for as long as the run
+ * lasts. The system lets it go when the process ends, however it ends (a restart, a crash), so no lock is ever left
+ * behind, and two starts at the same moment cannot both get it: a file that only "exists" was checked by the website
+ * and created later by the run, and two clicks gave two runs. The file itself stays in place (removing a lock file
+ * another process is opening is how two runs come to hold "the" lock). Returns the open file to keep, null when
+ * another run holds it, false when the file cannot be opened at all (the data folder is not writable); $tries > 1
+ * asks again every 0.2 s (source_running() holds the lock for an instant to ask).
+ */
+function source_lock(string $source, int $tries = 1, ?string $path = null)
 {
-    // the run touches its lock at each progress line (every 200 Icy Veins lookups, under two minutes): a lock left
-    // untouched for 15 minutes belongs to a run that a restart or a crash stopped
-    $lock = FT_ROOT . "/data/source-$source.running";
-    return is_file($lock) && time() - filemtime($lock) < 15 * 60;
+    $path ??= source_lock_file($source);
+    // "e": closed in any program this one starts, which would otherwise carry the lock on after the run. A file made
+    // by another user (a run started as root in the container) is opened for reading: that is enough to lock it.
+    $new = !is_file($path);
+    $handle = @fopen($path, 'ce') ?: @fopen($path, 're');
+    if (!$handle) return false;
+    if ($new) @chmod($path, 0666);
+    for ($i = 1; ; $i++) {
+        if (flock($handle, LOCK_EX | LOCK_NB)) return $handle;
+        if ($i >= $tries) break;
+        usleep(200000);
+    }
+    fclose($handle);
+    return null;
 }
 
-/** Starts tools/source-import.php <source> in the background (Icy Veins takes about an hour the first time). */
+function source_unlock($handle): void
+{
+    if (!is_resource($handle)) return;
+    flock($handle, LOCK_UN);
+    fclose($handle);
+}
+
+/** A run of this source holds its lock right now. */
+function source_running(string $source, ?string $path = null): bool
+{
+    $path ??= source_lock_file($source);
+    if (!is_file($path)) return false;
+    $handle = source_lock($source, 1, $path);
+    if ($handle === null) return true;
+    source_unlock($handle);
+    return false;
+}
+
+/** Starts tools/source-import.php <source> in the background (Icy Veins takes hours the first time). */
 function source_start(string $source): array
 {
-    if (source_running($source)) return ['ok' => false, 'message' => t('Already running.', 'Déjà en cours.')];
-    $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
-    exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/source-import.php') . ' ' . escapeshellarg($source) . ' > ' . escapeshellarg(source_log($source)) . ' 2>&1) > /dev/null 2>&1 &');
+    // two clicks at once: the second one waits at this gate until the first one's run holds its lock, then sees it
+    $gate = @fopen(FT_ROOT . "/data/source-$source.start", 'ce');   // "e": the run started below must not inherit the gate
+    if ($gate) flock($gate, LOCK_EX);
+    try {
+        if (source_running($source)) return ['ok' => false, 'message' => t('Already running.', 'Déjà en cours.')];
+        $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
+        // --log: the run writes its own log once it holds the lock, so a start that loses the race never empties the log of the run that won
+        exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/source-import.php') . ' ' . escapeshellarg($source) . ' --log) > /dev/null 2>&1 &');
+        for ($i = 0; $i < 30 && !source_running($source); $i++) usleep(100000);   // PHP starts and takes the lock: well under a second
+    } finally {
+        if ($gate) { flock($gate, LOCK_UN); fclose($gate); }
+    }
     return ['ok' => true, 'message' => sprintf(t('%s started in the background; its import card appears below when it is done (reload the page).', '%s a démarré en arrière-plan ; sa carte d’import apparaît ci-dessous une fois terminé (rechargez la page).'), SOURCES[$source][0] ?? $source)];
 }

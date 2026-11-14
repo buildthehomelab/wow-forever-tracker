@@ -121,16 +121,40 @@ chown root:www-data "$CONFIG"
 chmod 640 "$CONFIG"
 umask 022
 chown www-data:www-data "$DATA"
+# sessions live in the data volume (docker/php.ini), so a restart logs nobody out; the web server alone reads them
+mkdir -p "$DATA/sessions"
+chown www-data:www-data "$DATA/sessions"
+chmod 700 "$DATA/sessions"
 say "config.ini written (database ${FT_DB_USER:-tracker}@${FT_DB_HOST:-mysql}, world ${FT_DB_WORLD:-world}, hotfixes ${FT_DB_HOTFIXES:-hotfixes})"
 
-# no import survives a restart: a lock left by one would grey out its button
-rm -f "$DATA"/source-*.running
+# PHP's clock. Release phases open at midnight in this zone (docs/PHASES.md) and the site shows its dates in it:
+# FT_TIMEZONE, else the container's TZ, else UTC. A name PHP does not know would run as UTC without a word, so it is
+# checked here, and written where both Apache's PHP and the command-line one read it.
+timezone="${FT_TIMEZONE:-${TZ:-UTC}}"
+timezone_ok=1
+case "$timezone" in
+    *[!A-Za-z0-9_+/-]*) timezone_ok=0 ;;
+    *) php -r 'exit(in_array($argv[1], DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true) ? 0 : 1);' "$timezone" || timezone_ok=0 ;;
+esac
+if [ "$timezone_ok" = "0" ]; then
+    if [ -n "${FT_TIMEZONE:-}" ]; then say "ERROR: FT_TIMEZONE=\"$timezone\" is no timezone PHP knows (for example Europe/Paris, America/Toronto, UTC)"; exit 1; fi
+    say "TZ=\"$timezone\" is no timezone PHP knows: using UTC (set FT_TIMEZONE, for example Europe/Paris)"
+    timezone=UTC
+fi
+printf '; Written by docker/entrypoint.sh at every start: FT_TIMEZONE, else TZ, else UTC.\ndate.timezone = "%s"\n' "$timezone" \
+    > "${PHP_INI_DIR:-/usr/local/etc/php}/conf.d/forever-tracker-timezone.ini"
+# the analysis (Python) and the logs keep the same clock as the website: the date an analysis writes is read back by PHP
+export TZ="$timezone"
+say "timezone $timezone"
+
+# (An import's lock, data/source-<source>.running, is held by its process and let go by the system when the process
+# ends: a file left by a run this restart killed locks nothing, and needs no cleaning here.)
 
 as_www() { setpriv --reuid=www-data --regid=www-data --init-groups -- "$@"; }
 
-# The first analysis (and a new snapshot each time the server moves to another client build), in the background so
-# the website is up at once. It writes the log the Forge's "Run again" reads, so the site shows it running.
-first_run() {
+# Waits until MySQL answers, 5 minutes at most: 0 once it does, else 1 after saying so ("$1": what is given up). The
+# mysql client's settings stay in "$cnf" for the caller, who removes the file.
+mysql_wait() {
     cnf="$(mktemp)"
     printf '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n' "${FT_DB_HOST:-mysql}" "${FT_DB_PORT:-3306}" \
         "${FT_DB_USER:-tracker}" "$FT_DB_PASSWORD" > "$cnf"
@@ -138,12 +162,18 @@ first_run() {
     until mysql --defaults-extra-file="$cnf" -N -e 'SELECT 1' >/dev/null 2>&1; do
         tries=$((tries + 1))
         if [ "$tries" -ge 60 ]; then
-            say "MySQL at ${FT_DB_HOST:-mysql} still unreachable after 5 minutes: no analysis this start"
+            say "MySQL at ${FT_DB_HOST:-mysql} still unreachable after 5 minutes: $1"
             mysql --defaults-extra-file="$cnf" -N -e 'SELECT 1' 2>&1 | sed 's/^/[forever-tracker] /' || true
-            rm -f "$cnf"; return
+            return 1
         fi
         sleep 5
     done
+}
+
+# The first analysis (and a new snapshot each time the server moves to another client build), in the background so
+# the website is up at once. It writes the log the Forge's "Run again" reads, so the site shows it running.
+first_run() {
+    mysql_wait "no analysis this start" || { rm -f "$cnf"; return; }
     build="${FT_BUILD:-0}"
     if [ "$build" = "0" ]; then
         build="$(mysql --defaults-extra-file="$cnf" -N -e "SELECT COALESCE(MAX(gamebuild), 0) FROM \`${FT_DB_AUTH:-auth}\`.realmlist" 2>/dev/null || echo 0)"
@@ -200,13 +230,41 @@ first_run() {
     say "build $build: done"
 }
 
-if [ "${FT_ANALYSE_ON_START:-new-build}" != "never" ]; then
-    first_run &
-fi
+# An Icy Veins import runs for hours (one lookup per gap, two a second) and a restart kills it. The run leaves
+# data/source-icyveins.resume while it is in flight (tools/source-import.php; removed when the run ends by itself, or
+# stops because Icy Veins does not answer). Still there at start, the run goes on from its cache, once MySQL answers
+# and no analysis runs: an analysis rewrites the gaps the import aims at. FT_ICYVEINS_RESUME=0: only by the button.
+icyveins_resume() {
+    [ -f "$DATA/source-icyveins.resume" ] || return 0
+    if [ "${FT_ICYVEINS_RESUME:-1}" = "0" ]; then
+        say "Icy Veins: an import was cut short; FT_ICYVEINS_RESUME=0, so only The Forge > Imports > Import Icy Veins goes on with it"
+        return 0
+    fi
+    if ! mysql_wait "the Icy Veins import that was cut short goes on at the next start, or from The Forge > Imports"; then rm -f "$cnf"; return 0; fi
+    rm -f "$cnf"
+    say "Icy Veins: going on with the import that was cut short (log in data/source-icyveins.log)"
+    while :; do
+        if as_www php "$ROOT/tools/source-import.php" icyveins --resume --log >/dev/null 2>&1; then rc=0; else rc=$?; fi
+        [ "$rc" -eq 3 ] || break
+        sleep 300   # an analysis runs, or the website started the import again: look again in 5 minutes
+    done
+    tail -n 1 "$DATA/source-icyveins.log" 2>/dev/null | sed 's/^/[forever-tracker] Icy Veins: /'
+}
+
+# In the background, one after the other: the first analysis, then the import a restart cut short.
+start_work() {
+    if [ "${FT_ANALYSE_ON_START:-new-build}" != "never" ]; then
+        first_run &
+        wait $! || true   # whatever became of the analysis, the import below does not depend on it
+    fi
+    icyveins_resume
+}
+start_work &
 
 # AtlasLoot Classic Forever is updated almost daily on CurseForge: every FT_ATLASLOOT_EVERY_HOURS (0 = never) the
 # newest file is checked and, when it is new, imported as a card for the last analysis' gaps (nothing is applied). The
-# import waits by itself while an analysis runs; a lock younger than 15 minutes is a run still going (the website's).
+# import waits by itself while an analysis runs, or while the website imports AtlasLoot (it holds the same lock): the
+# command then exits 3.
 atlasloot_watch() {
     case "${FT_ATLASLOOT_EVERY_HOURS:-6}" in ''|*[!0-9]*|?????*) say "FT_ATLASLOOT_EVERY_HOURS must be a whole number up to 9999: no AtlasLoot check"; return ;; esac
     hours="$(expr "${FT_ATLASLOOT_EVERY_HOURS:-6}" + 0 || true)"   # expr exits 1 when the sum is 0
@@ -215,12 +273,12 @@ atlasloot_watch() {
     sleep 900
     while :; do
         nap=$((hours * 3600))
-        if [ -z "$(find "$DATA" -maxdepth 1 -name source-atlasloot.running -mmin -15 2>/dev/null)" ]; then
-            if as_www sh -c 'php "$1" atlasloot --if-new > "$2" 2>&1' sh "$ROOT/tools/source-import.php" "$log"; then rc=0; else rc=$?; fi
-            tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] AtlasLoot: /'
-            [ "$rc" -eq 3 ] && nap=900   # an analysis was running: again in 15 minutes
+        if as_www php "$ROOT/tools/source-import.php" atlasloot --if-new --log >/dev/null 2>&1; then rc=0; else rc=$?; fi
+        if [ "$rc" -eq 3 ]; then
+            say "AtlasLoot: an analysis or another AtlasLoot import is running: checked again in 15 minutes"
+            nap=900
         else
-            nap=900                       # the website's import is running
+            tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] AtlasLoot: /'
         fi
         sleep "$nap"
     done

@@ -64,7 +64,9 @@ already present or shared by several fixes.
 2. **Preview SQL** shows the exact statements and their rollback, computed against the live databases;
    **.sql** downloads them, to apply by hand.
 3. **Apply** asks for a confirmation, then runs them as described above.
-4. The operation, its SQL and its rollback are saved in the history (`ft_forge_log`).
+4. The operation, its SQL and its rollback are saved in the history (`ft_forge_log`) **before** the change is
+   written, as *not confirmed*, then marked *applied* (or *failed*: nothing was kept). A change can therefore never
+   be on the server without its rollback in the history.
 
 A resource page lists its own fixes too, with *SQL* and *Apply* buttons.
 
@@ -73,6 +75,11 @@ A resource page lists its own fixes too, with *SQL* and *Apply* buttons.
 *History* lists every operation with its SQL. **Roll back** runs the saved rollback in a transaction: it deletes the
 rows the operation inserted, and nothing else. Spawns made through the remote console are rolled back with
 `.forge delete` (see [SPAWNS.md](SPAWNS.md)).
+
+An operation still *not confirmed* after 10 minutes was interrupted: the website stopped, or lost its database, while
+applying it, and nobody recorded whether the change was written. It does not count as applied (the lists do not grey
+its fixes out, the data repository export leaves it out). Check the server with its SQL, then **Roll back**: the
+rollback only removes what the operation would have added, so it is safe whether the change was written or not.
 
 ## Checking every fix
 

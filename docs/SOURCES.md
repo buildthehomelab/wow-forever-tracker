@@ -21,6 +21,10 @@ repeat its rows.
 - **Only the gaps**: drops and vendors for items players cannot get and that are not internal (Season of Discovery
   leftovers are internal; items Wowhead does not know yet stay in, they may be undiscovered); givers and enders for
   quests that have none; trainer spells a trainer of the server does not teach yet.
+- **Only what is released**: an item, quest or spell that waits for a [release phase](PHASES.md) that is not open yet
+  (the *Later* badge) is no gap today, and a vendor, drop, giver or trainer for it would release it early. No source is
+  asked about those, and the card's *Left out* line says how many gap items and quests that was. They come in with the
+  first import made after their phase opens.
 - **Vendors**: unlimited stock unless the source saw a limited one (then restocked hourly); the price is the item's own
   unless another vendor sells it for items or currencies (then that `ExtendedCost`). Stock paid with items or
   currencies the source saw is left out (no cost to give it).
@@ -56,20 +60,38 @@ repeat its rows.
 
 Each card lists what was left out and why, and carries the source's licence in its name.
 
+**One card per source.** A card is built against the gaps and the server as they are at that moment, so a new card of
+a source says everything its earlier ones said that is still true. Making one therefore forgets that source's earlier
+cards nothing was ever applied from (also when the new one turns out empty: nothing is missing any more). A card you
+applied, in whole or in part, stays, rolled back since or not; the history keeps every operation's SQL and rollback
+whatever happens to its card.
+
 ## Running them
 
 - The Forge › Imports: *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
 - `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot`; `atlasloot --if-new` does nothing
-  when the newest CurseForge file is the one imported last.
+  when the newest CurseForge file is the one imported last. One run of a source at a time: a second one says the
+  import is already running and exits 3. `--log` writes the run's lines to `data/source-<source>.log`, the file the
+  Imports page reads, instead of printing them.
 - AtlasLoot by itself: the container checks CurseForge every `FT_ATLASLOOT_EVERY_HOURS` (6; `0` = never), 15 minutes
   after start and never while an analysis runs, and makes a card when a new version is out. Its last log line shows on
   the Imports page. The last three downloads stay in `data/atlasloot/`. A new analysis alone makes no new card: press
   *Import AtlasLoot* after one.
 - Icy Veins runs in the background: several hours the first time (one lookup per gap item, quest and trainer, two a
-  second). A restart stops it; press the button again and it goes on from its cache. Its last log line shows on the
-  Imports page. Its
+  second). Its last log line shows on the Imports page, a new one every 20 lookups. Its
   answers are kept in `data/icyveins/` and asked again after 14 days (7 for "not found"): it is a young project and
   keeps growing. `[icyveins] max` (`FT_ICYVEINS_MAX`) caps the lookups of one run; the next run goes on.
+  - **A restart** stops the run. The container goes on with it at its next start, from the cache, once MySQL answers
+    and no analysis runs (`FT_ICYVEINS_RESUME=0`: only the button does). Without Docker, press the button again.
+  - **When Icy Veins does not answer** (an outage, a block, no network), nothing is cached for that lookup and the run
+    waits longer before each next one: 1, 2, 4 … 60 seconds. After 20 lookups in a row without an answer (about a
+    quarter of an hour) it stops, makes no card, and its last log line says which lookup failed. Press the button
+    again once Icy Veins answers: the run goes on from its cache.
+
+A download is kept only when it came whole: its size is the one the server announced, and the file is what it should
+be (JSON that reads, a NorgannonDB file whose last record and tables are closed, ForeverDB.net's checksum, AtlasLoot's
+size). Otherwise nothing is kept, the import says why, and the next run downloads it again; a file an older version
+kept cut short is noticed and fetched again too.
 
 Run the analysis again after applying an import: what it filled no longer counts as a gap, so the next import of
 another source only brings what is still missing.
