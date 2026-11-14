@@ -65,15 +65,13 @@ def vendor_items(rows):
 def report_sides(path=None):
     """{quest: {'Alliance', 'Horde'}} from the players' reports the website keeps (data/foreverchanges/pack.fcpack),
     for the quests its players saw; {} without a pack, or with one that cannot be read."""
-    import gzip
     from . import reports
     path = path or os.path.join(DATA, 'foreverchanges', 'pack.fcpack')
     if not os.path.isfile(path):
         return {}
     try:
-        with gzip.open(path, 'rt', encoding='utf-8') as handle:
-            return reports.quest_sides(json.load(handle))
-    except (OSError, ValueError, EOFError):
+        return reports.quest_sides(reports.load(path))
+    except (OSError, ValueError, EOFError, KeyError):
         log('the ForeverChanges pack cannot be read: quest sides are not checked')
         return {}
 

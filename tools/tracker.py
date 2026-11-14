@@ -241,12 +241,10 @@ RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 def player_reports(args):
     """Turns a ForeverChanges pack into the evidence the website's import card is made from (ft.reports,
     docs/SOURCES.md): its NPC names matched to the server's creatures by where they stand. Called by the website."""
-    import gzip
-    from ft import geo as geography, reports
+    from ft import facts, geo as geography, layers, quests as quest_rows, reports
     try:
-        with gzip.open(args.pack, 'rt', encoding='utf-8') as handle:
-            pack = json.load(handle)
-    except (OSError, ValueError, EOFError) as error:
+        pack = reports.load(args.pack)
+    except (OSError, ValueError, EOFError, KeyError) as error:
         sys.exit(f'reports: {args.pack} cannot be read ({error})')
     names = sorted(reports.wanted_names(pack))
 
@@ -311,7 +309,30 @@ def player_reports(args):
     continent = {area['ID']: area.get('ContinentID') for area in official_content.table(builds[-1]['dir'], 'AreaTable', 'enUS')}
     spots, unplaced = reports.places(pack, known, standing, lambda kind, name: by_pin[kind].get(name, []), continent.get)
     left.update(unplaced)
-    result = {'ev': ev, 'left': left, 'places': spots, 'retrieved': str(pack.get('retrieved') or '')[:10], 'quests': len(pack.get('quests') or []), 'items': len(pack.get('items') or [])}
+    # what the NPC says at the turn-in. EG Link's recording of the same window keeps the server's own placeholders:
+    # where it has one wording, that is the text; the site's, with its marks turned back, is for the rest
+    recorded = {}
+    root = os.path.join(DATA, 'eglink')
+    commits = [name for name in (os.listdir(root) if os.path.isdir(root) else []) if facts.COMMIT.fullmatch(name)]
+    if commits:
+        folder = os.path.join(root, max(commits, key=lambda name: os.path.getmtime(os.path.join(root, name))))
+        try:
+            facts.fetch_eglink(os.path.basename(folder), folder, datasets=('texts.enUS',))
+        except facts.SourceError as error:
+            log(f'reports: {str(error).strip()}; the texts already here are read')
+        wordings = {}
+        live_from = layers.load().live_from
+        for fact in facts.eglink(folder, datasets=('texts.enUS',)):
+            if fact.kind == 'text' and fact.build >= live_from:
+                for moment in ('complete', 'progress'):
+                    wordings.setdefault((fact.subject, moment), []).extend(line['text'] for line in fact.data.get(moment) or [])
+        for (quest, moment), seen in wordings.items():
+            text, _why = quest_rows.said(seen)
+            if text:
+                recorded.setdefault(quest, {})[moment] = text
+    told, untold = reports.texts(pack, recorded)
+    left.update(untold)
+    result = {'ev': dict(ev, text=told), 'left': left, 'places': spots, 'retrieved': str(pack.get('retrieved') or '')[:10], 'quests': len(pack.get('quests') or []), 'items': len(pack.get('items') or [])}
     with open(args.out + '.part', 'w', encoding='utf-8') as handle:
         json.dump(result, handle, ensure_ascii=False)
     os.replace(args.out + '.part', args.out)

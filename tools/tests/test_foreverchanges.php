@@ -32,4 +32,9 @@ check($places === [['npc', 244808, 'Aramis Hammerhand', [['m' => 0, 'x' => 1840.
     'reported places: a creature or an object, a map, coordinates that are on a map');
 check(foreverchanges_places([]) === [] && foreverchanges_places(['places' => 'x']) === [], 'no places in a result that has none');
 
+$told = foreverchanges_evidence(['ev' => ['text' => [[7, 'complete', 'You have our thanks, $N.$B$BWell done.'], [7, 'progress', "A line\nbreak"], [7, 'accept', 'x'],
+    [7, 'complete', 'Hail, ‹name›.'], ['7', 'complete', 'x'], [8, 'complete', '   '], [9, 'complete', str_repeat('a', 9000)], [10, 'progress', 'Still out there.']]]])['text'] ?? [];
+check($told === [[7, 'complete', 'You have our thanks, $N.$B$BWell done.'], [10, 'progress', 'Still out there.']],
+    'what an NPC says: a quest, one of the two windows, words without a raw line break or a mark of the site left in');
+
 ft_test_done();

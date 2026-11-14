@@ -24,6 +24,7 @@ This module reads no database and no configuration: it is given the pack and the
 """
 import collections
 import math
+import re
 
 FORMAT = 'foreverchanges-pack/1'
 MIN_KILLS = 10      # a drop counts from this many kills
@@ -181,6 +182,117 @@ def places(pack, known, spawned, named=None, area_map=None):
             continue
         add(kind, entries[0], str(pin['name']), map_id, pin.get('x', 0), pin.get('y', 0))
     return [[kind, entry, name, points] for (kind, entry), (name, points) in sorted(found.items()) if points], dict(left)
+
+
+MARKS = {'‹name›': '$N', '‹class›': '$C', '‹race›': '$R'}       # how the site writes what the server holds as a placeholder
+CLASSES = ('warrior', 'paladin', 'hunter', 'rogue', 'priest', 'shaman', 'mage', 'warlock', 'druid')
+PEOPLES = ('human', 'orc', 'dwarf', 'night elf', 'undead', 'tauren', 'gnome', 'troll')
+WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+ASKED_FOR = re.compile(r".{1,80} \(\d{1,4}\)")    # a line of the quest window that lists an item it asks for
+
+
+def vocabulary(pack):
+    """The words that are nobody's name, lower case: every word of the site's data that no player's client wrote.
+    That is the titles of all quests, the names of NPCs, zones, items and pins, and what is said in the quests no
+    player saw (Classic's texts, where the site marked every name itself). The texts of quests players saw are left
+    out: a player who recorded several quests has their name in several of them."""
+    words = set()
+
+    def take(value):
+        words.update(w.lower() for w in WORD.findall(str(value or '')))
+    for quest in (pack or {}).get('quests') or []:
+        take(quest.get('title'))
+        for role in ('start', 'end'):
+            for who in quest.get(role) or []:
+                if isinstance(who, dict):
+                    take(who.get('name'))
+                    take(who.get('zone'))
+        for reward in quest.get('reward_items') or []:
+            take(reward.get('name') if isinstance(reward, dict) else '')
+        if not quest.get('seen_by_players'):
+            for text in (quest.get('texts') or {}).values():
+                take(text)
+    for item in (pack or {}).get('items') or []:
+        take(item.get('name'))
+        for source in item.get('sources') or []:
+            if isinstance(source, dict):
+                take(source.get('name'))
+                take(source.get('place'))
+    for row in ((pack or {}).get('npcs') or []) + ((pack or {}).get('pins') or []):
+        take(row.get('name') if isinstance(row, dict) else '')
+    return words
+
+
+def said(text, words):
+    """(the text as a server holds it, '') or (None, why not). The site shows what an NPC says as a player's client
+    did, and marks what the server keeps as a placeholder: ‹name›, ‹class›, ‹race›. Those become $N, $C and $R, and
+    line breaks $B. But about one name in five is not marked: the recording player's own name stands there ("You
+    have served well, Fuzzy."). So a text with a capitalised word that the site's own data does not know (words:
+    vocabulary()) is left out; and so is one that names a class or a race in plain words, which may be the player's
+    too."""
+    if not isinstance(text, str) or not text.strip():
+        return None, 'empty'
+    lines = [line.strip() for line in re.split(r'\r\n|\r|\n', text.strip())]
+    while lines and (not lines[-1] or ASKED_FOR.fullmatch(lines[-1])):
+        lines.pop()          # the window's own list under the text: "Sealed Apprentice Crate (1)"
+    text = '\n'.join(lines)
+    if not text:
+        return None, 'empty'
+    plain = text
+    for mark in MARKS:
+        plain = plain.replace(mark, ' ')
+    if '‹' in plain or '›' in plain or '$' in plain:
+        return None, 'unknown_mark'
+    lowered = plain.lower()
+    if any(re.search(r'\b' + re.escape(word) + r'\b', lowered) for word in CLASSES + PEOPLES):
+        return None, 'names_class_or_race'
+    for word in WORD.findall(plain):
+        if word[0].isupper() and word.lower() not in words:
+            return None, 'may_hold_a_name'
+    out = text.replace('\n', '$B')
+    for mark, placeholder in MARKS.items():
+        out = out.replace(mark, placeholder)
+    return out, ''
+
+
+def texts(pack, recorded=None):
+    """What a quest's NPC says at the turn-in, for the quests players saw: ([[quest, 'complete'|'progress', text]],
+    left out). recorded: {quest: {'complete': text, 'progress': text}} from a recording that keeps the server's own
+    placeholders (EG Link's quest windows, one wording); its text is taken before the site's."""
+    words = vocabulary(pack)
+    out, left = [], collections.Counter()
+    for quest in (pack or {}).get('quests') or []:
+        quest_id = quest.get('id')
+        if not isinstance(quest_id, int) or isinstance(quest_id, bool) or not quest.get('seen_by_players'):
+            continue
+        for moment in ('complete', 'progress'):
+            better = ((recorded or {}).get(quest_id) or {}).get(moment)
+            if better:
+                out.append([quest_id, moment, better])
+                continue
+            mine = (quest.get('texts') or {}).get(moment)
+            if not mine:
+                continue
+            text, why = said(mine, words)
+            if text:
+                out.append([quest_id, moment, text])
+            else:
+                left['report_text_' + why] += 1
+    return out, dict(left)
+
+
+def load(path):
+    """A pack from its file: gzipped JSON, or a zip that holds it as pack.json beside the rest of the site's data
+    (tools/foreverchanges_pack.py writes the second; an earlier version wrote the first)."""
+    import gzip
+    import json
+    import zipfile
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as archive:
+            with archive.open('pack.json') as handle:
+                return json.loads(handle.read().decode('utf-8'))
+    with gzip.open(path, 'rt', encoding='utf-8') as handle:
+        return json.load(handle)
 
 
 def evidence(pack, npcs, objects=None):

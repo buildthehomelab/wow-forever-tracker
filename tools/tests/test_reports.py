@@ -157,5 +157,65 @@ class Places(unittest.TestCase):
     def test_a_pack_without_maps_has_no_places(self):
         self.assertEqual(reports.places({'quests': []}, set(), set()), ([], {}))
 
+
+class Texts(unittest.TestCase):
+    """What an NPC says at the turn-in: the site's marks turned back into the server's placeholders, and the texts
+    that may still hold the recording player's own name left out."""
+
+    QUESTS = [{'id': 1, 'title': 'Gnoll Trouble', 'seen_by_players': True, 'start': [{'name': 'Marshal Dughan'}],
+               'texts': {'progress': 'Hail, ‹name›. Have you been killing Gnolls?', 'complete': 'You have our thanks, ‹class›.\n\nWell done, ‹race›!'}},
+              {'id': 2, 'title': 'More Gnolls', 'seen_by_players': True, 'texts': {'complete': 'You have served well, Fuzzy.', 'progress': 'The Gnolls are still out there.'}},
+              {'id': 7, 'title': 'Even More Gnolls', 'seen_by_players': True, 'texts': {'complete': 'Fuzzy, you again!'}},   # the same player, another quest
+              {'id': 3, 'title': 'A Delivery', 'seen_by_players': True, 'texts': {'progress': 'Another delivery! Set it over by the pile.\nSealed Apprentice Crate (1)',
+                                                                                 'complete': 'A fine warrior you are.'}},
+              {'id': 4, 'title': 'Still Gnolls', 'texts': {'complete': 'The Gnolls are gone. You have our thanks.'}},          # nobody saw it
+              {'id': 5, 'title': 'Dughan Again', 'seen_by_players': True, 'texts': {'complete': 'Marshal Dughan will hear of this.', 'progress': 'Odd ‹thing› here.'}},
+              # the words every quest uses, so that only a name is a word of one quest (a real pack has 5,700 quests)
+              {'id': 6, 'title': 'The Words', 'texts': {'complete': 'Hail. Have you. You have. Well done. Another delivery. Set it. The gnolls. Odd. A fine. Marshal.'}}]
+
+    def test_the_sites_marks_become_the_servers_placeholders(self):
+        words = reports.vocabulary({'quests': self.QUESTS})
+        self.assertEqual(reports.said('Hail, ‹name›. Have you been killing Gnolls?', words), ('Hail, $N. Have you been killing Gnolls?', ''))
+        self.assertEqual(reports.said('You have our thanks, ‹class›.\n\nWell done, ‹race›!', words)[0], 'You have our thanks, $C.$B$BWell done, $R!')
+
+    def test_a_word_only_this_quest_uses_may_be_the_players_name(self):
+        words = reports.vocabulary({'quests': self.QUESTS})
+        self.assertEqual(reports.said('You have served well, Fuzzy.', words), (None, 'may_hold_a_name'))
+        self.assertEqual(reports.said('Marshal Dughan will hear of this.', words)[1], '')       # a name another quest knows
+        self.assertEqual(reports.said('A fine warrior you are.', words), (None, 'names_class_or_race'))
+        self.assertEqual(reports.said('Odd ‹thing› here.', words), (None, 'unknown_mark'))
+        self.assertEqual(reports.said('   ', words), (None, 'empty'))
+
+    def test_the_windows_own_list_is_not_part_of_the_text(self):
+        words = reports.vocabulary({'quests': self.QUESTS})
+        self.assertEqual(reports.said('Another delivery! Set it over by the pile.\nSealed Apprentice Crate (1)', words)[0], 'Another delivery! Set it over by the pile.')
+
+    def test_the_texts_of_quests_players_saw(self):
+        told, left = reports.texts({'quests': self.QUESTS})
+        self.assertEqual(told, [[1, 'complete', 'You have our thanks, $C.$B$BWell done, $R!'], [1, 'progress', 'Hail, $N. Have you been killing Gnolls?'],
+                                [2, 'progress', 'The Gnolls are still out there.'], [3, 'progress', 'Another delivery! Set it over by the pile.'],
+                                [5, 'complete', 'Marshal Dughan will hear of this.']])
+        # a name is not known for being in two quests: the same player recorded both
+        self.assertEqual(left, {'report_text_may_hold_a_name': 2, 'report_text_names_class_or_race': 1, 'report_text_unknown_mark': 1})
+
+    def test_a_recording_that_keeps_the_placeholders_comes_first(self):
+        told, left = reports.texts({'quests': self.QUESTS}, {2: {'complete': 'You have served well, $N.'}, 9: {'complete': 'Not a quest of the site.'}})
+        self.assertIn([2, 'complete', 'You have served well, $N.'], told)
+        self.assertEqual(left.get('report_text_may_hold_a_name'), 1)   # quest 7's still; quest 2's text is the recording's
+
+
+class Files(unittest.TestCase):
+    def test_a_pack_as_a_zip_or_as_gzipped_json(self):
+        import gzip, json, tempfile, zipfile
+        data = {'format': reports.FORMAT, 'quests': [{'id': 1}]}
+        with tempfile.TemporaryDirectory() as folder:
+            old, new = os.path.join(folder, 'old.fcpack'), os.path.join(folder, 'new.fcpack')
+            with gzip.open(old, 'wt', encoding='utf-8') as handle:
+                json.dump(data, handle)
+            with zipfile.ZipFile(new, 'w') as archive:
+                archive.writestr('pack.json', json.dumps(data))
+                archive.writestr('site/quests.jsonl', '{"id": 1, "more": "of the site"}')
+            self.assertEqual((reports.load(old), reports.load(new)), (data, data))
+
 if __name__ == '__main__':
     unittest.main()
