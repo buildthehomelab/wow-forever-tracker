@@ -61,9 +61,48 @@ Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch`, and the 
 stored. The check itself is two small requests. The log is `data/client.log`. The container needs to reach
 `us.patch.battle.net:1119` and Blizzard's CDN hosts.
 
+## Hotfixes: the game as it is played today
+
+Between two builds Blizzard changes the game's tables by hotfix: a record is added, replaced or removed, every client
+gets it at login and keeps it in its hotfix cache (`DBCache.bin`). The cache of live WoW: Forever is mirrored
+publicly and refreshed daily (`[client] hotfix_cache`; empty: that mirror). Without it the official list is the build
+as it shipped. For WoW: Forever that leaves a great deal out: thousands of items are in no client table at all and
+reach the client by hotfix only (Carving Knife, Rhahk'Zor's Hammer, the raids' loot).
+
+```bash
+python tools/tracker.py hotfixes
+```
+
+It downloads the cache and keeps it as `data/builds/<build>/hotfixes.bin`, with the snapshot of the build it was
+written for. From then on that build's tables are read with the hotfixes over them: the analysis, the tooltips and
+the Forge all see the game as it is today. The analysis log says, by table, how many rows were added, changed and
+removed.
+
+A cache record is one row of one table, written field after field with its text in place; it is read with the same
+schema as the table. A record that does not end exactly where its bytes end was written for another layout: it is
+left out and counted, never half believed. "Invalid" and "not public" records change nothing.
+
+**The later word wins:**
+
+| Two words on one row | Which stands |
+|---|---|
+| A build's table and a hotfix of that build | The hotfix: it came after the build |
+| Two hotfixes | The later push |
+| A newer build's table and an older build's hotfix | The table: the build came after the hotfix |
+
+When a new build ships, its own cache is not on the mirror at once. Until it is, the hotfixes of the build before are
+carried over for the rows the new tables do not have at all, and for nothing else: a row the new table has is the
+table's, and nothing is taken away. Without that, the items that exist by hotfix alone would vanish from the list for
+a day and come back. Once the new build's own cache arrives it says everything, and nothing is carried over.
+
+A cache is never used for another build than the one in its header, and never for an older build.
+
 ## What it does not do yet
 
-- **Hotfixes.** Blizzard also changes data between builds, by hotfix. Those records are not applied to the official
-  list.
-- **Other locales.** The enUS tables are read; a French snapshot still comes from the server's own copy.
+- **Keys from the hotfixes.** Blizzard hands out the keys of unreleased content by hotfix too; the stored build is read
+  again when a key appears in the public list (wowdev's TACTKeys), which follows a little later.
+- **Hotfixes in the changelog.** A hotfix changes the newest build's content in place: the changelog compares builds,
+  so it shows a hotfix only as part of the difference between two builds.
+- **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
+  copy.
 - **An older build.** The version server names the live build only.

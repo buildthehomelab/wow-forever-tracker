@@ -51,7 +51,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import client, content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -276,6 +276,9 @@ def analyse(args):
     content = contents[-1]
     latest = build_list[-1]
     log(f'{len(changes)} changes across {len(build_list)} builds')
+    for b in build_list:
+        if hotfixes.summary(b['dir']):
+            log(f"hotfixes over build {b['build']}: " + hotfixes.summary(b['dir']))
     ctx = server.server_state()
     # Only the quests new in Forever: the Classic Era ones are known, and asking Wowhead about thousands more takes long.
     baseline = Baseline()
@@ -339,6 +342,7 @@ def main():
     fetch = sub.add_parser('fetch', help="store the live client build's tables from Blizzard's CDN when it is newer than the newest snapshot")
     fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
     fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
+    sub.add_parser('hotfixes', help="store Blizzard's live hotfixes with the snapshot of their build (the public cache, [client] hotfix_cache)")
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -376,6 +380,11 @@ def main():
         locator.run(args)
     elif args.command == 'client':
         client_status()
+    elif args.command == 'hotfixes':
+        url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
+        result = hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)
+        log('hotfixes: ' + result['message'])
+        sys.exit(result['code'])
     elif args.command == 'fetch':
         result = client.fetch(force=args.force, keep_cache=args.keep_cache, log=log)
         log('client: ' + result['message'])
