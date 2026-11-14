@@ -52,6 +52,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ft import content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft.wowhead import GIVE_UP_AFTER, load_json, recheck_days, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
@@ -82,9 +83,14 @@ def snapshot(args):
 
 def wowhead_names(quest_ids):
     cache_path = os.path.join(DATA, 'wowhead-quests.json')
-    cache = json.load(open(cache_path, encoding='utf-8')) if os.path.isfile(cache_path) else {}
-    todo = [q for q in quest_ids if str(q) not in cache]
+    cache = load_json(cache_path, {})
+    # "Wowhead does not know it" hides an unnamed quest, so that answer is asked again after [wowhead] recheck_days
+    # (an answer without a date is from before dates were kept): Wowhead learns a quest when players find it.
+    old = time.time() - recheck_days() * 86400
+    unknown = lambda entry: not (entry.get('fr') or entry.get('en'))
+    todo = [q for q in quest_ids if str(q) not in cache or (unknown(cache[str(q)]) and cache[str(q)].get('at', 0) < old)]
     log(f'wowhead: {len(todo)} quests to look up ({len(cache)} cached)')
+    unreached = 0
     for index, quest in enumerate(todo):
         entry, failed = {}, False
         for locale, key in ((2, 'fr'), (0, 'en')) if CONFIG.french() else ((0, 'en'),):
@@ -106,11 +112,17 @@ def wowhead_names(quest_ids):
                 failed = True
             time.sleep(0.35)
         if not failed:  # a network error is asked again next time instead of hiding the quest
+            entry['at'] = int(time.time())
             cache[str(quest)] = entry
+        unreached = unreached + 1 if failed else 0
+        if unreached >= GIVE_UP_AFTER:
+            log(f'wowhead: {unreached} quests in a row got no answer (down, or it has blocked this address): stopping the lookups, '
+                f'{len(todo) - index - 1} left for the next run')
+            break
         if index % 50 == 49:
-            json.dump(cache, open(cache_path, 'w', encoding='utf-8'), ensure_ascii=False)
+            save_json(cache_path, cache)
             log(f'wowhead: {index + 1}/{len(todo)}')
-    json.dump(cache, open(cache_path, 'w', encoding='utf-8'), ensure_ascii=False)
+    save_json(cache_path, cache)
     return cache
 
 
@@ -256,7 +268,7 @@ def analyse(args):
     if args.wowhead:
         quest_names = wowhead_names(unknown_quests)
     elif os.path.isfile(os.path.join(DATA, 'wowhead-quests.json')):
-        quest_names = json.load(open(os.path.join(DATA, 'wowhead-quests.json'), encoding='utf-8'))
+        quest_names = load_json(os.path.join(DATA, 'wowhead-quests.json'), {})
     if not CONFIG.french():  # English only: French answers cached by an earlier run are left out
         quest_names = {quest: {key: value for key, value in entry.items() if key not in ('fr', 'text_fr')} for quest, entry in quest_names.items()}
     for index, change in enumerate(changes):

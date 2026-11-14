@@ -245,7 +245,8 @@ def run(args):
                         f"NULL,{sqlio.escape(json.dumps(points))},{sqlio.escape(json.dumps(info['reasons']))},{wander},{sqlio.escape(note)},NOW())")
             continue
         data = wowhead.cached('npc' if kind == 'npc' else 'object', entry)
-        if data is None and not args.offline and (not args.limit or asked < args.limit):
+        # asked again when Wowhead did not know it a week ago: it learns where a creature stands when players find it
+        if (data is None or wowhead.stale(data)) and not args.offline and (not args.limit or asked < args.limit):
             data = wowhead.get('npc' if kind == 'npc' else 'object', entry)
             asked += 1
             if asked % 50 == 0:
