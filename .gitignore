@@ -2,6 +2,8 @@
 config.ini
 php.local.ini
 start-*.bat
+# the commit a build was made from (written by the Dockerfile, shown in the footer)
+/COMMIT
 .claude/
 
 # Game data (client DB2 snapshots, analysis output) — Blizzard's files are never committed

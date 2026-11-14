@@ -6,6 +6,13 @@ const FT_VERSION = '1.3.3';
 define('FT_ROOT', dirname(__DIR__));
 define('FT_APP', __DIR__);
 
+/** The commit this copy was built from: the COMMIT file the Docker image carries (docs/DOCKER.md), '' without one. */
+function build_commit(?string $file = null): string
+{
+    $commit = trim((string)@file_get_contents($file ?? FT_ROOT . '/COMMIT'));
+    return preg_match('/^[0-9a-f]{7,64}$/i', $commit) ? strtolower($commit) : '';
+}
+
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 ini_set('display_errors', '0');
 

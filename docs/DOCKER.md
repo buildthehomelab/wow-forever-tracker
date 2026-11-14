@@ -12,6 +12,16 @@ docker compose logs -f tracker                     # the first analysis takes a 
 
 Open `http://127.0.0.1:8090/`.
 
+To see on the page which build runs, give the image its commit when you build it:
+
+```bash
+FT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build     # or: docker build --build-arg FT_COMMIT=$(git rev-parse HEAD) .
+```
+
+The footer then shows its first 8 characters after the version (to administrators only on a private tracker), linked
+to the commit when `FT_REPOSITORY_URL` is set. `FT_COMMIT` is a build argument (`build.args` in the compose file), not
+a setting of the running container. Without it nothing is shown.
+
 ## What it needs
 
 | | |

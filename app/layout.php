@@ -145,10 +145,14 @@ function page_end(): void
     $private = site_private();
     $meta = $private ? [] : meta();
     $when = isset($meta['generated_at']) ? date(t('M j, Y · H:i', 'd/m/Y · H:i'), strtotime((string)$meta['generated_at'])) : '—';
+    // which build runs: the first 8 characters of the image's commit, after the version (nothing without one); a
+    // private tracker keeps it for its administrators
+    $commit = $private ? '' : build_commit();
+    $repository = rtrim((string)config('site', 'repository_url', ''), '/');
     ?>
     </main>
     <footer class="foot">
-      <p><strong><?= e(config('site', 'name', 'Forever Tracker')) ?></strong> · <?php if (!$private): ?><?= e(t('Analysis of', 'Analyse du')) ?> <?= e($when) ?> · <?php endif; ?><?php if (config('site', 'repository_url')): ?><a href="<?= e(config('site', 'repository_url')) ?>" rel="noopener">ForeverTracker <?= e(FT_VERSION) ?></a><?php else: ?>ForeverTracker <?= e(FT_VERSION) ?><?php endif; ?></p>
+      <p><strong><?= e(config('site', 'name', 'Forever Tracker')) ?></strong> · <?php if (!$private): ?><?= e(t('Analysis of', 'Analyse du')) ?> <?= e($when) ?> · <?php endif; ?><?php if ($repository !== ''): ?><a href="<?= e($repository) ?>" rel="noopener">ForeverTracker <?= e(FT_VERSION) ?></a><?php else: ?>ForeverTracker <?= e(FT_VERSION) ?><?php endif; ?><?php if ($commit !== ''): ?> · <?php if ($repository !== ''): ?><a href="<?= e($repository . '/commit/' . $commit) ?>" rel="noopener" title="<?= e(t('The commit this build was made from', 'Le commit dont ce build est issu')) ?>"><code><?= e(substr($commit, 0, 8)) ?></code></a><?php else: ?><code title="<?= e(t('The commit this build was made from', 'Le commit dont ce build est issu')) ?>"><?= e(substr($commit, 0, 8)) ?></code><?php endif; ?><?php endif; ?></p>
       <p class="legal"><?= e(t('Unofficial tool, not affiliated with Blizzard Entertainment. Game content and icons © Blizzard Entertainment.', 'Outil non officiel, sans lien avec Blizzard Entertainment. Contenu du jeu et icônes © Blizzard Entertainment.')) ?></p>
     </footer>
   </div>
