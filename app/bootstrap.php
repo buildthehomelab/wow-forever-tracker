@@ -216,37 +216,41 @@ function phases(): array
     foreach (array_values((array)(meta()['phases'] ?? [])) as $i => $p) if (is_array($p) && isset($p['key'])) $list[$i + 1] = $p;
     return $list;
 }
-/** Number of the last open phase (0: none yet). [phases] current decides when set ("all", "none", a key or a number);
- *  otherwise each phase opens on its date, in order, so a phase with no date keeps the later ones closed too. */
-function phase_now(): int
+/** Numbers of the phases not open yet. [phases] current decides when set: "all", "none", or a phase key or number that
+ *  opens it and every phase before it. Otherwise each phase opens on its own date; one with no date stays closed and
+ *  does not hold back a later one that has a date. */
+function closed_phases(): array
 {
-    static $now = null;
-    if ($now !== null) return $now;
+    static $closed = null;
+    if ($closed !== null) return $closed;
     $list = phases();
     // config.ini is read with INI_SCANNER_TYPED: an unquoted none / off / no arrives as false, yes / on / true as true
     $raw = config('phases', 'current', '');
     $current = $raw === false ? 'none' : ($raw === true ? '' : strtolower(trim((string)$raw)));
-    if ($current === 'all') return $now = count($list);
-    if ($current === 'none') return $now = 0;
-    if ($current !== '' && ctype_digit($current)) return $now = min((int)$current, count($list));
-    foreach ($list as $n => $p) if ($current !== '' && strtolower((string)$p['key']) === $current) return $now = $n;
-    if ($current !== '') error_log("Forever Tracker: [phases] current = \"$current\" names no phase; the phases' dates decide");
-    $now = 0;
-    $today = date('Y-m-d');
-    foreach ($list as $n => $p) {
-        if (empty($p['opens']) || (string)$p['opens'] > $today) break;
-        $now = $n;
+    $upTo = null;
+    if ($current === 'all') $upTo = count($list);
+    elseif ($current === 'none') $upTo = 0;
+    elseif ($current !== '' && ctype_digit($current)) $upTo = min((int)$current, count($list));
+    elseif ($current !== '') {
+        foreach ($list as $n => $p) if (strtolower((string)$p['key']) === $current) $upTo = $n;
+        if ($upTo === null) error_log("Forever Tracker: [phases] current = \"$current\" names no phase; the phases' dates decide");
     }
-    return $now;
+    $today = date('Y-m-d');
+    $closed = [];
+    foreach ($list as $n => $p) {
+        $open = $upTo !== null ? $n <= $upTo : (!empty($p['opens']) && (string)$p['opens'] <= $today);
+        if (!$open) $closed[] = $n;
+    }
+    return $closed;
 }
 /** ", phase" for SELECT lists, once an analysis has written the column (schema 3). */
 function phase_column(string $alias = ''): string { return (int)(meta()['schema'] ?? 0) >= 3 ? ", {$alias}phase" : ''; }
-function phases_pending(): bool { return phase_now() < count(phases()); }
+function phases_pending(): bool { return closed_phases() !== []; }
 /** The resource waits for a phase that is not open yet (and the server does not provide it already). */
-function is_later(array $row): bool { return phases_pending() && (int)($row['phase'] ?? 0) > phase_now() && ($row['status'] ?? '') !== 'ok'; }
-/** SQL conditions on ft_entities (alias like "e."): open now, or waiting for a later phase. */
-function released_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase <= " . phase_now() : '1'; }
-function later_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase > " . phase_now() : '0'; }
+function is_later(array $row): bool { return in_array((int)($row['phase'] ?? 0), closed_phases(), true) && ($row['status'] ?? '') !== 'ok'; }
+/** SQL conditions on ft_entities (alias like "e."): open now, or waiting for a phase not open yet. */
+function released_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase NOT IN (" . implode(',', closed_phases()) . ')' : '1'; }
+function later_sql(string $alias = ''): string { return phases_pending() ? "{$alias}phase IN (" . implode(',', closed_phases()) . ')' : '0'; }
 function phase_when(array $p): string
 {
     return !empty($p['opens']) ? sprintf(t('opens %s', 'ouvre le %s'), date(t('M j, Y', 'd/m/Y'), strtotime((string)$p['opens']))) : t('date not announced', 'date non annoncée');

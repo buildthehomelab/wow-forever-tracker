@@ -112,6 +112,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
                 if kind == 'taxi' and QUEST_PATH.search(name_en or name):
                     internal = 1
+                if kind in ('dungeon', 'boss') and baseline.season_map(entity_id if kind == 'dungeon' else int(entity.get('map') or 0)):
+                    internal = 1  # a Season of Discovery instance (or one never opened) and its bosses: listed under Internal / test
+                    data['season'] = True
             verdict = (wowhead or {}).get((kind, entity_id))
             if verdict == 'season':
                 internal = 1  # Wowhead marks it as a Season of Discovery leftover

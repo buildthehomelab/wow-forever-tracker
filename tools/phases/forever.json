@@ -9,6 +9,13 @@
    "maps": ["Onyxia's Lair", "Hyjal Summit", "Barrow Deeps"]
   },
   {
+   "key": "later-dungeons",
+   "name": "Later dungeons",
+   "opens": null,
+   "source": "In the client but not among the 9 new launch dungeons; Blizzard plans two more dungeons per 2027 update",
+   "maps": ["Manor Mistmantle"]
+  },
+  {
    "key": "later-raids",
    "name": "Later raids",
    "opens": null,

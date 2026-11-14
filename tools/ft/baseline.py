@@ -18,6 +18,9 @@ NEW_FROM = {'item': 190000, 'quest': 60000, 'spell': 400000, 'talent': 3000, 'du
 TABLE = {'item': 'ItemSparse', 'spell': 'SpellName', 'recipe': 'SpellName', 'quest': 'QuestV2', 'dungeon': 'Map', 'boss': 'DungeonEncounter',
          'zone': 'AreaTable', 'achievement': 'Achievement', 'taxi': 'TaxiNodes', 'talent': 'Talent'}
 VIA = {'mount': ('spell', 'SpellName'), 'pet': ('spell', 'SpellName'), 'toy': ('item', 'ItemSparse')}
+# Instances the client carries that no version of the game opened: the original game's unused Emerald Dream raid and
+# its Caverns of Time placeholder.
+UNRELEASED_MAPS = {169, 269}
 
 
 class Baseline:
@@ -36,6 +39,12 @@ class Baseline:
         starts, ends = self.tables[table]
         i = bisect.bisect_right(starts, entity_id) - 1
         return i >= 0 and entity_id <= ends[i]
+
+    def season_map(self, map_id):
+        """An instance WoW: Forever does not use: one the Classic Era client gained after the original game (Season of
+        Discovery's: The Tainted Scar, Karazhan Crypts, Scarlet Enclave...), or one no version opened. Forever's own
+        instances are not in the Classic Era client, and the original ones sit below the 'new' cut-off."""
+        return map_id in UNRELEASED_MAPS or (map_id >= NEW_FROM['dungeon'] and self.has('Map', map_id) is True)
 
     def is_new(self, kind, entity_id, entity):
         if entity_id < NEW_FROM.get(kind, 10 ** 9):
