@@ -28,6 +28,88 @@ final class FtBnetSrp6
     }
 }
 
+// ------------------------------------------------------------------ failed logins per client address
+// Counted on the server (data/login-attempts.json), not in the visitor's session: a session is the visitor's to throw
+// away, and with it went the count.
+const LOGIN_MAX_ATTEMPTS = 8;     // logins one address may fail ...
+const LOGIN_WINDOW = 600;         // ... in this many seconds
+const LOGIN_MAX_CLIENTS = 5000;   // addresses remembered at once (the oldest go first)
+
+/** Who a login attempt is counted against: the address the web server saw (REMOTE_ADDR; never a forwarded header,
+ *  which the client writes itself). An IPv6 client owns a whole /64, so it is counted by that. Behind a reverse
+ *  proxy every visitor shares the proxy's address, and the limit with it. */
+function login_client(?string $address = null): string
+{
+    $packed = @inet_pton((string)($address ?? $_SERVER['REMOTE_ADDR'] ?? ''));
+    if ($packed === false) return 'unknown';
+    if (strlen($packed) === 16) {
+        if (str_starts_with($packed, str_repeat("\0", 10) . "\xff\xff")) return (string)inet_ntop(substr($packed, 12));   // IPv4 seen through IPv6
+        return inet_ntop(substr($packed, 0, 8) . str_repeat("\0", 8)) . '/64';
+    }
+    return (string)inet_ntop($packed);
+}
+
+function login_attempts_file(): string { return FT_ROOT . '/data/login-attempts.json'; }
+
+/** [client => [times]] of the last 10 minutes; older entries (and anything that is not a time) are dropped. */
+function login_attempts_read(string $path, int $now): array
+{
+    $data = is_file($path) ? json_decode((string)@file_get_contents($path), true) : null;
+    $out = [];
+    foreach (is_array($data) ? $data : [] as $client => $times) {
+        $times = array_values(array_filter((array)$times, fn($t) => is_int($t) && $t > $now - LOGIN_WINDOW && $t <= $now));
+        if ($times) $out[(string)$client] = $times;
+    }
+    return $out;
+}
+
+/** Rewrites the file whole: beside itself, then renamed, so a reader never sees half of it. */
+function login_attempts_write(string $path, array $all): void
+{
+    if (count($all) > LOGIN_MAX_CLIENTS) {
+        uasort($all, fn($a, $b) => max($b) <=> max($a));
+        $all = array_slice($all, 0, LOGIN_MAX_CLIENTS, true);
+    }
+    $tmp = $path . '.' . getmypid() . '.tmp';
+    if (@file_put_contents($tmp, json_encode($all)) !== false && @chmod($tmp, 0600) && @rename($tmp, $path)) return;
+    @unlink($tmp);
+    error_log('Forever Tracker: cannot write ' . $path . ': failed logins are not counted');
+}
+
+/** Runs $change on the counts with the file locked (two logins at once must not lose each other's attempt). */
+function login_attempts_change(?string $path, ?int $now, callable $change)
+{
+    $path ??= login_attempts_file(); $now ??= time();
+    $lock = @fopen($path . '.lock', 'c');
+    if ($lock) flock($lock, LOCK_EX);
+    try {
+        $all = login_attempts_read($path, $now);
+        $before = $all;
+        $result = $change($all, $now);
+        if ($all !== $before) login_attempts_write($path, $all);
+        return $result;
+    } finally {
+        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
+    }
+}
+
+/** Counts one login attempt of $client and says whether it may go on: false once 8 were made in 10 minutes (that
+ *  one is not counted). Counted before the password is checked, so attempts sent at the same moment cannot all slip
+ *  under the limit; a login that succeeds forgets them (login_attempts_clear). */
+function login_attempt(string $client, ?string $path = null, ?int $now = null): bool
+{
+    return login_attempts_change($path, $now, function (array &$all, int $now) use ($client): bool {
+        if (count($all[$client] ?? []) >= LOGIN_MAX_ATTEMPTS) return false;
+        $all[$client][] = $now;
+        return true;
+    });
+}
+
+function login_attempts_clear(string $client, ?string $path = null, ?int $now = null): void
+{
+    login_attempts_change($path, $now, function (array &$all) use ($client): bool { unset($all[$client]); return true; });
+}
+
 /** Returns ['name' => …, 'via' => …] or null, with $error set. */
 function admin_login(string $login, string $password, ?string &$error = null): ?array
 {
