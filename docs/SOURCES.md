@@ -77,8 +77,11 @@ line like a table; nothing changes until the card is applied.
 - **Whose rows.** Only a row an import brought: its `Comment` names the source (`Icy Veins 2026-11-14`). The source
   itself may change it, and so may a more trusted one. A row no import brought (the core's own data, a hand fix) and a
   row of a more trusted source are counted on the card (*differs ... not changed*) and left alone.
-- **Trust.** `[sources] trust` lists the sources, most trusted first. By default: Wowhead, then Questie's data (it
-  comes through NorgannonDB), then Icy Veins, then EG Link, ForeverDB.net and AtlasLoot.
+- **Trust.** The game client and Blizzard's CDN come first, always: what the client's own tables or a hotfix hold is
+  the game itself, and no import changes a row written from them. The other sources describe what the client does not
+  carry (where things drop, who sells them, who gives a quest). `[sources] trust` orders those, most trusted first. By
+  default: Wowhead, then Questie's data (it comes through NorgannonDB), then Icy Veins, then EG Link, ForeverDB.net and
+  AtlasLoot.
 - **Moved.** By a tenth of what it was (`[sources] chance_tolerance`, percent) and by 0.05 points at least: a source
   that counted a few more corpses shifts every number a little, and each change is a line in a file.
 - **Safe.** Each statement names the value it replaces (`... AND ABS(Chance - 7.75) < 0.005`): it changes nothing where
@@ -90,6 +93,26 @@ line like a table; nothing changes until the card is applied.
   price, a vendor's stock).
 
 `[sources] refresh = 0` turns it off: imports then only add.
+
+## How old an answer may be
+
+Answers are kept on disk so that a source is not asked the same thing at every run. They come due again by themselves:
+
+| Source | An answer | "Does not know it" |
+|---|---|---|
+| Wowhead | about 30 days (`[wowhead] refresh_days`; each answer between three quarters and one and a quarter of it, by id, so that the answers of one run do not all come due on one day; 0: kept for good) | 7 days (`recheck_days`) |
+| Icy Veins | 14 days | 7 days |
+| EG Link, ForeverDB.net, AtlasLoot | their newest version is read at every import | |
+| NorgannonDB | the pinned version (`[norgannondb] commit`) | |
+
+Before this, an answer Wowhead had given was kept for good: a level it corrected, a spawn point it moved or a "may not
+be in WoW: Forever" note it dropped never reached the tracker. When Wowhead cannot be reached, the answer on disk is
+used. The analysis log says how many answers were asked again and how many came back different.
+
+**Ask every source again** (The Forge > Imports) makes every answer kept so far count as due, whatever its age.
+Nothing is asked at that moment and nothing is deleted: the next analysis asks Wowhead again, the next imports their
+sources, and AtlasLoot's current version is read again. Those runs take as long as the very first ones did; one that is
+cut short goes on from where it stopped, since what was asked since the button was pressed is not asked twice.
 
 ## Running them
 

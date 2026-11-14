@@ -96,6 +96,18 @@ page_start(t('Imports', 'Imports'), 'admin');
 </section>
 
 <?php require_once FT_APP . '/sources.php'; $icyRunning = source_running('icyveins'); $icyLog = is_file(source_log('icyveins')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('icyveins')))) : ''; ?>
+<?php $refreshedAt = source_refresh_epoch(); ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Freshness', 'Fraîcheur')) ?></span><h2><?= e(t('How old an answer may be', 'L’âge permis d’une réponse')) ?></h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('Answers are kept so that a source is not asked the same thing at every run, and they come due again by themselves: Wowhead after about a month (a week for what it did not know), Icy Veins after two weeks (one for what it did not know). EG Link, ForeverDB.net and AtlasLoot are read in their newest version at every import.', 'Les réponses sont conservées pour ne pas reposer la même question à chaque exécution, et elles redeviennent dues d’elles-mêmes : Wowhead après un mois environ (une semaine pour ce qu’il ne connaissait pas), Icy Veins après deux semaines (une pour ce qu’il ne connaissait pas). EG Link, ForeverDB.net et AtlasLoot sont lus dans leur dernière version à chaque import.')) ?></li>
+    <li><?= e(t('Ask every source again: every answer kept so far counts as due, whatever its age. Nothing is asked now and nothing is deleted: the next analysis asks Wowhead again, the next imports their sources. Those runs take as long as the very first ones did (Wowhead and Icy Veins are asked one question at a time); a run that is cut short goes on from where it stopped.', 'Tout redemander : chaque réponse conservée compte comme due, quel que soit son âge. Rien n’est demandé maintenant et rien n’est supprimé : la prochaine analyse réinterroge Wowhead, les prochains imports leurs sources. Ces exécutions durent autant que les toutes premières (Wowhead et Icy Veins répondent à une question à la fois) ; une exécution interrompue reprend où elle s’est arrêtée.')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <button class="btn is-small" type="button" data-scribe="refresh_sources"><i class="fas fa-rotate"></i> <?= e(t('Ask every source again', 'Tout redemander aux sources')) ?></button>
+  </div>
+  <?php if ($refreshedAt): ?><p class="muted small"><?= e(sprintf(t('Last pressed %s: answers older than that are asked again.', 'Dernier appui le %s : les réponses plus anciennes sont redemandées.'), date(t('M j, Y H:i', 'd/m/Y H:i'), $refreshedAt))) ?></p><?php endif; ?>
+</section>
 <section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Live Forever recordings', 'Enregistrements de Forever')) ?></span><h2><?= e(t('EG Link, ForeverDB.net, Icy Veins', 'EG Link, ForeverDB.net, Icy Veins')) ?></h2></div></header>
   <ol class="steps-list">

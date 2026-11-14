@@ -92,12 +92,13 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_SITE_NAME`, `FT_HOME_URL`, `FT_HOME_LABEL`, `FT_REPOSITORY_URL` | | `[site]` of [CONFIGURATION.md](CONFIGURATION.md) |
 | `FT_RA_HOST`, `FT_RA_PORT`, `FT_RA_USER`, `FT_RA_PASSWORD` | empty, `3443` | Remote console for spawns ([SPAWNS.md](SPAWNS.md)) |
 | `FT_WOWHEAD_RECHECK_DAYS` | `7` | Days after which a "Wowhead does not know it" answer is asked again (Forever keeps content for players to discover; Wowhead learns it later). *Run again* in the Forge asks Wowhead too while `FT_WOWHEAD` is 1 |
+| `FT_WOWHEAD_REFRESH_DAYS` | `30` | An answer Wowhead gave is asked again after about this many days (spread by id so they do not all come due together); `0`: kept for good |
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
 | `FT_FORGE_TRAINER_GUESS` | `1` | `0`: no trainer fixes guessed from the client's skill lines; trainer spells come from imports (NorgannonDB) only. A change re-analyses once |
 | `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
 | `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
-| `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot` (docs/SOURCES.md, *Rows the server already has*) |
+| `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot`. The game client and the CDN always come before all of them (docs/SOURCES.md, *Rows the server already has*) |
 | `FT_SOURCES_REFRESH` | `1` | `0`: imports only add what is missing; they no longer propose a new value for a drop chance that moved |
 | `FT_SOURCES_CHANCE_TOLERANCE` | `10` | A drop chance has moved when it changed by this percent of what it was (and by 0.05 points at least) |
 | `FT_ATLASLOOT_GUESS` | `1` | `0`: AtlasLoot drops without a measured chance are left out instead of getting an even share of their boss's list |

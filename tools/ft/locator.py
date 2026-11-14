@@ -251,7 +251,7 @@ def run(args):
             continue
         data = wowhead.cached('npc' if kind == 'npc' else 'object', entry)
         # asked again when Wowhead did not know it a week ago: it learns where a creature stands when players find it
-        if (data is None or wowhead.stale(data)) and not args.offline and (not args.limit or asked < args.limit):
+        if (data is None or wowhead.stale(data, entry)) and not args.offline and (not args.limit or asked < args.limit):
             data = wowhead.get('npc' if kind == 'npc' else 'object', entry)
             asked += 1
             if asked % 50 == 0:

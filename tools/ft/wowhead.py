@@ -46,6 +46,52 @@ def recheck_days():
     return float(CONFIG.get('wowhead', 'recheck_days', '7') or 7)
 
 
+def refresh_days():
+    """How long an answer is believed before it is asked again ([wowhead] refresh_days; 0: for good). Wowhead corrects a
+    level, moves a spawn point, drops a "may not be in WoW: Forever" note: an answer kept for good never learns it."""
+    try:
+        return max(0.0, float(CONFIG.get('wowhead', 'refresh_days', '30') or 0))
+    except ValueError:
+        return 30.0
+
+
+def spread(entity_id):
+    """Between 0.75 and 1.25, fixed for an id: answers fetched in one run do not all come due on the same day."""
+    return 0.75 + (int(entity_id or 0) * 2654435761 % 1000) / 2000
+
+
+REFRESH_FILE = os.path.join(DATA, 'sources-refresh')
+_epoch = None
+
+
+def refresh_epoch():
+    """The moment "ask every source again" was pressed (data/sources-refresh, a Unix time; app/wowhead.php writes it):
+    every answer older than that is asked again, whatever its age. 0 when it never was."""
+    global _epoch
+    if _epoch is None:
+        try:
+            with open(REFRESH_FILE, encoding='utf-8') as handle:
+                _epoch = float(handle.read().strip() or 0)
+        except (OSError, ValueError):
+            _epoch = 0.0
+    return _epoch
+
+
+def is_stale(fetched, missing, entity_id=0, now=None, epoch=None, refresh=None, recheck=None):
+    """An answer fetched at `fetched` is to be asked again: it is older than the last "ask every source again"; or it
+    is "Wowhead does not know it" and older than [wowhead] recheck_days (Wowhead learns what players discover); or it
+    is an answer older than [wowhead] refresh_days, give or take a quarter by id."""
+    now = time.time() if now is None else now
+    epoch = refresh_epoch() if epoch is None else epoch
+    if fetched < epoch:
+        return True
+    age = now - fetched
+    if missing:
+        return age > (recheck_days() if recheck is None else recheck) * 86400
+    days = refresh_days() if refresh is None else refresh
+    return days > 0 and age > days * 86400 * spread(entity_id)
+
+
 class Wowhead:
     def __init__(self, refresh=False, pause=None):
         self.branch = CONFIG.get('wowhead', 'branch', 'forever') or 'forever'
@@ -53,6 +99,8 @@ class Wowhead:
         self.refresh = refresh
         self.folder = os.path.join(DATA, 'wowhead')
         self.requests = 0
+        self.reasked = 0       # answers that were on disk and were asked again
+        self.changed = 0       # ... and came back different
         self.unreached = 0     # lookups in a row without an answer
         self.gave_up = False   # too many of them: the rest of this run uses the cache only
         self._last = 0.0
@@ -60,7 +108,7 @@ class Wowhead:
     def npc(self, entity_id, ask):
         """An NPC's tooltip data with 'facts' (level, type, rank); an answer cached before facts were kept is asked again."""
         data = self.cached('npc', entity_id)
-        if data is not None and ((data.get('missing') and not (ask and self.stale(data))) or 'facts' in data or not ask):
+        if data is not None and (not ask or ((data.get('missing') or 'facts' in data) and not self.stale(data, entity_id))):
             return data
         if not ask:
             return None
@@ -77,15 +125,20 @@ class Wowhead:
         data = load_json(self.path(kind, entity_id), {})
         return data or None
 
-    def stale(self, data):
-        """A "Wowhead does not know it" answer older than [wowhead] recheck_days: Wowhead learns what players discover."""
-        return bool(data and data.get('missing') and time.time() - data.get('fetched', 0) > recheck_days() * 86400)
+    def stale(self, data, entity_id=0):
+        """The answer on disk is to be asked again (is_stale): too old for what it says, or older than the last "ask
+        every source again"."""
+        return bool(data) and is_stale(data.get('fetched', 0), bool(data.get('missing')), entity_id)
+
+    def summary(self):
+        """"N answer(s) asked again, M changed" for the log, or '' when none was."""
+        return f'{self.reasked} answer(s) asked again, {self.changed} changed' if self.reasked else ''
 
     def get(self, kind, entity_id, locale=0):
         """The tooltip data, {'missing': True} when Wowhead does not know it; when it cannot be reached, the last
         answer kept on disk, else None. After GIVE_UP_AFTER lookups in a row without an answer the run stops asking."""
         cached = self.cached(kind, entity_id)
-        if not self.refresh and cached is not None and not self.stale(cached):
+        if not self.refresh and cached is not None and not self.stale(cached, entity_id):
             return cached
         if self.gave_up:
             return cached   # an old answer is better than none
@@ -100,6 +153,10 @@ class Wowhead:
         if kind == 'npc' and data.get('tooltip'):
             data['facts'] = npc_facts(data['tooltip'])
         data.pop('tooltip', None) if kind in ('npc', 'object') else None
+        if cached is not None:
+            self.reasked += 1
+            same = lambda d: {k: v for k, v in d.items() if k != 'fetched'}
+            self.changed += same(cached) != same(data)
         data['fetched'] = int(time.time())
         save_json(self.path(kind, entity_id), data, separators=(',', ':'))
         return data

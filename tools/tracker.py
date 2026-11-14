@@ -52,7 +52,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ft import content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
-from ft.wowhead import GIVE_UP_AFTER, load_json, recheck_days, save_json  # noqa: E402
+from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
@@ -86,9 +86,9 @@ def wowhead_names(quest_ids):
     cache = load_json(cache_path, {})
     # "Wowhead does not know it" hides an unnamed quest, so that answer is asked again after [wowhead] recheck_days
     # (an answer without a date is from before dates were kept): Wowhead learns a quest when players find it.
-    old = time.time() - recheck_days() * 86400
+    # A name is believed for [wowhead] refresh_days, and everything is asked again after "ask every source again".
     unknown = lambda entry: not (entry.get('fr') or entry.get('en'))
-    todo = [q for q in quest_ids if str(q) not in cache or (unknown(cache[str(q)]) and cache[str(q)].get('at', 0) < old)]
+    todo = [q for q in quest_ids if str(q) not in cache or is_stale(cache[str(q)].get('at', 0), unknown(cache[str(q)]), q)]
     log(f'wowhead: {len(todo)} quests to look up ({len(cache)} cached)')
     unreached = 0
     for index, quest in enumerate(todo):
@@ -143,13 +143,13 @@ def wowhead_verdicts(content, results, baseline, ask):
             wanted.append((kind, entity_id))
     wh = Wowhead()
     out, asked = {}, 0
-    todo = sum(1 for kind, i in wanted if (lambda d: d is None or wh.stale(d))(wh.cached('item' if kind == 'item' else 'spell', i)))
+    todo = sum(1 for kind, i in wanted if (lambda d: d is None or wh.stale(d, i))(wh.cached('item' if kind == 'item' else 'spell', i)))
     if ask:
-        log(f'wowhead: {len(wanted)} items/spells to check, {todo} not cached yet')
+        log(f'wowhead: {len(wanted)} items/spells to check, {todo} to ask (not cached yet, or due again)')
     for kind, entity_id in wanted:
         target = 'item' if kind == 'item' else 'spell'
         data = wh.cached(target, entity_id)
-        if ask and (data is None or wh.stale(data)):
+        if ask and (data is None or wh.stale(data, entity_id)):
             data = wh.get(target, entity_id)
             asked += 1
             if asked % 200 == 0:
@@ -161,6 +161,8 @@ def wowhead_verdicts(content, results, baseline, ask):
     for v in out.values():
         counts[v] = counts.get(v, 0) + 1
     log('wowhead verdicts: ' + (', '.join(f'{k}={n}' for k, n in sorted(counts.items())) or 'none cached'))
+    if wh.summary():
+        log('wowhead items/spells: ' + wh.summary())
     return out
 
 
@@ -179,14 +181,15 @@ def npc_checks(ask):
         ' OR ct.entry IN (SELECT id FROM creature_queststarter) OR ct.entry IN (SELECT id FROM creature_questender)'
         ' OR ct.entry IN (SELECT ObjectID FROM quest_objectives WHERE Type = 0))')
     wh = Wowhead()
-    todo = sum(1 for r in rows if (wh.cached('npc', int(r['entry'])) or {}).get('facts') is None and not (wh.cached('npc', int(r['entry'])) or {}).get('missing'))
+    due = lambda entry, d: d is None or wh.stale(d, entry) or ('facts' not in d and not d.get('missing'))
+    todo = sum(1 for r in rows if due(int(r['entry']), wh.cached('npc', int(r['entry']))))
     if ask:
-        log(f'wowhead: {len(rows)} creatures to compare, {todo} not cached yet')
+        log(f'wowhead: {len(rows)} creatures to compare, {todo} to ask (not cached yet, or due again)')
     out, asked, counts = [], 0, {}
     for r in rows:
         entry = int(r['entry'])
         cached = wh.cached('npc', entry)
-        if ask and (cached is None or ('facts' not in cached and not cached.get('missing'))):
+        if ask and due(entry, cached):
             asked += 1
             if asked % 200 == 0:
                 log(f'wowhead: {asked}/{todo} creatures')
@@ -211,6 +214,8 @@ def npc_checks(ask):
         if issues:
             out.append((entry, r['name'] or '', lo, hi, rank, facts['min'], facts['max'], facts['rank'], facts['type'], ','.join(issues)))
     log('npc check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing cached'))
+    if wh.summary():
+        log('wowhead creatures: ' + wh.summary())
     e = sqlio.escape
     path = os.path.join(DATA, 'npc-checks.sql')
     with open(path, 'w', encoding='utf-8') as f:
