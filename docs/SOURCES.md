@@ -102,10 +102,25 @@ and proposes what differs, as lines of its card (`quest_template.RewardItem1`, `
 - **The later word wins.** A row carries the client build it was recorded on (`VerifiedBuild`), the record the build
   it was seen on. A record is taken only from the live game, and only when it is from a later build than the row. A
   row from the same or a later build is the newer word and is left alone (*the row is the newer word*).
-- **What is compared.** What a quest gives (items, choices, currencies, reputation, spell, XP difficulty) and what it
-  says (title, objectives text, description, area, completion log) in `quest_template`; an objective's amount and
-  text in `quest_objectives`, by Forever's own objective id; the money in `quest_classic_money`; the levels in
-  `quest_classic_level`. A text is the same when only its line breaks are written another way (`$B`, a line feed).
+- **What is compared.** What a quest gives (items, choices, currencies, reputation, spell, XP difficulty and
+  multiplier) and what it says (title, objectives text, description, area, completion log) in `quest_template`; an
+  objective's amount and text in `quest_objectives`, by Forever's own objective id; the level a quest is offered from
+  in `quest_classic_level`.
+- **Only what says something else is a difference.** The first run on a whole world proposed 7,400 changes, and most
+  were the same thing written another way. So:
+  - *A recording never empties a value.* A record that names no reward item, no completion text or no faction is not
+    proof there is none (rewards chosen by class or condition are not in the plain fields; not every text is kept).
+    The row's value stays, and the card counts those quests.
+  - *Reputation is compared as points.* A row gives it as a tier (`RewardFactionValue`, read in the client's
+    `QuestFactionReward` table) or as points times a hundred (`RewardFactionOverride`); 75 points either way is no
+    change. Without the server's copy of that table, a row written the other way is left alone and counted.
+  - *Text is compared as it reads.* Line breaks (`$B`, a line feed), runs of spaces and the case of a placeholder
+    (`$n`, `$N`) do not count; an amount the record writes as a placeholder (`$1oa Gnarlpine Fangs`) and the row as
+    its number is the same text.
+  - *The end text stands in either column.* Older rows hold it in `QuestCompletionLog`, the record in
+    `AreaDescription`.
+  - *Not compared:* the money and the quest's own level. The server sends both for the player who asked (at the
+    level cap the money is what is given instead of experience; a scaling quest shows the player's level).
 - **What is never changed.** What decides how the server handles a quest: its type, flags, start item, time limit,
   zone, races, the quest after it. A server may hold those differently on purpose, and a wrong one breaks a quest
   instead of misstating a reward. They are compared and counted on the card (*differ from the recording*).
