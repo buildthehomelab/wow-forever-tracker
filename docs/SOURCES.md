@@ -84,5 +84,10 @@ whatever happens to its card.
     quarter of an hour) it stops, makes no card, and its last log line says which lookup failed. Press the button
     again once Icy Veins answers: the run goes on from its cache.
 
+A download is kept only when it came whole: its size is the one the server announced, and the file is what it should
+be (JSON that reads, a NorgannonDB file whose last record and tables are closed, ForeverDB.net's checksum, AtlasLoot's
+size). Otherwise nothing is kept, the import says why, and the next run downloads it again; a file an older version
+kept cut short is noticed and fetched again too.
+
 Run the analysis again after applying an import: what it filled no longer counts as a gap, so the next import of
 another source only brings what is still missing.

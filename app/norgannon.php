@@ -23,18 +23,52 @@ function norgannon_commit(): string
     return preg_match('/^[0-9a-f]{40}$/', $c) ? $c : NORGANNON_PIN;
 }
 
+/** One record line of a packed data file: R(id,"name") or R(id,"name",[[fields]]). */
+const NORGANNON_RECORD = '/^R\((\d+),"((?:[^"\\\\]|\\\\.)*)"(?:,\[\[(.*)\]\])?\)\s*$/';
+
+/**
+ * Whether a data file came whole, judged on what the readers below rely on (a commit is downloaded once and kept, so
+ * a file cut short stayed cut short for good):
+ *   items, quests   record lines; the last line, when it starts a record, must end it
+ *   recipes         each table the import reads (NorgannonDB.training, NorgannonDB.recipes) must be closed: by the
+ *                   "} end f() end" its reader looks for, or by braces that balance up to the end of the file
+ * Only what proves a cut is refused: a file laid out in a way this does not know is kept as before.
+ */
+function norgannon_whole(string $name, string $body): bool
+{
+    if (strlen($body) < 1000) return false;
+    if ($name !== 'recipes') {
+        if (!preg_match('/^R\(\d+,"/m', $body)) return false;   // no record at all: an error page, not the data file
+        $tail = rtrim(substr($body, -1048576));
+        $last = ltrim(substr($tail, (int)strrpos("\n" . $tail, "\n")));
+        return !str_starts_with($last, 'R(') || preg_match(NORGANNON_RECORD, $last) === 1;
+    }
+    foreach (['training', 'recipes'] as $table) {
+        $at = strpos($body, "NorgannonDB.$table = ");
+        if ($at === false || strpos($body, '} end f() end', $at) !== false) continue;
+        // no closing line after it: the table must at least close its braces (texts in quotes left aside)
+        $bare = preg_replace('/"(?:[^"\\\\]|\\\\.)*"/', '', substr($body, $at));
+        if ($bare !== null && substr_count($bare, '{') !== substr_count($bare, '}')) return false;
+    }
+    return true;
+}
+
 /** The pinned data files, downloaded once into data/norgannondb/<commit>/. Returns the folder, or an error string. */
 function norgannon_fetch(string $commit): array
 {
     $dir = FT_ROOT . "/data/norgannondb/$commit";
-    @mkdir($dir, 0775, true);
     foreach (NORGANNON_FILES as $name) {
         $path = "$dir/$name.lua";
-        if (is_file($path) && filesize($path) > 1000) continue;
+        if (is_file($path)) {
+            if (norgannon_whole($name, (string)file_get_contents($path))) continue;
+            // kept cut short by an older version: downloaded again
+            error_log("Forever Tracker: NorgannonDB $name.lua of $commit is cut short: downloaded again");
+            @unlink($path);
+        }
         $url = 'https://raw.githubusercontent.com/' . NORGANNON_REPO . "/$commit/data/$name.lua";
-        $body = @file_get_contents($url, false, stream_context_create(['http' => ['timeout' => 120, 'header' => "User-Agent: ForeverTracker\r\n"]]));
-        if ($body === false || strlen($body) < 1000) return [null, sprintf(t('Could not download %s.', 'Impossible de télécharger %s.'), $url)];
-        file_put_contents($path, $body);
+        [$status, $body, $length] = source_http($url, 120);
+        $problem = $status !== 200 ? ($status ? "HTTP $status" : t('no answer', 'pas de réponse')) : source_keep($path, $body, $length, fn(string $b) => norgannon_whole($name, $b));
+        if ($problem !== '') return [null, sprintf(t('Could not download %s (%s).', 'Impossible de télécharger %s (%s).'), $url, $problem)];
     }
     return [$dir, ''];
 }
@@ -45,7 +79,7 @@ function norgannon_records(string $path, ?array $only = null): array
     $out = [];
     $handle = fopen($path, 'r');
     while (($line = fgets($handle)) !== false) {
-        if (!preg_match('/^R\((\d+),"((?:[^"\\\\]|\\\\.)*)"(?:,\[\[(.*)\]\])?\)\s*$/', $line, $m)) continue;
+        if (!preg_match(NORGANNON_RECORD, $line, $m)) continue;
         $id = (int)$m[1];
         if ($only !== null && !isset($only[$id])) continue;
         $fields = isset($m[3]) && $m[3] !== '' ? collector_lua('{' . $m[3] . '}') : [];

@@ -41,6 +41,7 @@ function ft_test_boot(string $ini = "[site]\npublic = 1\n"): void
     putenv('FOREVER_TRACKER_CONFIG=' . ft_test_config($ini));
     $_SERVER['SCRIPT_NAME'] = '/index.php';
     session_save_path(ft_test_dir());
+    ini_set('error_log', ft_test_dir() . '/php-errors.log');   // what the code logs is not the test's output
     require_once dirname(__DIR__, 2) . '/app/bootstrap.php';
 }
 

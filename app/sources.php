@@ -268,15 +268,52 @@ function source_card(string $source, string $name, string $file, array $tables, 
             'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts))) . $replacedNote];
 }
 
-/** GET with a user agent; [status, body]. */
+/** GET with a user agent; [status, body, length]: the size the server announced for the body (Content-Length), null
+ *  when it gave none. A connection that drops or times out half way still hands back what came: only the announced
+ *  size, or the content itself (source_keep), tells a whole answer from a piece of one. */
 function source_http(string $url, int $timeout = 60): array
 {
     $context = stream_context_create(['http' => ['timeout' => $timeout, 'ignore_errors' => true,
         'header' => "User-Agent: ForeverTracker/1.1 (private server admin tool)\r\nAccept: application/json, */*\r\n"]]);
     $body = @file_get_contents($url, false, $context);
-    $status = 0;
-    foreach ($http_response_header ?? [] as $h) if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) $status = (int)$m[1];
-    return [$status, $body === false ? '' : $body];
+    [$status, $length] = source_http_head($http_response_header ?? []);
+    return [$status, $body === false ? '' : $body, $length];
+}
+
+/** [status, announced body size or null] of the last answer in a list of response headers (redirects come first). */
+function source_http_head(array $headers): array
+{
+    $status = 0; $length = null; $encoded = false;
+    foreach ($headers as $h) {
+        if (preg_match('#^HTTP/\S+ (\d+)#', $h, $m)) { $status = (int)$m[1]; $length = null; $encoded = false; }
+        elseif (preg_match('/^Content-Length:\s*(\d+)\s*$/i', $h, $m)) $length = (int)$m[1];
+        elseif (preg_match('/^Content-Encoding:\s*(?!identity)\S/i', $h)) $encoded = true;   // the size is then the packed one
+    }
+    return [$status, $encoded ? null : $length];
+}
+
+/**
+ * Keeps a downloaded body as $path, when it came whole: its size is the one the server announced ($length, null when
+ * it announced none) and $valid, when given, accepts the content. It is written beside the file and renamed into
+ * place, so neither a download cut short nor a run killed while writing leaves a file that later passes for the real
+ * one (a cut NorgannonDB file was kept for its commit for good; a cut EG Link file read as an empty list). Returns ''
+ * or why it was not kept, which also goes to the error log.
+ */
+function source_keep(string $path, string $body, ?int $length = null, ?callable $valid = null): string
+{
+    if ($length !== null && strlen($body) !== $length) {
+        $problem = sprintf(t('%s bytes came of the %s announced', '%s octets reçus sur les %s annoncés'), number(strlen($body)), number($length));
+    } elseif ($valid !== null && !$valid($body)) {
+        $problem = t('the content is cut short or not what was expected', 'le contenu est tronqué ou inattendu');
+    } else {
+        @mkdir(dirname($path), 0775, true);
+        $part = $path . '.' . getmypid() . '.part';
+        if (@file_put_contents($part, $body) === strlen($body) && @rename($part, $path)) return '';
+        @unlink($part);
+        $problem = t('the file cannot be written', 'le fichier ne peut pas être écrit');
+    }
+    error_log('Forever Tracker: download not kept (' . basename(dirname($path)) . '/' . basename($path) . '): ' . $problem);
+    return $problem;
 }
 
 /** `ns.<name> = {...}` tables of a ForeverDB.net data file (only the named ones are parsed). */
@@ -332,14 +369,16 @@ function eglink_evidence(): array
     foreach ($builds as $b) {
         foreach (EGLINK_FILES as $f) {
             $path = "$dir/$b/$f.json";
-            if (!is_file($path)) {
-                [$status, $body] = source_http('https://raw.githubusercontent.com/' . EGLINK_REPO . "/$commit/data/wowf/$b/$f.json", 120);
+            $d = is_file($path) ? json_decode((string)file_get_contents($path), true) : null;
+            if (!is_array($d)) {
+                // not downloaded yet, or kept cut short by an older version, which then read it as an empty list
+                if (is_file($path)) { error_log("Forever Tracker: EG Link $b/$f.json is no JSON: downloaded again"); @unlink($path); }
+                [$status, $body, $length] = source_http('https://raw.githubusercontent.com/' . EGLINK_REPO . "/$commit/data/wowf/$b/$f.json", 120);
                 if ($status === 404) continue;
-                if ($status !== 200) return ['ok' => false, 'message' => sprintf(t('Could not download EG Link %s/%s.', 'Impossible de télécharger EG Link %s/%s.'), $b, $f)];
-                @mkdir(dirname($path), 0775, true);
-                file_put_contents($path, $body);
+                $d = $status === 200 ? json_decode($body, true) : null;
+                $problem = $status !== 200 ? ($status ? "HTTP $status" : t('no answer', 'pas de réponse')) : source_keep($path, $body, $length, fn() => is_array($d));
+                if ($problem !== '') return ['ok' => false, 'message' => sprintf(t('Could not download EG Link %s/%s (%s).', 'Impossible de télécharger EG Link %s/%s (%s).'), $b, $f, $problem)];
             }
-            $d = json_decode((string)file_get_contents($path), true) ?: [];
             if ($f === 'vendors') foreach ($d['vendors'] ?? $d as $npc => $v) {
                 foreach ((array)($v['entries'] ?? []) as $e) {
                     if (empty($e['itemId']) || !empty($e['costItems'])) continue;   // paid with items or currencies: no cost to give it
@@ -418,9 +457,8 @@ function foreverdb_evidence(): array
         $path = "$dir/" . basename($f['path']);
         if (!is_file($path) || hash_file('sha256', $path) !== $f['sha256']) {
             [$status, $body] = source_http(FOREVERDB . $f['url'], 120);
-            if ($status !== 200 || hash('sha256', $body) !== $f['sha256']) return ['ok' => false, 'message' => sprintf(t('ForeverDB.net %s did not download cleanly.', 'ForeverDB.net %s ne s’est pas téléchargé correctement.'), $f['path'])];
-            @mkdir($dir, 0775, true);
-            file_put_contents($path, $body);
+            // its checksum says the file is whole; source_keep() writes it beside itself and renames it
+            if ($status !== 200 || hash('sha256', $body) !== $f['sha256'] || source_keep($path, $body) !== '') return ['ok' => false, 'message' => sprintf(t('ForeverDB.net %s did not download cleanly.', 'ForeverDB.net %s ne s’est pas téléchargé correctement.'), $f['path'])];
         }
         $text[basename($f['path'], '.lua')] = (string)file_get_contents($path);
     }
