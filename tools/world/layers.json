@@ -136,6 +136,26 @@
       "pin": {"type": "none"}
     },
     {
+      "id": "foreverchanges",
+      "name": "ForeverChanges / ForeverMaster",
+      "layer": "live",
+      "group": "foreverchanges",
+      "also": [
+        "blizzard",
+        "atlasloot"
+      ],
+      "licence": "All Rights Reserved",
+      "use": "reference",
+      "recorded": false,
+      "credit": "ForeverChanges (https://foreverchanges.pro), ForeverMaster addon; compiled reference data.",
+      "note": "Compiled client, Classic and player data. Records do not establish a live observation. Reference only; excluded from world writes and public data exports. Talent build codes are not talent node records.",
+      "url": "https://foreverchanges.pro/about",
+      "pin": {
+        "type": "url",
+        "url": "https://downloads.foreverchanges.pro/addon/latest/ForeverMaster.zip"
+      }
+    },
+    {
       "id": "forge", "name": "The Forge", "layer": "corrections", "group": "forge",
       "licence": "own", "use": "public",
       "url": "",

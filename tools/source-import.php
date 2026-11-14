@@ -1,7 +1,7 @@
 <?php
 // Imports one open data source as an import card aimed at the last analysis' gaps (docs/SOURCES.md).
 //
-//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot [--if-new]
+//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|foreverchanges [--if-new]
 //
 // --if-new (AtlasLoot only): nothing when the newest CurseForge file is the one imported last (the container's check);
 // exit 3 while an analysis runs (check again soon).
@@ -11,12 +11,19 @@ $_SERVER['SCRIPT_NAME'] = '/index.php';
 require dirname(__DIR__) . '/app/bootstrap.php';
 require FT_APP . '/norgannon.php';
 require FT_APP . '/atlasloot.php';
+require FT_APP . '/foreverchanges.php';
 $source = $argv[1] ?? '';
 $ifNew = in_array('--if-new', array_slice($argv, 2), true);
-$run = ['norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import'];
+$run = ['foreverchanges' => 'foreverchanges_import', 'norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import'];
 if (!isset($run[$source])) { fwrite(STDERR, "usage: php tools/source-import.php " . implode('|', array_keys($run)) . "\n"); exit(2); }
 forge_schema();
 $lock = FT_ROOT . "/data/source-$source.running";
+// Keep a kernel lock for this source even if two refresh clicks start workers together.
+$guard = null;
+if ($source === 'foreverchanges') {
+    $guard = fopen(FT_ROOT . '/data/source-foreverchanges.lock', 'c');
+    if (!$guard || !flock($guard, LOCK_EX | LOCK_NB)) { fwrite(STDERR, "ForeverChanges refresh already running.\n"); exit(3); }
+}
 touch($lock);
 $started = microtime(true);
 try {

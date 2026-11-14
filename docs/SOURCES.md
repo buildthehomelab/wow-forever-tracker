@@ -73,3 +73,52 @@ Each card lists what was left out and why, and carries the source's licence in i
 
 Run the analysis again after applying an import: what it filled no longer counts as a gap, so the next import of
 another source only brings what is still missing.
+
+## ForeverChanges / ForeverMaster reference source
+
+**The Forge → Imports → Refresh ForeverChanges** downloads the official addon ZIP,
+checks its SHA-256, parses its Lua data without executing it, and replaces this
+source's records in `ft_world_facts`. The Imports panel reports loaded records,
+matching tracker resources and incomplete resources by category. Open a matching
+resource to see the ForeverChanges panel, its build and archive provenance.
+References are visible to administrators only. Existing sources are preserved.
+
+This source uses the world source registry (`tools/world/layers.json`) and fact
+store, with `reference` use and fact kind. It does not create an executable import
+card, mark a resource available, change client metadata, participate as a live
+recording, or generate server SQL. It is excluded from public data exports. The
+addon is listed as All Rights Reserved; no addon files, guide prose or compiled
+third-party tables are committed to this repository. Downloads stay in ignored
+`data/foreverchanges/<archive hash>/` directories.
+
+Included: item names and acquisition hints, recipe requirements/reagents/output
+and teaching-item relationships, profession learning/leveling records, dungeon
+quests and prerequisites, explicit instance-map mappings, boss-item hints,
+training ranks, trainer locations, library-book references and reputation rewards.
+Multiple relationships are retained under the same resource ID. Classic labels
+are preserved; absence of a Classic label is not treated as observation evidence.
+
+The pack's talent data contains build presets, not talent node IDs: those are
+counted in the inventory without fabricating talent entities. Dungeon slugs with
+no explicit map mapping are not guessed into tracker dungeon IDs. Boss names do
+not become creature IDs; loot hints do not become drop percentages. World quest
+name/level entries remain distinguishable from detailed dungeon quest records.
+The website can be newer and broader than the downloadable pack.
+
+CLI equivalents:
+
+```sh
+# Refresh official addon data into tracker reference tables only.
+php tools/source-import.php foreverchanges
+
+# Validate an already downloaded archive and prepare tracker SQL without loading.
+python3 tools/foreverchanges-import.py --archive /path/to/ForeverMaster.zip --prepare
+
+# Existing world commands are supported too (the archive must still match its pin).
+python3 tools/tracker.py world pin foreverchanges
+python3 tools/tracker.py world facts foreverchanges
+```
+
+The refresh worker is serialized. Malformed or changed archives fail before a DB
+load; a failed load rolls back through the existing fact-store transaction.
+Reference matches describe investigation leads, not a count of fixes completed.

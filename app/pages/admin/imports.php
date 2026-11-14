@@ -95,6 +95,8 @@ page_start(t('Imports', 'Imports'), 'admin');
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
 </section>
 
+<?php require FT_APP . '/pages/admin/_foreverchanges_source.php'; ?>
+
 <?php $alLog = is_file(source_log('atlasloot')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('atlasloot')))) : ''; ?>
 <section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Addon data', 'Données d’addon')) ?></span><h2>AtlasLoot Classic Forever</h2></div></header>
