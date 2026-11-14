@@ -89,6 +89,15 @@ class Evidence(unittest.TestCase):
         self.assertEqual(ev['drop'], [['npc', 103, 159, 7.5]])          # 3 in 40 kills
         self.assertEqual(left, {'report_drop_not_counted': 1, 'report_drop_few_kills': 1})   # Classic's percentage; four kills
 
+    def test_one_drop_is_a_sighting_and_an_item_everything_drops_is_nobodys_own(self):
+        once = {'id': 262890, 'sources': [{'how': 'Creature drop', 'name': 'Defias Thug', 'place': 'Orgrimmar', 'rate': {'drops': 1, 'kills': 256}}]}
+        crate = {'id': 248690, 'sources': [{'how': 'Creature drop', 'name': f'Creature {n}', 'place': '', 'rate': {'drops': 3, 'kills': 400}} for n in range(14)]
+                 + [{'how': 'Creature drop', 'name': 'Defias Thug', 'place': 'Orgrimmar', 'rate': {'drops': 3, 'kills': 400}}]}
+        beads = {'id': 263439, 'sources': [{'how': 'Creature drop', 'name': 'Defias Thug', 'place': 'Orgrimmar', 'rate': {'drops': 83, 'kills': 156}}]}
+        ev, left = reports.evidence(pack(items=[once, crate, beads]), self.npcs, self.objects)
+        self.assertEqual(ev['drop'], [['npc', 103, 263439, 53.2051]])
+        self.assertEqual(left, {'report_drop_seen_once': 1, 'report_drop_world': 15})
+
     def test_another_file_is_refused(self):
         with self.assertRaises(ValueError):
             reports.evidence({'quests': []}, self.npcs)

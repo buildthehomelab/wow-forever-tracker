@@ -14,6 +14,11 @@ Two things set it apart from the other sources:
   - **Not all of it is about Forever.** The site says so itself: its base is Classic's, with what the game server
     answered and what its players saw on top. Only that is taken: a quest marked as seen by players, a drop counted
     in kills (ten at least). A drop given as a bare percentage is Classic's and is left out.
+  - **A drop is a creature's own when players saw it more than once, from few creatures.** The first card made on a
+    whole world was nine tenths Waylaid Crates: world drops, each listed under some fifty creatures that happened to
+    be killed when one fell, nearly always once. One drop is a sighting, not a rate, and an item fifteen different
+    creatures drop is nobody's own loot: it belongs to the world's shared tables, which no report describes. Both are
+    left out and counted.
 
 This module reads no database and no configuration: it is given the pack and the server's names, spawns and maps.
 """
@@ -22,6 +27,8 @@ import math
 
 FORMAT = 'foreverchanges-pack/1'
 MIN_KILLS = 10      # a drop counts from this many kills
+MIN_DROPS = 2       # and from this many drops: one is a sighting, not a rate
+WORLD_DROP = 15     # an item this many different creatures drop is a world drop, not a creature's own loot
 NEAR = 80           # yards: a spawn this close to the reported place is the one
 FAR = 300           # yards: the only creature of that name still is, up to here (a patrol, a rough pin)
 VENDORS = ('Sold by a vendor', 'Sold by a quartermaster')
@@ -217,6 +224,8 @@ def evidence(pack, npcs, objects=None):
         item_id = item.get('id')
         if not isinstance(item_id, int) or isinstance(item_id, bool) or item_id <= 0:
             continue
+        droppers = {str(s.get('name') or '').strip().lower() for s in item.get('sources') or [] if isinstance(s, dict) and s.get('how') in DROPS}
+        world_drop = len(droppers) >= WORLD_DROP
         for source in item.get('sources') or []:
             how = source.get('how') if isinstance(source, dict) else None
             if how in VENDORS:
@@ -232,8 +241,14 @@ def evidence(pack, npcs, objects=None):
                 if not isinstance(kills, (int, float)) or not isinstance(count, (int, float)) or isinstance(kills, bool) or isinstance(count, bool):
                     left['report_drop_not_counted'] += 1      # a bare percentage: Classic's, not what players counted
                     continue
+                if world_drop:
+                    left['report_drop_world'] += 1
+                    continue
                 if kills < MIN_KILLS or count <= 0:
                     left['report_drop_few_kills'] += 1
+                    continue
+                if count < MIN_DROPS:
+                    left['report_drop_seen_once'] += 1
                     continue
                 entry, why = npcs.find(source.get('name'), source.get('place'))
                 if not entry:
