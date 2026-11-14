@@ -26,12 +26,14 @@ SOURCES = {
     'prospecting': L('Prospecting', 'Prospection'), 'milling': L('Milling', 'Broyage'), 'questdrop': L('Quest loot', 'Butin de quête'),
     'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
+    'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
 }
 
 
 # The Eastern Plaguelands towers: the flight master is there only while a faction holds the tower (the world PvP
 # script places it), so no spawn row is expected.
 TOWER_TAXI = {84, 85, 86, 87}
+QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without being accepted, so no giver's text
 
 
 def evaluate_all(content, ctx):
@@ -138,6 +140,7 @@ def evaluate_all(content, ctx):
             row = ctx['quests'].get(quest, {})
             add({int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} - {0}, 'quest')
             add({int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)} - {0}, 'quest')
+            add({int(row.get('StartItem') or 0)} - {0}, 'questgive')   # the package the giver hands over on accept
         learnable = trained | ctx['auto_learn'] | {spell for spell, items in ctx['teaches'].items() if items & set(sources)}
         for item, spells in ctx['creates'].items():
             if spells & learnable:
@@ -157,6 +160,7 @@ def evaluate_all(content, ctx):
     for quest in available_quests:
         row = ctx['quests'].get(quest, {})
         quest_spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
+        quest_spells |= ctx.get('quest_display_spells', {}).get(quest, set())
     learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
     for source, target in ctx['learn_chain']:
         if source in learnable:
@@ -257,6 +261,16 @@ def evaluate_all(content, ctx):
             checks.append(check(not problems, 'objectives', detail, 2))
         if quest_id in disabled_quests:
             checks.append(check(False, 'enabled', L('Disabled in the disables table.', 'Désactivée dans la table disables.'), 3))
+        # The words: a quest that works with an empty window is not finished. Only what every such quest shows is
+        # asked for: the giver's text (a quest taken from a giver; an auto-complete one has none by design) and the
+        # turn-in text (a quest handed in to someone).
+        lacking = []
+        if start and int(row.get('QuestType') or 0) != QUEST_TYPE_AUTOCOMPLETE and not int(row.get('HasText') or 0):
+            lacking.append(L('no quest text (description, objectives)', 'pas de texte de quête (description, objectifs)'))
+        if end and quest_id not in ctx.get('quest_turn_in_text', ()):
+            lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
+        if start or end:
+            checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))
         return checks
 
     boxes = {}
@@ -410,6 +424,9 @@ def evaluate_all(content, ctx):
         held = node_id in TOWER_TAXI
         if held:
             detail = L('Its flight master appears while a faction holds the tower.', 'Son maître de vol apparaît quand une faction tient la tour.')
+        elif node_id in ctx.get('script_taxi_nodes', ()) and not (near is not None and near < 60):
+            held = True   # no flight master by design: an NPC's script starts the flight (the druids' flights out of Moonglade)
+            detail = L('No flight master: an NPC’s script starts the flight from here.', 'Pas de maître de vol : le script d’un PNJ lance le vol depuis ici.')
         return [check(node_id in known['taxi'], 'core', L('Server TaxiNodes.db2.', 'TaxiNodes.db2 du serveur.'), 1),
                 check(held or (near is not None and near < 60), 'flightmaster', detail, 3)]
 

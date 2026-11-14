@@ -8,6 +8,7 @@ from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
+SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 
 
 def log(message):
@@ -114,10 +115,26 @@ def server_state():
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]
+    # Flight points without a flight master: an NPC's script puts the player on the path (the druids' flights out of
+    # Moonglade). The nodes a SmartAI "activate taxi" path leaves from.
+    script_paths = ints(f'SELECT action_param1 FROM smart_scripts WHERE action_type = {SMART_ACTIVATE_TAXI}')
+    ctx['script_taxi_nodes'] = {r['FromTaxiNode'] for r in srv('TaxiPath') if r['ID'] in script_paths}
 
     quests = {}
-    for row in q('SELECT ID, LogTitle, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, ' + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
+    # HasText: the giver's words or the objectives text, as a flag (the texts themselves would be most of the memory)
+    for row in q("SELECT ID, LogTitle, QuestType, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, "
+                 "(COALESCE(QuestDescription, '') <> '' OR COALESCE(LogDescription, '') <> '') HasText, "
+                 + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
         quests[int(row['ID'])] = row
+    # What the NPC says at the turn-in: the reward text, or the "have you got it?" text of a quest that asks for items.
+    ctx['quest_turn_in_text'] = ints("SELECT ID FROM quest_offer_reward WHERE COALESCE(RewardText, '') <> ''") | \
+        ints("SELECT ID FROM quest_request_items WHERE COALESCE(CompletionText, '') <> ''")
+    # The spells a quest shows as its reward: the core reads this table, not quest_template's three columns.
+    display_spells = {}
+    if sqlio.has_table('quest_reward_display_spell'):
+        for r in q('SELECT QuestID, SpellID FROM quest_reward_display_spell WHERE SpellID > 0'):
+            display_spells.setdefault(int(r['QuestID']), set()).add(int(r['SpellID']))
+    ctx['quest_display_spells'] = display_spells
     ctx['quest_fr'] = {int(r['ID']): r['LogTitle'] for r in q("SELECT ID, LogTitle FROM quest_template_locale WHERE locale='frFR'") if r['LogTitle']} \
         if CONFIG.french() else {}
     ctx['quest_level'] = {int(r['ID']): (int(r['QuestLevel'] or 0), int(r['MinLevel'] or 0)) for r in q('SELECT ID, QuestLevel, MinLevel FROM quest_classic_level')} if sqlio.has_table('quest_classic_level') else {}
