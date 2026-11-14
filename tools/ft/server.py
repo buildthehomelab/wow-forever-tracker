@@ -7,6 +7,7 @@ from .config import CONFIG, DATA
 from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
+EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 
 
 def log(message):
@@ -56,12 +57,14 @@ def server_state():
         'mount': ids('Mount') | hot('mount'), 'toy': ids('Toy') | hot('toy'), 'pet': ids('BattlePetSpecies') | hot('battle_pet_species'),
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
-    learn, creates = {}, {}
+    learn, creates, spell_summons = {}, {}, set()
     for e in srv('SpellEffect'):
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
         if e['Effect'] == EFFECT_CREATE_ITEM and e['EffectItemType']:
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
+        if e['Effect'] == EFFECT_SUMMON and e['EffectMiscValue1'] > 0:
+            spell_summons.add(e['EffectMiscValue1'])
     effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
     for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
         effects[int(row['ID'])] = int(row['SpellID'])
@@ -90,6 +93,16 @@ def server_state():
         npc_maps.setdefault(int(row['map']), []).append({'id': int(row['id']), 'n': int(row['n']), 'name': row['name'] or '',
                                                           'scripted': bool(row['ScriptName']) or row['AIName'] == 'SmartAI'})
     ctx['npc_maps'] = npc_maps
+    # Creatures something brings into the world without a spawn row: a summon group, a SmartAI summon, a summoning
+    # spell. With the unspawned creatures that have a C++ script, they are the bosses a script places (ft.bosses).
+    summoned = ints('SELECT action_param1 FROM smart_scripts WHERE action_type = 12')
+    if sqlio.has_table('creature_summon_groups'):
+        summoned |= ints('SELECT entry FROM creature_summon_groups')
+    summoned |= spell_summons
+    ctx['summoned_npc'] = summoned
+    ctx['unspawned_npc'] = [{'id': int(r['entry']), 'name': r['name'] or '', 'script': bool(r['ScriptName'])}
+                            for r in q("SELECT ct.entry, ct.name, ct.ScriptName FROM creature_template ct WHERE NOT EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry)")
+                            if r['ScriptName'] or int(r['entry']) in summoned]
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]

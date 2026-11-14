@@ -5,8 +5,8 @@
    "key": "first-raids",
    "name": "First raids",
    "opens": "2026-12-09",
-   "source": "Blizzard's raid preview: Barrow Deeps, Hyjal Summit and Onyxia's Lair open five weeks after launch",
-   "maps": ["Onyxia's Lair", "Hyjal Summit", "Barrow Deeps"]
+   "source": "Blizzard's raid preview: Barrow Deeps, Hyjal Summit and Onyxia's Lair open five weeks after launch. Map 3002: a raid the client keeps encrypted (no Map row, two raid encounters), so one of the two new raids",
+   "maps": ["Onyxia's Lair", "Hyjal Summit", "Barrow Deeps", 3002]
   },
   {
    "key": "later-dungeons",

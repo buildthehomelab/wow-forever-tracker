@@ -157,13 +157,14 @@ first_run() {
     # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too; 4: Wowhead checks new items and
     # trainer spells; 5: every item players cannot get, Season of Discovery ones included; 6: items
     # Wowhead does not know stay visible, creature checks; 7: release phases, the phase list's checksum is part of the marker; 8: Season of Discovery
-    # instances and their bosses go to Internal / test): the stored
+    # instances and their bosses go to Internal / test; 9: bosses counted once and found when a script summons them,
+    # battlegrounds, flight points nobody flies from, placeholder mounts): the stored
     # analysis is then redone once at the next start.
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=8 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=9 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"
