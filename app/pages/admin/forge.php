@@ -103,8 +103,18 @@ page_start(t('The Forge', 'La Forge'), 'admin');
   <div class="analysis-card" data-analysis data-running="<?= $status['running'] ? 1 : 0 ?>">
     <div><strong><i class="fas fa-rotate"></i> <?= e(t('Analysis', 'Analyse')) ?></strong>
       <small data-analysis-text><?= $status['running'] ? e(t('Running…', 'En cours…')) : e(sprintf(t('Last run: %s', 'Dernière : %s'), isset(meta()['generated_at']) ? date(t('M j, H:i', 'd/m H:i'), strtotime((string)meta()['generated_at'])) : '—')) ?></small></div>
+    <div class="analysis-actions">
     <button class="btn is-small" type="button" data-analysis-start <?= $status['running'] ? 'disabled' : '' ?>><i class="fas fa-play"></i> <?= e(t('Run again', 'Relancer')) ?></button>
     <button class="btn is-small" type="button" data-analysis-check <?= $status['running'] ? 'disabled' : '' ?> title="<?= e(t('Asks Blizzard’s servers for a newer client build and for new hotfixes now, and runs the analysis when there is something new. The tracker does this by itself every few hours.', 'Demande maintenant aux serveurs de Blizzard un build client plus récent et de nouveaux correctifs, et lance l’analyse s’il y a du nouveau. Le tracker le fait de lui-même toutes les quelques heures.')) ?>"><i class="fas fa-cloud-arrow-down"></i> <?= e(t('Check the client now', 'Vérifier le client maintenant')) ?></button>
+    </div>
+    <?php $asked = client_check_notes(); if ($asked): ?>
+    <p class="analysis-asked"><i class="fas fa-satellite-dish"></i>
+      <?php foreach (['client' => t('Client build', 'Build du client'), 'hotfixes' => t('Hotfixes', 'Correctifs')] as $kind => $label): if (isset($asked[$kind])): ?>
+        <span class="<?= $asked[$kind]['code'] === null ? 'is-bad' : '' ?>" title="<?= e($asked[$kind]['message']) ?>"><b><?= e($label) ?></b> <?= e(sprintf(t('asked %s', 'demandé %s'), date(t('M j, H:i', 'd/m H:i'), $asked[$kind]['at']))) ?>:
+          <?= e(mb_strimwidth($asked[$kind]['message'], 0, 110, '…')) ?></span>
+      <?php endif; endforeach; ?>
+    </p>
+    <?php endif; ?>
     <pre class="analysis-log" data-analysis-log <?= $status['log'] === '' ? 'hidden' : '' ?>><?= e($status['log']) ?></pre>
   </div>
 </section>

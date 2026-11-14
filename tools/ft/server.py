@@ -62,6 +62,19 @@ def vendor_items(rows):
     return out
 
 
+def zone_rectangles(assignments):
+    """The world rectangle each zone's map draws, from UiMapAssignment rows, in the shape the zone rule reads:
+    [{'assignments': [{'area', 'map', 'region': (min x, min y, max x, max y)}]}]. A row that names no zone (a
+    continent's map, a dungeon floor) says nothing about a zone and is left out."""
+    out = []
+    for row in assignments:
+        if not row.get('AreaID'):
+            continue
+        xs, ys = (row['Region1X'], row['Region2X']), (row['Region1Y'], row['Region2Y'])
+        out.append({'assignments': [{'area': row['AreaID'], 'map': row['MapID'], 'region': (min(xs), min(ys), max(xs), max(ys))}]})
+    return out
+
+
 def server_state():
     log(f'server: DB2 of the running server ({server_dbc()})')
     for key in ('maps', 'vmaps'):
@@ -216,5 +229,6 @@ def server_state():
     try:
         ctx['ui_maps'] = json.load(open(world_map, encoding='utf-8'))['maps']
     except (OSError, ValueError, KeyError):
-        ctx['ui_maps'] = []
+        # no such file (nothing writes one any more): the zones' rectangles are in the game's own table
+        ctx['ui_maps'] = zone_rectangles(srv('UiMapAssignment'))
     return ctx

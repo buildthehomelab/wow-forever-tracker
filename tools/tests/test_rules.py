@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 os.environ.setdefault('FOREVER_TRACKER_CONFIG', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'config.sample.ini'))
 
-from ft import rules  # noqa: E402
+from ft import rules, server  # noqa: E402
 
 rules.log = lambda *_: None   # the analysis' progress lines
 
@@ -177,6 +177,38 @@ class FlightPoints(unittest.TestCase):
         self.assertEqual(failed(evaluate(content, ctx)[('taxi', 62)]), ['flightmaster'])
         ctx['script_taxi_nodes'] = {62}
         self.assertEqual(evaluate(content, ctx)[('taxi', 62)][0], 'ok')
+        # whatever starts the flight on this server: a point the client never marks as known needs no flight master
+        ctx['script_taxi_nodes'] = set()
+        content['taxi'][62]['learned'] = False
+        self.assertEqual(evaluate(content, ctx)[('taxi', 62)][0], 'ok')
+        content['taxi'][62]['learned'] = True
+        self.assertEqual(failed(evaluate(content, ctx)[('taxi', 62)]), ['flightmaster'])
+
+
+
+class ZoneCreatures(unittest.TestCase):
+    """A zone's creatures: counted inside the rectangle the zone's map draws (UiMapAssignment)."""
+
+    ROWS = [{'AreaID': 12, 'MapID': 0, 'Region1X': -10254.0, 'Region1Y': -1935.0, 'Region2X': -7939.0, 'Region2Y': 1535.0},
+            {'AreaID': 0, 'MapID': 0, 'Region1X': -20000.0, 'Region1Y': -20000.0, 'Region2X': 20000.0, 'Region2Y': 20000.0},   # a continent's map
+            {'AreaID': 14, 'MapID': 1, 'Region1X': 500.0, 'Region1Y': 100.0, 'Region2X': -500.0, 'Region2Y': -100.0}]       # written the other way round
+
+    def test_the_rectangles_come_from_the_games_own_table(self):
+        found = server.zone_rectangles(self.ROWS)
+        self.assertEqual([a for ui in found for a in ui['assignments']],
+                         [{'area': 12, 'map': 0, 'region': (-10254.0, -1935.0, -7939.0, 1535.0)},
+                          {'area': 14, 'map': 1, 'region': (-500.0, -100.0, 500.0, 100.0)}])
+
+    def test_a_zone_with_hardly_any_creature_is_said(self):
+        content = {'zone': {12: {'map': 0}, 14: {'map': 1}}}
+        inside = [(0, -9000.0 + i, 0.0, 100 + i) for i in range(25)]
+        ctx = world(ui_maps=server.zone_rectangles(self.ROWS), spawns=inside + [(1, 0.0, 0.0, 7), (0, 0.0, 0.0, 8)], map_tiles={0: 1, 1: 1},
+                    graveyards={12, 14})
+        results = evaluate(content, ctx)
+        self.assertNotIn('spawns', failed(results[('zone', 12)]))    # 25 creatures inside
+        self.assertIn('spawns', failed(results[('zone', 14)]))       # one creature in the whole zone
+        # without the rectangles the check is not made at all (it used to never run)
+        self.assertNotIn('spawns', failed(evaluate(content, world(spawns=inside, map_tiles={0: 1, 1: 1}, graveyards={12, 14}))[('zone', 14)]))
 
 
 if __name__ == '__main__':

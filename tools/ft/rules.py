@@ -427,6 +427,10 @@ def evaluate_all(content, ctx):
         held = node_id in TOWER_TAXI
         if held:
             detail = L('Its flight master appears while a faction holds the tower.', 'Son maître de vol apparaît quand une faction tient la tour.')
+        elif not entity.get('learned', True) and not (near is not None and near < 60):
+            held = True   # the client keeps no "known" bit for it: players never learn it, so no flight master opens it
+            detail = L('No flight master: players never learn this point (an NPC or a quest starts flights from here).',
+                       'Pas de maître de vol : les joueurs n’apprennent jamais ce point (un PNJ ou une quête lance les vols depuis ici).')
         elif node_id in ctx.get('script_taxi_nodes', ()) and not (near is not None and near < 60):
             held = True   # no flight master by design: an NPC's script starts the flight (the druids' flights out of Moonglade)
             detail = L('No flight master: an NPC’s script starts the flight from here.', 'Pas de maître de vol : le script d’un PNJ lance le vol depuis ici.')

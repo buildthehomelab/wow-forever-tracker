@@ -42,6 +42,11 @@ $leftLabels = [
     'drop_same' => t('drops the server has whose chance has not moved', 'butins que le serveur a et dont la chance n’a pas bougé'),
     'drop_differs_core' => t('drops whose chance differs but that no import brought (the core’s own rows: not changed)', 'butins dont la chance diffère mais qu’aucun import n’a apportés (lignes du core : inchangées)'),
     'drop_differs_trusted' => t('drops whose chance differs from a more trusted source’s row (not changed)', 'butins dont la chance diffère de celle d’une source plus fiable (inchangés)'),
+    'quest_same' => t('quests the server has that say what the newest recording of the live game says', 'quêtes du serveur qui disent ce que dit l’enregistrement le plus récent du jeu'),
+    'quest_row_newer' => t('quests whose row is from the same client build as the recording, or a later one (the row is the newer word: not changed)', 'quêtes dont la ligne vient du même build client que l’enregistrement, ou d’un plus récent (inchangées)'),
+    'quest_mechanics_differ' => t('quests whose type, flags, start item, time limit, zone, races or next quest differ from the recording (counted, never changed here)', 'quêtes dont le type, les drapeaux, l’objet de départ, la durée, la zone, les races ou la quête suivante diffèrent de l’enregistrement (comptées, jamais modifiées ici)'),
+    'quest_record_unreadable' => t('quests whose recording does not fit the columns (not compared)', 'quêtes dont l’enregistrement ne tient pas dans les colonnes (non comparées)'),
+    'quest_refresh_failed' => t('the quests the server has could not be compared with the recording this time (see the PHP error log)', 'les quêtes du serveur n’ont pas pu être comparées à l’enregistrement cette fois (voir le journal d’erreurs PHP)'),
     'loot_chance_unknown' => t('drops without a known chance', 'butins sans chance connue'), 'loot_unknown_creature' => t('drops of creatures or chests unknown to this server', 'butins de PNJ ou coffres inconnus de ce serveur'),
     'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
     'trainer_level_unknown' => t('class spells without a known level', 'sorts de classe sans niveau connu'), 'trainer_previous_rank_unknown' => t('higher ranks whose previous rank is unknown', 'rangs supérieurs dont le rang précédent est inconnu'),
@@ -168,7 +173,17 @@ page_start(t('Imports', 'Imports'), 'admin');
 <?php if (!$imports): ?>
   <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-file-import"></i></div><p><?= e(t('No file imported yet.', 'Aucun fichier importé pour le moment.')) ?></p></div>
 <?php endif; ?>
-<?php foreach ($imports as $s): $counts = json_decode((string)$s['counts'], true) ?: []; $ignored = json_decode((string)$s['ignored'], true) ?: []; ?>
+<?php
+// a source's earlier cards go below, folded: its newest card says all they said and is still true
+$earlierIds = array_flip(import_earlier($imports));
+$ordered = array_merge(array_values(array_filter($imports, fn($s) => !isset($earlierIds[(int)$s['id']]))), array_values(array_filter($imports, fn($s) => isset($earlierIds[(int)$s['id']]))));
+$folded = false;
+foreach ($ordered as $s): $counts = json_decode((string)$s['counts'], true) ?: []; $ignored = json_decode((string)$s['ignored'], true) ?: []; ?>
+<?php if (!$folded && isset($earlierIds[(int)$s['id']])): $folded = true; ?>
+<details class="import-earlier">
+  <summary><i class="fas fa-clock-rotate-left"></i> <?= e(sprintf(t('Earlier cards of sources that have a newer one (%d)', 'Cartes précédentes de sources qui en ont une plus récente (%d)'), count($earlierIds))) ?>
+    <small class="muted"><?= e(t('Kept because something was applied from them. The newest card of each source, above, is the one to apply.', 'Conservées car quelque chose en a été appliqué. La carte la plus récente de chaque source, ci-dessus, est celle à appliquer.')) ?></small></summary>
+<?php endif; ?>
 <article class="block import-card" data-import="<?= (int)$s['id'] ?>">
   <header class="op-head">
     <span class="fix-kind is-import"><i class="fas fa-file-import"></i></span>
@@ -178,7 +193,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   </header>
   <div class="import-tables">
     <?php foreach ($counts as $table => $n): ?>
-      <label class="checkbox-line"><input type="checkbox" value="<?= e($table) ?>" checked> <span><?= e($tableLabels[$table] ?? $table) ?></span> <small class="muted"><?= e($table) ?> · <?= number($n) ?></small></label>
+      <label class="checkbox-line"><input type="checkbox" value="<?= e($table) ?>" checked> <span><?= e($tableLabels[$table] ?? (preg_match('/^quest_[a-z_]+\.(\w+)$/', (string)$table, $m) ? sprintf(t('Quests the server has: %s changed on live', 'Quêtes du serveur : %s a changé en jeu'), $m[1]) : $table)) ?></span> <small class="muted"><?= e($table) ?> · <?= number($n) ?></small></label>
     <?php endforeach; ?>
   </div>
   <?php if ($ignored): ?><p class="muted small"><?= e(t('Left out:', 'Écarté :')) ?> <?= e(implode(', ', array_map(fn($t, $n) => ($leftLabels[$t] ?? $t) . " ($n)", array_keys($ignored), $ignored))) ?></p><?php endif; ?>
@@ -188,12 +203,14 @@ page_start(t('Imports', 'Imports'), 'admin');
   </div>
 </article>
 <?php endforeach; ?>
+<?php if ($folded): ?></details><?php endif; ?>
 
 <section class="block">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('How it merges', 'Comment la fusion se fait')) ?></span><h2><?= e(t('Safe by design', 'Sûr par conception')) ?></h2></div></header>
   <ul class="confirm-points">
     <li><i class="fas fa-shield-halved"></i><?= e(t('Only INSERT rows are read; DELETE and UPDATE statements of the file are never run.', 'Seules les lignes INSERT sont lues ; les DELETE et UPDATE du fichier ne sont jamais exécutés.')) ?></li>
     <li><i class="fas fa-rotate"></i><?= e(t('A drop chance a source measured again is proposed as a line of its card, only for rows an import brought and only by a source at least as trusted; each change names the value it replaces and can be rolled back.', 'Une chance de butin mesurée à nouveau par une source est proposée sur une ligne de sa carte, seulement pour les lignes apportées par un import et par une source au moins aussi fiable ; chaque changement nomme la valeur qu’il remplace et peut être annulé.')) ?></li>
+    <li><i class="fas fa-scroll"></i><?= e(t('The EG Link card also reads the quests your server has again from the live game: where a reward, an amount or a text changed in a later client build than your row, it proposes the new value. Flags and the other fields that decide how a quest works are counted, never changed.', 'La carte EG Link relit aussi les quêtes de votre serveur depuis le jeu : là où une récompense, une quantité ou un texte a changé dans un build client plus récent que votre ligne, elle propose la nouvelle valeur. Les drapeaux et les autres champs qui décident du fonctionnement d’une quête sont comptés, jamais modifiés.')) ?></li>
     <li><i class="fas fa-code-merge"></i><?= e(t('Rows your server already has are left out; spawns get new guids, and a spawn that already stands within 3 yards is left out with its addon.', 'Les lignes déjà présentes sont écartées ; les placements reçoivent de nouveaux guid, et un placement qui existe déjà à moins de 3 mètres est écarté avec son addon.')) ?></li>
     <li><i class="fas fa-sack-dollar"></i><?= e(t('Loot works at once: a creature whose LootID is 0 gets its own loot table.', 'Le butin fonctionne aussitôt : un PNJ dont le LootID vaut 0 reçoit sa propre table de butin.')) ?></li>
     <li><i class="fas fa-rotate-left"></i><?= e(t('Columns your core does not have are dropped. The history keeps the exact SQL and a rollback.', 'Les colonnes que votre core n’a pas sont ignorées. L’historique garde le SQL exact et l’annulation.')) ?></li>

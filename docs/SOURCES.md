@@ -89,8 +89,30 @@ line like a table; nothing changes until the card is applied.
   round. *Data repo .sql* exports it as it is.
 - **Which sources.** Icy Veins (it looks the items of imported drops up again, besides the gaps; its answers are kept
   for two weeks), EG Link and ForeverDB.net (their whole files are read anyway). Not yet: NorgannonDB (it is asked about
-  the gaps only), AtlasLoot (its measures are the other sources'), and values other than a drop's chance (a trainer's
-  price, a vendor's stock).
+  the gaps only), AtlasLoot (its measures are the other sources'), and a trainer's price or a vendor's stock (those tables do not say
+  which import brought a row).
+
+### Quests, read again from the live game
+
+A quest the server has is never a gap, so no import looked at it again; and Blizzard keeps changing quests: a reward
+is swapped, an amount is lowered, a text is rewritten. EG Link records each quest as the live server sent it to a
+client (the client's quest cache), per client build. The EG Link import compares that record with the server's rows
+and proposes what differs, as lines of its card (`quest_template.RewardItem1`, `quest_objectives.Amount`, ...).
+
+- **The later word wins.** A row carries the client build it was recorded on (`VerifiedBuild`), the record the build
+  it was seen on. A record is taken only from the live game, and only when it is from a later build than the row. A
+  row from the same or a later build is the newer word and is left alone (*the row is the newer word*).
+- **What is compared.** What a quest gives (items, choices, currencies, reputation, spell, XP difficulty) and what it
+  says (title, objectives text, description, area, completion log) in `quest_template`; an objective's amount and
+  text in `quest_objectives`, by Forever's own objective id; the money in `quest_classic_money`; the levels in
+  `quest_classic_level`. A text is the same when only its line breaks are written another way (`$B`, a line feed).
+- **What is never changed.** What decides how the server handles a quest: its type, flags, start item, time limit,
+  zone, races, the quest after it. A server may hold those differently on purpose, and a wrong one breaks a quest
+  instead of misstating a reward. They are compared and counted on the card (*differ from the recording*).
+  Nothing is added either: an objective the server lacks is a quest's shape, not a value.
+- **Safe, as above.** Each statement names the value it replaces and has its rollback; *Data repo .sql* exports it as
+  it is. The comparison is the analysis' own code (`python tools/tracker.py refresh quests --eglink <commit> --out
+  <file>`, `tools/ft/refresh.py`); the website accepts from it only those tables and columns.
 
 `[sources] refresh = 0` turns it off: imports then only add.
 

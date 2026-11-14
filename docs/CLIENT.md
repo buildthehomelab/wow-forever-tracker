@@ -43,8 +43,20 @@ exactly what one from the server's copy would.
 
 A key comes out when its content opens. So a build already stored gains readable parts with time: `build.json`
 keeps, by table, the keys the build is waiting for (`waiting`), and `fetch` reads the same build again as soon as one
-of them is in the list of published keys (wowdev's TACTKeys). What was hidden then shows as new official content, and
-as a gap where the server lacks it.
+of them is out. What was hidden then shows as new official content, and as a gap where the server lacks it.
+
+A key is out when either says so:
+
+- **Blizzard's own hotfixes.** Blizzard hands a key to every client in a hotfix (a `TactKey` record: the key's number
+  and its 16 bytes). The tracker already stores the hotfixes (below), so the key is there the day the content opens.
+  A table's hidden section names its key by name, a hotfix by number; the build's own table `TactKeyLookup` joins the
+  two, and `build.json` keeps the numbers of the keys it waits for (`key_ids`). A snapshot stored before the tracker
+  kept them learns them once, at the next check (the build is indexed for it, a few minutes).
+- **The list of published keys** (wowdev's TACTKeys), which names the same keys a little later. When it cannot be
+  reached, the keys from the hotfixes are still checked.
+
+New hotfixes are followed at once by one more look at the build, so a key that came with them opens it in the same
+check. A build read again keeps its own hotfix cache.
 
 ## When a build is refused
 
@@ -58,7 +70,8 @@ there was nothing new and 2 when it refused one.
 ## In the container
 
 Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch` and `hotfixes` (below), and the analysis after
-them when either stored something. The first check comes a minute after the start's own analysis is over, the next
+them when either stored something. The Forge says when each was last asked and what it answered, under the analysis
+(`data/client-check.json`; a server that could not be read is shown as such). The first check comes a minute after the start's own analysis is over, the next
 ones every `FT_CLIENT_EVERY_HOURS`. The check itself is a few small requests. The log is `data/client.log`. The
 container needs to reach `us.patch.battle.net:1119` and Blizzard's CDN hosts.
 
@@ -113,8 +126,6 @@ A cache is never used for another build than the one in its header, and never fo
 
 ## What it does not do yet
 
-- **Keys from the hotfixes.** Blizzard hands out the keys of unreleased content by hotfix too; the stored build is read
-  again when a key appears in the public list (wowdev's TACTKeys), which follows a little later.
 - **Hotfixes in the changelog.** A hotfix changes the newest build's content in place: the changelog compares builds,
   so it shows a hotfix only as part of the difference between two builds. A resource that exists by hotfix alone is in
   no build's tables, so nothing says when it appeared: compared with a build whose hotfixes were never stored it is not

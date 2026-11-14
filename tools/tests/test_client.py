@@ -14,7 +14,7 @@ import zlib
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 os.environ.setdefault('FOREVER_TRACKER_CONFIG', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'config.sample.ini'))
 
-from ft import cdn, client, content  # noqa: E402
+from ft import cdn, client, content, hotfixes  # noqa: E402
 
 KEY_A, KEY_B = 0x0DA4670DB36FB2A9, 0xDA0E7785727A0A65
 
@@ -179,6 +179,67 @@ class Fetch(unittest.TestCase):
         self.assertEqual(client.SECTION.unpack_from(data, client.SECTIONS_AT + client.SECTION.size)[0], client.DECRYPTED)
         self.assertEqual(self.fetch(70938, published=lambda: {'0DA4670DB36FB2A9': b''})['code'], client.UP_TO_DATE)   # nothing left to wait for
 
+    def hotfix_cache(self, build, keys):
+        """Stores a hotfix cache with the snapshot: TactKey records {key number: (status, bytes)}."""
+        blob = b'XFTH' + struct.pack('<II', 9, build) + bytes(32)
+        for number, (status, data) in keys.items():
+            blob += hotfixes.ENTRY.pack(b'XFTH', 0, 5, 0, hotfixes.TACT_KEY, number, len(data), status) + data
+        with open(os.path.join(self.folder.name, str(build), hotfixes.FILE), 'wb') as handle:
+            handle.write(blob)
+        hotfixes._loaded.clear()
+
+    def waiting_build(self):
+        """Build 70938 stored with one section of Item under KEY_A, which the build's own table numbers 8334."""
+        self.numbers = client.key_numbers
+        client.key_numbers = lambda data: {'0DA4670DB36FB2A9': 8334, 'DA0E7785727A0A65': 8335}
+        self.addCleanup(lambda: setattr(client, 'key_numbers', self.numbers))
+        self.files[client.KEY_LOOKUP_FILE] = b'the lookup table'
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, bytes(8))])
+        self.absent = {20: ['0DA4670DB36FB2A9']}
+        self.fetch(70938)
+
+    def test_the_numbers_of_the_keys_waited_for_are_kept(self):
+        self.waiting_build()
+        self.assertEqual(self.info(70938)['key_ids'], {'0DA4670DB36FB2A9': 8334})   # not the 200 others
+        self.assertEqual(client.key_ids(70938), {'0DA4670DB36FB2A9': 8334})
+        self.assertIsNone(client.key_ids(70862))   # a snapshot stored before they were kept
+
+    def test_a_key_blizzard_hands_out_by_hotfix_opens_the_build(self):
+        self.waiting_build()
+        nobody = lambda: {}   # the published list does not have it yet
+        key = bytes(range(16))
+        # hotfixes that say nothing of the key: a record of another key, and one whose content is withheld
+        self.hotfix_cache(70938, {8335: (1, key), 8334: (4, b'')})
+        self.assertEqual(self.fetch(70938, published=nobody)['code'], client.UP_TO_DATE)
+        self.hotfix_cache(70938, {8334: (1, key)})
+        self.assertEqual(client.hotfix_keys(70938), {'0DA4670DB36FB2A9': key})
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, b'unlocked')])
+        self.absent = {}
+        given = {}
+        result = self.fetch(70938, published=nobody, use_keys=given.update)
+        self.assertEqual(result['code'], client.FETCHED)
+        self.assertEqual(given, {'0DA4670DB36FB2A9': key})   # the reader got the key to decrypt with
+        self.assertEqual((self.info(70938)['waiting'], self.info(70938)['key_ids']), ({}, {}))
+        # the build's hotfixes are still with it: the CDN does not give them back
+        self.assertTrue(os.path.isfile(os.path.join(self.folder.name, '70938', hotfixes.FILE)))
+
+    def test_the_published_list_being_down_does_not_hide_a_hotfix_key(self):
+        self.waiting_build()
+        self.hotfix_cache(70938, {8334: (1, bytes(16))})
+
+        def down():
+            raise RuntimeError('HTTP 503')
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, b'unlocked')])
+        self.absent = {}
+        self.assertEqual(self.fetch(70938, published=down)['code'], client.FETCHED)
+
+    def test_a_new_build_is_read_with_the_keys_already_handed_out(self):
+        self.waiting_build()
+        self.hotfix_cache(70938, {8334: (1, b'k' * 16)})
+        given = {}
+        self.fetch(70999, use_keys=given.update)
+        self.assertEqual(given, {'0DA4670DB36FB2A9': b'k' * 16})
+
     def test_a_build_read_again_keeps_the_day_it_was_first_seen(self):
         self.fetch(70938)
         path = os.path.join(self.folder.name, '70938', 'build.json')
@@ -224,7 +285,8 @@ class Check(unittest.TestCase):
     def test_a_server_that_does_not_answer_does_not_stop_the_other(self):
         new, lines, asked = self.run_check(RuntimeError('HTTP Error 503: Service Unavailable'), 0)
         self.assertTrue(new)
-        self.assertEqual(asked, ['build', 'hotfixes'])
+        # new hotfixes may hand out a key the build waits for: the build is asked once more after them
+        self.assertEqual(asked, ['build', 'hotfixes', 'build'])
         new, lines, asked = self.run_check(client.FETCHED, OSError('Traceback of a proxy'))
         self.assertTrue(new)
 
@@ -236,6 +298,33 @@ class Check(unittest.TestCase):
         said = []
         client.calm(said.append)('URLError: <urlopen error timed out>')
         self.assertEqual(said, ['URLerror: <urlopen error timed out>'])
+
+
+class Notes(unittest.TestCase):
+    """What the Forge shows of the last check: when each of Blizzard's servers was asked and what it said."""
+
+    def test_the_last_answer_of_each_is_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'client-check.json')
+            client.noted('client', lambda: {'code': client.UP_TO_DATE, 'message': 'nothing to fetch'}, path)()
+            client.note('hotfixes', '98863 records stored', 0, path, now=1000)
+            client.note('hotfixes', 'have not changed', 3, path, now=2000)
+            with open(path, encoding='utf-8') as handle:
+                state = json.load(handle)
+            self.assertEqual(state['hotfixes'], {'at': 2000, 'code': 3, 'message': 'have not changed'})
+            self.assertEqual((state['client']['code'], state['client']['message']), (client.UP_TO_DATE, 'nothing to fetch'))
+
+    def test_a_server_that_does_not_answer_is_noted_and_still_an_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'client-check.json')
+
+            def down():
+                raise RuntimeError('HTTP 503')
+            with self.assertRaises(RuntimeError):
+                client.noted('client', down, path)()
+            with open(path, encoding='utf-8') as handle:
+                self.assertEqual(json.load(handle)['client']['code'], None)
+            client.note('client', 'x', 0, os.path.join(folder, 'no', 'such', 'folder.json'))   # cannot be written: no error
 
 
 class Shipped(unittest.TestCase):

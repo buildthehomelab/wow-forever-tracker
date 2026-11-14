@@ -206,6 +206,18 @@ def overlay(folder, table, rows):
     return list(by_id.values())
 
 
+TACT_KEY = 0xDF2F53CF   # the table TactKey: a record's id is the key's number, its 16 bytes the key
+
+
+def tact_keys(folder):
+    """{key number: 16 bytes}: the decryption keys Blizzard has handed out by hotfix, from the cache that stands over
+    this snapshot. Unreleased content ships encrypted; when it opens, the key reaches every client this way. Which key
+    name a number stands for is the client's own table TactKeyLookup (ft.client.key_numbers)."""
+    found, _origin = cached(folder)
+    return {record_id: bytes(record.data) for record_id, record in found.get(TACT_KEY, {}).items()
+            if record.status == VALID and len(record.data) == 16}
+
+
 def has_own(folder):
     """The snapshot has the hotfix cache of its own build (not one carried over, not none)."""
     cached(folder)

@@ -28,6 +28,7 @@ function forge_kind_label(string $kind): string
     return [
         'hotfix' => t('Core data (hotfixes)', 'Données du core (hotfixes)'), 'trainer' => t('Trainers', 'Entraîneurs'),
         'vendor' => t('Vendors', 'Marchands'), 'instance' => t('Instances', 'Instances'), 'spawn' => t('Spawns', 'Placements'), 'import' => t('Import', 'Import'),
+        'level' => t('Creature level', 'Niveau de créature'), 'rank' => t('Creature rank', 'Rang de créature'),
     ][$kind] ?? $kind;
 }
 
@@ -82,7 +83,8 @@ function forge_same_value($a, $b): bool
 function forge_set_statement(string $table, string $column, $new, $old, string $condition, string $database): string
 {
     $c = forge_ident($column);
-    $guard = is_float($old) || is_float($new) ? 'ABS(' . $c . ' - ' . forge_literal((float)$old, $database) . ') < 0.005' : $c . ' <=> ' . forge_literal($old, $database);
+    $guard = $old === null ? $c . ' IS NULL'
+        : (is_float($old) || is_float($new) ? 'ABS(' . $c . ' - ' . forge_literal((float)$old, $database) . ') < 0.005' : $c . ' <=> ' . forge_literal($old, $database));
     return 'UPDATE ' . forge_ident($table) . ' SET ' . $c . ' = ' . forge_literal($new, $database) . ' WHERE ' . $condition . ' AND ' . $guard . ' ' . FORGE_SET_MARK . ';';
 }
 
@@ -116,11 +118,35 @@ function forge_merge(array &$ops, array $op): void
  * Returns ['plans' => [db => ['apply' => [statements], 'rollback' => [statements]]], 'items', 'rows' (to insert),
  *          'skipped' (already on the server), 'duplicates' (shared by several fixes), 'tables' => [db.table => [insert, skip]], 'warnings'].
  */
+/**
+ * The "set" operations that give a creature Wowhead's level or rank, from a row of the Checks page (ft_npc_checks):
+ * $kind 'rank' sets creature_template.Classification, 'level' the two ends of creature_classic_level. [] when the
+ * check does not name that difference, or for a level the server or Wowhead does not state (a boss's "??").
+ */
+function forge_check_ops(array $check, string $kind): array
+{
+    $entry = (int)($check['entry'] ?? 0);
+    if (!$entry || !in_array($kind, explode(',', (string)($check['issues'] ?? '')), true)) return [];
+    $set = fn(string $table, string $column, int $value) => ['db' => 'world', 'table' => $table, 'columns' => ['entry', $column], 'match' => ['entry'], 'set' => $column, 'rows' => [[$entry, $value]]];
+    if ($kind === 'rank') return [$set('creature_template', 'Classification', (int)$check['wh_rank'])];
+    if ($kind !== 'level' || $check['level_min'] === null || $check['wh_min'] === null || $check['wh_max'] === null || (int)$check['wh_min'] < 1 || (int)$check['wh_max'] < (int)$check['wh_min']) return [];
+    return [$set('creature_classic_level', 'level_min', (int)$check['wh_min']), $set('creature_classic_level', 'level_max', (int)$check['wh_max'])];
+}
+
 function forge_build(array $selection, array $options = []): array
 {
     $ops = []; $items = []; $warnings = []; $vendorItems = []; $stale = 0; $missing = 0;
     foreach (array_slice($selection, 0, 2000) as $pick) {
         $type = (string)($pick['type'] ?? ''); $id = (int)($pick['id'] ?? 0); $kind = (string)($pick['kind'] ?? '');
+        if ($type === 'npc' && $id && in_array($kind, ['level', 'rank'], true)) {
+            // the Checks page: a creature takes Wowhead's level or rank. The values are the check's own, never the page's
+            $check = table_exists('ft_npc_checks') ? row('SELECT * FROM ft_npc_checks WHERE entry = ?', [$id]) : null;
+            $checkOps = $check && ($kind === 'rank' || table_exists('creature_classic_level', 'world')) ? forge_check_ops($check, $kind) : [];
+            if (!$checkOps) { $missing++; continue; }
+            foreach ($checkOps as $op) forge_merge($ops, $op);
+            $items[] = ['type' => 'npc', 'id' => $id, 'kind' => $kind];
+            continue;
+        }
         if (!isset(TYPES[$type]) || !$id || !in_array($kind, FORGE_KINDS, true)) continue;
         if ($kind === 'vendor') { $vendorItems[$id] = true; $items[] = ['type' => 'item', 'id' => $id, 'kind' => 'vendor']; continue; }
         $fix = row('SELECT detail FROM ft_fixes WHERE type = ? AND id = ? AND kind = ?', [$type, $id, $kind]);
@@ -222,10 +248,11 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
                 foreach (rows('SELECT ' . implode(',', array_map('forge_ident', $match)) . ', ' . forge_ident($column) . ' v FROM ' . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $found) {
                     $current = $found['v']; unset($found['v']);
                     $key = forge_key(array_values($found));
-                    if (!isset($wanted[$key]) || $current === null) continue;
+                    if (!isset($wanted[$key])) continue;
                     $new = $wanted[$key][$at];
-                    $old = is_float($new) ? (float)$current : (is_int($new) ? (int)$current : (string)$current);
-                    if (forge_same_value($old, $new)) continue;
+                    // a column that holds nothing yet (NULL) takes the value too, and the rollback empties it again
+                    $old = $current === null ? null : (is_float($new) ? (float)$current : (is_int($new) ? (int)$current : (string)$current));
+                    if ($old !== null && forge_same_value($old, $new)) continue;
                     $todo[] = [$wanted[$key], $old];
                 }
             }
@@ -417,6 +444,21 @@ function analysis_status(): array
     $failed = str_contains($text, 'Traceback') || str_contains($text, 'Error') || (str_contains($text, 'FT-END') && !str_contains($text, 'done in'));
     $lines = array_filter(preg_split('/\R/', trim($text)), fn($l) => trim($l) !== 'FT-END');
     return ['running' => $started && !$finished && $alive, 'started' => $started, 'failed' => $failed, 'log' => implode("\n", array_slice($lines, -14))];
+}
+/**
+ * The last time Blizzard's servers were asked, by tools/tracker.py (fetch, hotfixes, check; data/client-check.json):
+ * ['client' => ['at' => time, 'code' => int|null, 'message' => text], 'hotfixes' => the same], what was never asked
+ * left out. code null: the server could not be read.
+ */
+function client_check_notes(?string $path = null): array
+{
+    $state = json_decode((string)@file_get_contents($path ?? FT_ROOT . '/data/client-check.json'), true);
+    $out = [];
+    foreach (['client', 'hotfixes'] as $kind) {
+        $note = is_array($state) ? ($state[$kind] ?? null) : null;
+        if (is_array($note) && (int)($note['at'] ?? 0) > 0) $out[$kind] = ['at' => (int)$note['at'], 'code' => isset($note['code']) ? (int)$note['code'] : null, 'message' => (string)($note['message'] ?? '')];
+    }
+    return $out;
 }
 /** Starts tools/tracker.py in the background: "analyse", or "locate" (the locator, after an analysis). */
 function analysis_start(string $task = 'analyse'): array

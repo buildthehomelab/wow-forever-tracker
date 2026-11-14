@@ -191,6 +191,24 @@ function import_load(int $id): ?array
     return is_file($path) ? json_decode((string)file_get_contents($path), true) : null;
 }
 
+/**
+ * The cards a newer card of the same source stands above: [id, …]. $imports: rows of ft_imports (id, file). A source's
+ * card is built against the server as it is at that moment, so its newest card says all an earlier one said and is
+ * still true. An earlier one is still listed when something was applied from it (the history may name it), but it is
+ * not what to apply next. A file imported by hand is nobody's earlier card.
+ */
+function import_earlier(array $imports): array
+{
+    $newest = []; $earlier = [];
+    usort($imports, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
+    foreach ($imports as $s) {
+        // a source's card is filed as "icyveins@2026-11-14"; Wowhead's as "wowhead-quest-enders"
+        if (!preg_match('/^([a-z][a-z0-9-]*)@.+$/', (string)$s['file'], $m) && !preg_match('/^(wowhead-quest-enders)$/', (string)$s['file'], $m)) continue;
+        if (isset($newest[$m[1]])) $earlier[] = (int)$s['id']; else $newest[$m[1]] = (int)$s['id'];
+    }
+    return $earlier;
+}
+
 function import_delete(int $id): void
 {
     import_schema();

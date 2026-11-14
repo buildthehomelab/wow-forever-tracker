@@ -16,8 +16,9 @@ import json
 import os
 import shutil
 import struct
+import tempfile
 
-from . import cdn, content, db2
+from . import cdn, content, db2, hotfixes
 from .config import BUILDS, CONFIG, DATA
 
 FILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'schema', 'db2-files.json')
@@ -133,12 +134,123 @@ def waiting_keys(build):
     return {str(name): [str(key).upper() for key in keys] for name, keys in waiting.items() if isinstance(keys, list)}
 
 
+KEY_LOOKUP_FILE = 1302851   # TactKeyLookup.db2: a key's number -> its name (8 bytes)
+KEY_LOOKUP_META = {'fields': [{'type': 'byte', 'array': 8, 'signed': False}], 'index': -1, 'parent': -1,
+                   'fieldCount': 1, 'fileFieldCount': 1, 'layoutHash': '', 'names': ['ID', 'TACTID']}
+
+
+def key_numbers(data):
+    """{key name: key number} from the bytes of the client's TactKeyLookup table. Blizzard hands a key out by its
+    number (a TactKey hotfix record); a table's hidden section names its key by name: this table joins the two.
+    {} when the bytes are not that table."""
+    db2.SCHEMA.setdefault('TactKeyLookup', KEY_LOOKUP_META)
+    folder = tempfile.mkdtemp(prefix='ft-keys-')
+    try:
+        path = os.path.join(folder, 'TactKeyLookup.db2')
+        with open(path, 'wb') as handle:
+            handle.write(data)
+        out = {}
+        for row in db2.Table(path, 'TactKeyLookup'):
+            values = list(row.values())
+            if len(values) == 9:   # the id, then the name's 8 bytes as the file has them (the name is read backwards)
+                out[bytes(values[:0:-1]).hex().upper()] = int(values[0])
+        return out
+    except (KeyError, ValueError, struct.error, IndexError, TypeError):
+        return {}
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def build_info(build):
+    try:
+        with open(os.path.join(BUILDS, str(build), 'build.json'), encoding='utf-8-sig') as handle:
+            info = json.load(handle)
+        return info if isinstance(info, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def key_ids(build):
+    """{key name: key number} of the keys a stored snapshot waits for (build.json, 'key_ids'); None when the snapshot
+    was stored before the tracker kept them."""
+    numbers = build_info(build).get('key_ids')
+    if not isinstance(numbers, dict):
+        return None
+    return {str(name).upper(): int(number) for name, number in numbers.items() if str(number).lstrip('-').isdigit()}
+
+
+def hotfix_keys(build, numbers=None):
+    """{key name: 16 bytes}: the keys Blizzard has handed out by hotfix, by name. numbers: {key name: number} (the
+    stored snapshot's by default); the hotfix cache is the one that stands over that snapshot."""
+    numbers = key_ids(build) if numbers is None else numbers
+    if not numbers:
+        return {}
+    handed = hotfixes.tact_keys(os.path.join(BUILDS, str(build)))
+    return {name: handed[number] for name, number in numbers.items() if number in handed}
+
+
 def unlocked(build, published):
     """The keys a stored snapshot waits for that have been published since: [key names]. Unreleased content is in the
     client encrypted and its key comes out when the content opens, so a build already stored gains readable parts
     with time; published: the names of the keys known now."""
     known = {str(name).upper() for name in published}
     return sorted({key for keys in waiting_keys(build).values() for key in keys} & known)
+
+
+def read_key_numbers(reader):
+    """{key name: number} through a reader (file data id -> bytes); {} when the build has no such table."""
+    try:
+        return key_numbers(reader(KEY_LOOKUP_FILE))
+    except (KeyError, cdn.Encrypted):
+        return {}
+
+
+def remember_key_ids(build, numbers):
+    """Writes the numbers of the keys a stored snapshot waits for into its build.json."""
+    info = build_info(build)
+    if not info:
+        return
+    info['key_ids'] = {key: numbers[key] for keys in waiting_keys(build).values() for key in keys if key in numbers}
+    path = os.path.join(BUILDS, str(build), 'build.json')
+    with open(f'{path}.tmp', 'w', encoding='utf-8') as handle:
+        json.dump(info, handle, ensure_ascii=False, indent=1)
+    os.replace(f'{path}.tmp', path)
+
+
+STATUS = os.path.join(DATA, 'client-check.json')
+
+
+def note(kind, message, code=None, path=None, now=None):
+    """Keeps the last answer of a check for the website (the Forge says when Blizzard's servers were last asked and
+    what they said): kind 'client' or 'hotfixes'. code: the result's code, None when the server could not be read."""
+    path = path or STATUS
+    try:
+        with open(path, encoding='utf-8') as handle:
+            state = json.load(handle)
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, ValueError):
+        state = {}
+    state[kind] = {'at': int(now if now is not None else datetime.datetime.now().timestamp()), 'code': code, 'message': str(message)}
+    try:
+        with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
+            json.dump(state, handle, ensure_ascii=False)
+        os.replace(f'{path}.{os.getpid()}.tmp', path)
+    except OSError:
+        pass   # a note that cannot be written is no reason to fail the check
+
+
+def noted(kind, call, path=None):
+    """call (-> a result with 'code' and 'message'), with its answer kept by note(); an error is noted and raised on."""
+    def run():
+        try:
+            result = call()
+        except Exception as error:
+            note(kind, f'could not be read ({error})', None, path)
+            raise
+        note(kind, result['message'], result['code'], path)
+        return result
+    return run
 
 
 def calm(log):
@@ -161,48 +273,78 @@ def check(fetch_client, fetch_hotfixes, log=print):
         new = result['code'] == FETCHED
     except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
         say(f"client: Blizzard's servers could not be read ({error}): the stored build stays")
+    stored = False
     try:
         result = fetch_hotfixes()
         say('hotfixes: ' + result['message'])
-        new = new or result['code'] == 0
+        stored = result['code'] == 0
     except (RuntimeError, OSError, LookupError, ValueError) as error:
         say(f'hotfixes: the cache could not be read ({error})')
-    return new
+    if stored:
+        # new hotfixes may hand out a key the stored build waits for: the build is asked once more, and read again
+        # at once when they do
+        try:
+            result = fetch_client()
+            if result['code'] == FETCHED:
+                say('client: ' + result['message'])
+        except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
+            say(f"client: Blizzard's servers could not be read ({error}): the stored build stays")
+    return new or stored
 
 
-def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, live=None, published=None, waiting=None):
+def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, live=None, published=None, waiting=None, use_keys=None):
     """Snapshots the live build from the CDN when it is newer than the newest snapshot, or reads it again when a key
-    the stored copy was waiting for has been published.
+    the stored copy was waiting for is out: on the published list, or handed out by Blizzard in a hotfix.
 
     Returns {'code': FETCHED | UP_TO_DATE | REFUSED, 'build', 'version', 'message', 'problems': [(table, why)]}.
     For tests: reader (file data id -> bytes), live ({'build', 'version', 'config'}), published (a function ->
-    key names known now), waiting (a function -> {file data id: [key names]} of what the reader could not read).
+    key names known now), waiting (a function -> {file data id: [key names]} of what the reader could not read),
+    use_keys (a function taking {key name: key}: the keys from hotfixes the reader is given).
     """
     product = product or product_name()
     live = live or cdn.live(product)
     build, version = int(live['build']), live['version']
     have = newest_snapshot()
     opened = []
+    tact = None
     if build <= have and not force:
         if build == have and waiting_keys(build):
+            if key_ids(build) is None and reader is None and hotfixes.tact_keys(os.path.join(BUILDS, str(build))):
+                # stored before the tracker kept the keys' numbers: without them a key that comes by hotfix cannot be
+                # told from any other. Learned once, from the build's own table.
+                log(f'client: learning the numbers of the keys build {version} waits for (once; the build is indexed for it)')
+                tact = cdn.Tact(CACHE, product=product, refresh=True, log=lambda text: log('client: ' + text))
+                if tact.version == version:
+                    remember_key_ids(build, read_key_numbers(tact.read))
+            names = set(hotfix_keys(build))
             try:
-                opened = unlocked(build, (published or cdn.published_keys)())
+                names |= set((published or cdn.published_keys)())
             except RuntimeError as error:
-                log(f'client: the list of published keys could not be read ({error}): not checked this time')
+                log(f'client: the list of published keys could not be read ({error}): only the keys from hotfixes are checked this time')
+            opened = unlocked(build, names)
         if not opened:
+            if tact is not None and not keep_cache:
+                shutil.rmtree(CACHE, ignore_errors=True)
             return {'code': UP_TO_DATE, 'build': build, 'version': version, 'problems': [],
                     'message': f'the live build is {version}; the newest snapshot is {have}: nothing to fetch'}
-        log(f'client: {len(opened)} key(s) build {version} was waiting for have been published ({", ".join(opened[:4])}'
+        log(f'client: {len(opened)} key(s) build {version} was waiting for are out ({", ".join(opened[:4])}'
             f'{"..." if len(opened) > 4 else ""}): reading its tables again')
     else:
         log(f'client: build {version} is live, the newest snapshot is {have or "none"}: reading its tables from the CDN')
     if reader is None:
-        tact = cdn.Tact(CACHE, product=product, refresh=True, log=lambda text: log('client: ' + text))
+        tact = tact or cdn.Tact(CACHE, product=product, refresh=True, log=lambda text: log('client: ' + text))
         if tact.version != version:
             # the version server moved between the two questions: take the build the reader pinned
             build, version = int(tact.version.rsplit('.', 1)[-1]), tact.version
         reader = lambda file_id: tact.read(file_id, partial=True)
         waiting = lambda: tact.absent
+        use_keys = tact.extra_keys.update
+    # the keys Blizzard handed out by hotfix, by the numbers this build gives them. The hotfix cache that stands over
+    # the newest stored build is asked: a key is a key, whichever build's cache carries it
+    numbers = read_key_numbers(reader)
+    handed = hotfix_keys(have, numbers) if have else {}
+    if handed and use_keys:
+        use_keys(handed)
     tables, problems, hidden = {}, [], 0
     wanted = files()
     for index, (name, file_id) in enumerate(sorted(wanted.items()), 1):
@@ -244,10 +386,15 @@ def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, l
         pass
     today = datetime.date.today().isoformat()
     info.update({'build': build, 'version': version, 'date': info.get('date') or today, 'read': today, 'waiting': still,
+                 # the numbers of the keys still waited for: a hotfix hands a key out by its number
+                 'key_ids': {key: numbers[key] for keys in still.values() for key in keys if key in numbers},
                  'source': f'Blizzard CDN ({product}, build config {live.get("config", "")[:12]})'})
     with open(os.path.join(scratch, 'build.json'), 'w', encoding='utf-8') as handle:
         json.dump(info, handle, ensure_ascii=False, indent=1)
     if os.path.isdir(target):          # a build read again: the new copy replaces it whole
+        kept = os.path.join(target, hotfixes.FILE)   # but its hotfixes are not the CDN's to give back
+        if os.path.isfile(kept):
+            shutil.copy2(kept, os.path.join(scratch, hotfixes.FILE))
         shutil.rmtree(target)
     os.replace(scratch, target)
     if not keep_cache:

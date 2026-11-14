@@ -277,6 +277,9 @@ def official(folder):
     taxi_en = en('TaxiNodes')
     out['taxi'] = {r['ID']: {'name': r['Name'], 'name_en': taxi_en.get(r['ID'], {}).get('Name', ''), 'map': r['ContinentID'],
                              'sub': maps.get(r['ContinentID'], {}).get('MapName', ''), 'pos': [round(r['PosX'], 1), round(r['PosY'], 1), round(r['PosZ'], 1)],
+                             # a node without a bit in the character's list of known flight points is never learned:
+                             # no flight master opens it (the druids' flights out of Nighthaven, quest flights)
+                             'learned': bool(r.get('CharacterBitNumber', 1)),
                              'facts': {'name': r['Name'], 'map': r['ContinentID'], 'pos': [round(r['PosX']), round(r['PosY'])], 'flags': r['Flags']}}
                    for r in t('TaxiNodes') if r['Name']}
 
