@@ -135,23 +135,71 @@ it is what the players of its addon recorded, which no other source here has.
 ```sh
 # Read the pages into a folder, slowly. About 19,800 pages: most of a day the
 # first time. It can be stopped and started again; nothing is asked for twice.
-python3 tools/ft/foreverchanges_pages.py mirror --out data/foreverchanges-pages
+python3 tools/ft/foreverchanges_pages.py mirror
 
-# Only some of it: maps, dungeons, topics, quests, items (Forever's own ids come first).
-python3 tools/ft/foreverchanges_pages.py mirror --out data/foreverchanges-pages --only quests --limit 500
+# What the folder holds, what is left, whether a reader is at work and when it ends. No network.
+python3 tools/ft/foreverchanges_pages.py status
+
+# A later visit: new pages, and again the ones last read more than 14 days ago, 2,000 at most.
+python3 tools/ft/foreverchanges_pages.py update --limit 2000
+
+# Only some of it: maps, dungeons, topics, quests, items.
+python3 tools/ft/foreverchanges_pages.py mirror --only quests --limit 500
 
 # Load what is kept as references (source foreverchanges-pages); --prepare writes the SQL only.
-python3 tools/foreverchanges-import.py --pages data/foreverchanges-pages
+python3 tools/foreverchanges-import.py --pages
 ```
+
+The folder is `ForeverTracker-data/foreverchanges-pages` in your home folder
+unless `--out <folder>` or `FOREVERCHANGES_PAGES` names another: outside the
+checkout on purpose, so that deleting the checkout or cloning it again does not
+take a day's reading with it.
 
 How it reads: `robots.txt` is fetched first and obeyed (the site closes `/api/`,
 `/search`, `/spell/` and `/admin`); one request at a time with a pause of 2.5
-seconds (2 at least); only English pages; a 401, 403, 429 or 451, three failures
-in a row, or an answer that is not the page stops the run, and nothing is
-retried around a refusal. One reader a folder: a second one started on the same
-folder is refused before it asks the site anything. Of a page only its `<main>` element is kept
-(`quest/<id>.html.gz`), about 6 KB a page; the map's own data files are kept as
-they are (`map/<slug>/<file>.json`).
+seconds (2 at least), asked for compressed; only English pages; a 401, 403, 429
+or 451, three failures in a row, or an answer that is not the page stops the
+run, and nothing is retried around a refusal. One reader a folder: a second one
+started on the same folder is refused before it asks the site anything. Of a
+page only its `<main>` element is kept (`quest/<id>.html.gz`), about 6 KB a
+page; the map's own data files are kept as they are (`map/<slug>/<file>.json`).
+The order is the map's data files, the dungeons, the topic pages, Forever's own
+quests and items, then Classic's quests and items.
+
+#### Later visits
+
+The site gives no cheap way to ask whether a page has changed (measured
+2026-11-13): its quest and item lists date every page the same day, and a
+request that names the copy you hold (`If-None-Match`) is answered with the
+whole page again. Reading everything again would be the same day of requests,
+so `update` reads again only what is worth it:
+
+1. The three lists of pages. A page they newly name is read; one they no longer
+   name is noted, and its kept copy stays.
+2. What was last read more than `--older` days ago (14 unless given), in this
+   order: the small files (map data, dungeons, topic pages: about 700 requests,
+   and the map files that were not there are asked for again); Forever's own
+   quests and items that still lack something (a quest without its hand-in
+   text, or with nobody named who starts or ends it; an item no source is named
+   for), which is where players' recordings arrive; the rest of Forever's own;
+   Classic's. Oldest first within each.
+3. A quest whose row in a map's `quest-givers.json` changed is read at once,
+   due or not.
+
+`--limit` bounds a visit and the next one goes on where the order left off, so
+a weekly `update --limit 2000` (under two hours) keeps the folder current. A
+newly read page replaces the kept copy; whether it *changed* is decided on what
+it states (the quest's or item's record, a map file's content, a topic page's
+words), not on its bytes: a new build of the site rewrites every page's markup
+and none of its words.
+
+Two files in the folder carry this. `pages.jsonl` has a line a reading (`f` the
+kept file, `at` when the site was last asked, `s` 200 or 404, `since` when what
+it states last changed, `want` while a page of Forever's own lacks something,
+`out` once the site no longer lists it); the last line of a file counts.
+`changes.jsonl` has a line for each thing a visit found: `at`, `what` (`new`,
+`changed` or `gone`), `file`, `page`, and for a change the `fields` that
+differ (`texts`, `start`, `end`, `sources`, ...). `status` shows the latest.
 
 What a load holds, as `reference` facts of the source `foreverchanges-pages`:
 

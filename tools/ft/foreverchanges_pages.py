@@ -7,20 +7,38 @@ here is a `reference`: shown to an administrator beside a resource, never a row.
 the site asks: `robots.txt` is fetched first and obeyed, one request at a time with a pause, and the first answer that
 says "not you" (403, 429, a page that is not the page) stops the run. Nothing is retried around a refusal.
 
-    python tools/ft/foreverchanges_pages.py mirror  --out <folder> [--only maps,dungeons,topics,quests,items] [--pause 2.5] [--limit N]
-    python tools/ft/foreverchanges_pages.py extract --out <folder>
+    python tools/ft/foreverchanges_pages.py mirror  [--out <folder>] [--only maps,dungeons,topics,quests,items] [--pause 2.5] [--limit N]
+    python tools/ft/foreverchanges_pages.py update  [--out <folder>] [--older 14] [--limit N] [--only ...] [--pause 2.5]
+    python tools/ft/foreverchanges_pages.py status  [--out <folder>] [--older 14]
+    python tools/ft/foreverchanges_pages.py extract [--out <folder>]
+
+The folder is `FOLDER` when `--out` is not given: in your home folder, outside the checkout, so that deleting or
+cloning the checkout again does not take a day's reading with it (FOREVERCHANGES_PAGES names another place).
 
 `mirror` keeps each page once (`quest/<id>.html.gz` holds the page's <main> element, `map/<slug>/<file>.json` the map's
 own data files) and can be stopped and started again: what is there is not asked for twice. A full run is about
-19,800 pages, most of a day at the default pause. `extract` reads the kept pages into `quests.jsonl` and
-`items.jsonl`, one record a line, with no network; `read` gives the same records as reference facts
-(tools/foreverchanges-import.py --pages <folder> loads them).
+19,800 pages, most of a day at the default pause. Forever's own quests and items are read before Classic's.
+
+`update` is the later visit. The site gives no cheap way to ask "has this page changed": its quest and item lists
+date every page the same day, and a request that names the copy you hold gets the whole page again. So an update
+reads the three lists (a page they newly name is read, one they no longer name is noted), and reads again only what
+was last read more than `--older` days ago, in this order: the small files (map data, dungeons, topic pages), then
+Forever's own quests and items that still lack something (no hand-in text, nobody who starts or ends it, no source),
+then the rest of Forever's own, then Classic's, oldest first. A quest whose row in a map's quest-givers file changed
+is read at once. `--limit` bounds a visit, so a weekly `update --limit 2000` (under two hours) keeps the folder
+current without ever asking for everything again. What a visit found is appended to `changes.jsonl`
+({"at", "file", "page", "what": new, changed or gone, "fields"}); `pages.jsonl` holds when each page was last read.
+`status` says, with no network, what the folder holds, what is left, whether a reader is at work and when it ends.
+
+`extract` reads the kept pages into `quests.jsonl` and `items.jsonl`, one record a line, with no network; `read`
+gives the same records as reference facts (tools/foreverchanges-import.py --pages [folder] loads them).
 
 What a page states is by NPC *name*, not id. The map's own data files carry ids (its NPCs, its rares and elites,
 who starts a quest), so a name on a page gets the id those files know it by when exactly one thing carries the name
 (`match`); several are listed as candidates and none is picked.
 """
 import argparse
+import calendar
 import collections
 import gzip
 import html
@@ -36,7 +54,10 @@ from html.parser import HTMLParser
 
 BASE = 'https://foreverchanges.pro'
 AGENT = 'Mozilla/5.0 (compatible; slow reader, one request at a time)'
+FOLDER = os.environ.get('FOREVERCHANGES_PAGES') or os.path.join(os.path.expanduser('~'), 'ForeverTracker-data', 'foreverchanges-pages')
 GROUPS = ('maps', 'dungeons', 'topics', 'quests', 'items')
+SMALL = ('maps', 'dungeons', 'topics')                  # few and cheap: an update reads them first
+STATE, CHANGES = 'pages.jsonl', 'changes.jsonl'
 MAP_FILES = ('npcs', 'quest-givers', 'quests', 'creatures', 'rares', 'services', 'commerce', 'books', 'nodes', 'convergences', 'pins')
 SLUG = re.compile(r'[a-z0-9][a-z0-9-]{0,80}')
 NEW_QUEST, NEW_ITEM = 76000, 200000                    # Forever's own ids come first: they are what no Classic source has
@@ -77,8 +98,8 @@ def _locs(sitemap):
 
 def plan(sitemap, quest_sitemap, item_sitemap):
     """[(group, path on the site, file in the folder)], in the order read: the map's data files, the dungeons, the
-    topic pages, then quests and items, Forever's own ids first. Only English pages; a name that is not a plain slug
-    never becomes a path."""
+    topic pages, then Forever's own quests and items, then Classic's quests and items. Only English pages; a name
+    that is not a plain slug never becomes a path."""
     out, maps, seen = [], [], set()
     for path in _locs(sitemap):
         parts = [p for p in path.split('/') if p]
@@ -104,17 +125,27 @@ def plan(sitemap, quest_sitemap, item_sitemap):
             out.append((group, pages[number], f'{kind}/{number}.html.gz'))
     order = {group: i for i, group in enumerate(GROUPS)}
     out = [row for row in out if not (row[2] in seen or seen.add(row[2]))]
-    return sorted(out, key=lambda row: order[row[0]])
+    return sorted(out, key=lambda row: (row[0] not in SMALL, row[0] not in SMALL and not own(row[2]), order[row[0]]))
+
+
+def own(file):
+    """Whether a kept file is a quest or an item of Forever's own: an id no Classic source has."""
+    m = re.fullmatch(r'(quest|item)/(\d+)\.html\.gz', file)
+    return bool(m) and int(m.group(2)) >= (NEW_QUEST if m.group(1) == 'quest' else NEW_ITEM)
 
 
 # Reading the site ---------------------------------------------------------------------------------------------------
 
 def http_get(path):
-    """(status, content type, body) of one page. A status the site answers with is returned, not raised."""
-    request = urllib.request.Request(BASE + path, headers={'User-Agent': AGENT, 'Accept-Encoding': 'identity'})
+    """(status, content type, body) of one page, asked for compressed: a page is seven times smaller on the way.
+    A status the site answers with is returned, not raised."""
+    request = urllib.request.Request(BASE + path, headers={'User-Agent': AGENT, 'Accept-Encoding': 'gzip'})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
-            return response.status, response.headers.get('Content-Type', ''), response.read()
+            body = response.read()
+            if response.headers.get('Content-Encoding', '').lower() == 'gzip':
+                body = gzip.decompress(body)
+            return response.status, response.headers.get('Content-Type', ''), body
     except urllib.error.HTTPError as error:
         return error.code, error.headers.get('Content-Type', '') if error.headers else '', b''
 
@@ -155,17 +186,135 @@ def lock(folder):
     return handle
 
 
-def mirror(folder, only=GROUPS, pause=2.5, limit=None, get=http_get, sleep=time.sleep, log=print):
-    """Reads what the plan names and the folder does not hold yet, one reader a folder. See `_mirror`."""
+def _kept(path):
+    """What a kept file holds, as it was kept (a page unpacked), or None when it cannot be read."""
+    try:
+        with open(path, 'rb') as handle:
+            data = handle.read()
+        return gzip.decompress(data) if path.endswith('.gz') else data
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return None
+
+
+# When each page was last read ---------------------------------------------------------------------------------------
+
+def _stamp(seconds):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(seconds))
+
+
+def _seconds(stamp):
+    return calendar.timegm(time.strptime(stamp, '%Y-%m-%dT%H:%M:%SZ'))
+
+
+def state(folder):
+    """{file: {'at': when the site was last asked for it, 's': 200 or 404, 'since': when what it states last changed,
+    'want': True while a page of Forever's own lacks something, 'out': True once the site no longer lists it}}.
+
+    Kept in `pages.jsonl`, one line a reading, the last line of a file counting. A line cut short by a stop is
+    passed over; the file is written anew when it has grown to twice what it says."""
+    out, lines = {}, 0
+    path = os.path.join(folder, STATE)
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as handle:
+            for line in handle:
+                lines += 1
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and isinstance(entry.get('f'), str) and isinstance(entry.get('at'), str):
+                    out[entry.pop('f')] = entry
+    if lines > 2 * len(out) + 100:
+        _keep(path, ''.join(json.dumps(dict(entry, f=file), sort_keys=True) + '\n' for file, entry in out.items()).encode('utf-8'))
+    return out
+
+
+def _note(folder, name, record):
+    with open(os.path.join(folder, name), 'a', encoding='utf-8') as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + '\n')
+
+
+def _said(data):
+    """The words of a page without its tags: what it says, whatever the site's build wrapped around them."""
+    return re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]*>', ' ', data.decode('utf-8', 'replace')))).strip()
+
+
+def _differs(group, old, new):
+    """None when a newly read page states what the kept copy stated; otherwise the names of what differs (the
+    record's fields for a quest or an item, the file's keys for map data, [] where it cannot be said closer).
+    Compared as records, not as bytes: a new build of the site changes every page's wrapping and none of its words."""
+    if group == 'maps':
+        try:
+            a, b = json.loads(old), json.loads(new)
+        except ValueError:
+            return []
+        if a == b:
+            return None
+        return sorted(key for key in set(a) | set(b) if a.get(key) != b.get(key)) if isinstance(a, dict) and isinstance(b, dict) else []
+    parse = {'quests': quest, 'items': item}.get(group)
+    if parse:
+        a, b = parse(old.decode('utf-8', 'replace')), parse(new.decode('utf-8', 'replace'))
+        if a is not None and b is not None:
+            return None if a == b else sorted(key for key in set(a) | set(b) if a.get(key) != b.get(key))
+    return None if _said(old) == _said(new) else []
+
+
+def _wanting(group, file, data):
+    """Whether a page of Forever's own still lacks what players' recordings add: a quest without its hand-in text,
+    or with nobody named who starts or ends it; an item no source is named for. Such a page is read again first."""
+    if not own(file):
+        return False
+    record = (quest if group == 'quests' else item)(data.decode('utf-8', 'replace'))
+    if record is None:
+        return False
+    if group == 'quests':
+        return not (record['texts'].get('complete') and record['start'] and record['end'])
+    return not record['sources']
+
+
+def _touched(old, new):
+    """The quests named in the rows of a map's quest-givers file that its older copy does not hold, or held and
+    lost: who starts them has changed, so their pages are worth reading at once."""
+    def rows(data):
+        try:
+            content = json.loads(data)
+        except ValueError:
+            return set()
+        return {json.dumps(row, sort_keys=True) for row in _rows(content, 'givers')} if isinstance(content, dict) else set()
+    out = set()
+    for row in rows(old) ^ rows(new):
+        row = json.loads(row)
+        if isinstance(row, list) and len(row) >= 7 and isinstance(row[6], list):
+            out.update(number for number in row[6] if isinstance(number, int) and number > 0)
+    return out
+
+
+def _old_plan(folder):
+    """The files the folder's own copies of the site's lists name, or None when it has not read them yet."""
+    texts = []
+    for name in ('sitemap.xml', 'quest-sitemap.xml', 'item-sitemap.xml'):
+        data = _kept(os.path.join(folder, name))
+        if data is None:
+            return None
+        texts.append(data.decode('utf-8', 'replace'))
+    return plan(*texts)
+
+
+def mirror(folder, only=GROUPS, pause=2.5, limit=None, get=http_get, sleep=time.sleep, log=print, refresh=None, clock=time.time):
+    """Reads what the plan names and the folder does not hold yet and, when `refresh` is a number of days, reads
+    again what was last read longer ago than that. One reader a folder. See `_mirror`."""
     held = lock(folder)
     try:
-        return _mirror(folder, only, pause, limit, get, sleep, log)
+        return _mirror(folder, only, pause, limit, get, sleep, log, refresh, clock)
     finally:
         held.close()
 
 
-def _mirror(folder, only, pause, limit, get, sleep, log):
-    """Reads what the plan names and the folder does not hold yet. Returns {'read', 'kept', 'missing', 'left'}.
+def _mirror(folder, only, pause, limit, get, sleep, log, refresh, clock):
+    """Returns {'read', 'kept', 'missing', 'left', 'new', 'changed', 'same', 'gone'}: pages asked for, pages kept,
+    pages the site does not have, pages still to read, and of the kept ones how many the site newly lists, how many
+    state something else than the kept copy did, how many state the same; `gone` is pages the site no longer has
+    or lists (their kept copies stay).
 
     Stops (Refused) when another reader holds the folder, when robots.txt cannot be read, when the site refuses (401, 403, 429, 451), when it fails three
     times in a row, or when a page comes back without its <main>: a check page is not the page."""
@@ -197,6 +346,8 @@ def _mirror(folder, only, pause, limit, get, sleep, log):
         raise Refused(f'robots.txt answered {status}: without it nothing is read')
     closed = disallowed(body.decode('utf-8', 'replace'))
     _keep(os.path.join(folder, 'robots.txt'), body)
+    before = _old_plan(folder)                               # what the site listed at the last visit
+    before = None if before is None else {row[2] for row in before}
     sitemaps = {}
     for name, path in (('sitemap', '/sitemap.xml'), ('quest', '/quest/sitemap.xml'), ('item', '/item/sitemap.xml')):
         if not allowed(path, closed):
@@ -206,27 +357,58 @@ def _mirror(folder, only, pause, limit, get, sleep, log):
             raise Refused(f'{path} answered {status} and no list of pages')
         _keep(os.path.join(folder, name + '-sitemap.xml' if name != 'sitemap' else 'sitemap.xml'), body)
         sitemaps[name] = body.decode('utf-8', 'replace')
-    rows = [row for row in plan(sitemaps['sitemap'], sitemaps['quest'], sitemaps['item']) if row[0] in only]
-    gone_file = os.path.join(folder, 'missing.txt')
-    gone = set()
-    if os.path.isfile(gone_file):
-        with open(gone_file, encoding='utf-8') as handle:
-            gone = set(handle.read().split())
-    todo = [row for row in rows if row[1] not in gone and not os.path.isfile(os.path.join(folder, row[2]))]
-    log(f'{len(rows)} pages in the plan, {len(rows) - len(todo)} already here or known missing, {len(todo)} to read')
-    result = {'read': 0, 'kept': 0, 'missing': 0, 'left': len(todo)}
-    for group, path, file in todo:
+    everything = plan(sitemaps['sitemap'], sitemaps['quest'], sitemaps['item'])
+    rows = [row for row in everything if row[0] in only]
+    by_file = {row[2]: row for row in rows}
+    entries = state(folder)
+    result = {'read': 0, 'kept': 0, 'missing': 0, 'left': 0, 'new': 0, 'changed': 0, 'same': 0, 'gone': 0}
+
+    def record(file, entry):
+        entries[file] = entry
+        _note(folder, STATE, dict(entry, f=file))
+
+    def change(what, row, at, fields=None):
+        result[what] += 1
+        _note(folder, CHANGES, dict({'at': at, 'what': what, 'file': row[2], 'page': BASE + row[1]}, **({'fields': fields} if fields else {})))
+
+    listed = {row[2] for row in everything}
+    for file, entry in sorted(entries.items()):              # a kept page the site no longer lists: said once
+        if entry.get('s') == 200 and not entry.get('out') and file not in listed:
+            result['gone'] += 1
+            _note(folder, CHANGES, {'at': _stamp(clock()), 'what': 'gone', 'file': file, 'why': 'no longer listed'})
+            record(file, dict(entry, out=True))
+    for row in rows:                                         # a kept file nothing was noted for: read when it was written
+        full = os.path.join(folder, row[2])
+        if row[2] not in entries and os.path.isfile(full):
+            entries[row[2]] = {'at': _stamp(os.path.getmtime(full)), 's': 200}
+    first = [row for row in rows if row[2] not in entries or (entries[row[2]].get('s') == 200 and not os.path.isfile(os.path.join(folder, row[2])))]
+    again = []
+    if refresh is not None:
+        cutoff = _stamp(clock() - refresh * 86400)
+        waiting = {row[2] for row in first}
+        again = [row for row in rows if row[2] not in waiting and entries[row[2]]['at'] < cutoff]
+        again.sort(key=lambda row: (0 if row[0] in SMALL else 1 if entries[row[2]].get('want') else 2 if own(row[2]) else 3, entries[row[2]]['at']))
+    queue, urgent, done = collections.deque(first + again), collections.deque(), set()
+    log(f'{len(rows)} pages in the plan, {len(first)} to read' + (f', {len(again)} to read again (last read more than {refresh:g} days ago)' if refresh is not None else '')
+        + f', {len(rows) - len(first) - len(again)} left as they are')
+    while queue or urgent:
         if limit is not None and result['read'] >= limit:
             break
+        group, path, file = row = urgent.popleft() if urgent else queue.popleft()
+        if file in done:
+            continue
+        done.add(file)
         if not allowed(path, closed):
             raise Refused(f'robots.txt closes {path}: the plan must not name it')
         status, kind, body = ask(path)
         result['read'] += 1
-        result['left'] -= 1
+        at, full = _stamp(clock()), os.path.join(folder, file)
+        entry = dict(entries.get(file, {}))
+        old = _kept(full) if os.path.isfile(full) else None
         if status == 404:
-            gone.add(path)
-            with open(gone_file, 'a', encoding='utf-8') as handle:
-                handle.write(path + '\n')
+            if entry.get('s') == 200:
+                change('gone', row, at)
+            record(file, dict(entry, at=at, s=404))
             result['missing'] += 1
             continue
         if status != 200:
@@ -236,16 +418,103 @@ def _mirror(folder, only, pause, limit, get, sleep, log):
                 json.loads(body)
             except ValueError:
                 raise Refused(f'{path}: not the data file (no JSON)') from None
-            _keep(os.path.join(folder, file), body)
+            data = body
         else:
-            kept = main_of(body)
-            if kept is None:
+            data = main_of(body)
+            if data is None:
                 raise Refused(f'{path}: the answer is not the page (no <main>)')
-            _keep(os.path.join(folder, file), gzip.compress(kept, 6))
+        if old is None:
+            entry['since'] = at
+            if before is not None and (file not in before or entry.get('s') == 404):
+                change('new', row, at)                       # not listed, or not there, at the last visit
+        else:
+            fields = _differs(group, old, data)
+            if fields is None:
+                result['same'] += 1
+            else:
+                entry['since'] = at
+                change('changed', row, at, fields)
+        if refresh is not None and file.endswith('quest-givers.json') and (old is not None or entry.get('s') == 404):
+            for number in sorted(_touched(old or b'{}', data)):      # a kept file changed, or one that was not there came
+                bumped = by_file.get(f'quest/{number}.html.gz')
+                if bumped and bumped[2] not in done:
+                    urgent.append(bumped)
+        _keep(full, data if file.endswith('.json') else gzip.compress(data, 6))
+        entry.update(at=at, s=200)
+        entry.pop('out', None)
+        entry.pop('want', None)
+        if group in ('quests', 'items') and _wanting(group, file, data):
+            entry['want'] = True
+        record(file, entry)
         result['kept'] += 1
         if result['read'] % 100 == 0:
-            log(f"{time.strftime('%H:%M:%S')} {result['read']} read, {result['left']} left, at {path}")
+            log(f"{time.strftime('%H:%M:%S')} {result['read']} read, {len(queue) + len(urgent)} left, at {path}")
+    result['left'] = len({row[2] for row in list(queue) + list(urgent)} - done)
     return result
+
+
+GROUP_NAMES = (('maps', None, 'map data files'), ('dungeons', None, 'dungeons'), ('topics', None, 'topic pages'), ('quests', True, "Forever's own quests"),
+               ('items', True, "Forever's own items"), ('quests', False, "Classic's quests"), ('items', False, "Classic's items"))
+
+
+def status(folder, older=14, clock=time.time):
+    """What the folder holds, with no network: per group how many pages the site's lists name, how many are kept,
+    how many the site does not have and how many are left; whether a reader is at work and, from its last readings,
+    when it ends; how many pages are due for an update; what the visits noted. Returns a dict; `report` prints it."""
+    rows = _old_plan(folder)
+    out = {'folder': folder, 'groups': [], 'reader': False, 'left': 0, 'due': 0, 'changes': {}, 'last': None, 'seconds_a_page': None}
+    if rows is None:
+        return out
+    entries, now = state(folder), clock()
+    cutoff = _stamp(now - older * 86400)
+    for group, mine, name in GROUP_NAMES:
+        files = [row[2] for row in rows if row[0] == group and (mine is None or own(row[2]) == mine)]
+        kept = sum(1 for file in files if os.path.isfile(os.path.join(folder, file)))
+        absent = sum(1 for file in files if entries.get(file, {}).get('s') == 404 and not os.path.isfile(os.path.join(folder, file)))
+        want = sum(1 for file in files if entries.get(file, {}).get('want'))
+        due = sum(1 for file in files if file in entries and entries[file]['at'] < cutoff)
+        out['groups'].append({'name': name, 'listed': len(files), 'kept': kept, 'not there': absent, 'left': len(files) - kept - absent, 'lacking': want, 'due': due})
+    out['left'], out['due'] = sum(g['left'] for g in out['groups']), sum(g['due'] for g in out['groups'])
+    try:
+        lock(folder).close()
+    except Refused:
+        out['reader'] = True
+    times = sorted((entry['at'] for entry in entries.values()), reverse=True)[:200]
+    if times:
+        out['last'] = times[0]
+        if len(times) >= 20 and now - _seconds(times[0]) < 900:
+            out['seconds_a_page'] = round((_seconds(times[0]) - _seconds(times[-1])) / (len(times) - 1), 2)
+    path = os.path.join(folder, CHANGES)
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as handle:
+            lines = [json.loads(line) for line in handle if line.strip().startswith('{') and line.rstrip().endswith('}')]
+        out['changes'] = dict(collections.Counter(line.get('what', '') for line in lines))
+        out['latest'] = lines[-10:]
+    return out
+
+
+def report(found, log=print):
+    if not found['groups']:
+        log(f"{found['folder']} holds no reading yet: python tools/ft/foreverchanges_pages.py mirror --out {found['folder']}")
+        return
+    log(f"{found['folder']}: " + ('a reader is at work' if found['reader'] else 'no reader is at work'))
+    log(f"{'':<22}{'listed':>8}{'kept':>8}{'not there':>11}{'left':>8}{'lacking':>9}{'due':>7}")
+    for group in found['groups']:
+        log(f"{group['name']:<22}{group['listed']:>8}{group['kept']:>8}{group['not there']:>11}{group['left']:>8}{group['lacking']:>9}{group['due']:>7}")
+    if found['last']:
+        log(f"Last page read {found['last'].replace('T', ' ').replace('Z', ' UTC')}.")
+    if found['left']:
+        pace = found['seconds_a_page'] if found['reader'] and found['seconds_a_page'] else 3.0
+        hours, minutes = divmod(int(found['left'] * pace / 60), 60)
+        log(f"{found['left']} pages left: about {hours} h {minutes:02d} min at {pace:g} s a page" + ('' if found['reader'] else ' once a reader runs'))
+    else:
+        log('Every listed page is here.')
+    if found['due']:
+        log(f"{found['due']} pages are due for an update (python tools/ft/foreverchanges_pages.py update --out {found['folder']}).")
+    if found['changes']:
+        log('Noted by the visits so far: ' + ', '.join(f'{count} {what}' for what, count in sorted(found['changes'].items())) + f' ({CHANGES}). The latest:')
+        for line in found['latest']:
+            log(f"  {line.get('at', '')} {line.get('what', ''):<8}{line.get('file', '')}" + (' (' + ', '.join(line['fields']) + ')' if line.get('fields') else ''))
 
 
 # A small tree of a page ---------------------------------------------------------------------------------------------
@@ -772,20 +1041,28 @@ def extract(folder, log=print):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
-    get = sub.add_parser('mirror', help='read the pages the folder does not hold yet')
-    get.add_argument('--out', required=True, help='the folder the pages are kept in')
-    get.add_argument('--only', default=','.join(GROUPS), help='which groups, comma separated: ' + ', '.join(GROUPS))
-    get.add_argument('--pause', type=float, default=2.5, help='seconds between two requests (2 at least)')
-    get.add_argument('--limit', type=int, help='stop after this many pages')
-    ext = sub.add_parser('extract', help='turn the kept pages into records')
-    ext.add_argument('--out', required=True)
+    for name, text in (('mirror', 'read the pages the folder does not hold yet'), ('update', 'read new pages, and again the ones last read long ago'),
+                       ('status', 'say what the folder holds and what is left (no network)'), ('extract', 'turn the kept pages into records (no network)')):
+        one = sub.add_parser(name, help=text)
+        one.add_argument('--out', default=FOLDER, help=f'the folder the pages are kept in (default {FOLDER})')
+        if name in ('mirror', 'update'):
+            one.add_argument('--only', default=','.join(GROUPS), help='which groups, comma separated: ' + ', '.join(GROUPS))
+            one.add_argument('--pause', type=float, default=2.5, help='seconds between two requests (2 at least)')
+            one.add_argument('--limit', type=int, help='stop after this many pages')
+        if name in ('update', 'status'):
+            one.add_argument('--older', type=float, default=14, help='days after which a page is read again (default 14)')
     args = parser.parse_args(argv)
+    folder = os.path.abspath(os.path.expanduser(args.out))
     if args.command == 'extract':
-        extract(args.out)
+        extract(folder)
+        return 0
+    if args.command == 'status':
+        report(status(folder, args.older))
         return 0
     only = tuple(g for g in args.only.split(',') if g in GROUPS)
     try:
-        result = mirror(args.out, only, max(2.0, args.pause), args.limit, log=lambda m: print(m, flush=True))
+        result = mirror(folder, only, max(2.0, args.pause), args.limit, log=lambda m: print(m, flush=True),
+                        refresh=args.older if args.command == 'update' else None)
     except Refused as error:
         print(f'Stopped: {error}', file=sys.stderr, flush=True)
         return 2

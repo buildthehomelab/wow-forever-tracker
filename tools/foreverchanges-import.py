@@ -2,9 +2,9 @@
 """Refresh ForeverChanges references; --prepare validates without loading the DB.
 
 Optional --archive reads an already downloaded official ForeverMaster ZIP.
---pages <folder> loads what the site's pages state instead (a folder kept by
-`python tools/ft/foreverchanges_pages.py mirror`; default data/foreverchanges-pages
-when the flag is given without a folder). No network is used for pages here.
+--pages [folder] loads what the site's pages state instead (a folder kept by
+`python tools/ft/foreverchanges_pages.py mirror`; the reader's own default folder,
+outside the checkout, when the flag is given without one). No network is used for pages here.
 Only tracker fact tables are written; no world database or Forge fixes change.
 """
 import argparse
@@ -48,7 +48,7 @@ def pages(folder, prepare):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path)
-    parser.add_argument('--pages', nargs='?', type=Path, const=Path(DATA) / PAGES)
+    parser.add_argument('--pages', nargs='?', type=Path, const=Path(foreverchanges_pages.FOLDER))
     parser.add_argument('--prepare', action='store_true')
     args = parser.parse_args()
     if args.pages:

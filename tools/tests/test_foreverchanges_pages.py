@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -100,7 +101,8 @@ class Plan(unittest.TestCase):
         paths = [row[1] for row in rows]
         self.assertEqual(paths[:len(fp.MAP_FILES)], [f'/map/east/{name}.json' for name in fp.MAP_FILES])     # a map's data files, not its pages
         self.assertEqual(paths[len(fp.MAP_FILES):], ['/dungeons/fixture-keep', '/rares', '/quests/zone', '/professions/alchemy',
-                                                     '/quest/90001/new-quest', '/quest/5/old-quest', '/item/250001/new-item', '/item/7/old-item'])
+                                                     '/quest/90001/new-quest', '/item/250001/new-item', '/quest/5/old-quest', '/item/7/old-item'])     # Forever's own of both kinds first
+        self.assertEqual([fp.own(row[2]) for row in rows[-4:]], [True, True, False, False])
         self.assertEqual(len({row[2] for row in rows}), len(rows))                  # one file per page
         self.assertFalse(any('..' in row[2] or row[2].startswith('/') for row in rows))
 
@@ -169,6 +171,121 @@ class Mirror(unittest.TestCase):
         result = site.run(self.folder, only=('quests',), limit=1)
         self.assertEqual(site.asked[4:], ['/quest/90001/new-quest'])
         self.assertEqual((result['read'], result['left']), (1, 1))
+
+
+DAY = 86400
+BARE = QUEST.replace('<details><summary>When you hand it in</summary><p>Thanks, &lsaquo;name&rsaquo;.</p><p>Go on.</p></details>', '')
+NEW_QUEST, OLD_QUEST, NEW_ITEM, OLD_ITEM = '/quest/90001/new-quest', '/quest/5/old-quest', '/item/250001/new-item', '/item/7/old-item'
+
+
+class Update(unittest.TestCase):
+    """The later visits: what is read again, in which order, and what is noted."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = self.temp.name
+        self.now = 1_800_000_000
+
+    def visit(self, pages=None, days=0, **options):
+        self.now += days * DAY
+        site = Site(pages)
+        return site, site.run(self.folder, clock=lambda: self.now, **options)
+
+    def changes(self):
+        path = Path(self.folder) / fp.CHANGES
+        return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.exists() else []
+
+    def test_a_page_read_lately_is_not_read_again_and_an_unchanged_one_is_noted_as_nothing(self):
+        self.visit()
+        site, result = self.visit(days=3, refresh=14)
+        self.assertEqual((len(site.asked), result['read']), (4, 0))                 # the lists, and nothing else
+        site, result = self.visit(days=20, refresh=14)
+        self.assertEqual(result['read'], 8 + len(fp.MAP_FILES))                     # every page, and the map files that were not there
+        self.assertEqual((result['same'], result['changed'], result['new'], result['gone']), (11, 0, 0, 0))
+        self.assertEqual(self.changes(), [])
+
+    def test_what_changed_is_named_by_the_records_field_and_a_new_wrapping_is_no_change(self):
+        self.visit({NEW_QUEST: BARE.encode()})
+        self.assertTrue(fp.state(self.folder)['quest/90001.html.gz']['want'])       # Forever's own, no hand-in text yet
+        self.assertNotIn('want', fp.state(self.folder)['quest/5.html.gz'])          # Classic's page is never "lacking"
+        wrapped = ITEM.replace('<section class="it-from"', '<section data-build="2" class="it-from"').encode()
+        _site, result = self.visit({NEW_ITEM: wrapped}, days=20, refresh=14)        # the quest has its text now, the item only new markup
+        self.assertEqual((result['changed'], result['same']), (1, 10))
+        self.assertEqual([(c['what'], c['file'], c['fields']) for c in self.changes()], [('changed', 'quest/90001.html.gz', ['texts'])])
+        self.assertEqual(self.changes()[0]['page'], B + NEW_QUEST)
+        self.assertNotIn('want', fp.state(self.folder)['quest/90001.html.gz'])
+        self.assertIn(b'data-build="2"', gzip.decompress((Path(self.folder) / 'item/250001.html.gz').read_bytes()))     # the kept copy is the latest
+
+    def test_the_order_of_an_update_small_files_then_what_lacks_then_forevers_own_then_classics(self):
+        self.visit({NEW_ITEM: ITEM.split('<section')[0].encode() + b'</main>'})    # an item no source is named for
+        site, result = self.visit(days=20, refresh=14, only=('topics', 'quests', 'items'))
+        self.assertEqual(site.asked[4:], ['/rares', '/quests/zone', '/professions/alchemy', NEW_ITEM, NEW_QUEST, OLD_QUEST, OLD_ITEM])
+        site, result = self.visit(days=20, refresh=14, only=('quests', 'items'), limit=1)
+        self.assertEqual((site.asked[4:], result['left']), ([NEW_QUEST], 3))        # a visit can be bounded: the rest waits for the next
+
+    def test_a_page_the_lists_newly_name_is_read_and_one_they_drop_is_noted_once(self):
+        self.visit()
+        more = {'/quest/sitemap.xml': sitemap(NEW_QUEST, '/quest/90002/newer-quest'), '/quest/90002/newer-quest': QUEST.replace('90001', '90002').encode()}
+        site, result = self.visit(more, days=1, refresh=14)
+        self.assertEqual((site.asked[4:], result['new'], result['gone']), (['/quest/90002/newer-quest'], 1, 1))
+        self.assertEqual([(c['what'], c['file']) for c in self.changes()], [('gone', 'quest/5.html.gz'), ('new', 'quest/90002.html.gz')])
+        self.assertTrue((Path(self.folder) / 'quest/5.html.gz').exists())           # what the site once stated stays
+        _site, result = self.visit(more, days=1, refresh=14)
+        self.assertEqual((result['gone'], len(self.changes())), (0, 2))
+
+    def test_a_kept_page_the_site_no_longer_has_and_a_file_that_was_not_there_before(self):
+        self.visit()
+        rares = json.dumps({'source': 'x', 'mobs': []}).encode()
+        _site, result = self.visit({'/rares': 404, '/map/east/rares.json': rares}, days=20, refresh=14)
+        self.assertEqual((result['gone'], result['new']), (1, 1))
+        self.assertEqual(sorted((c['what'], c['file']) for c in self.changes()), [('gone', 'page/rares.html.gz'), ('new', 'map/east/rares.json')])
+        self.assertTrue((Path(self.folder) / 'page/rares.html.gz').exists())
+
+    def test_a_quest_whose_map_row_changed_is_read_at_once_though_it_is_not_due(self):
+        self.visit()
+        self.visit(days=10, refresh=14, only=('quests',))                           # nothing due yet
+        self.visit(days=5, refresh=14, only=('maps',))                              # the map files were read on day 15: only the quests are due later
+        moved = dict(GIVERS, givers=[['n300', 'Giver One', 'Captain', 'H', 150, -200, [90001]]] + GIVERS['givers'][1:])
+        self.now += 15 * DAY                                                        # maps 15 days old, quests 30
+        site = Site({'/map/east/quest-givers.json': json.dumps(moved).encode()})
+        result = site.run(self.folder, clock=lambda: self.now, refresh=14, only=('maps', 'quests'), limit=4)
+        self.assertEqual(site.asked[4:], ['/map/east/npcs.json', '/map/east/quest-givers.json', OLD_QUEST, NEW_QUEST])     # both quests of the row, before the other map files
+        self.assertIn(('changed', 'map/east/quest-givers.json', ['givers']), [(c['what'], c['file'], c.get('fields')) for c in self.changes()])
+        self.assertEqual(result['left'], len(fp.MAP_FILES) - 2)                     # the other map files
+
+    def test_a_plain_mirror_never_reads_a_kept_page_again(self):
+        self.visit()
+        site, result = self.visit({NEW_QUEST: BARE.encode()}, days=400)
+        self.assertEqual((len(site.asked), result['read']), (4, 0))
+
+    def test_a_folder_without_its_notes_takes_the_files_dates_and_a_cut_line_is_passed_over(self):
+        self.now = time.time()                                                      # the files' own dates are the real clock's
+        self.visit()
+        notes = Path(self.folder) / fp.STATE
+        notes.write_text(notes.read_text(encoding='utf-8').splitlines()[0] + '\n{"f": "quest/5.html.gz", "at": "20', encoding='utf-8')
+        self.assertEqual(len(fp.state(self.folder)), 1)
+        site, result = self.visit(days=1, refresh=14)                               # the kept files are a second old: none is due
+        self.assertEqual(result['kept'], 0)
+        self.assertEqual(result['missing'], len(fp.MAP_FILES) - 3)                  # only what nothing says was ever asked
+
+    def test_status_says_what_is_here_what_is_left_and_what_is_due_without_asking_the_site(self):
+        self.assertEqual(fp.status(self.folder)['groups'], [])
+        self.visit({NEW_QUEST: BARE.encode()}, only=('maps', 'quests'))
+        found = fp.status(self.folder, older=14, clock=lambda: self.now + 20 * DAY)
+        rows = {group['name']: group for group in found['groups']}
+        self.assertEqual((rows['map data files']['listed'], rows['map data files']['kept'], rows['map data files']['not there'], rows['map data files']['left']),
+                         (len(fp.MAP_FILES), 3, len(fp.MAP_FILES) - 3, 0))
+        self.assertEqual((rows["Forever's own quests"]['kept'], rows["Forever's own quests"]['lacking'], rows["Classic's quests"]['kept']), (1, 1, 1))
+        self.assertEqual((rows["Forever's own items"]['left'], rows["Classic's items"]['left'], rows['topic pages']['left']), (1, 1, 3))
+        self.assertEqual((found['left'], found['due'], found['reader']), (6, len(fp.MAP_FILES) + 2, False))
+        said = []
+        fp.report(found, said.append)
+        self.assertIn('6 pages left', ' '.join(said))
+        held = fp.lock(self.folder)
+        try:
+            self.assertTrue(fp.status(self.folder)['reader'])
+        finally:
+            held.close()
 
 
 class Pages(unittest.TestCase):
