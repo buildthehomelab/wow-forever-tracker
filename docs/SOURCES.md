@@ -55,6 +55,10 @@ Two more things come out of the same pack:
   (kept with the ForeverScribe positions, which the locator prefers to a looked-up one): press *Locate* on the Spawns
   page after reading a pack. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
   QuestieDB's, which the tracker reads itself. A pin's name must be exactly one template's.
+  The same goes for the quest givers, enders and vendors of its quest and item lists: one that nobody spawned (the
+  card counts them as *to place, not to write*) gets the place the report gives it, when exactly one template has
+  its name. The first run with only the maps' pins placed nothing the content was waiting for: those NPCs stood
+  already. The ones the content waits for are the quest givers.
 - **Whose quest it is.** For the quests the site's players saw, the analysis looks at the quests the server keeps
   to one side (`quest_template.AllowableRaces`) and asks that this side be one players on live got the quest on. A
   quest kept to the wrong side fails a check of its own on its page (*Offered to the right side*). Nothing changes
