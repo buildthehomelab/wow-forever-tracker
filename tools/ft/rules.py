@@ -142,7 +142,19 @@ def evaluate_all(content, ctx):
             if spell in learnable:
                 add(items, 'craft')
         obtainable = set(sources)
-        for quest in quests:
+        exchanges = {
+            quest for quest, prerequisite in ctx['object_exchange_quests'].items()
+            if quest not in quests and (
+                prerequisite == 0
+                or (prerequisite > 0 and prerequisite in available_quests and not objectives.get(prerequisite))
+                or (prerequisite < 0 and -prerequisite in available_quests
+                    and any(kind == 1 and obj not in obtainable for kind, obj, _ in objectives.get(-prerequisite, ())))
+            )
+            and objectives.get(quest) and all(
+                kind == 1 and obj in obtainable for kind, obj, _ in objectives[quest]
+            )
+        }
+        for quest in quests.keys() | exchanges:
             if quest in ctx['quests'] and quest not in disabled_quests:
                 start_ok = any(s[2] for s in starters.get(quest, [])) or ctx['start_quest_item'].get(quest) in obtainable
                 end_ok = any(e[2] for e in enders.get(quest, []))
