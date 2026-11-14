@@ -67,15 +67,16 @@ if (str_starts_with($action, 'spawn_')) {
             [$built, $left] = spawn_build_database($picks);
             [$consoleOk, $consoleMessage, $module] = spawn_console_status();
             $addons = spawn_client_addons();
+            $world = spawn_world_state();   // "unknown" (no console configured): the database mode asks to confirm the worldserver is stopped
             json_out(['ok' => true, 'entries' => count($picks), 'points' => count($plan['points']), 'manual' => count($plan['manual']), 'skipped' => $plan['skipped'],
-                'database' => $built['rows'], 'database_left' => $left, 'world_running' => spawn_world_running(), 'warnings' => $plan['warnings'],
+                'database' => $built['rows'], 'database_left' => $left, 'world_running' => $world === 'running', 'world_state' => $world, 'warnings' => $plan['warnings'],
                 'console' => ['ok' => $consoleOk, 'message' => $consoleMessage, 'module' => $module], 'client' => $addons]);
         case 'spawn_server':
             if (empty($input['confirm'])) json_out(['error' => t('Confirmation missing.', 'Confirmation manquante.')], 400);
             json_out(spawn_apply_server($picks));
         case 'spawn_database':
             if (empty($input['confirm'])) json_out(['error' => t('Confirmation missing.', 'Confirmation manquante.')], 400);
-            json_out(spawn_apply_database($picks));
+            json_out(spawn_apply_database($picks, !empty($input['stopped'])));
         case 'spawn_sql':
             [$built] = spawn_build_database($picks);
             json_out(['ok' => true, 'rows' => $built['rows'], 'skipped' => $built['skipped'], 'warnings' => $built['warnings'], 'count' => count($built['items']),

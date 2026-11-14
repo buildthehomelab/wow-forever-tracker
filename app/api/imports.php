@@ -80,7 +80,7 @@ switch ((string)($input['action'] ?? '')) {
                   'apply' => forge_script($built['plans'], 'apply'), 'rollback' => forge_script($built['plans'], 'rollback'), 'databases' => array_keys($built['plans'])]);
     case 'apply':
         if (empty($input['confirm'])) json_out(['error' => t('Confirmation missing.', 'Confirmation manquante.')], 400);
-        json_out(import_apply($id, $tables));
+        json_out(import_apply($id, $tables, [], !empty($input['stopped'])));
     case 'delete':
         import_delete($id);
         json_out(['ok' => true]);

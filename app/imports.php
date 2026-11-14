@@ -316,13 +316,21 @@ function import_build(int $id, array $only = [], array $items = []): array
     return $built;
 }
 
-function import_apply(int $id, array $only = [], array $items = []): array
+/** $stopped: the administrator confirmed "I have stopped the worldserver" (asked when no remote console can tell). */
+function import_apply(int $id, array $only = [], array $items = [], bool $stopped = false): array
 {
     forge_schema();
     require_once FT_APP . '/spawns.php';
     $built = import_build($id, $only, $items);
-    if ($built['spawns'] && $built['rows'] && spawn_world_running()) {
-        return ['ok' => false, 'message' => t('This import adds spawns and the worldserver is running: it hands out spawn ids itself. Stop it first, or leave the creature and gameobject tables out.', 'Cet import ajoute des placements et le worldserver tourne : il attribue lui-même les identifiants. Arrêtez-le d’abord, ou écartez les tables creature et gameobject.')];
+    if (!empty($built['spawns']) && $built['rows']) {
+        $world = spawn_world_state();
+        if ($world === 'running') {
+            return ['ok' => false, 'message' => t('This import adds spawns and the worldserver is running: it hands out spawn ids itself. Stop it first, or leave the creature and gameobject tables out.', 'Cet import ajoute des placements et le worldserver tourne : il attribue lui-même les identifiants. Arrêtez-le d’abord, ou écartez les tables creature et gameobject.')];
+        }
+        // no console to ask: "it did not answer" would read as "stopped" and the spawns would go in under a running server
+        if ($world === 'unknown' && !$stopped) {
+            return ['ok' => false, 'confirm_stopped' => true, 'message' => t('This import adds spawns.', 'Cet import ajoute des placements.') . ' ' . spawn_world_unknown_message() . ' ' . t('Or leave the creature and gameobject tables out.', 'Ou écartez les tables creature et gameobject.')];
+        }
     }
     return forge_commit($built, 'import');
 }
