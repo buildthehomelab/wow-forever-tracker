@@ -127,6 +127,24 @@ chown www-data:www-data "$DATA/sessions"
 chmod 700 "$DATA/sessions"
 say "config.ini written (database ${FT_DB_USER:-tracker}@${FT_DB_HOST:-mysql}, world ${FT_DB_WORLD:-world}, hotfixes ${FT_DB_HOTFIXES:-hotfixes})"
 
+# PHP's clock. Release phases open at midnight in this zone (docs/PHASES.md) and the site shows its dates in it:
+# FT_TIMEZONE, else the container's TZ, else UTC. A name PHP does not know would run as UTC without a word, so it is
+# checked here, and written where both Apache's PHP and the command-line one read it.
+timezone="${FT_TIMEZONE:-${TZ:-UTC}}"
+timezone_ok=1
+case "$timezone" in
+    *[!A-Za-z0-9_+/-]*) timezone_ok=0 ;;
+    *) php -r 'exit(in_array($argv[1], DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true) ? 0 : 1);' "$timezone" || timezone_ok=0 ;;
+esac
+if [ "$timezone_ok" = "0" ]; then
+    if [ -n "${FT_TIMEZONE:-}" ]; then say "ERROR: FT_TIMEZONE=\"$timezone\" is no timezone PHP knows (for example Europe/Paris, America/Toronto, UTC)"; exit 1; fi
+    say "TZ=\"$timezone\" is no timezone PHP knows: using UTC (set FT_TIMEZONE, for example Europe/Paris)"
+    timezone=UTC
+fi
+printf '; Written by docker/entrypoint.sh at every start: FT_TIMEZONE, else TZ, else UTC.\ndate.timezone = "%s"\n' "$timezone" \
+    > "${PHP_INI_DIR:-/usr/local/etc/php}/conf.d/forever-tracker-timezone.ini"
+say "timezone $timezone"
+
 # no import survives a restart: a lock left by one would grey out its button
 rm -f "$DATA"/source-*.running
 

@@ -86,6 +86,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_GM_LEVEL` | `3` | GM level a game account needs to log in as an administrator |
 | `FT_VENDOR_ENTRY` | `0` | Default vendor the Forge proposes |
 | `FT_PUBLIC` | `1` | `0`: only administrators see the tracker |
+| `FT_TIMEZONE` | `TZ`, else `UTC` | The site's clock, as a [timezone name](https://www.php.net/manual/en/timezones.php) (`Europe/Paris`, `America/Toronto`): the dates it shows, and the midnight at which a [release phase](PHASES.md) opens. An `FT_TIMEZONE` PHP does not know stops the start; such a `TZ` runs as UTC, with a line in the log |
 | `FT_LANGUAGE` | `en` | `en` or `fr`: the default interface language |
 | `FT_LANGUAGES` | `en,fr` | `en`: English only, everywhere (no French names or language switch); `fr`: French only. A change analyses again at the next start |
 | `FT_SITE_NAME`, `FT_HOME_URL`, `FT_HOME_LABEL`, `FT_REPOSITORY_URL` | | `[site]` of [CONFIGURATION.md](CONFIGURATION.md) |

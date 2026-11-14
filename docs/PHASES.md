@@ -60,7 +60,8 @@ new image that ships new dates.
 The website decides this each time a page loads, so a phase opening needs no new analysis:
 
 - by default, each phase opens on its own `opens` date. A phase with no date stays closed, without holding back
-  the others.
+  the others. The day starts at midnight on the website's clock: PHP's `date.timezone`, which the container sets from
+  `FT_TIMEZONE` (else `TZ`, else UTC, where a phase would open hours early or late for your players).
 - `[phases] current` in `config.ini` (`FT_PHASE` with Docker) overrides the dates for a realm that runs ahead of or
   behind the official game. It takes a phase key (`first-raids`: that phase and every one listed before it), a number
   (`1` = the first phase, `2` = the first two), `all` (every phase open, as before) or `none` (only launch content).
