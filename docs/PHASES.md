@@ -107,3 +107,9 @@ for a phase, it waits with them (Forever's own copy of Sulfuras, a new id withou
 Also under *Internal / test*: a boss of a test instance, placeholder mounts, pets, toys and recipes (`[PH] ...`), and
 flight points nobody flies from: boats, zeppelins and script targets of the original game (no faction can use them),
 and a battleground's own nodes. Unnamed recipes stay visible: no name is no reason to hide them.
+
+Spells of a class or profession skill line go there too when nobody learns them: the game data marks them as never
+learned (`SkillLineAbility.AcquireMethod` 3) or another spell casts them, and no trainer or item holds them. So does a
+spell or recipe that only items teach, when each of those items is a test item, a Season of Discovery leftover or
+missing from the client. A spell new in Forever whose item is not in the client yet stays on the list: it is content
+still locked. The rules are in `tools/ft/rules.py` (`granted_spells`) and `tools/ft/output.py` (`leftover`).

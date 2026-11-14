@@ -8,6 +8,7 @@ from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
+ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 
 
@@ -40,6 +41,15 @@ def server_dbc():
 def server_db2(name):
     path = os.path.join(server_dbc(), name + '.db2')
     return list(db2.Table(path, name)) if os.path.isfile(path) else []
+
+
+def tree_spells(read):
+    """Spells a talent or perk tree grants: the spell of every TraitDefinition that sits on a node of a tree (WoW:
+    Forever's class trees and Legacy perks are trait trees; the Talent table only holds the original game's)."""
+    definitions = {r['ID']: r['SpellID'] for r in read('TraitDefinition')}
+    entries = {r['ID']: r['TraitDefinitionID'] for r in read('TraitNodeEntry')}
+    nodes = {r['ID'] for r in read('TraitNode')}
+    return {definitions.get(entries.get(link['TraitNodeEntryID']), 0) for link in read('TraitNodeXTraitNodeEntry') if link['TraitNodeID'] in nodes} - {0}
 
 
 def vendor_items(rows):
@@ -105,10 +115,12 @@ def server_state():
         'mount': ids('Mount') | hot('mount'), 'toy': ids('Toy') | hot('toy'), 'pet': ids('BattlePetSpecies') | hot('battle_pet_species'),
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
-    learn, creates, spell_summons = {}, {}, set()
+    learn, creates, spell_summons, cast_by = {}, {}, set(), {}
     for e in srv('SpellEffect'):
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
+        elif e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID']:
+            cast_by.setdefault(e['EffectTriggerSpell'], e['SpellID'])
         if e['Effect'] == EFFECT_CREATE_ITEM and e['EffectItemType']:
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
         if e['Effect'] == EFFECT_SUMMON and e['EffectMiscValue1'] > 0:
@@ -128,6 +140,20 @@ def server_state():
                 teaches.setdefault(target, set()).add(item_id)
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
+    acquire = {}
+    for r in srv('SkillLineAbility'):
+        acquire.setdefault(r['Spell'], set()).add(r['AcquireMethod'])
+    # How the game data itself says a spell reaches a player without a trainer: every skill line listing it marks it
+    # "never learned" (something else applies it), another spell casts it, a talent or perk tree grants it, or learning
+    # one spell teaches another (a learn effect, or SpellLearnSpell: the core reads both).
+    ctx['never_learned'] = {spell for spell, methods in acquire.items() if methods == {ACQUIRE_NEVER}}
+    ctx['cast_by'] = cast_by
+    ctx['tree_spells'] = tree_spells(srv)
+    taught = {(source, target) for source, targets in learn.items() for target in targets}
+    taught |= {(r['SpellID'], r['LearnSpellID']) for r in srv('SpellLearnSpell') if r['SpellID'] and r['LearnSpellID']}
+    if sqlio.has_table('spell_learn_spell', 'hotfixes'):
+        taught |= {(int(r['SpellID']), int(r['LearnSpellID'])) for r in sqlio.query('SELECT SpellID, LearnSpellID FROM spell_learn_spell', 'hotfixes')}
+    ctx['spell_teaches'] = taught
     ctx['spell_ids'] = {r['ID'] for r in srv('SpellName')} | {r['SpellID'] for r in srv('SpellMisc')}
     ctx['start_quest_item'] = {r['StartQuestID']: r['ID'] for r in srv('ItemSparse') if r['StartQuestID']}
 

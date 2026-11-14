@@ -53,7 +53,7 @@ passes or fails, in English and French, with a work list by priority, CSV export
 | Dungeon / raid | terrain extracted; `instance_template`; entrance teleporter; creatures spawned; every boss spawned; navigation mesh |
 | Boss | a creature of that name spawned in the instance; scripted (ScriptName or SmartAI) |
 | Zone | creatures spawned in its area; most of its quests doable; graveyard |
-| Spell, talent, recipe | known to the core; learnable (trainer, quest reward, automatic, item); script advice for dummy effects |
+| Spell, talent, recipe | known to the core; learnable (trainer, quest reward, automatic, item, a talent or perk tree, or learning another spell); script advice for dummy effects. A spell the game data marks as never learned, or that another spell casts, is not asked for a trainer |
 | Mount, pet, toy | the item or spell that teaches it can be obtained |
 | Achievement | known to the core; `achievement_reward` when it has a reward |
 | Flight point | a flight master spawned next to the node |
