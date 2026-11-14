@@ -102,7 +102,9 @@ A cache is never used for another build than the one in its header, and never fo
 - **Keys from the hotfixes.** Blizzard hands out the keys of unreleased content by hotfix too; the stored build is read
   again when a key appears in the public list (wowdev's TACTKeys), which follows a little later.
 - **Hotfixes in the changelog.** A hotfix changes the newest build's content in place: the changelog compares builds,
-  so it shows a hotfix only as part of the difference between two builds.
+  so it shows a hotfix only as part of the difference between two builds. A resource that exists by hotfix alone is in
+  no build's tables, so nothing says when it appeared: compared with a build whose hotfixes were never stored it is not
+  listed as added (the changelog says how many there are), and it counts as known since that build.
 - **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
   copy.
 - **An older build.** The version server names the live build only.

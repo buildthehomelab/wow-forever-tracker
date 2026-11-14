@@ -91,13 +91,13 @@ class Overlay(unittest.TestCase):
 
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
-        hotfixes._loaded.clear(); hotfixes.STATS.clear(); hotfixes.ORIGIN.clear()
+        hotfixes._loaded.clear(); hotfixes.STATS.clear(); hotfixes.ORIGIN.clear(); hotfixes.ADDED.clear(); hotfixes.OWN.clear()
         self.rows = [{'ID': 1, 'Name': 'Worn Sword', 'Level': 1, 'Price': 1.5}, {'ID': 2, 'Name': 'Bent Staff', 'Level': 1, 'Price': 1.5},
                      {'ID': 3, 'Name': 'Old Shield', 'Level': 1, 'Price': 1.5}]
 
     def tearDown(self):
         self.folder.cleanup()
-        hotfixes._loaded.clear(); hotfixes.STATS.clear(); hotfixes.ORIGIN.clear()
+        hotfixes._loaded.clear(); hotfixes.STATS.clear(); hotfixes.ORIGIN.clear(); hotfixes.ADDED.clear(); hotfixes.OWN.clear()
 
     def build(self, number, entries=None, cache_build=None):
         path = os.path.join(self.folder.name, str(number))
@@ -148,6 +148,33 @@ class Overlay(unittest.TestCase):
         older = self.build(70862)
         self.build(70938, [(5, ITEM, 2140, 1, item('Carving Knife'))])
         self.assertNotIn(2140, self.names(older))
+
+
+class ByHotfixAlone(Overlay):
+    """What the comparison of two builds needs to know: which rows exist by hotfix alone, and whether a build has a
+    cache of its own."""
+
+    def test_the_rows_a_hotfix_added_are_remembered(self):
+        folder = self.build(70938, [(5, ITEM, 1, 1, item('Sharp Sword')), (5, ITEM, 2140, 1, item('Carving Knife')), (5, ITEM, 5187, 1, item('Hammer'))])
+        self.names(folder)
+        self.assertEqual(hotfixes.ADDED[folder], {'Item': {2140, 5187}})    # not row 1: the table has it
+
+    def test_a_build_with_and_without_its_own_cache(self):
+        older = self.build(70862)
+        newer = self.build(70938, [(5, ITEM, 2140, 1, item('Carving Knife'))])
+        later = self.build(70950)                                           # carries 70938's over
+        self.assertEqual([hotfixes.has_own(f) for f in (older, newer, later)], [False, True, False])
+
+    def test_a_resource_by_its_own_table(self):
+        from ft import content
+        folder = self.build(70938, [(5, ITEM, 2140, 1, item('Carving Knife'))])
+
+        class Sparse(Table):
+            name = 'ItemSparse'
+
+        hotfixes.overlay(folder, Sparse, [dict(r) for r in self.rows])
+        self.assertEqual(content.hotfix_only(folder), {('item', 2140)})
+        self.assertEqual(content.hotfix_only(self.build(70862)), set())
 
 
 class Fetch(unittest.TestCase):

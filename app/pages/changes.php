@@ -22,6 +22,8 @@ $list = rows("SELECT c.*, e.name_en, e.icon, e.quality, e.status, e.score, e.is_
 $grouped = [];
 foreach ($list as $x) $grouped[$x['type']][] = $x;
 $note = table_exists('ft_notes') ? row('SELECT * FROM ft_notes WHERE build = ?', [$build]) : null;
+// resources that exist by hotfix alone (in no build's tables): the analysis does not call them "added" (docs/CLIENT.md)
+$byHotfix = $withChanges && $build === $withChanges[0] ? array_sum(array_map('intval', (array)(meta()['hotfix_only'] ?? []))) : 0;
 $fieldLabels = ['name' => t('name', 'nom'), 'quality' => t('quality', 'qualité'), 'ilvl' => t('item level', 'niveau d’objet'), 'req' => t('required level', 'niveau requis'),
     'stats' => t('stats', 'caractéristiques'), 'sell' => t('sell price', 'prix de vente'), 'buy' => t('buy price', 'prix d’achat'), 'desc' => 'description',
     'effects' => t('effects', 'effets'), 'aura' => 'aura', 'level' => t('level', 'niveau'), 'ranks' => t('ranks', 'rangs'), 'points' => 'points', 'reward' => t('reward', 'récompense'), 'source' => 'source'];
@@ -52,6 +54,7 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
     <span class="page-icon"><i class="fas fa-code-compare"></i></span>
     <div><span class="eyebrow"><?= e(t('Official changelog', 'Changelog officiel')) ?></span><h1><?= e(t('Build', 'Build')) ?> <?= e($current['version'] ?? '—') ?></h1>
     <p><?= e(t('Every resource added, changed or removed in the client files of this build, compared with the previous tracked build. Hover a name for its tooltip.', 'Chaque ressource ajoutée, modifiée ou supprimée dans les fichiers du client de ce build, par rapport au build suivi précédent. Survolez un nom pour son infobulle.')) ?></p></div>
+    <?php if ($byHotfix): ?><p class="muted small"><?= e(sprintf(t('%s resources exist by hotfix alone: they are in no build’s files, so nothing says when they appeared, and they are not listed as added here.', '%s ressources n’existent que par correctif : elles ne sont dans les fichiers d’aucun build, rien ne dit donc quand elles sont apparues, et elles ne figurent pas ici comme ajoutées.'), number($byHotfix))) ?></p><?php endif; ?>
   </div>
   <div class="stat-tiles is-compact">
     <span class="stat-tile is-ok"><strong>+<?= number($totals['added']) ?></strong><span><?= e(kind_label('added')) ?></span></span>
