@@ -6,6 +6,7 @@ The last class needs a MySQL server: it runs when FT_TEST_CONFIG names a config.
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -28,6 +29,38 @@ def ready(kind, subject_kind, subject, other=0, allowed='public', rule='seen-liv
     return {'kind': kind, 'subject_kind': subject_kind, 'subject': subject, 'object': other, 'allowed': allowed, 'rule': rule,
             'witnesses': witnesses or [{'source': 'eglink', 'part': '', 'build': LIVE, 'use': 'public'},
                                        {'source': 'questie', 'part': 'trace', 'build': 0, 'use': 'public'}]}
+
+
+def strict_safe(case, text):
+    """Every column a CREATE TABLE ... SELECT declares itself has a default when it is NOT NULL: MySQL's strict mode (the server's
+    default, and the mode the core's updater applies files in) refuses it otherwise, even when the SELECT copies no row."""
+    heads = re.findall(r"CREATE TEMPORARY TABLE `[^`]+` \((.*?)\) SELECT ", text)
+    case.assertTrue(heads)
+    for head in heads:
+        for column in re.split(r",\s*(?=`)", head):
+            if 'NOT NULL' in column:
+                case.assertIn('DEFAULT', column, column)
+
+
+class Trial(unittest.TestCase):
+    def test_the_trial_runs_in_the_updater_s_strict_mode_first(self):
+        """The core's updater applies files over its own connection in MySQL's strict mode: the trial sets that mode before
+        any other statement, whatever the session would otherwise get."""
+        sent = []
+
+        class Db:
+            def query(self, sql, database):
+                return [] if sql.startswith('SHOW TABLES') else [{'n': '0'}]
+
+            def script(self, sql, database):
+                sent.append(sql)
+                raise RuntimeError('stop here')
+
+        row = export.Row('creature_queststarter', (1, 100), 'seen-live: eglink@70862', "Anna gives Kobold's End", 'public', None)
+        with self.assertRaises(export.ExportError):
+            export.trial(Db(), 'build', [('f.sql', [row])])
+        self.assertTrue(sent[0].startswith(f"SET SESSION sql_mode = '{export.STRICT_MODE}';\n"), sent[0][:120])
+        self.assertIn('STRICT_TRANS_TABLES', export.STRICT_MODE)
 
 
 class Price(unittest.TestCase):
@@ -348,8 +381,9 @@ class Quests(unittest.TestCase):
         rows, _held = self.plan([ready('quest', 'quest', 200), ready('gives', 'npc', 1, 200), ready('takes', 'npc', 1, 200)],
                                 {200: known(dict(RECORD, categoryId=141, zoneAreaId=0))})
         text = ';\n'.join(export.body(rows, 'f.sql')) + ';\n'
+        strict_safe(self, text)
         self.assertLess(text.index('INSERT INTO `quest_template`'), text.index('INSERT INTO `creature_queststarter`'))      # the quest first, then what hangs on it
-        self.assertIn('CREATE TEMPORARY TABLE `everlake_build_quests` (`n` INT NOT NULL PRIMARY KEY, `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0) '
+        self.assertIn('CREATE TEMPORARY TABLE `everlake_build_quests` (`n` INT NOT NULL DEFAULT 0 PRIMARY KEY, `note` VARCHAR(255) NOT NULL DEFAULT \'\', `missing` TINYINT NOT NULL DEFAULT 0) '
                       'SELECT `ID`, `RewardItem1`, ', text)
         self.assertIn(" FROM `quest_template` WHERE 0;\n", text)
         self.assertIn("'Kobold''s End', 'Slay 8 kobolds.', CONCAT('They dig too deep.', CHAR(13, 10, 13, 10 USING utf8mb4), 'Stop them, $n', CHAR(92 USING utf8mb4), '$c.'), "
@@ -471,7 +505,8 @@ class Npcs(unittest.TestCase):
                                 {9: creature(), 10: creature(dict(CREATURE, name="Bare O'Name", title=None, displays=[{'displayId': 500}, {'displayId': 501, 'scale': 0.5}]),
                                                              stated='A', level=(5, 6, 'questie'))})
         text = ';\n'.join(export.npc_block(rows, 'f.sql')) + ';\n'
-        self.assertIn('CREATE TEMPORARY TABLE `everlake_build_npcs` (`n` INT NOT NULL PRIMARY KEY, `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0) '
+        strict_safe(self, text)
+        self.assertIn('CREATE TEMPORARY TABLE `everlake_build_npcs` (`n` INT NOT NULL DEFAULT 0 PRIMARY KEY, `note` VARCHAR(255) NOT NULL DEFAULT \'\', `missing` TINYINT NOT NULL DEFAULT 0) '
                       'SELECT `entry`, `KillCredit1`, `KillCredit2`, `name`, `subname`, `IconName`, `faction`, `Classification`, `type`, `family`, `movementId`, `unit_class`, '
                       '`BaseAttackTime`, `RangeAttackTime`, `unit_flags2` FROM `creature_template` WHERE 0;', text)
         self.assertIn("(1, 9, 0, 0, 'Rix Xizzix', 'Lost and Found', NULL, 35, 0, 7, 0, 1693, 1, 2000, 2000, 2048, 'seen-live: eglink@70862, questie:trace'), -- Rix Xizzix\n"

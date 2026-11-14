@@ -353,9 +353,10 @@ stays out of the file, its ledger note and its manifest.
   players could not use the row. A spawn that overrides its template's flags is not touched.
 - **A deployed file is never edited.** A later fix is a later export.
 
-**Tried before it is written.** The file's statements run twice on the replayed world, inside a transaction that is
-rolled back, so the scratch database stays what the replay made it. The first run must add every row and record it;
-a row the world does not take is left out and reported; a second run that adds or removes a row or sets a flag, or
+**Tried before it is written.** The file's statements run twice on the replayed world, in MySQL's strict mode (the mode
+the core's updater applies files in), inside a transaction that is rolled back, so the scratch database stays what the
+replay made it. The first run must add every row and record it; a row the world does not take is left out and reported;
+a second run that adds or removes a row or sets a flag, or
 a statement the world refuses, stops the export and nothing is written. The tables are counted again after the
 rollback: a world that kept anything (a table that does not roll back) is reported loudly. A file name the world's
 ledger already knows is refused too: two different files of one name would make the updater run the second as a
