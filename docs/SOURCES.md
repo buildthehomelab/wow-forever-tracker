@@ -13,8 +13,35 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever, one answer per item, quest and NPC | none stated: reference for your own server | asked about each gap, two requests a second, in the background |
 
+| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
+
 Questie and DungeonJournal come in through NorgannonDB, which is built from them: a second Questie import would only
 repeat its rows.
+
+## ForeverChanges: names and places, from a file
+
+`python tools/foreverchanges_pack.py copy.db out.fcpack` trims a crawl of the site (the SQLite file it leaves, several
+hundred MB) down to its quest and item lists, a few MB. Send the `.fcpack` on the Imports page: it becomes the one
+pack the tracker keeps (`data/foreverchanges/pack.fcpack`) and a card is made at once; *Read the pack again* makes a
+new card after an analysis.
+
+- **A name, not a number.** The site says "Furmund, Orgrimmar, 50.9 65.3". The name is matched to the server's
+  creature (or object) of that name that stands there: the place is turned into world coordinates with the client's
+  own map tables, and the creature whose spawn is nearest is taken when it is within 80 yards and no other of that
+  name is about as near. The only spawned creature of a name is taken up to 300 yards away (a patrol, a rough pin).
+  Without a place, a zone tells two of a name apart when only one stands inside it.
+- **Never guessed.** A name several creatures share with nothing to tell them apart, a name no creature has, a
+  creature of that name reported far from where it stands, and a creature nobody spawned are each counted on the card
+  and left out. The last is somebody to place, not a row to write.
+- **Only what is about Forever.** The site's base is Classic's data; it marks what its players saw. Taken: the giver
+  and ender of a quest marked as seen by players, vendors, and drops counted in at least ten kills (the chance is
+  drops over kills). Left out: a quest nobody saw, a drop given as a bare percentage (Classic's), a quest an item
+  starts.
+- From there the rules are every source's: only the analysis' gaps, a vendor or drop the server already has is left
+  out, and the card is previewed and applied like any other.
+
+`tools/ft/reports.py` holds the matching; `python tools/tracker.py reports --pack <file> --out <file>` is what the
+website runs.
 
 ## The same rules for every source
 

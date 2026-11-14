@@ -238,6 +238,66 @@ def wowhead_verdicts(content, results, baseline, ask):
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
+def player_reports(args):
+    """Turns a ForeverChanges pack into the evidence the website's import card is made from (ft.reports,
+    docs/SOURCES.md): its NPC names matched to the server's creatures by where they stand. Called by the website."""
+    import gzip
+    from ft import geo as geography, reports
+    try:
+        with gzip.open(args.pack, 'rt', encoding='utf-8') as handle:
+            pack = json.load(handle)
+    except (OSError, ValueError, EOFError) as error:
+        sys.exit(f'reports: {args.pack} cannot be read ({error})')
+    names = sorted(reports.wanted_names(pack))
+
+    def named(table, spawn_table):
+        by_name, spawns = {}, {}
+        for start in range(0, len(names), 400):
+            chunk = ','.join(sqlio.escape(name) for name in names[start:start + 400])
+            for row in sqlio.query(f'SELECT entry, name FROM `{table}` WHERE name IN ({chunk})'):
+                by_name.setdefault((row['name'] or '').strip().lower(), []).append(int(row['entry']))
+        entries = sorted({entry for found in by_name.values() for entry in found})
+        for start in range(0, len(entries), 1000):
+            for row in sqlio.query(f'SELECT id, map, position_x x, position_y y FROM `{spawn_table}` WHERE id IN (' + ','.join(map(str, entries[start:start + 1000])) + ')'):
+                spawns.setdefault(int(row['id']), []).append((int(row['map']), float(row['x']), float(row['y'])))
+        return by_name, spawns
+    builds = official_content.builds()
+    if not builds:
+        sys.exit('reports: no client snapshot yet (run the analysis first)')
+    geo = geography.Geo(builds[-1]['dir'])
+    zones = {}
+    for area in official_content.table(builds[-1]['dir'], 'AreaTable', 'enUS'):
+        if not area.get('ParentAreaID'):
+            zones.setdefault(str(area.get('AreaName') or '').strip().lower(), area['ID'])
+
+    def ui_map(zone):
+        area = zones.get(str(zone or '').strip().lower())
+        maps = geo.zone_ui_maps(area) if area else []
+        return maps[0] if maps else None
+
+    def where(zone, x, y):
+        found = ui_map(zone)
+        return geo.to_world(found, float(x) / 100, float(y) / 100) if found else None
+
+    def box(zone):
+        area = zones.get(str(zone or '').strip().lower())
+        for found in geo.zone_ui_maps(area) if area else []:
+            for a in geo.assignments.get(found, []):
+                if a['AreaID'] == area:
+                    return (a['MapID'], min(a['Region1X'], a['Region2X']), min(a['Region1Y'], a['Region2Y']), max(a['Region1X'], a['Region2X']), max(a['Region1Y'], a['Region2Y']))
+        return None
+    try:
+        ev, left = reports.evidence(pack, reports.Matcher(*named('creature_template', 'creature'), where, box),
+                                    reports.Matcher(*named('gameobject_template', 'gameobject'), where, box))
+    except ValueError as error:
+        sys.exit(f'reports: {error}')
+    result = {'ev': ev, 'left': left, 'retrieved': str(pack.get('retrieved') or '')[:10], 'quests': len(pack.get('quests') or []), 'items': len(pack.get('items') or [])}
+    with open(args.out + '.part', 'w', encoding='utf-8') as handle:
+        json.dump(result, handle, ensure_ascii=False)
+    os.replace(args.out + '.part', args.out)
+    log('reports: ' + ', '.join(f'{len(rows)} {kind}' for kind, rows in ev.items()) + ' (' + (', '.join(f'{n} {why}' for why, n in sorted(left.items())) or 'nothing left out') + ')')
+
+
 def merge_checks(rows, sided):
     """The rows of ft_npc_checks: the level and rank findings (11 columns each) with the side findings ((entry, name,
     issue, note)) added, one row per creature. A creature with only a side finding has no level, rank or Wowhead values."""
@@ -517,6 +577,9 @@ def main():
     again.add_argument('what', choices=['quests'])
     again.add_argument('--eglink', required=True, metavar='COMMIT', help='the EG Link commit to read')
     again.add_argument('--out', required=True, metavar='FILE', help='where the changes are written, as JSON')
+    told = sub.add_parser('reports', help="players' reports (a ForeverChanges pack) as evidence for the website's import card")
+    told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pack.py made')
+    told.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
     check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
@@ -561,6 +624,8 @@ def main():
         client_check(args)
     elif args.command == 'refresh':
         refresh_quests(args)
+    elif args.command == 'reports':
+        player_reports(args)
     elif args.command == 'hotfixes':
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
         result = client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url))()

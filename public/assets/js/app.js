@@ -402,16 +402,15 @@
         return;
       }
       toast(esc(data.message || ''));
-      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
+      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
-  const upload = $('[data-import-upload] input[type=file]');
-  if (upload) upload.addEventListener('change', () => {
+  $$('[data-import-upload] input[type=file]').forEach((upload) => upload.addEventListener('change', () => {
     if (!upload.files.length) return;
     const form = new FormData(); form.append('file', upload.files[0]); form.append('csrf', FT.csrf);
     toast(L('Importing…', 'Import en cours…'));
     importApi(form).then(imported).catch((e) => toast(esc(e.message), 'error'));
-  });
+  }));
   $$('[data-import-file]').forEach((button) => button.addEventListener('click', () => {
     button.disabled = true; button.classList.add('is-busy');
     importApi({ action: 'import', file: button.dataset.importFile }).then(imported).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });

@@ -20,6 +20,15 @@ if ($upload) {
             : t('Upload failed.', 'Échec de l’envoi.')]);
     }
     $name = preg_replace('/[^\w.\- ]+/u', '_', basename((string)$file['name'])) ?: 'import.sql';
+    if (preg_match('/\.fcpack$/i', $name)) {
+        // a ForeverChanges pack (tools/foreverchanges_pack.py): kept as the one pack, and read at once
+        require_once FT_APP . '/sources.php';
+        $pack = foreverchanges_pack();
+        @mkdir(dirname($pack), 0775, true);
+        $head = (string)@file_get_contents($file['tmp_name'], false, null, 0, 2);
+        if ($head !== "\x1f\x8b" || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/foreverchanges_pack.py.', 'Ce n’est pas un paquet créé par tools/foreverchanges_pack.py.')]);
+        json_out(foreverchanges_import());
+    }
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);
     $target = $dir . '/' . date('Ymd-His') . '-' . $name;
     move_uploaded_file($file['tmp_name'], $target);
@@ -66,6 +75,9 @@ switch ((string)($input['action'] ?? '')) {
     case 'source_foreverdb':
         require_once FT_APP . '/sources.php';
         json_out(foreverdb_import());
+    case 'source_foreverchanges':
+        require_once FT_APP . '/sources.php';
+        json_out(foreverchanges_import());
     case 'source_atlasloot':
         // a few seconds (EG Link's first download longer); the same lock as the container's check, so they never overlap
         require_once FT_APP . '/atlasloot.php';
