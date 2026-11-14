@@ -35,6 +35,7 @@ const SOURCES = [
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
+    'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14)'],
 ];
 
 /**
@@ -212,12 +213,12 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
  *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,eglink,foreverdb,atlasloot';
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -561,6 +562,54 @@ function source_check(): ?array
     @ini_set('memory_limit', '2048M');
     @set_time_limit(0);
     return null;
+}
+
+// ------------------------------------------------------------------ ForeverChanges (players' reports, from a file)
+// foreverchanges.pro collects what its players' addon saw on live WoW Forever, over a base of Classic's data. The
+// tracker never asks the site: it reads a pack made from a copy of it (tools/foreverchanges_pack.py), sent through
+// this page. The site names NPCs and places them on a map; tools/tracker.py matches those to the server's creatures
+// (ft.reports) and hands back the same evidence every other source gives.
+
+function foreverchanges_pack(): string { return FT_ROOT . '/data/foreverchanges/pack.fcpack'; }
+
+/** The evidence tools/tracker.py made from a pack, checked: every row whole numbers of the right shape, the kinds
+ *  'npc' and 'go', a chance between 0 and 100. Anything else is dropped. */
+function foreverchanges_evidence(array $result): array
+{
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => []];
+    $whole = fn($v) => is_int($v) && $v > 0;
+    foreach (['start', 'end'] as $role) foreach ((array)($result['ev'][$role] ?? []) as $r) {
+        if (is_array($r) && count($r) === 3 && in_array($r[0], ['npc', 'go'], true) && $whole($r[1]) && $whole($r[2])) $ev[$role][] = [$r[0], $r[1], $r[2]];
+    }
+    foreach ((array)($result['ev']['sell'] ?? []) as $r) if (is_array($r) && count($r) === 3 && $whole($r[0]) && $whole($r[1]) && is_int($r[2]) && $r[2] >= 0) $ev['sell'][] = [$r[0], $r[1], $r[2]];
+    foreach ((array)($result['ev']['drop'] ?? []) as $r) {
+        if (is_array($r) && count($r) === 4 && $r[0] === 'npc' && $whole($r[1]) && $whole($r[2]) && (is_int($r[3]) || is_float($r[3])) && $r[3] > 0 && $r[3] <= 100) $ev['drop'][] = ['npc', $r[1], $r[2], (float)$r[3]];
+    }
+    foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^report_[a-z_]+$/', (string)$why) && (int)$n > 0) $ev['left'][(string)$why] = (int)$n;
+    return $ev;
+}
+
+function foreverchanges_import(): array
+{
+    if ($e = source_check()) return $e;
+    $pack = foreverchanges_pack();
+    if (!is_file($pack)) return ['ok' => false, 'message' => t('No ForeverChanges pack yet: make one with tools/foreverchanges_pack.py and send the .fcpack file here.', 'Pas encore de paquet ForeverChanges : créez-en un avec tools/foreverchanges_pack.py et envoyez le fichier .fcpack ici.')];
+    $out = dirname($pack) . '/evidence.json';
+    @unlink($out);
+    $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' reports --pack ' . escapeshellarg($pack) . ' --out ' . escapeshellarg($out) . ' 2>&1';
+    $lines = []; $code = 1;
+    if (function_exists('exec')) @exec($command, $lines, $code);
+    $result = $code === 0 && is_file($out) ? json_decode((string)file_get_contents($out), true) : null;
+    @unlink($out);
+    if (!is_array($result)) {
+        error_log('Forever Tracker: the ForeverChanges pack could not be read: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
+        return ['ok' => false, 'message' => t('The ForeverChanges pack could not be read (see the PHP error log). Is it a .fcpack file made by tools/foreverchanges_pack.py?', 'Le paquet ForeverChanges n’a pas pu être lu (voir le journal d’erreurs PHP). Est-ce un fichier .fcpack créé par tools/foreverchanges_pack.py ?')];
+    }
+    $retrieved = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['retrieved'] ?? '')) ? (string)$result['retrieved'] : date('Y-m-d', (int)filemtime($pack));
+    $label = 'ForeverChanges ' . $retrieved;
+    [$tables, $left] = source_tables(foreverchanges_evidence($result), $label, source_gaps());
+    return source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
 }
 
 // ------------------------------------------------------------------ EG Link (CC BY 4.0)

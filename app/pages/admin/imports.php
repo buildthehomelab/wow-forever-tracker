@@ -42,6 +42,14 @@ $leftLabels = [
     'drop_same' => t('drops the server has whose chance has not moved', 'butins que le serveur a et dont la chance n’a pas bougé'),
     'drop_differs_core' => t('drops whose chance differs but that no import brought (the core’s own rows: not changed)', 'butins dont la chance diffère mais qu’aucun import n’a apportés (lignes du core : inchangées)'),
     'drop_differs_trusted' => t('drops whose chance differs from a more trusted source’s row (not changed)', 'butins dont la chance diffère de celle d’une source plus fiable (inchangés)'),
+    'report_quest_not_seen' => t('quests no player of the site saw (Classic’s lines: not taken)', 'quêtes qu’aucun joueur du site n’a vues (lignes de Classic : non reprises)'),
+    'report_quest_started_by_item' => t('quests an item starts (no giver to write)', 'quêtes lancées par un objet (pas de donneur à écrire)'),
+    'report_name_unknown' => t('NPC names no creature or object of this server has', 'noms de PNJ qu’aucune créature ni objet de ce serveur ne porte'),
+    'report_not_spawned' => t('NPCs of that name that nobody spawned on this server (to place, not to write)', 'PNJ de ce nom que personne n’a placés sur ce serveur (à placer, pas à écrire)'),
+    'report_several_same_name' => t('names several creatures share, with nothing to tell them apart', 'noms partagés par plusieurs créatures, sans rien pour les distinguer'),
+    'report_position_far' => t('NPCs reported far from where the only creature of that name stands', 'PNJ signalés loin de l’endroit où se tient la seule créature de ce nom'),
+    'report_drop_not_counted' => t('drops given as a bare percentage (Classic’s, not counted by players)', 'butins donnés en simple pourcentage (ceux de Classic, non comptés par des joueurs)'),
+    'report_drop_few_kills' => t('drops counted in fewer than ten kills', 'butins comptés sur moins de dix morts'),
     'quest_value_gone' => t('quests with a value the recording does not state (a reward, a text): a recording never empties a value, so it stays', 'quêtes dont une valeur n’est pas indiquée par l’enregistrement (une récompense, un texte) : un enregistrement ne vide jamais une valeur, elle reste'),
     'quest_reputation_other_form' => t('quests whose reputation is written another way than the recording (tier or points) and could not be compared', 'quêtes dont la réputation est écrite autrement que dans l’enregistrement (palier ou points) et n’a pas pu être comparée'),
     'quest_same' => t('quests the server has that say what the newest recording of the live game says', 'quêtes du serveur qui disent ce que dit l’enregistrement le plus récent du jeu'),
@@ -127,6 +135,21 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
   </div>
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
+</section>
+
+<?php $fcPack = foreverchanges_pack(); ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Players’ reports, from a file', 'Rapports de joueurs, depuis un fichier')) ?></span><h2>ForeverChanges</h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('foreverchanges.pro collects what its players’ addon saw on live WoW Forever, over a base of Classic’s data. The tracker never asks the site: it reads a pack made from a copy of it you already have (python tools/foreverchanges_pack.py copy.db out.fcpack, a few MB).', 'foreverchanges.pro rassemble ce que l’addon de ses joueurs a vu sur WoW Forever, par-dessus les données de Classic. Le tracker n’interroge jamais le site : il lit un paquet créé à partir d’une copie que vous avez déjà (python tools/foreverchanges_pack.py copie.db sortie.fcpack, quelques Mo).')) ?></li>
+    <li><?= e(t('The site names NPCs and places them on a map. A name becomes the server’s creature of that name that stands there; a name several creatures share with nothing to tell them apart is left out and counted, and so is a creature nobody spawned.', 'Le site nomme les PNJ et les place sur une carte. Un nom devient la créature du serveur de ce nom qui s’y trouve ; un nom partagé par plusieurs créatures sans rien pour les distinguer est écarté et compté, comme une créature que personne n’a placée.')) ?></li>
+    <li><?= e(t('Only what its players saw counts: who gives and takes a quest marked as seen by players, vendors, and drops counted in at least ten kills. Classic’s lines (a quest nobody saw, a bare percentage) are left out.', 'Seul ce que ses joueurs ont vu compte : qui donne et valide une quête marquée comme vue, les marchands, et les butins comptés sur au moins dix morts. Les lignes de Classic (une quête que personne n’a vue, un simple pourcentage) sont écartées.')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <form class="import-upload" data-import-upload><label class="btn is-small is-gold"><i class="fas fa-file-arrow-up"></i> <?= e(t('Send a .fcpack file', 'Envoyer un fichier .fcpack')) ?><input type="file" accept=".fcpack" hidden></label></form>
+    <?php if (is_file($fcPack)): ?><button class="btn is-small" type="button" data-scribe="source_foreverchanges"><i class="fas fa-rotate"></i> <?= e(t('Read the pack again', 'Relire le paquet')) ?></button>
+      <small class="muted"><?= e(sprintf(t('Pack of %s, %s.', 'Paquet du %s, %s.'), date(t('M j, Y H:i', 'd/m/Y H:i'), (int)filemtime($fcPack)), $megabytes((int)filesize($fcPack)))) ?></small><?php endif; ?>
+  </div>
 </section>
 
 <?php $alLog = is_file(source_log('atlasloot')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('atlasloot')))) : ''; ?>

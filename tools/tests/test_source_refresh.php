@@ -6,8 +6,8 @@ ft_test_boot();
 require FT_APP . '/sources.php';
 
 // ---- the order of trust
-check(source_trust('') === ['client', 'wowhead', 'norgannondb', 'icyveins', 'eglink', 'foreverdb', 'atlasloot'], 'by default: the game client and the CDN, Wowhead, Questie\'s data (NorgannonDB), Icy Veins, then the others');
-check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'norgannondb', 'eglink', 'foreverdb', 'atlasloot'], '[sources] trust goes next; the sources it leaves out follow in the default order');
+check(source_trust('') === ['client', 'wowhead', 'norgannondb', 'icyveins', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot'], 'by default: the game client and the CDN, Wowhead, Questie\'s data (NorgannonDB), Icy Veins, players\' reports, then the others');
+check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'norgannondb', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot'], '[sources] trust goes next; the sources it leaves out follow in the default order');
 check(source_trust('Wowhead, Questie, nonsense, icyveins')[2] === 'norgannondb', '"questie" is NorgannonDB, and a name that is no source is ignored');
 check(source_trust('wowhead, cdn')[0] === 'client' && source_trust('icyveins, gameclient, wowhead')[0] === 'client', 'the client is first wherever a configuration puts it');
 check(source_may_change('wowhead', 'client') === 'trusted' && source_may_change('icyveins', 'client') === 'trusted', 'no source changes a row written from the client\'s own tables');
