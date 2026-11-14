@@ -161,10 +161,19 @@ def evaluate_all(content, ctx):
         row = ctx['quests'].get(quest, {})
         quest_spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
         quest_spells |= ctx.get('quest_display_spells', {}).get(quest, set())
-    learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
-    for source, target in ctx['learn_chain']:
-        if source in learnable:
+    tree_spells = ctx.get('tree_spells', set())
+    learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | tree_spells | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
+    # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
+    chain = {}
+    for source, target in list(ctx['learn_chain']) + list(ctx.get('spell_teaches', ())):
+        chain.setdefault(source, set()).add(target)
+    todo = [spell for spell in learnable if spell in chain]
+    while todo:
+        for target in chain[todo.pop()] - learnable:
             learnable.add(target)
+            if target in chain:
+                todo.append(target)
+    granted = ctx['granted_spells'] = set()   # spells of a player's skill lines that nobody learns: the writer lists them as internal
     ctx['obtainable'], ctx['learnable'], ctx['item_sources'] = obtainable, learnable, sources
     results = {}
 
@@ -199,14 +208,33 @@ def evaluate_all(content, ctx):
                 how.append(L('quest reward', 'récompense de quête'))
             if spell_id in ctx['pet_training']:
                 how.append(L('pet (training or creature spell)', 'familier (entraînement ou sort de PNJ)'))
+            if spell_id in tree_spells and category != 'talent':
+                how.append(L('talent or perk tree', 'arbre de talents ou d’avantages'))
             if spell_id in learnable and not how:
                 how.append(L('learned through another spell', 'appris via un autre sort'))
-            if ctx['teaches'].get(spell_id, set()) & obtainable:
+            items = ctx['teaches'].get(spell_id, set())
+            if items & obtainable:
                 how.append(L('obtainable item', 'objet obtenable'))
             if category == 'talent':
                 how.append(L('talent', 'talent'))
-            detail = join(how) if how else (L('A trainer has it but is not spawned.', 'Entraîneur défini mais non placé.') if spell_id in trained_any
-                                            else L('No trainer, automatic learning or item.', 'Ni entraîneur, ni apprentissage automatique, ni objet.'))
+            if how:
+                detail = join(how)
+            elif spell_id in trained_any:
+                detail = L('A trainer has it but is not spawned.', 'Entraîneur défini mais non placé.')
+            elif items:
+                ids = ', '.join(map(str, sorted(items)[:3]))
+                detail = L(f'Taught by item {ids}, which players cannot get.', f'Appris par l’objet {ids}, que les joueurs ne peuvent pas obtenir.')
+            else:
+                # The game data says nobody learns it: it is what another ability does, not a line of the spellbook.
+                caster = ctx.get('cast_by', {}).get(spell_id)
+                if spell_id in ctx.get('never_learned', ()):
+                    how.append(L('Not learned: the game data marks it as never learned (another ability or an item applies it).',
+                                 'Non appris : les données du jeu le marquent « jamais appris » (une autre capacité ou un objet l’applique).'))
+                elif caster:
+                    how.append(L(f'Not learned: spell {caster} casts it.', f'Non appris : le sort {caster} le lance.'))
+                if how:
+                    granted.add(spell_id)
+                detail = how[0] if how else L('No trainer, automatic learning or item.', 'Ni entraîneur, ni apprentissage automatique, ni objet.')
             checks.append(check(bool(how), 'learn', detail, 2))
         if entity.get('scriptable'):
             checks.append(check(spell_id in ctx['scripted_spells'], 'script', L('To check: a dummy/script effect often needs a SpellScript (spell_script_names).',
@@ -383,6 +411,8 @@ def evaluate_all(content, ctx):
         teach = ctx['teaches'].get(spell_id, set())
         if teach & obtainable:
             how.append(L('obtainable recipe', 'recette obtenable'))
+        if spell_id in learnable and not how:
+            how.append(L('learned through another spell', 'appris via un autre sort'))
         if how:
             detail = join(how)
         elif teach:

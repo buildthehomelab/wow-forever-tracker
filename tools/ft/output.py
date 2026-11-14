@@ -27,6 +27,31 @@ def named_internal(name):
     return bool(name and INTERNAL_NAME.search(name))
 
 
+def item_internal(item_id, items, wowhead):
+    """True for a test item or a Season of Discovery leftover (as the item's own line is filed), False for an item of
+    the game, None when the client has no such item."""
+    item = items.get(item_id)
+    if item is None:
+        return None
+    name = item.get('name_en') or item.get('name') or ''
+    return bool(not name or INTERNAL_NAME.search(name) or (wowhead or {}).get(('item', item_id)) == 'season')
+
+
+def leftover(kind, entity_id, entity, status, items, wowhead, baseline, trained=()):
+    """A spell or recipe that only items teach, none of them part of the game: each is a test item, a Season of
+    Discovery leftover, or an item the client does not have at all. A spell new in Forever whose item is not there yet
+    is something else: content still locked, which stays on the list."""
+    teach = entity.get('teach') or []
+    if status == 'ok' or not teach or entity_id in trained:
+        return False
+    new = baseline.is_new(kind, entity_id, entity)
+    for item in teach:
+        state = item_internal(int(item), items, wowhead)
+        if state is False or (state is None and new):
+            return False
+    return True
+
+
 def unused_taxi(node_id, entity, baseline, dungeons):
     """A flight point no player flies from: a node inside a battleground (Alterac Valley's), or one the original game
     already had that neither faction can use (boats, zeppelins, script targets, Programmer Isle). Forever's own
@@ -102,6 +127,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
             out.write(f"INSERT INTO ft_builds_new VALUES ({b['build']},{e(b['version'])},{e(b['date'])},{e(b['note'])},{e(b['source'])},{1 if b['build'] == server_build else 0},{e(dumps(b.get('counts', {})))});\n")
         baseline = Baseline()
         covered = covered_elsewhere(content)
+        granted = ctx.get('granted_spells', ())
+        trained = {spell for _trainer, spell in ctx.get('trainer_spells', ())}
         batch = Batch(out, 'ft_entities_new')
         for (kind, entity_id), (status, score, checks) in results.items():
             entity = content[kind][entity_id]
@@ -130,6 +157,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 name = name or f'#{entity_id}'
             elif kind == 'spell':
                 internal = 0 if entity['sub'] in ('class', 'profession', 'racial', 'talent', 'mount', 'pet', 'rune', 'petability') else 1
+                if entity_id in granted or leftover(kind, entity_id, entity, status, content.get('item', {}), wowhead, baseline, trained):
+                    internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name else 0
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
@@ -151,6 +180,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     data['season'] = True
             elif kind in ('mount', 'pet', 'toy', 'recipe'):
                 internal = 1 if named_internal(name_en or name) else 0  # unnamed ones stay: content players have yet to discover
+                if kind == 'recipe' and leftover(kind, entity_id, entity, status, content.get('item', {}), wowhead, baseline, trained):
+                    internal = 1
             verdict = (wowhead or {}).get((kind, entity_id))
             if verdict == 'season':
                 internal = 1  # Wowhead marks it as a Season of Discovery leftover

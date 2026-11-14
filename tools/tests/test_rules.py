@@ -27,6 +27,7 @@ def world(**over):
         'quest_items_npc': [], 'quest_items_go': [], 'vendors': [], 'shop_items': set(), 'quests': {}, 'quest_turn_in_text': set(),
         'quest_display_spells': {}, 'q_start_npc': [], 'q_start_go': [], 'q_end_npc': [], 'q_end_go': [], 'objectives': [], 'disabled': {},
         'start_quest_item': {}, 'auto_learn': set(), 'teaches': {}, 'creates': {}, 'create_spells': set(), 'learn_chain': [], 'pet_training': set(),
+        'never_learned': set(), 'cast_by': {}, 'tree_spells': set(), 'spell_teaches': set(),
         'scripted_spells': set(), 'spell_ids': set(), 'achievement_rewards': set(), 'graveyards': set(), 'instance_template': {}, 'entrances': set(),
         'battlegrounds': set(), 'map_tiles': {}, 'mmaps': set(), 'vmaps': set(), 'ui_maps': [],
     }
@@ -210,6 +211,68 @@ class QuestSides(unittest.TestCase):
 
     def test_without_a_report_nothing_is_asked(self):
         self.assertNotIn('side', self.result(77, None))
+
+
+class HowASpellIsLearned(unittest.TestCase):
+    """A spell of a class or profession is asked for a way to learn it, unless the game data says nobody learns it."""
+
+    def spell(self, spell_id, **over):
+        ctx = world(**over)
+        results = evaluate({'spell': {spell_id: {'sub': 'class'}}}, ctx)
+        learn = next(c for c in results[('spell', spell_id)][2] if c['code'] == 'learn')
+        return results[('spell', spell_id)][0], learn['detail']['en'], ctx['granted_spells']
+
+    def test_a_talent_of_a_trait_tree_is_learned_there(self):
+        status, detail, granted = self.spell(400574, tree_spells={400574})
+        self.assertEqual((status, detail, granted), ('ok', 'talent or perk tree', set()))
+
+    def test_learning_one_spell_teaches_the_next(self):
+        # Alchemy's old rank comes from a trainer; the game teaches Forever's new rank spell with it, and that one a third
+        trained = dict(trainers=[(200, 7)], trainer_spells=[(7, 2259)], spawned_npc={200})
+        status, detail, _ = self.spell(1240954, spell_teaches={(2259, 1240943), (1240943, 1240954)}, **trained)
+        self.assertEqual((status, detail), ('ok', 'learned through another spell'))
+        self.assertEqual(self.spell(1240954, spell_teaches={(1240943, 1240954)}, **trained)[0], 'partial')   # nothing teaches the first
+
+    def test_what_nobody_learns_is_not_asked_for_a_trainer(self):
+        status, detail, granted = self.spell(5857, never_learned={5857})
+        self.assertEqual(status, 'ok')
+        self.assertIn('never learned', detail)
+        self.assertEqual(granted, {5857})
+        status, detail, granted = self.spell(16177, cast_by={16177: 16176})
+        self.assertEqual((status, detail, granted), ('ok', 'Not learned: spell 16176 casts it.', {16177}))
+
+    def test_a_spell_a_trainer_or_an_item_holds_is_still_asked_for(self):
+        # never learned by the table, yet a trainer lists it: the trainer is what is missing
+        status, detail, granted = self.spell(5857, never_learned={5857}, trainers=[(200, 7)], trainer_spells=[(7, 5857)])
+        self.assertEqual((status, detail, granted), ('partial', 'A trainer has it but is not spawned.', set()))
+        status, detail, granted = self.spell(17632, cast_by={17632: 1}, teaches={17632: {13517}})
+        self.assertEqual((status, detail, granted), ('partial', 'Taught by item 13517, which players cannot get.', set()))
+
+    def test_nothing_known_is_said_as_before(self):
+        self.assertEqual(self.spell(5)[:2], ('partial', 'No trainer, automatic learning or item.'))
+
+    def test_a_recipe_taught_by_another_spell(self):
+        ctx = world(trainers=[(200, 7)], trainer_spells=[(7, 2259)], spawned_npc={200}, spell_teaches={(2259, 818)})
+        results = evaluate({'recipe': {818: {}}, 'spell': {818: {'sub': 'profession'}}}, ctx)
+        self.assertEqual(results[('recipe', 818)][0], 'ok')
+        self.assertEqual(results[('spell', 818)][0], 'ok')
+
+
+class TreeSpells(unittest.TestCase):
+    """The spells of the talent and perk trees (the Trait tables): a definition counts once it sits on a node."""
+
+    def test_only_a_definition_placed_on_a_node(self):
+        tables = {'TraitDefinition': [{'ID': 1, 'SpellID': 400574}, {'ID': 2, 'SpellID': 1326079}, {'ID': 3, 'SpellID': 0}, {'ID': 4, 'SpellID': 99}],
+                  'TraitNodeEntry': [{'ID': 10, 'TraitDefinitionID': 1}, {'ID': 11, 'TraitDefinitionID': 2}, {'ID': 12, 'TraitDefinitionID': 3},
+                                     {'ID': 13, 'TraitDefinitionID': 4}],
+                  'TraitNode': [{'ID': 100}, {'ID': 101}],
+                  'TraitNodeXTraitNodeEntry': [{'TraitNodeID': 100, 'TraitNodeEntryID': 10}, {'TraitNodeID': 101, 'TraitNodeEntryID': 11},
+                                               {'TraitNodeID': 101, 'TraitNodeEntryID': 12}, {'TraitNodeID': 555, 'TraitNodeEntryID': 13},
+                                               {'TraitNodeID': 100, 'TraitNodeEntryID': 77}]}
+        self.assertEqual(server.tree_spells(lambda name: tables.get(name, [])), {400574, 1326079})
+
+    def test_a_server_without_the_tables(self):
+        self.assertEqual(server.tree_spells(lambda name: []), set())
 
 
 class ZoneCreatures(unittest.TestCase):

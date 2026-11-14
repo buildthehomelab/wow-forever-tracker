@@ -109,5 +109,50 @@ class Names(unittest.TestCase):
             self.assertTrue(output.named_internal(name), name)
 
 
+class Leftovers(unittest.TestCase):
+    """A spell only an item outside the game teaches is filed with that item, under Internal / test."""
+
+    ITEMS = {213117: named('Rune of Berserk'), 902: named('Deprecated Palomino Summoning (Mount)'), 13517: named("Recipe: Alchemist's Stone")}
+    SEASON = {('item', 213117): 'season'}
+
+    class Old:
+        """Nothing is new: every spell is as old as the Classic Era client."""
+        def is_new(self, kind, entity_id, entity):
+            return False
+
+    class New(Old):
+        def is_new(self, kind, entity_id, entity):
+            return True
+
+    def left(self, spell_id, teach, status='partial', baseline=None, trained=()):
+        return output.leftover('spell', spell_id, {'teach': teach}, status, self.ITEMS, self.SEASON, baseline or self.Old(), trained)
+
+    def test_taught_by_a_season_or_test_item_only(self):
+        self.assertTrue(self.left(424760, [213117]))        # the rune Wowhead marks as not in Forever
+        self.assertTrue(self.left(471, [902]))              # "Deprecated ..."
+        self.assertTrue(self.left(430409, [211849]))        # an item the client does not have at all
+        self.assertTrue(self.left(1, [213117, 902, 211849]))
+
+    def test_one_real_item_keeps_it_on_the_list(self):
+        self.assertFalse(self.left(17632, [13517]))
+        self.assertFalse(self.left(17632, [213117, 13517]))
+
+    def test_no_item_no_verdict(self):
+        self.assertFalse(self.left(5, []))
+        self.assertFalse(self.left(424760, [213117], status='ok'))        # players can get it after all
+        self.assertFalse(self.left(424760, [213117], trained={424760}))   # a trainer lists it: that is what is missing
+
+    def test_new_in_forever_and_its_item_not_there_yet(self):
+        # a mount Blizzard has not unlocked: the item's row is still encrypted, the spell stays on the list
+        self.assertFalse(self.left(1309346, [280583], baseline=self.New()))
+        self.assertTrue(self.left(1309346, [213117], baseline=self.New()))
+
+    def test_the_items_own_verdict(self):
+        self.assertIs(output.item_internal(213117, self.ITEMS, self.SEASON), True)
+        self.assertIs(output.item_internal(213117, self.ITEMS, None), False)
+        self.assertIs(output.item_internal(13517, self.ITEMS, self.SEASON), False)
+        self.assertIsNone(output.item_internal(1, self.ITEMS, self.SEASON))
+
+
 if __name__ == '__main__':
     unittest.main()
