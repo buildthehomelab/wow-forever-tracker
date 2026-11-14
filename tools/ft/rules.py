@@ -358,7 +358,10 @@ def evaluate_all(content, ctx):
         if zone_quests:
             ready = sum(1 for qid in zone_quests if qid in available_quests)
             checks.append(check(ready >= len(zone_quests) * 0.8, 'zone_quests', L(f'{ready} / {len(zone_quests)} quests can be done', f'{ready} / {len(zone_quests)} quêtes faisables'), 3))
-        checks.append(check(zone_id in ctx['graveyards'], 'graveyard', L('graveyard_zone', 'graveyard_zone'), 1))
+        # a graveyard for a zone a map draws; without the map data every zone is asked, as before
+        mapped = ctx.get('mapped_zones') or ()
+        if not mapped or zone_id in mapped:
+            checks.append(check(zone_id in ctx['graveyards'], 'graveyard', L('graveyard_zone', 'graveyard_zone'), 1))
         return checks
 
     def recipe_result(spell_id, entity):

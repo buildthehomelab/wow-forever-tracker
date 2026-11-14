@@ -42,6 +42,26 @@ def server_db2(name):
     return list(db2.Table(path, name)) if os.path.isfile(path) else []
 
 
+def vendor_items(rows):
+    """[(vendor, item)] with the borrowed lists written out: a negative item in npc_vendor is another vendor's entry,
+    whose whole stock this vendor sells too (the core follows it the same way, a list inside a list included)."""
+    stock, borrows = {}, {}
+    for vendor, item in rows:
+        (stock if item > 0 else borrows).setdefault(vendor, set()).add(abs(item))
+    out = []
+    for vendor in set(stock) | set(borrows):
+        items, seen, todo = set(), set(), [vendor]
+        while todo:
+            current = todo.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            items |= stock.get(current, set())
+            todo.extend(borrows.get(current, ()))
+        out.extend((vendor, item) for item in sorted(items))
+    return out
+
+
 def server_state():
     log(f'server: DB2 of the running server ({server_dbc()})')
     for key in ('maps', 'vmaps'):
@@ -162,7 +182,7 @@ def server_state():
     ctx['npc_loot'] = [(int(r['Entry']), int(r['LootID'] or 0), int(r['PickPocketLootID'] or 0), int(r['SkinLootID'] or 0))
                        for r in q('SELECT Entry, LootID, PickPocketLootID, SkinLootID FROM creature_template_difficulty WHERE DifficultyID IN (0,1)')]
     ctx['go_loot'] = [(int(r['entry']), int(r['type']), int(r['Data1'] or 0)) for r in q('SELECT entry, type, Data1 FROM gameobject_template WHERE type IN (3, 25)')]
-    ctx['vendors'] = pairs('SELECT entry, item FROM npc_vendor WHERE type = 1')
+    ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]
     ctx['trainers'] = pairs('SELECT CreatureID, TrainerID FROM creature_trainer')
@@ -189,6 +209,9 @@ def server_state():
     ctx['map_tiles'] = tiles
     ctx['mmaps'] = {int(n[:4]) for n in listing('mmaps') if n.endswith('.mmap') and n[:4].isdigit()}
     ctx['vmaps'] = {int(n) for n in listing('vmaps') if n.isdigit()}
+    # Areas a map of the game draws: a zone players walk in. "Crafting" is an area too, but only a heading quests are
+    # sorted under, and it has no graveyard to ask for.
+    ctx['mapped_zones'] = {r['AreaID'] for r in srv('UiMapAssignment') if r['AreaID']}
     world_map = os.path.join(DATA, 'world-map.json')
     try:
         ctx['ui_maps'] = json.load(open(world_map, encoding='utf-8'))['maps']

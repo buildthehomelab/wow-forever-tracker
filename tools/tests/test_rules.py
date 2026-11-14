@@ -150,6 +150,26 @@ class Bosses(unittest.TestCase):
         self.assertEqual((result[0], failed(result)), ('ok', ['boss_placed']))
 
 
+class Zones(unittest.TestCase):
+    def test_a_quest_heading_has_no_graveyard(self):
+        content = {'zone': {12: {'map': 0}, 16941: {'map': 0}}}   # Elwynn Forest, and "Crafting": quests are sorted under it
+        ctx = world(map_tiles={0: 900}, mapped_zones={12, 14})
+        results = evaluate(content, ctx)
+        self.assertEqual(failed(results[('zone', 12)]), ['graveyard'])
+        self.assertEqual(failed(results[('zone', 16941)]), [])
+
+    def test_without_map_data_every_zone_is_asked(self):
+        results = evaluate({'zone': {16941: {'map': 0}}}, world(map_tiles={0: 900}))
+        self.assertEqual(failed(results[('zone', 16941)]), ['graveyard'])
+
+
+class Vendors(unittest.TestCase):
+    def test_a_borrowed_list_is_written_out(self):
+        from ft import server
+        rows = server.vendor_items([(1, 10), (1, -2), (2, 20), (2, -3), (3, 30), (3, -1), (4, -9)])
+        self.assertEqual(sorted(rows), [(1, 10), (1, 20), (1, 30), (2, 10), (2, 20), (2, 30), (3, 10), (3, 20), (3, 30)])
+
+
 class FlightPoints(unittest.TestCase):
     def test_a_flight_an_npcs_script_starts(self):
         content = {'taxi': {62: {'pos': [7800.0, -2500.0, 490.0], 'map': 1}}}

@@ -24,7 +24,10 @@ are cached in `data/wowhead/npc/<id>.json` and `data/wowhead/object/<id>.json`.
 
 ### What it looks for
 
-Only resources the tracker shows (not internal or test content), and only templates that exist and have no spawn:
+Only resources the tracker shows (not internal or test content, and nothing a release phase that is not open yet
+will bring), and only templates that exist and have no spawn. A creature or object that a script, a summon group or an
+event brings in is left out: it needs no spawn row, and spawning it for good would put it in the world twice
+(`tools/world/summoned.json`, docs/ARCHITECTURE.md).
 
 | Needed as | Found from |
 |---|---|
