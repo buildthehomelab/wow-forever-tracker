@@ -186,6 +186,25 @@ class FlightPoints(unittest.TestCase):
 
 
 
+class QuestSides(unittest.TestCase):
+    """Whose quest it is: the side players on live got it on, against the races the server offers it to."""
+
+    def result(self, races, told):
+        content = {'quest': {7: {'name': 'Cloth for the Front'}}}
+        ctx = world(quests={7: quest_row(AllowableRaces=str(races))}, report_sides={7: told} if told else {})
+        ctx['known']['quest'] = {7}
+        return failed(evaluate(content, ctx)[('quest', 7)])
+
+    def test_a_horde_quest_the_server_offers_to_everyone(self):
+        self.assertIn('side', self.result(0, {'Horde'}))
+        self.assertIn('side', self.result(77, {'Horde'}))            # or to the Alliance alone
+        self.assertNotIn('side', self.result(178, {'Horde'}))        # the Horde's four races
+        self.assertNotIn('side', self.result(0, {'Alliance', 'Horde'}))
+
+    def test_without_a_report_nothing_is_asked(self):
+        self.assertNotIn('side', self.result(77, None))
+
+
 class ZoneCreatures(unittest.TestCase):
     """A zone's creatures: counted inside the rectangle the zone's map draws (UiMapAssignment)."""
 

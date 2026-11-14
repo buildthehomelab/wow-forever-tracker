@@ -4,9 +4,13 @@
     python tools/foreverchanges_pack.py foreverchanges.db foreverchanges.fcpack
 
 The input is the SQLite file a crawl of the site leaves (tables `exports` and `responses`, bodies gzipped). It is
-several hundred MB of pages; the tracker needs the quest and item lists only: who gives and takes each quest and
-where, what sells or drops each item. The pack is those two lists, gzipped JSON, a few MB: small enough to send
-through the Imports page. The tracker never asks the site for anything.
+several hundred MB of pages; the tracker needs its lists only: who gives and takes each quest and where, which side
+a quest is for, what sells or drops each item, and where the NPCs, rares and books of its maps stand. The pack is
+those lists, gzipped JSON, about a megabyte: small enough to send through the Imports page. The tracker never asks
+the site for anything.
+
+Not packed, on purpose: what a quest's NPC says at the turn-in (the site shows it with the name of the player who
+recorded it where the server has a placeholder), the item tooltips, and the pages in other languages.
 
 The site's base is Classic's data with what Forever changed on top. What its players saw is marked, and only that
 is evidence about Forever: a quest with `seen_by_players`, a drop counted in kills. The rest is kept in the pack as
@@ -19,7 +23,7 @@ import sys
 
 FORMAT = 'foreverchanges-pack/1'
 QUEST_FIELDS = ('id', 'title', 'new', 'seen_by_players', 'side', 'class', 'type', 'level', 'min_level', 'start', 'end', 'xp',
-                'reputation', 'reward_items', 'texts')
+                'reputation', 'reward_items')
 # how an item is come by, as the site words it: the ones the tracker turns into rows
 ITEM_SOURCES = ('Creature drop', 'From a rare', 'Sold by a vendor', 'Sold by a quartermaster')
 
@@ -33,6 +37,39 @@ def lines(db, path):
             yield json.loads(line)
 
 
+CONTINENTS = {'eastern-kingdoms': 0, 'kalimdor': 1}      # the map folders whose places are world coordinates of a known map
+PINS = {'rares.json': 'rare', 'commerce.json': 'commerce', 'books.json': 'book'}
+
+
+def one(db, path):
+    row = db.execute('SELECT body_gzip FROM exports WHERE path = ?', (path,)).fetchone()
+    try:
+        return json.loads(gzip.decompress(row[0])) if row else None
+    except (ValueError, OSError):
+        return None
+
+
+def maps(db):
+    """(npcs, pins): the NPCs of the two continents' maps, by entry, and the named pins of every map (rares, commerce
+    NPCs, library books). A place is world coordinates; its map is a continent's, or the area a map folder stands for."""
+    areas = {str(p.get('slug')): p.get('id') for p in one(db, 'tracker-pages/map/places.json') or [] if isinstance(p, dict)}
+    npcs, pins = [], []
+    for slug, map_id in CONTINENTS.items():
+        for row in (one(db, f'tracker-pages/map/{slug}/npcs.json') or {}).get('npcs') or []:
+            if isinstance(row, list) and len(row) >= 7 and isinstance(row[0], int):
+                npcs.append({'entry': row[0], 'name': row[1], 'side': row[3], 'map': map_id, 'x': row[4], 'y': row[5], 'kind': row[6],
+                             'seen': 'addon' in row[7:]})
+    for (path,) in db.execute("SELECT path FROM exports WHERE path LIKE 'tracker-pages/map/%'"):
+        parts = path.split('/')
+        if len(parts) != 4 or parts[3] not in PINS:
+            continue
+        where = {'map': CONTINENTS[parts[2]]} if parts[2] in CONTINENTS else {'area': areas.get(parts[2])}
+        for pin in (one(db, path) or {}).get('pins') or []:
+            if isinstance(pin, dict) and pin.get('name') and isinstance(pin.get('x'), (int, float)) and isinstance(pin.get('y'), (int, float)):
+                pins.append(dict(where, kind=PINS[parts[3]], name=pin['name'], x=pin['x'], y=pin['y'], side=pin.get('faction') or ''))
+    return npcs, pins
+
+
 def pack(db):
     quests, items, newest = [], [], ''
     for quest in lines(db, 'quests.jsonl'):
@@ -43,7 +80,8 @@ def pack(db):
         sources = [s for s in item.get('sources') or [] if isinstance(s, dict) and s.get('how') in ITEM_SOURCES]
         if sources:
             items.append({'id': item['id'], 'name': item.get('name', ''), 'new': bool(item.get('new')), 'sources': sources})
-    return {'format': FORMAT, 'site': 'foreverchanges.pro', 'retrieved': newest[:10], 'quests': quests, 'items': items}
+    npcs, pins = maps(db)
+    return {'format': FORMAT, 'site': 'foreverchanges.pro', 'retrieved': newest[:10], 'quests': quests, 'items': items, 'npcs': npcs, 'pins': pins}
 
 
 def main(argv):
@@ -54,7 +92,8 @@ def main(argv):
     body = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     with gzip.open(argv[2], 'wb', compresslevel=9) as handle:
         handle.write(body)
-    print(f"{len(data['quests'])} quests, {len(data['items'])} items with a source, read {data['retrieved']}: {argv[2]}")
+    print(f"{len(data['quests'])} quests, {len(data['items'])} items with a source, {len(data['npcs'])} NPCs and {len(data['pins'])} pins of its maps, "
+          f"read {data['retrieved']}: {argv[2]}")
 
 
 if __name__ == '__main__':
