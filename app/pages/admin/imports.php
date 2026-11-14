@@ -40,6 +40,8 @@ $leftLabels = [
     'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
     'trainer_level_unknown' => t('class spells without a known level', 'sorts de classe sans niveau connu'), 'trainer_previous_rank_unknown' => t('higher ranks whose previous rank is unknown', 'rangs supérieurs dont le rang précédent est inconnu'),
     'trainer_skill_unknown' => t('profession entries with an unknown skill', 'entrées de métier à la compétence inconnue'), 'trainer_profession_skill_unknown' => t('profession entries without a skill rank', 'entrées de métier sans rang de compétence'),
+    'phase_not_open' => t('gap items and quests of a release phase that is not open yet (not looked at)', 'objets et quêtes manquants d’une phase de sortie pas encore ouverte (non consultés)'),
+    'trainer_phase_not_open' => t('trainer spells of a release phase that is not open yet', 'sorts d’entraîneur d’une phase de sortie pas encore ouverte'),
     // Wowhead quest enders (app/wowhead.php)
     'not_looked_up_yet' => t('quests not looked up on Wowhead yet (run it again)', 'quêtes pas encore consultées sur Wowhead (relancez)'),
     'not_on_wowhead' => t('quests Wowhead does not know', 'quêtes inconnues de Wowhead'),

@@ -37,7 +37,11 @@ const SOURCES = [
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
 ];
 
-/** The analysis' gaps: items players cannot get (not internal), official quests without giver / ender. */
+/**
+ * The analysis' gaps: items players cannot get (not internal), official quests without giver / ender. What waits for
+ * a release phase that is not open yet is no gap today (docs/PHASES.md): it is left out, and kept under 'later'
+ * (items, quests, and the spells no trainer may teach yet) so that a card can say how much that was.
+ */
 function source_gaps(): array
 {
     $ids = function (string $sql, string $database = 'tracker'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
@@ -47,10 +51,28 @@ function source_gaps(): array
     // the server's quest_template holds tens of thousands of quests WoW: Forever does not have (other versions of the
     // game): only the client's own quests are gaps worth a lookup
     $official = official_quests();
+    $later = later_ids('item', 'quest', 'spell', 'recipe');   // a recipe's number is its spell's
+    return source_gap_sets(
+        $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
+        $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'),
+        $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
+        $byItem, $official, ['items' => $later['item'], 'quests' => $later['quest'], 'spells' => $later['spell'] + $later['recipe']]);
+}
+
+/**
+ * The gap sets of source_gaps() from what the databases say, every argument as [id => true]: items players cannot
+ * get, the server's quests without a giver and without an ender, the quests an item starts, the official quests, and
+ * what waits for a release phase ($later: items, quests, spells).
+ */
+function source_gap_sets(array $items, array $noGiver, array $noEnder, array $byItem, array $official, array $later): array
+{
+    $noGiver = array_intersect_key(array_diff_key($noGiver, $byItem), $official);
+    $noEnder = array_intersect_key($noEnder, $official);
     return [
-        'items' => $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
-        'noGiver' => array_intersect_key(array_diff_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'), $byItem), $official),
-        'noEnder' => array_intersect_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'), $official),
+        'items' => array_diff_key($items, $later['items']),
+        'noGiver' => array_diff_key($noGiver, $later['quests']),
+        'noEnder' => array_diff_key($noEnder, $later['quests']),
+        'later' => ['items' => array_intersect_key($items, $later['items']), 'quests' => array_intersect_key($noGiver + $noEnder, $later['quests']), 'spells' => $later['spells']],
     ];
 }
 
@@ -64,7 +86,9 @@ function source_trainer_npcs(): array
 function source_tables(array $ev, string $label, array $gaps): array
 {
     $left = ['vendor_unknown' => 0, 'loot_chance_unknown' => 0, 'loot_known' => 0, 'loot_unknown_creature' => 0, 'object_no_loot' => 0,
-             'quest_unknown' => 0, 'trainer_not_on_server' => 0, 'trainer_level_unknown' => 0, 'trainer_previous_rank_unknown' => 0, 'trainer_known' => 0];
+             'quest_unknown' => 0, 'trainer_not_on_server' => 0, 'trainer_level_unknown' => 0, 'trainer_previous_rank_unknown' => 0, 'trainer_known' => 0,
+             // the gap items and quests no source was asked about, because their release phase is not open yet
+             'phase_not_open' => count($gaps['later']['items'] ?? []) + count($gaps['later']['quests'] ?? []), 'trainer_phase_not_open' => 0];
     $rows = [];
     $build = (int)(meta()['client_build'] ?? 0);
     $ids = function (string $sql, string $database = 'world'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
@@ -156,6 +180,7 @@ function source_tables(array $ev, string $label, array $gaps): array
             if (isset($done["$trainer:$spell"])) continue;
             $done["$trainer:$spell"] = true;
             if (isset($taught["$trainer:$spell"])) { $left['trainer_known']++; continue; }
+            if (isset($gaps['later']['spells'][$spell])) { $left['trainer_phase_not_open']++; continue; }   // a trainer would teach it before its phase
             if (!$line) { $level = (int)$level ?: ($levels[$spell] ?? 0) ?: ($levels[$spell] = wowhead_spell_level($spell)); if (!$level) { $left['trainer_level_unknown']++; continue; } }
             if ($needs === null) {
                 $needs = $needsOf[$spell] ?? null;

@@ -75,6 +75,9 @@ The website decides this each time a page loads, so a phase opening needs no new
 - **Resource pages, tooltips, search**: a blue badge naming the phase, and a tag with its date.
 - **The Forge, Items tab**: leaves later items out by default, because selling them at a vendor would release them
   early. The *Later phases* switch shows them.
+- **The Forge, Imports** ([open data sources](SOURCES.md), Wowhead quest enders): a card brings nothing for an item,
+  quest or trainer spell whose phase is closed, and says how many it left out for that reason. Make the card again
+  once the phase is open.
 
 A resource the server already provides keeps its *Available* status, even if its phase is closed.
 

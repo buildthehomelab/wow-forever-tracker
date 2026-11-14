@@ -21,6 +21,10 @@ repeat its rows.
 - **Only the gaps**: drops and vendors for items players cannot get and that are not internal (Season of Discovery
   leftovers are internal; items Wowhead does not know yet stay in, they may be undiscovered); givers and enders for
   quests that have none; trainer spells a trainer of the server does not teach yet.
+- **Only what is released**: an item, quest or spell that waits for a [release phase](PHASES.md) that is not open yet
+  (the *Later* badge) is no gap today, and a vendor, drop, giver or trainer for it would release it early. No source is
+  asked about those, and the card's *Left out* line says how many gap items and quests that was. They come in with the
+  first import made after their phase opens.
 - **Vendors**: unlimited stock unless the source saw a limited one (then restocked hourly); the price is the item's own
   unless another vendor sells it for items or currencies (then that `ExtendedCost`). Stock paid with items or
   currencies the source saw is left out (no cost to give it).
