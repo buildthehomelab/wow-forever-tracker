@@ -116,6 +116,19 @@ def server_state():
     ctx['quests'] = quests
     pairs = lambda sql: [(int(a), int(b)) for a, b in (tuple(r.values()) for r in q(sql))]
     ctx['q_start_npc'] = pairs('SELECT id, quest FROM creature_queststarter')
+    ctx['quest_accept_credit'] = set(pairs('''
+        SELECT DISTINCT s.event_param1 AS quest, s.action_param1 AS credit
+        FROM smart_scripts s
+        JOIN creature_template t ON t.entry = s.entryorguid AND t.AIName = 'SmartAI'
+        JOIN creature_queststarter g ON g.id = t.entry AND g.quest = s.event_param1
+        WHERE s.source_type = 0 AND s.event_type = 19 AND s.action_type = 33
+          AND s.target_type = 7 AND s.event_chance = 100 AND s.event_phase_mask = 0
+          AND EXISTS (SELECT 1 FROM creature c WHERE c.id = t.entry AND c.PhaseId = 0 AND c.PhaseGroup = 0)
+          AND NOT EXISTS (
+              SELECT 1 FROM conditions c WHERE c.SourceTypeOrReferenceId = 22
+                AND c.SourceEntry = s.entryorguid AND c.SourceGroup = s.id + 1 AND c.SourceId = s.source_type
+          )
+    '''))
     ctx['q_end_npc'] = pairs('SELECT id, quest FROM creature_questender')
     ctx['q_start_go'] = pairs('SELECT id, quest FROM gameobject_queststarter')
     ctx['q_end_go'] = pairs('SELECT id, quest FROM gameobject_questender')

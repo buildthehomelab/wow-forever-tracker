@@ -241,7 +241,9 @@ def evaluate_all(content, ctx):
         checks.append(check(any(e[2] for e in end), 'ender', L(en or 'No quest ender.', fr or 'Aucun valideur.'), 2))
         problems = []
         for kind, obj, amount in objectives.get(quest_id, []):
-            if kind == 0 and obj not in npc_spawned:
+            if kind == 0 and obj not in npc_spawned and not (
+                amount == 1 and (quest_id, obj) in ctx['quest_accept_credit']
+            ):
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
                 problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
