@@ -56,11 +56,11 @@ new image that ships new dates.
 
 The website decides this each time a page loads, so a phase opening needs no new analysis:
 
-- by default, each phase opens on its `opens` date, in order. A phase with no date stays closed, and so do the
-  phases after it.
+- by default, each phase opens on its own `opens` date. A phase with no date stays closed, without holding back
+  the others.
 - `[phases] current` in `config.ini` (`FT_PHASE` with Docker) overrides the dates for a realm that runs ahead of or
-  behind the official game. It takes a phase key (`first-raids`), a number (`1` = the first phase), `all` (every
-  phase open, as before) or `none` (only launch content).
+  behind the official game. It takes a phase key (`first-raids`: that phase and every one listed before it), a number
+  (`1` = the first phase, `2` = the first two), `all` (every phase open, as before) or `none` (only launch content).
 
 ## Where it shows
 
@@ -73,3 +73,11 @@ The website decides this each time a page loads, so a phase opening needs no new
   early. The *Later phases* switch shows them.
 
 A resource the server already provides keeps its *Available* status, even if its phase is closed.
+
+## Instances Forever does not use
+
+Some instances in the client will never open in WoW: Forever, so they get no phase. These are Season of Discovery's,
+which the Classic Era client gained after the original game (The Tainted Scar, Karazhan Crypts, Scarlet Enclave...), and
+the original game's unused Emerald Dream and Caverns of Time maps. The analysis lists them and their bosses under
+*Internal / test*, like the items Wowhead marks as Season of Discovery ones. The rule is in `tools/ft/baseline.py`
+(`season_map`): an instance above the original game's ids that is in the Classic Era client.

@@ -114,7 +114,7 @@ if (process.env.FT_SHOT_LOGIN && process.env.FT_SHOT_PASSWORD) {
   await evaluate("document.querySelector('[data-forge-preview-selection]').click()");
   await sleep(1500);
   await shot('forge-sql');
-  await go('dungeon/2921?lang=en');
+  await go('dungeon/230?lang=en');
   await shot('dungeon-forge');
   // items nobody can get, and the imports page
   await go('admin?tab=vendor&lang=en');
