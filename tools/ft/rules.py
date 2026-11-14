@@ -271,13 +271,16 @@ def evaluate_all(content, ctx):
             lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
         if start or end:
             checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))
-        # Whose quest it is: the side players of the live game got it on, against the races the server offers it to.
+        # Whose quest it is. Most quests are offered to every race and it is their giver's faction that keeps one side
+        # out, so "everyone" on the server against "the Horde" in players' reports is no finding (it is what the live
+        # server itself answers for hundreds of them). Only a quest the server keeps to one side is asked about: that
+        # side must be one players on live got it on.
         told = ctx.get('report_sides', {}).get(quest_id)
-        if told:
-            ours = reports.allowed_sides(row.get('AllowableRaces'))
-            words = lambda sides, fr=False: (' et ' if fr else ' and ').join(('l’Alliance' if fr and s == 'Alliance' else 'la Horde' if fr else 'the ' + s) for s in sorted(sides)) or ('personne' if fr else 'nobody')
-            checks.append(check(ours == told, 'side', L(f"Offered to {words(ours)} on the server; players on live got it as {words(told)}.",
-                                                       f"Proposée à {words(ours, True)} sur le serveur ; en jeu, les joueurs l’ont eue pour {words(told, True)}."), 1))
+        ours = reports.allowed_sides(row.get('AllowableRaces')) if told else set()
+        if told and len(ours) == 1:
+            words = lambda sides, fr=False: (' et ' if fr else ' and ').join(('l’Alliance' if fr and s == 'Alliance' else 'la Horde' if fr else 'the ' + s) for s in sorted(sides))
+            checks.append(check(bool(ours & told), 'side', L(f"Kept to {words(ours)} on the server; players on live got it as {words(told)}.",
+                                                            f"Réservée à {words(ours, True)} sur le serveur ; en jeu, les joueurs l’ont eue pour {words(told, True)}."), 1))
         return checks
 
     boxes = {}

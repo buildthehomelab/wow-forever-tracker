@@ -52,10 +52,15 @@ Two more things come out of the same pack:
   (kept with the ForeverScribe positions, which the locator prefers to a looked-up one): press *Locate* on the Spawns
   page after reading a pack. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
   QuestieDB's, which the tracker reads itself. A pin's name must be exactly one template's.
-- **Whose quest it is.** The analysis compares the side players on live got each quest on (Alliance, Horde, both)
-  with the races the server offers it to (`quest_template.AllowableRaces`), for the quests the site's players saw.
-  A difference is a check of its own on the quest's page (*Offered to the right side*) and puts the quest on the work
-  list. Nothing changes it by itself: a server may offer a quest more widely on purpose.
+- **Whose quest it is.** For the quests the site's players saw, the analysis looks at the quests the server keeps
+  to one side (`quest_template.AllowableRaces`) and asks that this side be one players on live got the quest on. A
+  quest kept to the wrong side fails a check of its own on its page (*Offered to the right side*). Nothing changes
+  it by itself.
+  A quest the server offers to every race is **not** a finding, whatever side the reports name: most quests are
+  offered to every race, and it is their giver's faction that keeps the other side out. The live server itself
+  answers "every race" for some 390 quests the site lists under one side, and the first version of this check, which
+  compared the two directly, named about 300 quests wrongly. It also read the Horde's race mask as "everyone",
+  because its top bit is set: the masks are now the ones the live server sends for each side.
 
 Not taken from the site, and why:
 
