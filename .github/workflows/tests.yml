@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Python tests (no database: those that need one are skipped)
+      - name: Python tests (those that need a database are skipped)
         # the tools read config.ini when they are imported; the sample is enough for the tests
         env:
           FOREVER_TRACKER_CONFIG: config.sample.ini
