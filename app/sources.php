@@ -462,8 +462,21 @@ function foreverdb_evidence(): array
 // Asked only about the gaps: items players cannot get, quests without giver / ender, the server's trainers. Polite (two
 // requests a second), cached in data/icyveins/, asked again after 14 days (7 for "not found"): it keeps growing.
 const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
+const ICYVEINS_MAX_FAILURES = 20;   // lookups failing in a row before a run stops (an outage, a block, no network)
 
-function icyveins_get(string $kind, int $id, int &$asked): ?array
+/** The run stops itself: Icy Veins did not answer ICYVEINS_MAX_FAILURES lookups in a row. */
+final class IcyVeinsStopped extends Exception {}
+
+/** Seconds to wait before the lookup that follows $failures failed ones in a row: 1, 2, 4 … up to a minute. A short
+ *  outage then costs a handful of requests, and the 20 failures that stop a run take about a quarter of an hour. */
+function icyveins_backoff(int $failures): int
+{
+    return $failures < 1 ? 0 : (int)min(60, 2 ** min($failures - 1, 6));
+}
+
+/** One answer, from the cache or asked. $failures counts the lookups that got no answer in a row (neither 200 nor
+ *  404; nothing is cached for them, so the next run asks again) and $lastFailure says what the last one was. */
+function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, string &$lastFailure = ''): ?array
 {
     static $last = 0.0;
     $path = FT_ROOT . "/data/icyveins/$kind/$id.json";
@@ -473,16 +486,20 @@ function icyveins_get(string $kind, int $id, int &$asked): ?array
         if ($age < (empty($data['missing']) ? 14 : 7) * 86400) return $data;
     }
     if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) return is_file($path) ? $data : null;
-    $wait = 0.5 - (microtime(true) - $last);
+    $wait = max(0.5, icyveins_backoff($failures)) - (microtime(true) - $last);
     if ($wait > 0) usleep((int)($wait * 1e6));
     $last = microtime(true); $asked++;
     [$status, $body] = source_http(ICYVEINS . "$kind/$id", 30);
     if ($status === 404) $data = ['missing' => true];
-    elseif ($status !== 200) return is_file($path) ? $data : null;
-    else {
+    elseif ($status !== 200) {
+        $failures++;
+        $lastFailure = "$kind $id: " . ($status ? "HTTP $status" : 'no answer');
+        return is_file($path) ? $data : null;
+    } else {
         $full = json_decode($body, true);
         $data = is_array($full) && !empty($full['entity']) ? ['relations' => $full['relations'] ?? []] : ['missing' => true];
     }
+    $failures = 0;
     $data['fetched'] = time();
     @mkdir(dirname($path), 0775, true);
     file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -544,25 +561,42 @@ function icyveins_import(?callable $progress = null): array
     $todo = count($gaps['items']) + count($gaps['noGiver'] + $gaps['noEnder']);
     $trainers = source_trainer_npcs();
     $todo += count($trainers);
-    $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 200 === 0) $progress("$done/$todo looked at, $asked asked"); };
-    foreach (array_keys($gaps['items']) as $item) {
-        icyveins_item_evidence($ev, $item, (array)(icyveins_get('item', $item, $asked)['relations'] ?? [])); $tick();
-    }
-    foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
-        icyveins_quest_evidence($ev, $quest, (array)(icyveins_get('quest', $quest, $asked)['relations'] ?? [])); $tick();
-    }
-    foreach ($trainers as $npc) {
-        $r = icyveins_get('npc', $npc, $asked)['relations'] ?? []; $tick();
-        foreach ((array)($r['addon_trains'] ?? []) as $s) {
-            if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
-            if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) {
-                $ev['left']['trainer_profession_skill_unknown'] = ($ev['left']['trainer_profession_skill_unknown'] ?? 0) + 1;   // no skill rank given
-                continue;
-            }
-            $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
-            $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
-            $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
+    // a line (and a sign of life on the Imports page) every 20 lookups: ten seconds while Icy Veins is asked
+    $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 20 === 0) $progress("$done/$todo looked at, $asked asked"); };
+    // lookups that get no answer are not cached and used to be skipped one after the other: an outage fired thousands
+    // of failing requests. They now slow the run down (icyveins_backoff) and, 20 in a row, stop it.
+    $failures = 0; $lastFailure = '';
+    $get = function (string $kind, int $id) use (&$asked, &$failures, &$lastFailure): array {
+        $data = icyveins_get($kind, $id, $asked, $failures, $lastFailure);
+        if ($failures >= ICYVEINS_MAX_FAILURES) throw new IcyVeinsStopped($lastFailure);
+        return (array)($data['relations'] ?? []);
+    };
+    try {
+        foreach (array_keys($gaps['items']) as $item) {
+            icyveins_item_evidence($ev, $item, $get('item', $item)); $tick();
         }
+        foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
+            icyveins_quest_evidence($ev, $quest, $get('quest', $quest)); $tick();
+        }
+        foreach ($trainers as $npc) {
+            $r = $get('npc', $npc); $tick();
+            foreach ((array)($r['addon_trains'] ?? []) as $s) {
+                if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
+                if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) {
+                    $ev['left']['trainer_profession_skill_unknown'] = ($ev['left']['trainer_profession_skill_unknown'] ?? 0) + 1;   // no skill rank given
+                    continue;
+                }
+                $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
+                $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
+                $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
+            }
+        }
+    } catch (IcyVeinsStopped $stop) {
+        // no card from half the answers: it would replace a fuller one made earlier
+        return ['ok' => false, 'stopped' => true, 'id' => 0, 'counts' => [], 'ignored' => [],
+            'message' => sprintf(t('Icy Veins stopped: %d lookups in a row got no answer (the last one, %s), after %d of %d were looked at. What it answered is kept: start Import Icy Veins again once it answers, and the run goes on from there.',
+                'Icy Veins arrêté : %d requêtes de suite sont restées sans réponse (la dernière, %s), après %d consultations sur %d. Ses réponses sont conservées : relancez Importer Icy Veins quand il répondra, l’import reprendra où il en était.'),
+                ICYVEINS_MAX_FAILURES, $stop->getMessage(), $done, $todo)];
     }
     $label = 'Icy Veins ' . date('Y-m-d');
     [$tables, $left] = source_tables($ev, $label, $gaps);
@@ -572,20 +606,70 @@ function icyveins_import(?callable $progress = null): array
 
 // ------------------------------------------------------------------ background runs (long imports)
 function source_log(string $source): string { return FT_ROOT . "/data/source-$source.log"; }
+function source_lock_file(string $source): string { return FT_ROOT . "/data/source-$source.running"; }
+/** Left by an Icy Veins run while it is in flight (tools/source-import.php): still there after a restart, the
+ *  container goes on with the run (docker/entrypoint.sh). */
+function source_resume_file(string $source): string { return FT_ROOT . "/data/source-$source.resume"; }
 
-function source_running(string $source): bool
+/**
+ * The lock of a source's import: an exclusive flock on data/source-<source>.running, kept for as long as the run
+ * lasts. The system lets it go when the process ends, however it ends (a restart, a crash), so no lock is ever left
+ * behind, and two starts at the same moment cannot both get it: a file that only "exists" was checked by the website
+ * and created later by the run, and two clicks gave two runs. The file itself stays in place (removing a lock file
+ * another process is opening is how two runs come to hold "the" lock). Returns the open file to keep, null when
+ * another run holds it, false when the file cannot be opened at all (the data folder is not writable); $tries > 1
+ * asks again every 0.2 s (source_running() holds the lock for an instant to ask).
+ */
+function source_lock(string $source, int $tries = 1, ?string $path = null)
 {
-    // the run touches its lock at each progress line (every 200 Icy Veins lookups, under two minutes): a lock left
-    // untouched for 15 minutes belongs to a run that a restart or a crash stopped
-    $lock = FT_ROOT . "/data/source-$source.running";
-    return is_file($lock) && time() - filemtime($lock) < 15 * 60;
+    $path ??= source_lock_file($source);
+    // "e": closed in any program this one starts, which would otherwise carry the lock on after the run. A file made
+    // by another user (a run started as root in the container) is opened for reading: that is enough to lock it.
+    $new = !is_file($path);
+    $handle = @fopen($path, 'ce') ?: @fopen($path, 're');
+    if (!$handle) return false;
+    if ($new) @chmod($path, 0666);
+    for ($i = 1; ; $i++) {
+        if (flock($handle, LOCK_EX | LOCK_NB)) return $handle;
+        if ($i >= $tries) break;
+        usleep(200000);
+    }
+    fclose($handle);
+    return null;
 }
 
-/** Starts tools/source-import.php <source> in the background (Icy Veins takes about an hour the first time). */
+function source_unlock($handle): void
+{
+    if (!is_resource($handle)) return;
+    flock($handle, LOCK_UN);
+    fclose($handle);
+}
+
+/** A run of this source holds its lock right now. */
+function source_running(string $source, ?string $path = null): bool
+{
+    $path ??= source_lock_file($source);
+    if (!is_file($path)) return false;
+    $handle = source_lock($source, 1, $path);
+    if ($handle === null) return true;
+    source_unlock($handle);
+    return false;
+}
+
+/** Starts tools/source-import.php <source> in the background (Icy Veins takes hours the first time). */
 function source_start(string $source): array
 {
-    if (source_running($source)) return ['ok' => false, 'message' => t('Already running.', 'Déjà en cours.')];
-    $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
-    exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/source-import.php') . ' ' . escapeshellarg($source) . ' > ' . escapeshellarg(source_log($source)) . ' 2>&1) > /dev/null 2>&1 &');
+    // two clicks at once: the second one waits at this gate until the first one's run holds its lock, then sees it
+    $gate = @fopen(FT_ROOT . "/data/source-$source.start", 'ce');   // "e": the run started below must not inherit the gate
+    if ($gate) flock($gate, LOCK_EX);
+    try {
+        if (source_running($source)) return ['ok' => false, 'message' => t('Already running.', 'Déjà en cours.')];
+        $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
+        // --log: the run writes its own log once it holds the lock, so a start that loses the race never empties the log of the run that won
+        exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/source-import.php') . ' ' . escapeshellarg($source) . ' --log) > /dev/null 2>&1 &');
+        for ($i = 0; $i < 30 && !source_running($source); $i++) usleep(100000);   // PHP starts and takes the lock: well under a second
+    } finally {
+        if ($gate) { flock($gate, LOCK_UN); fclose($gate); }
+    }
     return ['ok' => true, 'message' => sprintf(t('%s started in the background; its import card appears below when it is done (reload the page).', '%s a démarré en arrière-plan ; sa carte d’import apparaît ci-dessous une fois terminé (rechargez la page).'), SOURCES[$source][0] ?? $source)];
 }

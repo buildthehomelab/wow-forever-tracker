@@ -62,10 +62,9 @@ switch ((string)($input['action'] ?? '')) {
     case 'source_atlasloot':
         // a few seconds (EG Link's first download longer); the same lock as the container's check, so they never overlap
         require_once FT_APP . '/atlasloot.php';
-        if (source_running('atlasloot')) json_out(['ok' => false, 'message' => t('AtlasLoot is already being imported.', 'AtlasLoot est déjà en cours d’import.')]);
-        $lock = FT_ROOT . '/data/source-atlasloot.running';
-        touch($lock);
-        try { $out = atlasloot_import(); } finally { @unlink($lock); }
+        $lock = source_lock('atlasloot');
+        if (!$lock) json_out(['ok' => false, 'message' => $lock === null ? t('AtlasLoot is already being imported.', 'AtlasLoot est déjà en cours d’import.') : t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]);
+        try { $out = atlasloot_import(); } finally { source_unlock($lock); }
         json_out($out);
     case 'source_icyveins':
         // about an hour the first time (two lookups a second): in the background
