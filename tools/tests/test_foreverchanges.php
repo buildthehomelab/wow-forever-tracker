@@ -23,4 +23,13 @@ check(isset(SOURCES['foreverchanges'], SOURCE_MARKS['foreverchanges']) && source
 $trust = source_trust('');
 check(array_search('foreverchanges', $trust, true) > array_search('icyveins', $trust, true) && array_search('foreverchanges', $trust, true) < array_search('eglink', $trust, true) && $trust[0] === 'client', 'trusted after Icy Veins, before the rest; the client first');
 
+$places = foreverchanges_places(['places' => [
+    ['npc', 244808, "Aramis\nHammerhand", [['m' => 0, 'x' => 1840, 'y' => 1628.04], ['m' => 0, 'x' => 999999, 'y' => 1], ['m' => '0', 'x' => 1, 'y' => 1], ['x' => 1, 'y' => 1]]],
+    ['go', 180001, 'A Book', [['m' => 1, 'x' => 1017.9, 'y' => -3082.1]]],
+    ['item', 5, 'x', [['m' => 0, 'x' => 1, 'y' => 1]]], ['npc', 0, 'x', [['m' => 0, 'x' => 1, 'y' => 1]]], ['npc', 7, 'no points', []], ['npc', 8, 'x'],
+]]);
+check($places === [['npc', 244808, 'Aramis Hammerhand', [['m' => 0, 'x' => 1840.0, 'y' => 1628.0]]], ['go', 180001, 'A Book', [['m' => 1, 'x' => 1017.9, 'y' => -3082.1]]]],
+    'reported places: a creature or an object, a map, coordinates that are on a map');
+check(foreverchanges_places([]) === [] && foreverchanges_places(['places' => 'x']) === [], 'no places in a result that has none');
+
 ft_test_done();

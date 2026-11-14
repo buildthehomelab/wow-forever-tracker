@@ -62,6 +62,22 @@ def vendor_items(rows):
     return out
 
 
+def report_sides(path=None):
+    """{quest: {'Alliance', 'Horde'}} from the players' reports the website keeps (data/foreverchanges/pack.fcpack),
+    for the quests its players saw; {} without a pack, or with one that cannot be read."""
+    import gzip
+    from . import reports
+    path = path or os.path.join(DATA, 'foreverchanges', 'pack.fcpack')
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with gzip.open(path, 'rt', encoding='utf-8') as handle:
+            return reports.quest_sides(json.load(handle))
+    except (OSError, ValueError, EOFError):
+        log('the ForeverChanges pack cannot be read: quest sides are not checked')
+        return {}
+
+
 def zone_rectangles(assignments):
     """The world rectangle each zone's map draws, from UiMapAssignment rows, in the shape the zone rule reads:
     [{'assignments': [{'area', 'map', 'region': (min x, min y, max x, max y)}]}]. A row that names no zone (a
@@ -155,10 +171,12 @@ def server_state():
 
     quests = {}
     # HasText: the giver's words or the objectives text, as a flag (the texts themselves would be most of the memory)
-    for row in q("SELECT ID, LogTitle, QuestType, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, "
+    for row in q("SELECT ID, LogTitle, QuestType, QuestSortID, QuestInfoID, Flags, AllowableRaces, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, "
                  "(COALESCE(QuestDescription, '') <> '' OR COALESCE(LogDescription, '') <> '') HasText, "
                  + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
         quests[int(row['ID'])] = row
+    # Which side each quest is for, as players reported it (a ForeverChanges pack sent on the Imports page)
+    ctx['report_sides'] = report_sides()
     # What the NPC says at the turn-in: the reward text, or the "have you got it?" text of a quest that asks for items.
     ctx['quest_turn_in_text'] = ints("SELECT ID FROM quest_offer_reward WHERE COALESCE(RewardText, '') <> ''") | \
         ints("SELECT ID FROM quest_request_items WHERE COALESCE(CompletionText, '') <> ''")

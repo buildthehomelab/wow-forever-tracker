@@ -609,7 +609,35 @@ function foreverchanges_import(): array
     $retrieved = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['retrieved'] ?? '')) ? (string)$result['retrieved'] : date('Y-m-d', (int)filemtime($pack));
     $label = 'ForeverChanges ' . $retrieved;
     [$tables, $left] = source_tables(foreverchanges_evidence($result), $label, source_gaps());
-    return source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
+    // where its maps show NPCs, rares and books nobody spawned here: kept for the locator, which prefers a reported
+    // place to a looked-up one (the Spawns page, after the next "Locate")
+    $places = foreverchanges_places($result);
+    if ($places) collector_positions($places);
+    $card = source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
+    if ($places) {
+        $card['places'] = count($places);
+        $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d creature(s) or object(s) nobody spawned now have a reported place: run the locator (Spawns) to use them.', '%d créature(s) ou objet(s) que personne n’a placés ont maintenant un lieu signalé : lancez le localisateur (Placements) pour les utiliser.'), count($places)));
+        $card['ok'] = true;   // the places are kept even when the card has nothing new
+    }
+    return $card;
+}
+
+/** The places tools/tracker.py found for things nobody spawned, checked: [['npc'|'go', entry, name, [['m' => map,
+ *  'x' => x, 'y' => y], …]], …] as collector_positions() takes them. Anything of another shape is dropped. */
+function foreverchanges_places(array $result): array
+{
+    $out = [];
+    foreach ((array)($result['places'] ?? []) as $row) {
+        if (!is_array($row) || count($row) !== 4 || !in_array($row[0], ['npc', 'go'], true) || !is_int($row[1]) || $row[1] <= 0 || !is_array($row[3])) continue;
+        $points = [];
+        foreach (array_slice($row[3], 0, 20) as $p) {
+            if (!is_array($p) || !isset($p['m'], $p['x'], $p['y']) || !is_int($p['m']) || $p['m'] < 0 || !is_numeric($p['x']) || !is_numeric($p['y'])) continue;
+            if (abs((float)$p['x']) > 20000 || abs((float)$p['y']) > 20000) continue;
+            $points[] = ['m' => $p['m'], 'x' => round((float)$p['x'], 1), 'y' => round((float)$p['y'], 1)];
+        }
+        if ($points) $out[] = [$row[0], $row[1], mb_substr(trim(preg_replace('/[\x00-\x1f]+/', ' ', (string)$row[2])), 0, 190), $points];
+    }
+    return $out;
 }
 
 // ------------------------------------------------------------------ EG Link (CC BY 4.0)

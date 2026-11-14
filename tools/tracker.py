@@ -291,11 +291,32 @@ def player_reports(args):
                                     reports.Matcher(*named('gameobject_template', 'gameobject'), where, box))
     except ValueError as error:
         sys.exit(f'reports: {error}')
-    result = {'ev': ev, 'left': left, 'retrieved': str(pack.get('retrieved') or '')[:10], 'quests': len(pack.get('quests') or []), 'items': len(pack.get('items') or [])}
+    # where the site's maps show NPCs, rares and books that nobody spawned here: places for the locator
+    wanted = sorted({n['entry'] for n in pack.get('npcs') or [] if isinstance(n, dict) and n.get('seen') and isinstance(n.get('entry'), int)})
+    known, standing = set(), set()
+    for start in range(0, len(wanted), 1000):
+        chunk = ','.join(map(str, wanted[start:start + 1000]))
+        known |= {int(v) for v in sqlio.column(f'SELECT entry FROM creature_template WHERE entry IN ({chunk})')}
+        standing |= {('npc', int(v)) for v in sqlio.column(f'SELECT DISTINCT id FROM creature WHERE id IN ({chunk})')}
+    pin_names = sorted({str(p.get('name') or '').strip().lower() for p in pack.get('pins') or [] if isinstance(p, dict)} - {''})
+    by_pin = {'npc': {}, 'go': {}}
+    for kind, table, spawn_table in (('npc', 'creature_template', 'creature'), ('go', 'gameobject_template', 'gameobject')):
+        for start in range(0, len(pin_names), 400):
+            chunk = ','.join(sqlio.escape(name) for name in pin_names[start:start + 400])
+            for row in sqlio.query(f'SELECT entry, name FROM `{table}` WHERE name IN ({chunk})'):
+                by_pin[kind].setdefault((row['name'] or '').strip().lower(), []).append(int(row['entry']))
+        entries = sorted({entry for found in by_pin[kind].values() for entry in found})
+        for start in range(0, len(entries), 1000):
+            standing |= {(kind, int(v)) for v in sqlio.column(f'SELECT DISTINCT id FROM `{spawn_table}` WHERE id IN (' + ','.join(map(str, entries[start:start + 1000])) + ')')}
+    continent = {area['ID']: area.get('ContinentID') for area in official_content.table(builds[-1]['dir'], 'AreaTable', 'enUS')}
+    spots, unplaced = reports.places(pack, known, standing, lambda kind, name: by_pin[kind].get(name, []), continent.get)
+    left.update(unplaced)
+    result = {'ev': ev, 'left': left, 'places': spots, 'retrieved': str(pack.get('retrieved') or '')[:10], 'quests': len(pack.get('quests') or []), 'items': len(pack.get('items') or [])}
     with open(args.out + '.part', 'w', encoding='utf-8') as handle:
         json.dump(result, handle, ensure_ascii=False)
     os.replace(args.out + '.part', args.out)
-    log('reports: ' + ', '.join(f'{len(rows)} {kind}' for kind, rows in ev.items()) + ' (' + (', '.join(f'{n} {why}' for why, n in sorted(left.items())) or 'nothing left out') + ')')
+    log('reports: ' + ', '.join(f'{len(rows)} {kind}' for kind, rows in ev.items()) + f', {len(spots)} places of things nobody spawned'
+        + ' (' + (', '.join(f'{n} {why}' for why, n in sorted(left.items())) or 'nothing left out') + ')')
 
 
 def merge_checks(rows, sided):

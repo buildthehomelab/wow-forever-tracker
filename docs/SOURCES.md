@@ -40,6 +40,28 @@ new card after an analysis.
 - From there the rules are every source's: only the analysis' gaps, a vendor or drop the server already has is left
   out, and the card is previewed and applied like any other.
 
+Two more things come out of the same pack:
+
+- **Places for what nobody spawned.** The site's maps show NPCs by entry and world coordinates, and rares, commerce
+  NPCs and library books by name. Those the server has a template of and no spawn for get their reported place
+  (kept with the ForeverScribe positions, which the locator prefers to a looked-up one): press *Locate* on the Spawns
+  page after reading a pack. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
+  QuestieDB's, which the tracker reads itself. A pin's name must be exactly one template's.
+- **Whose quest it is.** The analysis compares the side players on live got each quest on (Alliance, Horde, both)
+  with the races the server offers it to (`quest_template.AllowableRaces`), for the quests the site's players saw.
+  A difference is a check of its own on the quest's page (*Offered to the right side*) and puts the quest on the work
+  list. Nothing changes it by itself: a server may offer a quest more widely on purpose.
+
+Not taken from the site, and why:
+
+- **What the NPC says at the turn-in.** The site shows it as a player's client did, with that player's name where
+  the server holds a placeholder ("You have served well, Fuzzy."). It would greet every player by that name.
+- **Boss loot of the dungeon pages.** The new items, which are the ones the server lacks, carry no drop chance there;
+  AtlasLoot already says which boss drops them.
+- **Gathering nodes.** Positions without a height; placing them is the locator's work, not an import's.
+- **Its quest giver list by entry** and the services of its maps: they are QuestieDB's and Classic's, which the
+  tracker reads from their own sources.
+
 `tools/ft/reports.py` holds the matching; `python tools/tracker.py reports --pack <file> --out <file>` is what the
 website runs.
 

@@ -2,7 +2,7 @@
 (translated by the website); details are given in English and French."""
 import math
 
-from . import bosses
+from . import bosses, reports
 from .server import log
 
 
@@ -271,6 +271,13 @@ def evaluate_all(content, ctx):
             lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
         if start or end:
             checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))
+        # Whose quest it is: the side players of the live game got it on, against the races the server offers it to.
+        told = ctx.get('report_sides', {}).get(quest_id)
+        if told:
+            ours = reports.allowed_sides(row.get('AllowableRaces'))
+            words = lambda sides, fr=False: (' et ' if fr else ' and ').join(('l’Alliance' if fr and s == 'Alliance' else 'la Horde' if fr else 'the ' + s) for s in sorted(sides)) or ('personne' if fr else 'nobody')
+            checks.append(check(ours == told, 'side', L(f"Offered to {words(ours)} on the server; players on live got it as {words(told)}.",
+                                                       f"Proposée à {words(ours, True)} sur le serveur ; en jeu, les joueurs l’ont eue pour {words(told, True)}."), 1))
         return checks
 
     boxes = {}

@@ -86,6 +86,91 @@ class Matcher:
         return None, 'several_same_name'
 
 
+ALLIANCE, HORDE = 'Alliance', 'Horde'
+RACES = {ALLIANCE: 1 | 4 | 8 | 64, HORDE: 2 | 16 | 32 | 128}     # the eight races every version has, as race mask bits
+RACE_SIDE = {'human': ALLIANCE, 'dwarf': ALLIANCE, 'night elf': ALLIANCE, 'gnome': ALLIANCE,
+             'orc': HORDE, 'undead': HORDE, 'tauren': HORDE, 'troll': HORDE}
+
+
+def side_of(text):
+    """The sides a quest is for, as the site words it: {'Alliance'}, {'Horde'} or both. "Night Elf" is the
+    Alliance's, a list of races the sides of those races; anything else says nothing (an empty set)."""
+    text = str(text or '').strip().lower()
+    if text in ('alliance', 'horde'):
+        return {text.capitalize()}
+    if text == 'both factions':
+        return {ALLIANCE, HORDE}
+    found = {RACE_SIDE.get(part.strip()) for part in text.split(',')}
+    return set() if None in found else found
+
+
+def allowed_sides(mask):
+    """The sides a server's AllowableRaces lets take a quest. 0 and "every bit" are everyone."""
+    try:
+        mask = int(mask or 0)
+    except (TypeError, ValueError):
+        return {ALLIANCE, HORDE}
+    if mask <= 0 or mask >= 2 ** 63:
+        return {ALLIANCE, HORDE}
+    return {side for side, bits in RACES.items() if mask & bits}
+
+
+def quest_sides(pack):
+    """{quest: the sides it is for} for the quests the site's players saw. A quest nobody saw carries Classic's
+    side, which is no word on Forever, and one whose side cannot be read is left out."""
+    out = {}
+    for quest in (pack or {}).get('quests') or []:
+        if isinstance(quest, dict) and quest.get('seen_by_players') and isinstance(quest.get('id'), int):
+            sides = side_of(quest.get('side'))
+            if sides:
+                out[quest['id']] = sides
+    return out
+
+
+def places(pack, known, spawned, named=None, area_map=None):
+    """Where the site's maps show things nobody spawned on the server: [[kind, entry, name, [{m, x, y}]]], and what
+    was left out. They are for the locator (the Spawns page), which prefers a reported place to a looked-up one.
+
+    known: the creature entries the server has a template of; spawned: {('npc'|'go', entry)} that stand somewhere;
+    named: a function (kind 'npc'|'go', lower name) -> [entries] for the pins the site gives by name (rares,
+    commerce NPCs, library books); area_map: a function area id -> map id, for a map folder that is one area.
+    An NPC of the site's maps counts when its players' addon saw it ("seen"): the others are QuestieDB's list, which
+    the tracker reads itself."""
+    found, left = {}, collections.Counter()
+
+    def add(kind, entry, name, map_id, x, y):
+        if (kind, entry) in spawned:
+            left['report_place_already_spawned'] += 1
+            return
+        points = found.setdefault((kind, entry), [name, []])[1]
+        point = {'m': int(map_id), 'x': round(float(x), 1), 'y': round(float(y), 1)}
+        if point not in points and len(points) < 20:
+            points.append(point)
+
+    for npc in (pack or {}).get('npcs') or []:
+        if not isinstance(npc, dict) or not npc.get('seen'):
+            continue
+        entry = npc.get('entry')
+        if not isinstance(entry, int) or entry not in known:
+            left['report_place_unknown_creature'] += 1
+            continue
+        add('npc', entry, str(npc.get('name') or ''), npc.get('map', 0), npc.get('x', 0), npc.get('y', 0))
+    for pin in (pack or {}).get('pins') or []:
+        if not isinstance(pin, dict) or named is None:
+            continue
+        map_id = pin.get('map') if pin.get('map') is not None else (area_map(pin.get('area')) if area_map and pin.get('area') else None)
+        if map_id is None:
+            left['report_place_no_map'] += 1
+            continue
+        kind = 'go' if pin.get('kind') == 'book' else 'npc'
+        entries = named(kind, str(pin.get('name') or '').strip().lower())
+        if len(entries) != 1:
+            left['report_place_name_unknown' if not entries else 'report_several_same_name'] += 1
+            continue
+        add(kind, entries[0], str(pin['name']), map_id, pin.get('x', 0), pin.get('y', 0))
+    return [[kind, entry, name, points] for (kind, entry), (name, points) in sorted(found.items()) if points], dict(left)
+
+
 def evidence(pack, npcs, objects=None):
     """(evidence, left): the pack's claims as the website's evidence, and what was left out and why.
 
