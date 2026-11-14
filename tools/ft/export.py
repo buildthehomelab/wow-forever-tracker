@@ -72,6 +72,8 @@ VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell', NPC, 'creat
             'quest_offer_reward', 'quest_request_items')
 KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, NPC: 1, VENDOR: 4}, **{table: len(key) for table, _parent, key in CHILDREN + NPC_CHILDREN}, **{table: 1 for table, _moment, _column in TEXTS})
 QUESTGIVER_FLAG, VENDOR_FLAG, QUESTGIVER_OBJECT = 2, 128, 2
+# MySQL 8's default sql_mode, the one the core's updater applies update files in (its own connection, the server's default).
+STRICT_MODE = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'
 BATCH = 200
 REFUSED = ('the replayed world does not take it: it holds the row by now, an earlier file added it and it was taken out since, '
            'or something else holds its place')
@@ -438,7 +440,9 @@ def staged_like(stage, table, records, extra='', about=None):
     typed as the world types them, and fill it. `extra` declares more columns; `about` gives each line's note (the
     stage then has a `note` column) and comment."""
     columns = list(records[0])
-    out = [f"CREATE TEMPORARY TABLE {quote(stage)} (`n` INT NOT NULL PRIMARY KEY{extra}) SELECT {', '.join(quote(c) for c in columns)} FROM {quote(table)} WHERE 0"]
+    # Every column `extra` declares needs a default, `n` too: under MySQL's strict mode (the server's default, and the mode the
+    # core's updater applies files in) CREATE TABLE ... SELECT refuses a NOT NULL column without one, even when it copies no row.
+    out = [f"CREATE TEMPORARY TABLE {quote(stage)} (`n` INT NOT NULL DEFAULT 0 PRIMARY KEY{extra}) SELECT {', '.join(quote(c) for c in columns)} FROM {quote(table)} WHERE 0"]
     head = f"INSERT INTO {quote(stage)} (`n`, {', '.join(quote(c) for c in columns)}{', `note`' if about else ''}) VALUES\n"
     for start in range(0, len(records), BATCH):
         lines = []
@@ -456,7 +460,7 @@ def quest_block(rows, file):
     """The quests: each goes in whole or not at all. A quest is taken while the world has no row of it in any of its
     tables, none of its objective ids is another quest's, and no file added it before; then its own rows follow."""
     made = [row.data['quest'] for row in rows]
-    out = staged_like(QUESTS, QUEST, [quest.template for quest in made], ", `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0",
+    out = staged_like(QUESTS, QUEST, [quest.template for quest in made], ", `note` VARCHAR(255) NOT NULL DEFAULT '', `missing` TINYINT NOT NULL DEFAULT 0",
                       [(row.note, row.comment) for row in rows])
     children = {
         'quest_objectives': [objective for quest in made for objective in quest.objectives],
@@ -527,7 +531,7 @@ def npc_block(rows, file):
     """The NPC templates: each goes in whole or not at all. An NPC is taken while the world has no row of it in any of
     its tables, the world can show every one of its models (creature_model_info), and no file added it before."""
     made = [row.data['npc'] for row in rows]
-    out = staged_like(NPCS, NPC, [npc.template for npc in made], ", `note` VARCHAR(255) NOT NULL, `missing` TINYINT NOT NULL DEFAULT 0",
+    out = staged_like(NPCS, NPC, [npc.template for npc in made], ", `note` VARCHAR(255) NOT NULL DEFAULT '', `missing` TINYINT NOT NULL DEFAULT 0",
                       [(row.note, row.comment) for row in rows])
     children = {'creature_template_difficulty': [npc.difficulty for npc in made], 'creature_template_model': [model for npc in made for model in npc.models],
                 'creature_classic_level': [collections.OrderedDict(entry=npc.template['entry'], level_min=npc.level[0], level_max=npc.level[1]) for npc in made]}
@@ -994,6 +998,9 @@ def trial(db, build, files):
         kept[LEDGER] = int(db.query(f'SELECT COUNT(*) n FROM {quote(LEDGER)}', build)[0]['n'])
     else:                                   # a world no import file has reached yet: a stand-in for the trial
         script.append(LEDGER_DDL.replace('CREATE TABLE IF NOT EXISTS', 'CREATE TEMPORARY TABLE'))
+    # The core's updater applies files over its own connection in the server's default mode, which is strict on MySQL 8: the
+    # trial runs in that mode whatever this account's session would get, so a statement the realm refuses fails here first.
+    script.insert(0, f"SET SESSION sql_mode = {literal(STRICT_MODE)}")
     script += [f'CREATE TEMPORARY TABLE {quote(CHECK)} (step INT NOT NULL, tbl VARCHAR(64) NOT NULL, a BIGINT NOT NULL, b BIGINT NOT NULL DEFAULT 0, '
                'c BIGINT NOT NULL DEFAULT 0, d BIGINT NOT NULL DEFAULT 0, file VARCHAR(200) NOT NULL DEFAULT \'\')', 'START TRANSACTION']
     count = lambda step: [f"INSERT INTO {quote(CHECK)} (step, tbl, a) {sql.replace('SELECT ', f'SELECT {step}, {literal(label)}, ', 1)}" for label, sql in measures]
