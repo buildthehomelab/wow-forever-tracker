@@ -359,7 +359,7 @@ changed first.
 | an NPC the world lacks | `creature_template` and the NPC's own rows (below), from the record the server sent | no record a row may be written from; no player was seen to treat it as a friend (nothing states whom it is friendly to, or only a list does); players fought it, or a side saw it hostile (a monster); nothing states its level; the world has no size for its model (`creature_model_info`); the record does not fit the columns |
 | a quest the world lacks | `quest_template` and the quest's own rows (below), from the record the server sent | no record a row may be written from; the record does not fit the columns; an objective needs an NPC or an object that has no template and is not written with it; nobody who could start or end it can be written yet |
 | an NPC or object gives or takes a quest | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` | its quest or its NPC is held back; the object is not of the quest giver kind; the world's own row for the quest, the NPC or the object reads like a developer's leftover (a quest still titled `REUSE`): that row needs a person first |
-| a vendor sells an item | `npc_vendor`, a plain row: sold for money, in endless supply, in the next free slot | no recording of the live game shows the vendor's window with a money price for it: a list that only says "sold by" does not say what it costs. Also: it costs items or a currency (the extended cost id is not known), its stock is limited (the restock time is not known), a newer recording says one of those even if it may not give the row itself, another vendor borrows this vendor's list |
+| a vendor sells an item | `npc_vendor`, a plain row: sold for money, in endless supply, in the next free slot | no recording of the live game shows the vendor's window with a money price for it, and the world's other vendors do not say how the item is sold either (below). Also: it costs items or a currency (the extended cost id is not known), its stock is limited (the restock time is not known), a newer recording says one of those even if it may not give the row itself, another vendor borrows this vendor's list |
 
 In the file, what others need comes first: NPC templates, then quests, then the pairs and vendor items that hang on
 them. What needs an NPC that is written with it (its quest pairs, its vendor items, a quest with an objective on it)
@@ -368,6 +368,30 @@ is left out when the NPC is, and private when the NPC is.
 A quest is written with a giver and an ender or not at all, and a pair with its quest or not at all. What may be published never needs what may not: a quest whose
 only giver (or ender) is private is private itself, and so is every pair of a private quest. The same is checked
 again after the earlier exports' rows and the rows the trial refused are taken out.
+
+**How a vendor item is sold.** A vendor row holds no price: the item's price is the client's. The row says whether
+the item is sold for money or for something else (an extended cost) and whether its stock is limited, and a list
+that only says "sold by" states neither. So:
+
+1. A recording of the vendor's window on the live game decides, when there is one: the newest one.
+2. With no recording, the world's own vendors are asked how they sell the item. The row is written when at least one
+   other vendor that players can reach sells it (it is spawned, it has the vendor flag, its name does not read like
+   a developer's leftover) and every other vendor that lists it, reachable or not, does so for money, in endless
+   supply, without a condition or a bonus list. Nothing new is sold that way: the item can already be bought for
+   money. A vendor that sells the item during an event only says how it is sold, not that it can be bought today;
+   a row an earlier export added is not asked at all, so the rule never rests on what it wrote itself.
+3. A recording that may not give a row (one from before the live game) can still speak against rule 2: if the
+   newest of them shows the item for a currency, in limited stock or listed twice, the row is held back.
+4. Otherwise it is held back: no other vendor players can reach sells it, or some sell it for a currency, with a
+   condition or in limited stock.
+
+Where only a source that may not be published recorded the window, the row is private, unless rule 2 gives the same
+row: then it rests on the world's vendors and can be published.
+
+How rule 2 was checked: on the replayed world's own rows, each taken out in turn. Of the 13,270 rows of reachable
+vendors whose item every other vendor sells plainly, 13,252 are plain themselves (99.86 %): 17 have limited stock
+and one an extended cost. With a single other reachable vendor it is 340 of 351 (96.9 %), with two or more 12,912 of
+12,919. The manifest says for each vendor row which of the two it rests on, and how many other vendors (`sold`).
 
 **An NPC's rows** (`tools/ft/npcs.py`). The record is what the client's creature cache holds: what the NPC looks like.
 It is not all the server knows of it, and the writer is plain about what it adds and what it leaves out.
