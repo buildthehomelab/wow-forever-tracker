@@ -22,6 +22,8 @@ python tools/tracker.py analyse
 ```
 
 - PHP: no framework, no build step. Keep every visible text in both languages with `t('English', 'Français')`.
+  The PHP tests need no database and no network: `for t in tools/tests/test_*.php; do php "$t" || break; done`
+  (each exits non-zero when a check fails; `tools/tests/helpers.php` has what they share).
 - Python: standard library only. Run `python tools/check_fixes.py` after changing `tools/ft/forge.py`.
 - Keep the interface plain: existing colours and components, no new dependencies.
 - Screenshots of the README: `node tools/screenshots.mjs http://127.0.0.1:8090/` (Node 22+, Chrome or Edge).
