@@ -30,6 +30,7 @@ const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' =>
     'Fishing' => 356, 'Jewelcrafting' => 755, 'Inscription' => 773, 'Lockpicking' => 633, 'Poisons' => 40, 'Riding' => 762];
 
 const SOURCES = [
+    'foreverchanges' => ['ForeverChanges / ForeverMaster', 'All Rights Reserved: reference only'],
     'norgannondb' => ['NorgannonDB', 'GPL-3.0 (with QuestieDB, pfQuest, DungeonJournal)'],
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
@@ -550,5 +551,6 @@ function source_start(string $source): array
     if (source_running($source)) return ['ok' => false, 'message' => t('Already running.', 'Déjà en cours.')];
     $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
     exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/source-import.php') . ' ' . escapeshellarg($source) . ' > ' . escapeshellarg(source_log($source)) . ' 2>&1) > /dev/null 2>&1 &');
+    if ($source === 'foreverchanges') return ['ok' => true, 'message' => t('ForeverChanges refresh started. Reload this page for its status; matching resources will show the references.', 'Actualisation ForeverChanges démarrée. Rechargez cette page pour voir son état ; les ressources correspondantes afficheront les références.')];
     return ['ok' => true, 'message' => sprintf(t('%s started in the background; its import card appears below when it is done (reload the page).', '%s a démarré en arrière-plan ; sa carte d’import apparaît ci-dessous une fois terminé (rechargez la page).'), SOURCES[$source][0] ?? $source)];
 }

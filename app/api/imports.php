@@ -67,6 +67,9 @@ switch ((string)($input['action'] ?? '')) {
         touch($lock);
         try { $out = atlasloot_import(); } finally { @unlink($lock); }
         json_out($out);
+    case 'source_foreverchanges':
+        require_once FT_APP . '/sources.php';
+        json_out(source_start('foreverchanges'));
     case 'source_icyveins':
         // about an hour the first time (two lookups a second): in the background
         require_once FT_APP . '/sources.php';

@@ -97,6 +97,7 @@ page_start($name, $type);
   </div>
 
   <div class="entry-main">
+    <?php if (is_admin()) require FT_APP . '/pages/admin/_foreverchanges.php'; ?>
     <section class="block">
       <header class="block-head"><div><span class="eyebrow"><?= e(t('Server check', 'Vérification du serveur')) ?></span><h2><?= e(t('What your server provides', 'Ce que votre serveur propose')) ?></h2></div></header>
       <ol class="checks">

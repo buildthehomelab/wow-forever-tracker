@@ -136,6 +136,49 @@
       "pin": {"type": "none"}
     },
     {
+      "id": "foreverchanges",
+      "name": "ForeverChanges / ForeverMaster",
+      "layer": "live",
+      "group": "foreverchanges",
+      "also": [
+        "blizzard",
+        "atlasloot",
+        "questie",
+        "cmangos"
+      ],
+      "licence": "All Rights Reserved",
+      "use": "reference",
+      "recorded": false,
+      "credit": "ForeverChanges (https://foreverchanges.pro), ForeverMaster addon; compiled reference data.",
+      "note": "Compiled client, Classic and player data. Its map layer names QuestieDB as its source, its town services cmangos classic-db, its Classic boss chances are AtlasLootClassic's: never a second witness beside any of them. Records do not establish a live observation. Reference only; excluded from world writes and public data exports. Talent build codes are not talent node records.",
+      "url": "https://foreverchanges.pro/about",
+      "pin": {
+        "type": "url",
+        "url": "https://downloads.foreverchanges.pro/addon/latest/ForeverMaster.zip"
+      }
+    },
+    {
+      "id": "foreverchanges-pages",
+      "name": "ForeverChanges website pages",
+      "layer": "live",
+      "group": "foreverchanges",
+      "also": [
+        "blizzard",
+        "atlasloot",
+        "questie",
+        "cmangos"
+      ],
+      "licence": "none",
+      "use": "reference",
+      "recorded": false,
+      "credit": "ForeverChanges (https://foreverchanges.pro); compiled reference data.",
+      "note": "What the site's public pages state beyond its addon pack: a new quest's hand-in and progress text and who starts and ends it, who sells an item and for how much, what drops it and how often, the map's NPCs by id. No licence, and its terms forbid republishing its compiled data. Read slowly, robots.txt obeyed (tools/ft/foreverchanges_pages.py). A page names no build, so nothing here is a live recording. One witness with the addon pack.",
+      "url": "https://foreverchanges.pro",
+      "pin": {
+        "type": "none"
+      }
+    },
+    {
       "id": "forge", "name": "The Forge", "layer": "corrections", "group": "forge",
       "licence": "own", "use": "public",
       "url": "",

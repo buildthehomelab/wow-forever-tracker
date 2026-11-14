@@ -40,12 +40,12 @@ import os
 import re
 import urllib.request
 
-from . import luadata
+from . import foreverchanges, luadata
 
 FACTS, SOURCES = 'ft_world_facts', 'ft_world_sources'
 KINDS = ('gives', 'takes', 'sells', 'teaches', 'drops', 'gathers', 'fishes', 'coins', 'talked', 'seen', 'quest', 'creature', 'object',
-         'objective', 'turn_in', 'text', 'entry')
-SUBJECTS = ('npc', 'object', 'item', 'quest', 'uimap')
+         'objective', 'turn_in', 'text', 'entry', 'reference')
+SUBJECTS = ('npc', 'object', 'item', 'quest', 'uimap', 'spell', 'recipe', 'dungeon', 'talent')
 Fact = collections.namedtuple('Fact', 'kind subject_kind subject object build samples data')
 
 SCHEMA = [
@@ -612,8 +612,8 @@ def fetch_rxpguides(commit, folder, fetch=http_bytes, log=lambda message: None):
     return downloaded
 
 
-READERS = {'eglink': eglink, 'questie': questie, 'rxpguides': rxpguides}
-FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie, 'rxpguides': fetch_rxpguides}
+READERS = {'foreverchanges': foreverchanges.read, 'eglink': eglink, 'questie': questie, 'rxpguides': rxpguides}
+FETCHERS = {'foreverchanges': foreverchanges.fetch, 'eglink': fetch_eglink, 'questie': fetch_questie, 'rxpguides': fetch_rxpguides}
 
 
 # ------------------------------------------------------------------ storing

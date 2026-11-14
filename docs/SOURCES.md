@@ -73,3 +73,184 @@ Each card lists what was left out and why, and carries the source's licence in i
 
 Run the analysis again after applying an import: what it filled no longer counts as a gap, so the next import of
 another source only brings what is still missing.
+
+## ForeverChanges / ForeverMaster reference source
+
+**The Forge → Imports → Refresh ForeverChanges** downloads the official addon ZIP,
+checks its SHA-256, parses its Lua data without executing it, and replaces this
+source's records in `ft_world_facts`. The Imports panel reports loaded records,
+matching tracker resources and incomplete resources by category. Open a matching
+resource to see the ForeverChanges panel, its build and archive provenance.
+References are visible to administrators only. Existing sources are preserved.
+
+This source uses the world source registry (`tools/world/layers.json`) and fact
+store, with `reference` use and fact kind. It does not create an executable import
+card, mark a resource available, change client metadata, participate as a live
+recording, or generate server SQL. It is excluded from public data exports. The
+addon is listed as All Rights Reserved; no addon files, guide prose or compiled
+third-party tables are committed to this repository. Downloads stay in ignored
+`data/foreverchanges/<archive hash>/` directories.
+
+Included: item names and acquisition hints, recipe requirements/reagents/output
+and teaching-item relationships, profession learning/leveling records (where a
+recipe is learned, its price and its training fee), dungeon quests and
+prerequisites, which quest a dungeon item is for, explicit instance-map mappings
+and entrances, boss-item hints with the boss's level, training ranks, trainer
+locations, library-book references, librarians and reputation rewards. Fields
+are named and numbers are numbers (`{"learn": 25, "yellow": 65, "reagents":
+[[785, 1]]}`), so a record reads without the addon's source beside it. Multiple
+relationships are retained under the same resource ID. Classic labels are
+preserved; absence of a Classic label is not treated as observation evidence.
+
+What is the same for every record (the archive's SHA-256, the pack's header, the
+inventory) is said once, in `data/foreverchanges/<archive hash>/summary.json`
+and in the source's pin: a record carries only the pack's version. That makes a
+load a third of the size it was (6.8 MB for the 0.7.8 pack instead of 19.4 MB).
+
+The pack's talent data contains build presets, not talent node IDs: those are
+counted in the inventory without fabricating talent entities. Dungeon slugs with
+no explicit map mapping are not guessed into tracker dungeon IDs. Boss names do
+not become creature IDs. A boss-item hint carries a chance only where the pack
+gives one, as `classic_chance`: the pack has them for Classic bosses only, and
+the site says they are AtlasLootClassic's figures, not what Forever players saw.
+World quest name/level entries remain distinguishable from detailed dungeon
+quest records.
+
+**Whose word the pack's map is.** The quest givers of the pack's map layer come
+as `map_giver` on a quest: a name, the line under it, a side and up to four map
+pins, with no NPC id. The site's own map files name where that layer comes
+from: QuestieDB for NPCs, cmangos classic-db for town services, and its map
+says NPCs "stand where they stood in Classic". So the registry lists `questie`
+and `cmangos` beside `atlasloot` and `blizzard` under the source's `also`: it is
+never a second witness beside any of them.
+
+### What the site's pages state beyond the pack
+
+The website is broader than the downloadable pack. Its pages state what the pack
+does not: a new quest's hand-in and progress text and who starts and ends it,
+who sells an item and for how much, what drops an item and how often (with the
+count behind a percentage: "88 in 288 kills"), and the map's NPCs by id. Much of
+it is what the players of its addon recorded, which no other source here has.
+
+```sh
+# Read the pages into a folder, slowly. About 19,800 pages: most of a day the
+# first time. It can be stopped and started again; nothing is asked for twice.
+python3 tools/ft/foreverchanges_pages.py mirror
+
+# What the folder holds, what is left, whether a reader is at work and when it ends. No network.
+python3 tools/ft/foreverchanges_pages.py status
+
+# A later visit: new pages, and again the ones last read more than 14 days ago, 2,000 at most.
+python3 tools/ft/foreverchanges_pages.py update --limit 2000
+
+# Only some of it: maps, dungeons, topics, quests, items.
+python3 tools/ft/foreverchanges_pages.py mirror --only quests --limit 500
+
+# Load what is kept as references (source foreverchanges-pages); --prepare writes the SQL only.
+python3 tools/foreverchanges-import.py --pages
+```
+
+The folder is `ForeverTracker-data/foreverchanges-pages` in your home folder
+unless `--out <folder>` or `FOREVERCHANGES_PAGES` names another: outside the
+checkout on purpose, so that deleting the checkout or cloning it again does not
+take a day's reading with it.
+
+How it reads: `robots.txt` is fetched first and obeyed (the site closes `/api/`,
+`/search`, `/spell/` and `/admin`); one request at a time with a pause of 2.5
+seconds (2 at least), asked for compressed; only English pages; a 401, 403, 429
+or 451, three failures in a row, or an answer that is not the page stops the
+run, and nothing is retried around a refusal. One reader a folder: a second one
+started on the same folder is refused before it asks the site anything. Of a
+page only its `<main>` element is kept (`quest/<id>.html.gz`), about 6 KB a
+page; the map's own data files are kept as they are (`map/<slug>/<file>.json`).
+The order is the map's data files, the dungeons, the topic pages, Forever's own
+quests and items, then Classic's quests and items.
+
+#### Later visits
+
+The site gives no cheap way to ask whether a page has changed (measured
+2026-11-13): its quest and item lists date every page the same day, and a
+request that names the copy you hold (`If-None-Match`) is answered with the
+whole page again. Reading everything again would be the same day of requests,
+so `update` reads again only what is worth it:
+
+1. The three lists of pages. A page they newly name is read; one they no longer
+   name is noted, and its kept copy stays.
+2. What was last read more than `--older` days ago (14 unless given), in this
+   order: the small files (map data, dungeons, topic pages: about 700 requests,
+   and the map files that were not there are asked for again); Forever's own
+   quests and items that still lack something (a quest without its hand-in
+   text, or with nobody named who starts or ends it; an item no source is named
+   for), which is where players' recordings arrive; the rest of Forever's own;
+   Classic's. Oldest first within each.
+3. A quest whose row in a map's `quest-givers.json` changed is read at once,
+   due or not.
+
+`--limit` bounds a visit and the next one goes on where the order left off, so
+a weekly `update --limit 2000` (under two hours) keeps the folder current. A
+newly read page replaces the kept copy; whether it *changed* is decided on what
+it states (the quest's or item's record, a map file's content, a topic page's
+words), not on its bytes: a new build of the site rewrites every page's markup
+and none of its words.
+
+Two files in the folder carry this. `pages.jsonl` has a line a reading (`f` the
+kept file, `at` when the site was last asked, `s` 200 or 404, `since` when what
+it states last changed, `want` while a page of Forever's own lacks something,
+`out` once the site no longer lists it); the last line of a file counts.
+`changes.jsonl` has a line for each thing a visit found: `at`, `what` (`new`,
+`changed` or `gone`), `file`, `page`, and for a change the `fields` that
+differ (`texts`, `start`, `end`, `sources`, ...). `status` shows the latest.
+
+What a load holds, as `reference` facts of the source `foreverchanges-pages`:
+
+| Resource | Dataset | States |
+|---|---|---|
+| quest | `quest_page` | level, side, class, money, XP, reputation, who starts and ends it (name, zone, coordinates, or the item that starts it), the hand-in text (`texts.complete`) and the progress text (`texts.progress`) when a player saw them, whether the page says players of its addon saw it. A Classic quest's own description is left out |
+| quest | `map_givers` | who starts it **by id**, from the map's quest giver layer: an NPC or an object, its name, side and world coordinates. Starts only: the layer does not say who ends a quest |
+| item | `item_page` | each source the page names: a vendor with zone, coordinates and price in copper; a creature or a dungeon boss with a rate. An item whose page names no source gives no record |
+| npc | `map_npc` | name, the line under it, side, role (npc, vendor, trainer), world coordinates in whole yards, whether the site's players recorded it, and the layer's own `source` |
+| npc | `map_creature` | a rare or an elite of the map: name, level range, where it stands |
+
+**Names to ids.** A page names who starts and ends a quest and who sells or
+drops an item by name. The map's data files name NPCs and objects by id (its
+NPC layer, its rares and elites, its quest givers), so each name on a page is
+looked up there:
+
+- one thing carries the name: the entry gets `"kind": "npc", "id": 257008,
+  "matched_by": "name"`;
+- several do (an object such as "Wanted Poster"): the entry gets `"candidates"`,
+  eight at most, and nothing is picked;
+- none does: the entry stays a name.
+
+Names are compared without regard to case, the kind of apostrophe and runs of
+spaces. Among the people of the two continents' map files 3 names in 3,192
+belong to more than one id, so a single match is rarely a coin toss; it is still
+the site's word twice, not a second witness, and it does not show that nothing
+else in the game is called the same. `summary.json` and the load's last line
+say how many names found one id, several, or none.
+
+Limits to know. An NPC the map files do not hold gets no id: a name is never
+turned into an id by guessing. A page names no
+build, so these records carry build 0 and the resource panel says so. A side of
+`AH` on a row the site's players recorded means "not known". The player's name
+inside a quest text is written `‹name›` by the site. The site has no licence and
+its terms forbid republishing its compiled data: like the pack, these records
+are shown to administrators, never written to a world, never exported.
+
+CLI equivalents:
+
+```sh
+# Refresh official addon data into tracker reference tables only.
+php tools/source-import.php foreverchanges
+
+# Validate an already downloaded archive and prepare tracker SQL without loading.
+python3 tools/foreverchanges-import.py --archive /path/to/ForeverMaster.zip --prepare
+
+# Existing world commands are supported too (the archive must still match its pin).
+python3 tools/tracker.py world pin foreverchanges
+python3 tools/tracker.py world facts foreverchanges
+```
+
+The refresh worker is serialized. Malformed or changed archives fail before a DB
+load; a failed load rolls back through the existing fact-store transaction.
+Reference matches describe investigation leads, not a count of fixes completed.
