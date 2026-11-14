@@ -240,6 +240,20 @@
     }).catch((e) => { toast(esc(e.message), 'error'); button.disabled = false; });
   }));
 
+  // the whole saved SQL of an operation (the history shows the first characters of each script), in the preview
+  // dialog with its copy and download buttons
+  $$('[data-forge-sql]').forEach((button) => button.addEventListener('click', () => {
+    button.disabled = true;
+    api({ action: 'log_sql', log: Number(button.dataset.forgeSql) }).then((data) => {
+      if (!data.ok) return toast(esc(data.message || 'Error'), 'error');
+      sql = { apply: data.apply, rollback: data.rollback }; sqlPart = 'apply'; pending = null;
+      $('[data-forge-warnings]', preview).innerHTML = '';
+      $('[data-sql-meta]', preview).textContent = `#${data.id} · ${data.rows} ${L('rows', 'lignes')}`;
+      $('[data-sql-apply]', preview).hidden = true;
+      showSql(); preview.hidden = false;
+    }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; });
+  }));
+
   // data repository export (history)
   const saveZip = (data) => {
     const bytes = Uint8Array.from(atob(data.zip), (c) => c.charCodeAt(0));

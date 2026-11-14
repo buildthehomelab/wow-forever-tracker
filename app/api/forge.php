@@ -19,6 +19,12 @@ switch ($action) {
         json_out(forge_apply($selection, $options));
     case 'rollback':
         json_out(forge_rollback((int)($input['log'] ?? 0)));
+    case 'log_sql':
+        // the whole saved scripts of one operation: the history page only shows the first characters of each
+        forge_schema();
+        $log = row('SELECT id, kind, created_at, rows_count, sql_apply, sql_rollback FROM ft_forge_log WHERE id = ?', [(int)($input['log'] ?? 0)]);
+        if (!$log) json_out(['ok' => false, 'message' => t('This operation is not in the history.', 'Cette opération n’est pas dans l’historique.')]);
+        json_out(['ok' => true, 'id' => (int)$log['id'], 'rows' => (int)$log['rows_count'], 'apply' => forge_log_script($log, 'apply'), 'rollback' => forge_log_script($log, 'rollback')]);
     case 'datarepo':
         require_once FT_APP . '/datarepo.php';
         json_out(datarepo_export((int)($input['log'] ?? 0)));

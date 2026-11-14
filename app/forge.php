@@ -296,6 +296,38 @@ function forge_commit(array $built, string $kinds): array
     return ['ok' => $ok, 'log' => $log, 'message' => $message] + $result;
 }
 
+/** What an operation's saved scripts are filed under: the databases the Forge writes, and the remote console's commands. */
+const FORGE_LOG_KEYS = ['world', 'hotfixes', 'console'];
+/** Characters of each saved script the history page shows; the whole text is one click away (forge_log_script). */
+const FORGE_SQL_PREVIEW = 4000;
+
+/** SELECT columns for the history page: of each script only its first characters and its full length, as
+ *  apply_world, apply_world_length, … An import's scripts run to megabytes, and the page lists 200 operations. */
+function forge_log_preview_columns(): string
+{
+    $columns = [];
+    foreach (['apply', 'rollback'] as $part) foreach (FORGE_LOG_KEYS as $key) {
+        $text = "JSON_UNQUOTE(JSON_EXTRACT(sql_$part, '$." . $key . "'))";
+        $columns[] = "LEFT($text, " . FORGE_SQL_PREVIEW . ") {$part}_$key, CHAR_LENGTH($text) {$part}_{$key}_length";
+    }
+    return implode(', ', $columns);
+}
+
+/** One saved script of an operation in full ($log: its ft_forge_log row; $part: apply or rollback), as a file to read or run. */
+function forge_log_script(array $log, string $part): string
+{
+    $part = $part === 'rollback' ? 'rollback' : 'apply';
+    $plans = []; $console = '';
+    foreach (json_decode((string)($log["sql_$part"] ?? ''), true) ?: [] as $key => $sql) {
+        if ($key === 'console') $console = is_array($sql) ? implode("\n", $sql) : (string)$sql;
+        else $plans[$key] = [$part => is_array($sql) ? $sql : [rtrim((string)$sql)]];   // the saved text as it is: splitting it would drop each statement's ";"
+    }
+    $out = '-- Forge operation #' . (int)($log['id'] ?? 0) . ' (' . ($log['kind'] ?? '') . ') of ' . ($log['created_at'] ?? '') . ', as saved in the history' . "\n";
+    if ($plans) $out .= forge_script($plans, $part);
+    if ($console !== '') $out .= "\n-- remote console commands\n" . $console . "\n";
+    return $out;
+}
+
 function forge_rollback(int $logId): array
 {
     forge_schema();
