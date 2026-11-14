@@ -272,16 +272,17 @@ EGLINK_READERS = {
 }
 
 
-def eglink(folder, skipped=None):
+def eglink(folder, skipped=None, datasets=None):
     """The facts of an EG Link download: `folder` holds one sub-folder per client build with its dataset files
     (<build>/<dataset>.json). `skipped` (a Counter) receives, per dataset, how many records could not be read.
-    A file that is not JSON stops the reading (SourceError): it is a broken download, to delete and fetch again."""
+    A file that is not JSON stops the reading (SourceError): it is a broken download, to delete and fetch again.
+    datasets: only these (a reader that needs the quests alone does not read every loot window)."""
     skipped = collections.Counter() if skipped is None else skipped
     builds = sorted((int(VERSION.fullmatch(name).group(1)), name) for name in os.listdir(folder) if VERSION.fullmatch(name)) if os.path.isdir(folder) else []
     for build, name in builds:
         for dataset, read in EGLINK_READERS.items():
             path = os.path.join(folder, name, dataset + '.json')
-            if not os.path.isfile(path):
+            if not os.path.isfile(path) or (datasets is not None and dataset not in datasets):
                 continue
             try:
                 with open(path, encoding='utf-8') as handle:
@@ -297,10 +298,11 @@ def http_bytes(url):
         return response.read()
 
 
-def fetch_eglink(commit, folder, fetch=http_bytes, log=lambda message: None):
+def fetch_eglink(commit, folder, fetch=http_bytes, log=lambda message: None, datasets=None):
     """Downloads the datasets of every WoW Forever build of an EG Link commit into `folder` (<build>/<dataset>.json),
     skipping the files already there. Returns how many files it downloaded. The folder is the one the website's own
-    EG Link import keeps, so each file is fetched once for both. A file is kept only once it is whole."""
+    EG Link import keeps, so each file is fetched once for both. A file is kept only once it is whole.
+    datasets: only these."""
     if not COMMIT.fullmatch(commit or ''):
         raise SourceError(f'EG Link is pinned by a commit, not {commit!r}')
     base = f'https://raw.githubusercontent.com/{EGLINK_REPO}/{commit}/data'
@@ -310,7 +312,7 @@ def fetch_eglink(commit, folder, fetch=http_bytes, log=lambda message: None):
         for build in sorted(builds):
             if not VERSION.fullmatch(build) or not isinstance(builds[build], dict):      # a name we did not expect never becomes a path
                 continue
-            for dataset in EGLINK_DATASETS:
+            for dataset in EGLINK_DATASETS if datasets is None else [d for d in EGLINK_DATASETS if d in datasets]:
                 path = os.path.join(folder, build, dataset + '.json')
                 if dataset not in builds[build] or os.path.isfile(path):
                     continue

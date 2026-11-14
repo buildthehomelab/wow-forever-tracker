@@ -88,8 +88,8 @@ def client_check(args):
     started = time.time()
     url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
     new = client.check(
-        lambda: client.fetch(log=client.calm(log)),
-        lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url),
+        client.noted('client', lambda: client.fetch(log=client.calm(log))),
+        client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)),
         log)
     if not (new or args.always):
         log(f"nothing new on Blizzard's servers: the analysis was not run (check done in {time.time() - started:.0f} s)")
@@ -97,6 +97,37 @@ def client_check(args):
     # the analysis in a process of its own: nothing this one has read of the builds is carried into it
     sys.stdout.flush()
     sys.exit(subprocess.call([sys.executable, '-X', 'utf8', '-u', os.path.abspath(__file__), 'analyse'] + (['--wowhead'] if args.wowhead else [])))
+
+
+def refresh_quests(args):
+    """Compares the quests the server has with EG Link's newest recording of the live game and writes what differs,
+    as changes for an import card (ft.refresh, docs/SOURCES.md). Called by the website's EG Link import."""
+    from ft import facts, layers, refresh
+    folder = os.path.join(DATA, 'eglink', args.eglink)
+    wanted = ('quests.enUS',)
+    try:
+        facts.fetch_eglink(args.eglink, folder, datasets=wanted)
+        records = refresh.newest_live(facts.eglink(folder, datasets=wanted), layers.load().live_from)
+    except facts.SourceError as error:
+        sys.exit(f'refresh: {str(error).strip()}')
+    ids = sorted(records)
+
+    def read(table, key, where='1'):
+        out = {}
+        if not sqlio.has_table(table):
+            return None
+        for start in range(0, len(ids), 500):
+            for row in sqlio.query(f'SELECT * FROM `{table}` WHERE {where} AND `{key}` IN (' + ','.join(map(str, ids[start:start + 500])) + ')'):
+                out[int(row['ID'])] = row
+        return out
+    rows = read('quest_template', 'ID') or {}
+    changes, left = refresh.quest_changes(records, rows, read('quest_objectives', 'QuestID'), read('quest_classic_money', 'ID'), read('quest_classic_level', 'ID'))
+    result = {'changes': changes, 'left': left, 'records': len(records), 'quests': len(set(records) & set(rows))}
+    with open(args.out + '.part', 'w', encoding='utf-8') as handle:
+        json.dump(result, handle, ensure_ascii=False)
+    os.replace(args.out + '.part', args.out)
+    log(f"refresh: {result['quests']} quests of the server have a recording of the live game; "
+        f"{sum(len(op['rows']) for op in changes)} values differ in {len(changes)} columns ({', '.join(f'{n} {why}' for why, n in sorted(left.items())) or 'nothing left alone'})")
 
 
 def client_status():
@@ -374,6 +405,10 @@ def main():
     fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
     fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
     sub.add_parser('hotfixes', help="store Blizzard's live hotfixes with the snapshot of their build (the public cache, [client] hotfix_cache)")
+    again = sub.add_parser('refresh', help="what the newest recording of the live game would change in the server's quests (for the EG Link import card)")
+    again.add_argument('what', choices=['quests'])
+    again.add_argument('--eglink', required=True, metavar='COMMIT', help='the EG Link commit to read')
+    again.add_argument('--out', required=True, metavar='FILE', help='where the changes are written, as JSON')
     check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
@@ -416,13 +451,15 @@ def main():
         client_status()
     elif args.command == 'check':
         client_check(args)
+    elif args.command == 'refresh':
+        refresh_quests(args)
     elif args.command == 'hotfixes':
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
-        result = hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)
+        result = client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url))()
         log('hotfixes: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'fetch':
-        result = client.fetch(force=args.force, keep_cache=args.keep_cache, log=log)
+        result = client.noted('client', lambda: client.fetch(force=args.force, keep_cache=args.keep_cache, log=log))()
         log('client: ' + result['message'])
         sys.exit(result['code'])
     else:

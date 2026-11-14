@@ -231,6 +231,7 @@ class Tact:
         self.hosts = hosts.split()
         self.lock = threading.Lock()
         self.keys = None
+        self.extra_keys = {}   # {key name: 16 bytes} from another source than the published list (Blizzard's hotfixes)
         self.absent = {}   # file data id -> names of the keys its unreadable parts are under (read(partial=True))
         db = os.path.join(self.dir, self.build + ".sqlite")
         if not os.path.exists(db):
@@ -336,6 +337,7 @@ class Tact:
                         parts = line.split()
                         if len(parts) >= 2 and len(parts[1]) == 32:
                             self.keys[parts[0].upper()] = bytes.fromhex(parts[1])
+                    self.keys.update({str(name).upper(): key for name, key in self.extra_keys.items()})
             if partial:
                 absent = []
                 data = blte(raw, self.keys, absent)

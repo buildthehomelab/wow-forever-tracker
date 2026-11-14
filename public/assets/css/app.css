@@ -487,6 +487,14 @@ a.id-link:hover { color: var(--accent-text); }
 .analysis-card { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 12px 14px; min-width: min(100%, 340px); }
 .analysis-card strong { display: block; font-size: 13.5px; font-weight: 600; }
 .analysis-card small { color: var(--muted); }
+.import-earlier { margin: 0 0 16px; }
+.import-earlier > summary { cursor: pointer; padding: 10px 14px; border-radius: var(--radius-sm); color: var(--text-2); font-size: 13.5px; }
+.import-earlier > summary small { display: block; margin-top: 2px; }
+.import-earlier[open] > summary { margin-bottom: 12px; }
+.analysis-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.analysis-asked { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; }
+.analysis-asked b { font-weight: 600; color: var(--text, inherit); }
+.analysis-asked .is-bad { color: var(--partial); }
 .analysis-log { grid-column: 1 / -1; margin: 0; max-height: 150px; overflow: auto; font: 11.5px/1.5 var(--mono); color: var(--muted); background: var(--bg); border-radius: var(--radius-sm); padding: 8px 10px; border: 1px solid var(--line); }
 [data-running="1"] .fa-rotate { animation: spin 1.2s linear infinite; color: var(--accent); }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -550,6 +558,7 @@ a.id-link:hover { color: var(--accent-text); }
 .confirm-points i { color: var(--muted); margin-top: 3px; width: 14px; }
 .checkbox-line { display: flex; gap: 8px; align-items: center; font-weight: 500; font-size: 13.5px; cursor: pointer; }
 .checkbox-line input { width: 16px; height: 16px; accent-color: var(--accent); }
+.checkbox-line.is-inline { display: inline-flex; margin-right: 12px; }
 .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 90; display: grid; gap: 8px; width: min(100% - 32px, 360px); }
 .toast { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg); font-size: 13px; }
 .toast i { margin-top: 2px; }
@@ -703,6 +712,7 @@ a.id-link:hover { color: var(--accent-text); }
 
 /* ---------- imports */
 .fix-kind.is-import { color: var(--info); }
+.fix-kind.is-level, .fix-kind.is-rank { color: var(--accent-text); }
 .steps-list { margin: 0 0 14px; padding-left: 20px; color: var(--text-2); font-size: 13.5px; display: grid; gap: 4px; }
 .import-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .import-upload label.btn { cursor: pointer; }

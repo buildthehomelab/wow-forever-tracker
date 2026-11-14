@@ -329,6 +329,63 @@ function source_refresh(array $ev, string $source): array
     return [$changes, $left];
 }
 
+/** What a quest refresh may set: [table => [key column, the columns it may change (a pattern)]]. The comparison is
+ *  made by tools/ft/refresh.py; this is the website's own word on what it accepts from it. */
+const SOURCE_QUEST_REFRESH = [
+    'quest_template' => ['ID', '/^(Reward(Item|Amount|ChoiceItemID|ChoiceItemQuantity|FactionID|FactionValue|FactionOverride|CurrencyID|CurrencyQty)\d|RewardSpell|RewardXPDifficulty|RewardXPMultiplier|LogTitle|LogDescription|QuestDescription|AreaDescription|QuestCompletionLog)$/'],
+    'quest_objectives' => ['ID', '/^(Amount|Description)$/'],
+    'quest_classic_money' => ['ID', '/^RewardMoney$/'],
+    'quest_classic_level' => ['ID', '/^(QuestLevel|MinLevel)$/'],
+];
+
+/**
+ * The "set" operations of a quest refresh as tools/tracker.py wrote them, checked: only the tables and columns of
+ * SOURCE_QUEST_REFRESH, a whole-number key, a number or a text as the value. Anything else is dropped, never repaired.
+ */
+function source_quest_changes(array $result): array
+{
+    $changes = [];
+    foreach ((array)($result['changes'] ?? []) as $op) {
+        $table = (string)($op['table'] ?? ''); $set = (string)($op['set'] ?? '');
+        [$key, $allowed] = SOURCE_QUEST_REFRESH[$table] ?? [null, null];
+        if ($key === null || !preg_match($allowed, $set) || ($op['columns'] ?? null) !== [$key, $set] || ($op['match'] ?? null) !== [$key]) continue;
+        $rows = [];
+        foreach ((array)($op['rows'] ?? []) as $row) {
+            if (!is_array($row) || count($row) !== 2 || !is_int($row[0]) || $row[0] <= 0 || !(is_int($row[1]) || is_float($row[1]) || is_string($row[1]))) continue;
+            $rows[] = [$row[0], $row[1]];
+        }
+        if ($rows) $changes[] = ['db' => 'world', 'table' => $table, 'columns' => [$key, $set], 'match' => [$key], 'set' => $set, 'rows' => $rows];
+    }
+    return $changes;
+}
+
+/**
+ * The quests the server already has, compared with EG Link's newest recording of the live game: [changes, left out].
+ * The comparison is the analysis' own code (tools/tracker.py refresh quests, docs/SOURCES.md): a quest's record is
+ * taken only when it is from a later client build than the server's row. When it cannot be run the card is made
+ * without it and says so.
+ */
+function source_quest_refresh(string $commit): array
+{
+    if (!filter_var(config('sources', 'refresh', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) || !preg_match('/^[0-9a-f]{40}$/', $commit)) return [[], []];
+    @mkdir(import_dir(), 0775, true);
+    $out = import_dir() . '/quest-refresh-' . $commit . '.json';
+    @unlink($out);
+    $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' refresh quests --eglink ' . escapeshellarg($commit) . ' --out ' . escapeshellarg($out) . ' 2>&1';
+    $lines = []; $code = 1;
+    if (function_exists('exec')) @exec($command, $lines, $code);
+    $result = $code === 0 && is_file($out) ? json_decode((string)file_get_contents($out), true) : null;
+    @unlink($out);
+    if (!is_array($result)) {
+        error_log('Forever Tracker: the quest refresh could not be run: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
+        return [[], ['quest_refresh_failed' => 1]];
+    }
+    $left = [];
+    foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^quest_[a-z_]+$/', (string)$why) && (int)$n > 0) $left[(string)$why] = (int)$n;
+    return [source_quest_changes($result), $left];
+}
+
 /** Items of the drops $source may change: the ones a source that asks item by item (Icy Veins) looks up again besides the gaps. */
 function source_refresh_items(string $source): array
 {
@@ -522,7 +579,9 @@ function eglink_import(): array
     $label = 'EG Link ' . substr($r['commit'], 0, 8);
     [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
     [$changes, $moved] = source_refresh($r['ev'], 'eglink');
-    return source_card('eglink', $label, 'eglink@' . $r['commit'], $tables, $left + $moved, $changes);
+    // the quests the server already has, read again from the newest recording of the live game
+    [$questChanges, $questLeft] = source_quest_refresh($r['commit']);
+    return source_card('eglink', $label, 'eglink@' . $r['commit'], $tables, $left + $moved + $questLeft, array_merge($changes, $questChanges));
 }
 
 /** What EG Link recorded: ['ev' => evidence, 'commit' => sha], or ['ok' => false, 'message']. */

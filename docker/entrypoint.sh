@@ -197,13 +197,14 @@ first_run() {
     # Wowhead does not know stay visible, creature checks; 7: release phases, the phase list's checksum is part of the marker; 8: Season of Discovery
     # instances and their bosses go to Internal / test; 9: bosses counted once and found when a script summons them,
     # battlegrounds, flight points nobody flies from, placeholder mounts; 10: what the core's scripts summon counts as
-    # present, quest text is checked, real names no longer read as test names): the stored
+    # present, quest text is checked, real names no longer read as test names; 11: flight points nobody learns, a
+    # zone's creatures counted inside its map's rectangle): the stored
     # analysis is then redone once at the next start.
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=10 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=11 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"
@@ -324,7 +325,11 @@ client_watch() {
             # Blizzard's hotfixes of the live build (the public cache is refreshed daily): stored with its snapshot
             if as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" hotfixes >> "$clog" 2>&1; then hrc=0; else hrc=$?; fi
             tail -n 1 "$clog" 2>/dev/null | sed 's/^/[forever-tracker] /'
-            [ "$hrc" -eq 0 ] && rc=0
+            if [ "$hrc" -eq 0 ]; then
+                rc=0
+                # new hotfixes may hand out a key the stored build waits for: it is read again at once when they do
+                as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" fetch >> "$clog" 2>&1 || true
+            fi
             if [ "$rc" -eq 0 ] && ! analysis_running; then
                 alog="$DATA/analysis.log"
                 steps="analyse"; [ "${FT_LOCATE:-1}" = "1" ] && steps="$steps locate"
