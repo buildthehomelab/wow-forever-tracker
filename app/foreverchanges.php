@@ -14,13 +14,14 @@ function foreverchanges_import(): array
         : t('ForeverChanges refresh failed; see the log above. Previously loaded references remain available.', 'Échec de l’actualisation ForeverChanges ; consultez le journal ci-dessus. Les références précédentes restent disponibles.')];
 }
 
-function foreverchanges_status(): ?array
+// The addon pack and the site's pages are two loads of one source: 'foreverchanges' and 'foreverchanges-pages'.
+function foreverchanges_status(string $source = 'foreverchanges'): ?array
 {
-    return table_exists('ft_world_sources') ? row("SELECT * FROM ft_world_sources WHERE source = 'foreverchanges'") : null;
+    return table_exists('ft_world_sources') ? row("SELECT * FROM ft_world_sources WHERE source = ?", [$source]) : null;
 }
 
 function foreverchanges_references(string $type, int $id): array
 {
     if (!is_admin() || !table_exists('ft_world_facts')) return [];
-    return rows("SELECT build, data FROM ft_world_facts WHERE source = 'foreverchanges' AND kind = 'reference' AND subject_kind = ? AND subject = ? ORDER BY build DESC", [$type, $id]);
+    return rows("SELECT source, build, data FROM ft_world_facts WHERE source IN ('foreverchanges', 'foreverchanges-pages') AND kind = 'reference' AND subject_kind = ? AND subject = ? ORDER BY source, build DESC", [$type, $id]);
 }

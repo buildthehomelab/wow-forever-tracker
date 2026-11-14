@@ -2,7 +2,7 @@ name: Source integration tests
 on:
   pull_request:
   push:
-    branches: [main, 'codex/foreverchanges-source']
+    branches: [main]
 permissions:
   contents: read
 jobs:

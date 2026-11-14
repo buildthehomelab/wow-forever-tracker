@@ -92,18 +92,81 @@ third-party tables are committed to this repository. Downloads stay in ignored
 `data/foreverchanges/<archive hash>/` directories.
 
 Included: item names and acquisition hints, recipe requirements/reagents/output
-and teaching-item relationships, profession learning/leveling records, dungeon
-quests and prerequisites, explicit instance-map mappings, boss-item hints,
-training ranks, trainer locations, library-book references and reputation rewards.
-Multiple relationships are retained under the same resource ID. Classic labels
-are preserved; absence of a Classic label is not treated as observation evidence.
+and teaching-item relationships, profession learning/leveling records (where a
+recipe is learned, its price and its training fee), dungeon quests and
+prerequisites, which quest a dungeon item is for, explicit instance-map mappings
+and entrances, boss-item hints with the boss's level, training ranks, trainer
+locations, library-book references, librarians and reputation rewards. Fields
+are named and numbers are numbers (`{"learn": 25, "yellow": 65, "reagents":
+[[785, 1]]}`), so a record reads without the addon's source beside it. Multiple
+relationships are retained under the same resource ID. Classic labels are
+preserved; absence of a Classic label is not treated as observation evidence.
+
+What is the same for every record (the archive's SHA-256, the pack's header, the
+inventory) is said once, in `data/foreverchanges/<archive hash>/summary.json`
+and in the source's pin: a record carries only the pack's version. That makes a
+load a third of the size it was (6.8 MB for the 0.7.8 pack instead of 19.4 MB).
 
 The pack's talent data contains build presets, not talent node IDs: those are
 counted in the inventory without fabricating talent entities. Dungeon slugs with
 no explicit map mapping are not guessed into tracker dungeon IDs. Boss names do
-not become creature IDs; loot hints do not become drop percentages. World quest
-name/level entries remain distinguishable from detailed dungeon quest records.
-The website can be newer and broader than the downloadable pack.
+not become creature IDs. A boss-item hint carries a chance only where the pack
+gives one, as `classic_chance`: the pack has them for Classic bosses only, and
+the site says they are AtlasLootClassic's figures, not what Forever players saw.
+World quest name/level entries remain distinguishable from detailed dungeon
+quest records.
+
+**Whose word the pack's map is.** The quest givers of the pack's map layer come
+as `map_giver` on a quest: a name, the line under it, a side and up to four map
+pins, with no NPC id. The site's own map files name where that layer comes
+from: QuestieDB for NPCs, cmangos classic-db for town services, and its map
+says NPCs "stand where they stood in Classic". So the registry lists `questie`
+and `cmangos` beside `atlasloot` and `blizzard` under the source's `also`: it is
+never a second witness beside any of them.
+
+### What the site's pages state beyond the pack
+
+The website is broader than the downloadable pack. Its pages state what the pack
+does not: a new quest's hand-in and progress text and who starts and ends it,
+who sells an item and for how much, what drops an item and how often (with the
+count behind a percentage: "88 in 288 kills"), and the map's NPCs by id. Much of
+it is what the players of its addon recorded, which no other source here has.
+
+```sh
+# Read the pages into a folder, slowly. About 19,800 pages: most of a day the
+# first time. It can be stopped and started again; nothing is asked for twice.
+python3 tools/ft/foreverchanges_pages.py mirror --out data/foreverchanges-pages
+
+# Only some of it: maps, dungeons, topics, quests, items (Forever's own ids come first).
+python3 tools/ft/foreverchanges_pages.py mirror --out data/foreverchanges-pages --only quests --limit 500
+
+# Load what is kept as references (source foreverchanges-pages); --prepare writes the SQL only.
+python3 tools/foreverchanges-import.py --pages data/foreverchanges-pages
+```
+
+How it reads: `robots.txt` is fetched first and obeyed (the site closes `/api/`,
+`/search`, `/spell/` and `/admin`); one request at a time with a pause of 2.5
+seconds (2 at least); only English pages; a 401, 403, 429 or 451, three failures
+in a row, or an answer that is not the page stops the run, and nothing is
+retried around a refusal. Of a page only its `<main>` element is kept
+(`quest/<id>.html.gz`), about 6 KB a page; the map's own data files are kept as
+they are (`map/<slug>/<file>.json`).
+
+What a load holds, as `reference` facts of the source `foreverchanges-pages`:
+
+| Resource | Dataset | States |
+|---|---|---|
+| quest | `quest_page` | level, side, class, money, XP, reputation, who starts and ends it (name, zone, coordinates, or the item that starts it), the hand-in text (`texts.complete`) and the progress text (`texts.progress`) when a player saw them, whether the page says players of its addon saw it. A Classic quest's own description is left out |
+| item | `item_page` | each source the page names: a vendor with zone, coordinates and price in copper; a creature or a dungeon boss with a rate. An item whose page names no source gives no record |
+| npc | `map_npc` | name, the line under it, side, role (npc, vendor, trainer), world coordinates in whole yards, whether the site's players recorded it, and the layer's own `source` |
+
+Limits to know. A page names an NPC by name, not id: only `map_npc` has ids, and
+matching a vendor or a quest giver to an id is not done here. A page names no
+build, so these records carry build 0 and the resource panel says so. A side of
+`AH` on a row the site's players recorded means "not known". The player's name
+inside a quest text is written `‹name›` by the site. The site has no licence and
+its terms forbid republishing its compiled data: like the pack, these records
+are shown to administrators, never written to a world, never exported.
 
 CLI equivalents:
 
