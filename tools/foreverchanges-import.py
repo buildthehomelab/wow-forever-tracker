@@ -24,8 +24,11 @@ def pages(folder, prepare):
     """Loads what the kept pages state as references of their own source: the pack's records stay as they are."""
     if not (folder / 'robots.txt').is_file():
         raise facts.SourceError(f'{folder} holds no kept pages: python tools/ft/foreverchanges_pages.py mirror --out {folder}')
-    skipped = collections.Counter()
-    records = list(foreverchanges_pages.read(str(folder), skipped))
+    skipped, about, extra = collections.Counter(), {}, []
+    if not prepare:                                           # the names your world and the other sources know by id
+        from ft import sqlio
+        extra = foreverchanges_pages.known_names(sqlio.query, log=print)
+    records = list(foreverchanges_pages.read(str(folder), skipped, about, extra))
     if not records:
         raise facts.SourceError(f'no page of {folder} could be read')
     source = layers.load().source(PAGES)
@@ -33,12 +36,13 @@ def pages(folder, prepare):
     sql = Path(DATA) / f'world/facts-{PAGES}.sql'
     counts = facts.write_sql(str(sql), PAGES, pin, source['licence'], source['use'], records, skipped)
     if not prepare:
-        from ft import sqlio
         sqlio.execute_file(str(sql), 'tracker')
     summary = {'read': pin, 'counts': dict(collections.Counter(r.subject_kind for r in records)), 'facts': sum(counts.values()),
-               'left_out': dict(skipped), 'prepared_only': prepare}
+               'left_out': dict(skipped), 'names': about.get('names', {}), 'prepared_only': prepare}
     (folder / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-    print(('Prepared' if prepare else 'Loaded') + f' {len(records)} ForeverChanges page references, read up to {pin}.')
+    names = about.get('names', {})
+    print(('Prepared' if prepare else 'Loaded') + f' {len(records)} ForeverChanges page references, read up to {pin}. Names on pages: '
+          f"{names.get('one id', 0)} with one id, {names.get('several ids', 0)} with several, {names.get('no id', 0)} with none.")
 
 
 def main():

@@ -57,13 +57,20 @@ NPCS = {'source': 'QuestieDB', 'npcs': [[54, 'Smith', 'Weaponsmith', 'A', -9465,
                                         ['x', 'broken'], [0, 'Zero', '', 'A', 1, 1, 'npc']]}
 
 
+GIVERS = {'source': 'QuestieDB', 'quests': {'90001': ['Fixture Quest', 12, 1]},
+          'givers': [['n300', 'Giver One', 'Captain', 'H', 100, -200, [90001, 5]], ['n300', 'Giver One', 'Captain', 'H', 100, -200, [90001]],
+                     ['o400', 'Wanted Poster', '', '', 1, 2, [5]], ['o401', 'Wanted Poster', '', '', 3, 4, [6]], ['x9', 'Broken', '', '', 0, 0, [1]]]}
+MOBS = {'source': 'QuestieDB', 'mobs': [[500, 'Mob One', 10, 11, 4, [[4521, 661], [4522, 662]]], ['bad']]}
+
+
 class Site:
     """Answers like the site, and notes what was asked."""
     def __init__(self, pages=None):
         self.pages = dict(SITE, **{'/quest/90001/new-quest': QUEST.encode(), '/quest/5/old-quest': QUEST.replace('90001', '5').encode(),
                                    '/item/250001/new-item': ITEM.encode(), '/item/7/old-item': ITEM.encode(), '/rares': b'<main><h1>Rares</h1></main>',
                                    '/dungeons/fixture-keep': b'<main><h1>Keep</h1></main>', '/quests/zone': b'<main>zone</main>',
-                                   '/professions/alchemy': b'<main>alchemy</main>', '/map/east/npcs.json': json.dumps(NPCS).encode()})
+                                   '/professions/alchemy': b'<main>alchemy</main>', '/map/east/npcs.json': json.dumps(NPCS).encode(),
+                                   '/map/east/quest-givers.json': json.dumps(GIVERS).encode(), '/map/east/creatures.json': json.dumps(MOBS).encode()})
         self.pages.update(pages or {})
         self.asked, self.naps = [], []
 
@@ -108,8 +115,8 @@ class Mirror(unittest.TestCase):
         site = Site()
         result = site.run(self.folder, pause=3)
         self.assertEqual(site.asked[:4], ['/robots.txt', '/sitemap.xml', '/quest/sitemap.xml', '/item/sitemap.xml'])
-        self.assertEqual(result['kept'], 9)                                         # one map file and eight pages
-        self.assertEqual(result['missing'], len(fp.MAP_FILES) - 1)                  # the map's other files do not exist
+        self.assertEqual(result['kept'], 11)                                        # three map files and eight pages
+        self.assertEqual(result['missing'], len(fp.MAP_FILES) - 3)                  # the map's other files do not exist
         self.assertEqual(site.naps, [3] * (len(site.asked) - 1))                    # a pause between any two requests
         kept = gzip.decompress((Path(self.folder) / 'quest/90001.html.gz').read_bytes()).decode()
         self.assertIn('<title>Fixture quest</title>', kept)
@@ -145,6 +152,17 @@ class Mirror(unittest.TestCase):
         with self.assertRaises(fp.Refused):
             site.run(self.folder, only=('topics',))
         self.assertEqual(site.asked.count('/rares'), 3)
+
+    def test_one_reader_a_folder(self):
+        held = fp.lock(self.folder)
+        try:
+            site = Site()
+            with self.assertRaises(fp.Refused):
+                site.run(self.folder)
+            self.assertEqual(site.asked, [])                                        # refused before the site is asked anything
+        finally:
+            held.close()
+        self.assertEqual(Site().run(self.folder, only=('topics',), limit=1)['read'], 1)     # free again once the first has ended
 
     def test_only_and_limit(self):
         site = Site()
@@ -196,7 +214,8 @@ class Facts(unittest.TestCase):
             records = list(fp.read(folder, skipped))
             by = {(r.subject_kind, r.subject): r for r in records}
             self.assertTrue(all(r.kind == 'reference' and r.build == 0 and r.samples == 0 and facts.check(r) for r in records))
-            self.assertEqual(set(by), {('quest', 90001), ('quest', 5), ('item', 250001), ('item', 7), ('npc', 54), ('npc', 198), ('npc', 250777)})
+            self.assertEqual(set(by), {('quest', 90001), ('quest', 5), ('quest', 6), ('item', 250001), ('item', 7), ('npc', 54), ('npc', 198),
+                                       ('npc', 250777), ('npc', 500)})
             new = by['quest', 90001].data
             self.assertEqual(new['page'], B + '/quest/90001/new-quest')
             self.assertRegex(new['read'], r'^\d{4}-\d\d-\d\d$')
@@ -208,7 +227,39 @@ class Facts(unittest.TestCase):
                                      'spots': [['east', -9465, 94], ['east', -9000, 90]], 'layer_from': 'QuestieDB'})
             self.assertTrue(by['npc', 250777].data['datasets']['map_npc'][0]['recorded_by_players'])
             self.assertEqual(by['npc', 198].data['datasets']['map_npc'][0]['kind'], 'mage')
-            self.assertEqual(skipped['map_npc'], 2)                                 # a row without an id is counted, not guessed at
+            self.assertEqual((skipped['map_npc'], skipped['map_giver'], skipped['map_creature']), (2, 1, 1))     # a row without an id is counted, once
+
+    def test_who_starts_a_quest_comes_by_id_from_the_map_and_joins_the_quests_page(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Site().run(folder)
+            by = {(r.subject_kind, r.subject): r.data['datasets'] for r in fp.read(folder)}
+            self.assertEqual(set(by['quest', 90001]), {'quest_page', 'map_givers'})         # one fact for the quest, both datasets
+            self.assertEqual(by['quest', 90001]['map_givers'], [{'kind': 'npc', 'id': 300, 'name': 'Giver One', 'title': 'Captain', 'side': 'H',
+                                                                 'spots': [['east', 100, -200]], 'layer_from': 'QuestieDB'}])
+            self.assertEqual(by['quest', 6]['map_givers'][0]['kind'], 'object')            # a quest the mirror has no page of yet
+            self.assertEqual(by['npc', 500]['map_creature'], [{'name': 'Mob One', 'levels': [10, 11], 'class': 4,
+                                                               'spots': [['east', 4521, 661], ['east', 4522, 662]], 'layer_from': 'QuestieDB'}])
+
+    def test_a_name_on_a_page_gets_the_one_id_the_map_knows_it_by(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Site().run(folder)
+            about = {}
+            by = {(r.subject_kind, r.subject): r.data['datasets'] for r in fp.read(folder, about=about)}
+            page = by['quest', 90001]['quest_page'][0]
+            self.assertEqual(page['start'][0], {'name': 'Giver One', 'zone': 'Fixture Zone', 'x': 21.8, 'y': 45.3, 'kind': 'npc', 'id': 300,
+                                             'matched_by': 'name', 'named_in': ['map']})
+            self.assertEqual(page['end'][0], {'name': 'Ender Two', 'zone': 'Other Zone', 'x': 77.1, 'y': 52.9})      # nobody of that name: no id, no guess
+            sources = {s['name']: s for s in by['item', 250001]['item_page'][0]['sources']}
+            self.assertEqual((sources['Seller One']['id'], sources['Seller One']['matched_by']), (250777, 'name'))
+            self.assertEqual(sources['Mob One']['id'], 500)
+            self.assertNotIn('id', sources['Boss One'])
+            self.assertEqual(about['names'], {'one id': 6, 'no id': 8})            # both quest pages and both item pages, name by name
+            index = fp.name_index(folder, extra=[('npc', 9, 'Ender Two', 'world'), ('npc', 10, 'ender  two', 'facts'), ('npc', 300, 'Giver One', 'world')])
+            self.assertEqual(fp.match(index, 'Wanted Poster'), {'candidates': [['object', 400], ['object', 401]]})   # two things, nothing picked
+            self.assertEqual(fp.match(index, 'ENDER TWO'), {'candidates': [['npc', 9], ['npc', 10]]})
+            self.assertEqual(fp.match(index, 'giver\u2019s'), {})
+            self.assertEqual(fp.match(index, ' giver   one '), {'kind': 'npc', 'id': 300, 'matched_by': 'name', 'named_in': ['map', 'world']})
+            self.assertEqual(fp.match(index, ''), {})
 
     def test_a_classic_quests_own_text_and_an_item_without_a_source_are_left_out(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -221,6 +272,29 @@ class Facts(unittest.TestCase):
             self.assertNotIn('objectives', old)
             self.assertIn('complete', old['texts'])                                 # what the server says at the hand-in is not in the client
             self.assertNotIn(('item', 7), by)
+
+    def test_names_the_tracker_already_knows_by_id_widen_the_match(self):
+        asked, said = [], []
+        def query(sql, database):
+            asked.append((database, sql))
+            if 'creature_template' in sql:
+                return [{'entry': '77', 'name': 'Ender Two'}, {'entry': '78', 'name': ''}]
+            if 'gameobject_template' in sql:
+                raise RuntimeError('no such table')
+            return [{'subject_kind': 'npc', 'subject': '79', 'data': json.dumps({'name': 'Boss One'})},
+                    {'subject_kind': 'npc', 'subject': '80', 'data': json.dumps({'parts': {'generated': {'name': 'Mob Two'}, 'fix': 'none'}})},
+                    {'subject_kind': 'npc', 'subject': '81', 'data': 'not json'}]
+        extra = fp.known_names(query, said.append)
+        self.assertEqual(extra, [('npc', 77, 'Ender Two', 'world'), ('npc', 79, 'Boss One', 'facts'), ('npc', 80, 'Mob Two', 'facts')])
+        self.assertEqual(len(said), 1)                                              # the table that could not be read is said, not fatal
+        self.assertIn("NOT LIKE 'foreverchanges%'", asked[-1][1])                   # its own records never confirm its own names
+        with tempfile.TemporaryDirectory() as folder:
+            Site().run(folder)
+            about = {}
+            by = {(r.subject_kind, r.subject): r.data['datasets'] for r in fp.read(folder, about=about, extra=extra)}
+            self.assertEqual(by['quest', 90001]['quest_page'][0]['end'][0]['id'], 77)
+            self.assertEqual(by['quest', 90001]['quest_page'][0]['end'][0]['named_in'], ['world'])
+            self.assertEqual(about['names'], {'one id': 12, 'no id': 2})
 
 
 if __name__ == '__main__':

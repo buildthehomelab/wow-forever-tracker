@@ -148,7 +148,8 @@ How it reads: `robots.txt` is fetched first and obeyed (the site closes `/api/`,
 `/search`, `/spell/` and `/admin`); one request at a time with a pause of 2.5
 seconds (2 at least); only English pages; a 401, 403, 429 or 451, three failures
 in a row, or an answer that is not the page stops the run, and nothing is
-retried around a refusal. Of a page only its `<main>` element is kept
+retried around a refusal. One reader a folder: a second one started on the same
+folder is refused before it asks the site anything. Of a page only its `<main>` element is kept
 (`quest/<id>.html.gz`), about 6 KB a page; the map's own data files are kept as
 they are (`map/<slug>/<file>.json`).
 
@@ -157,11 +158,31 @@ What a load holds, as `reference` facts of the source `foreverchanges-pages`:
 | Resource | Dataset | States |
 |---|---|---|
 | quest | `quest_page` | level, side, class, money, XP, reputation, who starts and ends it (name, zone, coordinates, or the item that starts it), the hand-in text (`texts.complete`) and the progress text (`texts.progress`) when a player saw them, whether the page says players of its addon saw it. A Classic quest's own description is left out |
+| quest | `map_givers` | who starts it **by id**, from the map's quest giver layer: an NPC or an object, its name, side and world coordinates. Starts only: the layer does not say who ends a quest |
 | item | `item_page` | each source the page names: a vendor with zone, coordinates and price in copper; a creature or a dungeon boss with a rate. An item whose page names no source gives no record |
 | npc | `map_npc` | name, the line under it, side, role (npc, vendor, trainer), world coordinates in whole yards, whether the site's players recorded it, and the layer's own `source` |
+| npc | `map_creature` | a rare or an elite of the map: name, level range, where it stands |
 
-Limits to know. A page names an NPC by name, not id: only `map_npc` has ids, and
-matching a vendor or a quest giver to an id is not done here. A page names no
+**Names to ids.** A page names who starts and ends a quest and who sells or
+drops an item by name. The map's data files name NPCs and objects by id (its
+NPC layer, its rares and elites, its quest givers), so each name on a page is
+looked up there:
+
+- one thing carries the name: the entry gets `"kind": "npc", "id": 257008,
+  "matched_by": "name"`;
+- several do (an object such as "Wanted Poster"): the entry gets `"candidates"`,
+  eight at most, and nothing is picked;
+- none does: the entry stays a name.
+
+Names are compared without regard to case, the kind of apostrophe and runs of
+spaces. Among the people of the two continents' map files 3 names in 3,192
+belong to more than one id, so a single match is rarely a coin toss; it is still
+the site's word twice, not a second witness, and it does not show that nothing
+else in the game is called the same. `summary.json` and the load's last line
+say how many names found one id, several, or none.
+
+Limits to know. An NPC the map files do not hold gets no id: a name is never
+turned into an id by guessing. A page names no
 build, so these records carry build 0 and the resource panel says so. A side of
 `AH` on a row the site's players recorded means "not known". The player's name
 inside a quest text is written `‹name›` by the site. The site has no licence and

@@ -16,8 +16,9 @@ own data files) and can be stopped and started again: what is there is not asked
 `items.jsonl`, one record a line, with no network; `read` gives the same records as reference facts
 (tools/foreverchanges-import.py --pages <folder> loads them).
 
-What a page states is by NPC *name*, not id (only the map's `npcs.json` carries ids): a record keeps the name, zone
-and coordinates as written, and matching them to ids is the caller's work.
+What a page states is by NPC *name*, not id. The map's own data files carry ids (its NPCs, its rares and elites,
+who starts a quest), so a name on a page gets the id those files know it by when exactly one thing carries the name
+(`match`); several are listed as candidates and none is picked.
 """
 import argparse
 import collections
@@ -135,10 +136,38 @@ def _keep(path, data):
     os.replace(path + '.part', path)
 
 
+def lock(folder):
+    """An open file that says "a reader is at work in this folder", held until it is closed or the process ends.
+    A second reader on the same folder would double what the site is asked: it is refused."""
+    os.makedirs(folder, exist_ok=True)
+    handle = open(os.path.join(folder, 'mirror.lock'), 'a+')
+    try:
+        try:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:                                  # Windows
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        handle.close()
+        raise Refused(f'another reader is already at work in {folder}: one at a time') from None
+    return handle
+
+
 def mirror(folder, only=GROUPS, pause=2.5, limit=None, get=http_get, sleep=time.sleep, log=print):
+    """Reads what the plan names and the folder does not hold yet, one reader a folder. See `_mirror`."""
+    held = lock(folder)
+    try:
+        return _mirror(folder, only, pause, limit, get, sleep, log)
+    finally:
+        held.close()
+
+
+def _mirror(folder, only, pause, limit, get, sleep, log):
     """Reads what the plan names and the folder does not hold yet. Returns {'read', 'kept', 'missing', 'left'}.
 
-    Stops (Refused) when robots.txt cannot be read, when the site refuses (401, 403, 429, 451), when it fails three
+    Stops (Refused) when another reader holds the folder, when robots.txt cannot be read, when the site refuses (401, 403, 429, 451), when it fails three
     times in a row, or when a page comes back without its <main>: a check page is not the page."""
     def ask(path):
         nonlocal asked
@@ -491,19 +520,16 @@ def _day(path):
 
 
 MAX_SPOTS = 8
+MAX_CANDIDATES = 8
 NPC_ROW = ('name', 'title', 'side', 'x', 'y', 'role', 'kind', 'origin')
+GIVER_KINDS = {'n': 'npc', 'o': 'object'}
 
 
-def map_npcs(folder, skipped):
-    """{npc id: record} of the map's `npcs.json` files: the one place the site names an NPC by id.
-
-    A row is [id, name, title, side, x, y, role, kind, origin]: world coordinates in whole yards, side A, H or AH,
-    role npc, vendor or trainer. The file names where its rows come from (`source`, "QuestieDB" when read); a row
-    whose origin is "addon" was recorded by the site's own players, and its side AH then means "not known"."""
-    out = {}
+def _map_files(folder, name, skipped):
+    """(map slug, the day it was read, content) of each map's `<name>.json` the mirror kept."""
     root = os.path.join(folder, 'map')
     for slug in sorted(os.listdir(root)) if os.path.isdir(root) else ():
-        path = os.path.join(root, slug, 'npcs.json')
+        path = os.path.join(root, slug, name + '.json')
         if not os.path.isfile(path):
             continue
         try:
@@ -512,26 +538,189 @@ def map_npcs(folder, skipped):
         except (OSError, ValueError):
             skipped['map_file'] += 1
             continue
-        rows = content.get('npcs') if isinstance(content, dict) else None
-        for row in rows if isinstance(rows, list) else ():
+        if isinstance(content, dict):
+            yield slug, _day(path), content
+
+
+def _rows(content, key):
+    return content[key] if isinstance(content.get(key), list) else []
+
+
+def _spot(record, slug, x, y):
+    if len(record['spots']) < MAX_SPOTS and [slug, x, y] not in record['spots']:
+        record['spots'].append([slug, x, y])
+
+
+def map_npcs(folder, skipped):
+    """{npc id: record} of the map's `npcs.json` files.
+
+    A row is [id, name, title, side, x, y, role, kind, origin]: world coordinates in whole yards, side A, H or AH,
+    role npc, vendor or trainer. The file names where its rows come from (`source`, "QuestieDB" when read); a row
+    whose origin is "addon" was recorded by the site's own players, and its side AH then means "not known"."""
+    out = {}
+    for slug, day, content in _map_files(folder, 'npcs', skipped):
+        for row in _rows(content, 'npcs'):
             if not (isinstance(row, list) and len(row) >= 7 and isinstance(row[0], int) and row[0] > 0):
                 skipped['map_npc'] += 1
                 continue
             about = dict(zip(NPC_ROW, row[1:]))
             record = out.setdefault(row[0], {'name': about['name'], 'title': about['title'], 'side': about['side'], 'role': about['role'],
                                              'kind': about.get('kind') or '', 'recorded_by_players': False, 'spots': [],
-                                             'layer_from': str(content.get('source', '')), 'read': _day(path)})
+                                             'layer_from': str(content.get('source', '')), 'read': day})
             record['recorded_by_players'] = record['recorded_by_players'] or about.get('origin') == 'addon'
-            if len(record['spots']) < MAX_SPOTS:
-                record['spots'].append([slug, about['x'], about['y']])
+            _spot(record, slug, about['x'], about['y'])
     return out
 
 
-def read(folder, skipped=None):
-    """The kept pages as reference facts: a quest page, an item page that names a source, a map NPC. No build: a
-    page does not say on which build something was seen. A Classic quest's own text is left out (it is Classic's)."""
+def map_creatures(folder, skipped):
+    """{npc id: record} of the map's `creatures.json` files (its rares and elites): a row is
+    [id, name, lowest level, highest level, a class of the site's own, [[x, y], ...]]."""
+    out = {}
+    for slug, day, content in _map_files(folder, 'creatures', skipped):
+        for row in _rows(content, 'mobs'):
+            if not (isinstance(row, list) and len(row) >= 6 and isinstance(row[0], int) and row[0] > 0 and isinstance(row[5], list)):
+                skipped['map_creature'] += 1
+                continue
+            record = out.setdefault(row[0], {'name': row[1], 'levels': [row[2], row[3]], 'class': row[4], 'spots': [],
+                                             'layer_from': str(content.get('source', '')), 'read': day})
+            for spot in row[5]:
+                if isinstance(spot, list) and len(spot) >= 2:
+                    _spot(record, slug, spot[0], spot[1])
+    return out
+
+
+def map_givers(folder, skipped):
+    """{quest id: {(kind, id): record}} of the map's `quest-givers.json` files: who starts a quest, by id.
+
+    A row is ["n<npc id>" or "o<object id>", name, title, side, x, y, [quest ids]]. Starts only: the layer does not
+    say who ends a quest."""
+    out = collections.defaultdict(dict)
+    for slug, day, content in _map_files(folder, 'quest-givers', skipped):
+        for row in _rows(content, 'givers'):
+            key = re.fullmatch(r'([no])(\d{1,10})', row[0]) if isinstance(row, list) and len(row) >= 7 and isinstance(row[0], str) else None
+            if not key or not isinstance(row[6], list):
+                skipped['map_giver'] += 1
+                continue
+            who = (GIVER_KINDS[key.group(1)], int(key.group(2)))
+            for quest in row[6]:
+                if not (isinstance(quest, int) and quest > 0):
+                    continue
+                record = out[quest].setdefault(who, {'kind': who[0], 'id': who[1], 'name': row[1], 'title': row[2], 'side': row[3], 'spots': [],
+                                                     'layer_from': str(content.get('source', '')), 'read': day})
+                _spot(record, slug, row[4], row[5])
+    return out
+
+
+# Names to ids -------------------------------------------------------------------------------------------------------
+
+def fold(name):
+    """A name as it is compared: case, the kind of apostrophe and runs of spaces do not tell two names apart."""
+    return re.sub(r'\s+', ' ', str(name).replace('’', "'").replace('‘', "'")).strip().casefold()
+
+
+def name_index(folder, skipped=None, extra=()):
+    """{folded name: {(kind, id): where the name is known from}} of everything the kept map files name by id: the
+    map's NPCs, its rares and elites, and who starts a quest (NPCs and objects). `extra` adds (kind, id, name,
+    where from) rows of your own: `known_names` gives the ones your server's world and the other sources hold."""
+    skipped = collections.Counter() if skipped is None else skipped
+    return _index(map_npcs(folder, skipped), map_creatures(folder, skipped), map_givers(folder, skipped), extra)
+
+
+def _index(npcs, creatures, givers, extra=()):
+    index = collections.defaultdict(lambda: collections.defaultdict(set))
+    for found in (npcs, creatures):
+        for npc, record in found.items():
+            index[fold(record['name'])][('npc', npc)].add('map')
+    for starters in givers.values():
+        for who, record in starters.items():
+            index[fold(record['name'])][who].add('map')
+    for kind, number, name, origin in extra:
+        index[fold(name)][(kind, number)].add(origin)
+    index.pop('', None)
+    return index
+
+
+def known_names(query, log=lambda message: None):
+    """(kind, id, name, where from) of the NPCs and objects the tracker already knows by id, for `name_index`:
+    the server's own world ('world': creature_template and gameobject_template) and the records the other sources
+    gave ('facts': what EG Link and QuestieDB name). `query(sql, database)` is sqlio.query. A database that cannot
+    be read gives nothing from it, with a line saying so: the map files alone still match."""
+    out = []
+    for kind, table in (('npc', 'creature_template'), ('object', 'gameobject_template')):
+        try:
+            out += [(kind, int(row['entry']), row['name'], 'world') for row in query(f'SELECT entry, name FROM {table}', 'world') if row.get('name')]
+        except (RuntimeError, KeyError, ValueError, TypeError) as error:
+            log(f'names of {table} not read ({str(error).strip()[:120]})')
+    try:
+        rows = query("SELECT subject_kind, subject, data FROM ft_world_facts WHERE source NOT LIKE 'foreverchanges%' AND subject_kind IN ('npc', 'object') "
+                     "AND kind IN ('creature', 'object', 'seen', 'talked', 'entry')", 'tracker')
+    except RuntimeError as error:
+        rows = []
+        log(f'names of the stored facts not read ({str(error).strip()[:120]})')
+    for row in rows:
+        try:
+            data = json.loads(row['data'])
+        except (ValueError, TypeError, KeyError):
+            continue
+        parts = data.get('parts') if isinstance(data.get('parts'), dict) else {}
+        for about in [data] + [part for part in parts.values() if isinstance(part, dict)]:
+            if isinstance(about.get('name'), str) and about['name']:
+                out.append((row['subject_kind'], int(row['subject']), about['name'], 'facts'))
+    return out
+
+
+def match(index, name):
+    """What a name on a page is, by the ids the index knows under that name:
+
+    - exactly one: {'kind': 'npc', 'id': 257008, 'matched_by': 'name', 'named_in': ['map']} (`named_in`: which
+      list carries the name: the site's map files, your server's world, the other sources' facts);
+    - several (an object such as "Wanted Poster", a creature with one name and several ids):
+      {'candidates': [[kind, id], ...]}, eight at most, and nothing is picked;
+    - none: {}.
+    A match says that one thing known by id carries this name. It is no second witness of what the page states,
+    and it does not show that nothing else in the game is called the same."""
+    found = index.get(fold(name), {})
+    if len(found) == 1:
+        (kind, number), origins = next(iter(found.items()))
+        return {'kind': kind, 'id': number, 'matched_by': 'name', 'named_in': sorted(origins)}
+    if found:
+        return {'candidates': [list(who) for who in sorted(found)[:MAX_CANDIDATES]]}
+    return {}
+
+
+def _identify(entries, index, counts):
+    for entry in entries:
+        name = entry.get('name')
+        if not name or name == entry.get('how'):             # "Creature drop": the page names nobody
+            continue
+        found = match(index, name)
+        counts['one id' if 'id' in found else 'several ids' if found else 'no id'] += 1
+        entry.update(found)
+
+
+def read(folder, skipped=None, about=None, extra=()):
+    """The kept pages and map files as reference facts, one per resource:
+
+    - a quest: its page (`quest_page`) and who starts it by id on the map (`map_givers`);
+    - an item: its page when it names a source (`item_page`);
+    - an NPC: the map's row for it (`map_npc`), and its rare or elite row (`map_creature`).
+    The names a page gives (who starts and ends a quest, who sells or drops an item) get the id the map files know
+    them by (`match`). No build: a page does not say on which build something was seen. A Classic quest's own text
+    is left out (it is Classic's). `extra` is more names known by id (`known_names`); `about`, when given, is
+    filled with how many names found an id."""
     from .facts import Fact
     skipped = collections.Counter() if skipped is None else skipped
+    npcs, creatures, givers = map_npcs(folder, skipped), map_creatures(folder, skipped), map_givers(folder, skipped)
+    index, counts = _index(npcs, creatures, givers, extra), collections.Counter()
+    found = collections.OrderedDict()                        # (kind, id) -> {'read', 'page', 'datasets'}
+
+    def add(kind, number, dataset, record, day, page=None):
+        data = found.setdefault((kind, number), {'read': day, 'datasets': {}})
+        data['read'] = max(data['read'], day)
+        if page:
+            data['page'] = page
+        data['datasets'].setdefault(dataset, []).append(record)
+
     for kind, parse in (('quest', quest), ('item', item)):
         links = _links(folder, kind)
         for name, text in _pages(folder, kind):
@@ -545,12 +734,18 @@ def read(folder, skipped=None):
             if kind == 'quest' and not record['new']:
                 record.pop('description', None)
                 record.pop('objectives', None)
-            data = {'read': _day(os.path.join(folder, kind, name + '.html.gz')), 'datasets': {kind + '_page': [record]}}
-            if int(name) in links:
-                data['page'] = links[int(name)]
-            yield Fact('reference', kind, int(name), 0, 0, 0, data)
-    for npc, record in sorted(map_npcs(folder, skipped).items()):
-        yield Fact('reference', 'npc', npc, 0, 0, 0, {'read': record.pop('read'), 'page': BASE + '/map', 'datasets': {'map_npc': [record]}})
+            _identify(record['sources'] if kind == 'item' else record['start'] + record['end'], index, counts)
+            add(kind, int(name), kind + '_page', record, _day(os.path.join(folder, kind, name + '.html.gz')), links.get(int(name)))
+    for quest_id, starters in sorted(givers.items()):
+        for record in starters.values():
+            add('quest', quest_id, 'map_givers', record, record.pop('read'))
+    for dataset, rows in (('map_npc', npcs), ('map_creature', creatures)):
+        for npc, record in sorted(rows.items()):
+            add('npc', npc, dataset, record, record.pop('read'), BASE + '/map')
+    if about is not None:
+        about.update(names=dict(counts), known_names=len(index))
+    for (kind, number), data in found.items():
+        yield Fact('reference', kind, number, 0, 0, 0, data)
 
 
 def extract(folder, log=print):
