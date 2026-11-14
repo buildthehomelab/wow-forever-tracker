@@ -33,9 +33,15 @@ new card after an analysis.
   own map tables, and the creature whose spawn is nearest is taken when it is within 80 yards and no other of that
   name is about as near. The only spawned creature of a name is taken up to 300 yards away (a patrol, a rough pin).
   Without a place, a zone tells two of a name apart when only one stands inside it.
-- **Never guessed.** A name several creatures share with nothing to tell them apart, a name no creature has, a
-  creature of that name reported far from where it stands, and a creature nobody spawned are each counted on the card
-  and left out. The last is somebody to place, not a row to write.
+- **Never guessed.** A name several creatures share with nothing to tell them apart, a name no creature has, and a
+  creature of that name reported far from where it stands are each counted on the card and left out.
+- **Somebody nobody spawned still gives the quest.** Players took the quest from them on live, so the server needs
+  them. When exactly one template has the name and nobody spawned it, the giver, ender or vendor row is written for
+  that template, and the place the report gives is kept for the locator: the analysis then shows the quest's giver as
+  *not spawned*, and the Spawns page offers to place them where players met them. (The first versions refused the
+  row, which left such a creature stuck: the server did not know it needed them, so nothing ever offered to place
+  them.) With no spawn to compare the reported place with, the name alone decides, so two templates of one name,
+  none spawned, are left out. A drop is still only taken from a creature that stands somewhere.
 - **Only what is about Forever.** The site's base is Classic's data; it marks what its players saw. Taken: the giver
   and ender of a quest marked as seen by players, vendors, and drops counted in at least ten kills (the chance is
   drops over kills). Left out: a quest nobody saw, a drop given as a bare percentage (Classic's), a quest an item
@@ -55,9 +61,8 @@ Two more things come out of the same pack:
   (kept with the ForeverScribe positions, which the locator prefers to a looked-up one): press *Locate* on the Spawns
   page after reading a pack. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
   QuestieDB's, which the tracker reads itself. A pin's name must be exactly one template's.
-  The same goes for the quest givers, enders and vendors of its quest and item lists: one that nobody spawned (the
-  card counts them as *to place, not to write*) gets the place the report gives it, when exactly one template has
-  its name. The first run with only the maps' pins placed nothing the content was waiting for: those NPCs stood
+  The same goes for the quest givers, enders and vendors of its quest and item lists: one that nobody spawned gets
+  the place the report gives it, when exactly one template has its name. The first run with only the maps' pins placed nothing the content was waiting for: those NPCs stood
   already. The ones the content waits for are the quest givers.
 - **Whose quest it is.** For the quests the site's players saw, the analysis looks at the quests the server keeps
   to one side (`quest_template.AllowableRaces`) and asks that this side be one players on live got the quest on. A

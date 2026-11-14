@@ -10,7 +10,12 @@ Two things set it apart from the other sources:
     not a creature entry. A name is matched to the server's creature (or object) of that name that stands there: the
     one whose spawn is nearest the reported place, when it is near enough and no other of that name is about as
     near. A name several creatures share, with nothing to tell them apart, is left out and counted, never guessed.
-    A creature nobody spawned is counted too: it is somebody to place, not a row to write.
+  - **Somebody nobody spawned still gives the quest.** Players took the quest from them on live, so the server needs
+    them: when exactly one template has the name, the giver, ender or vendor row is written for it, and the place
+    the report gives is kept for the locator. Refusing the row (as the first versions did) left such a creature
+    stuck: the server did not know it needed them, so nothing ever offered to place them. With no spawn to compare
+    the reported place with, the name alone decides: two templates of one name, none spawned, are left out. A drop
+    is still only taken from a creature that stands somewhere.
   - **Not all of it is about Forever.** The site says so itself: its base is Classic's, with what the game server
     answered and what its players saw on top. Only that is taken: a quest marked as seen by players, a drop counted
     in kills (ten at least). A drop given as a bare percentage is Classic's and is left out.
@@ -92,6 +97,11 @@ class Matcher:
             if len(inside) == 1:
                 return inside[0], ''
         return None, 'several_same_name'
+
+    def only(self, name):
+        """The one template of that name, when nobody spawned it; else None."""
+        entries = self.creatures.get(str(name or '').strip().lower()) or []
+        return entries[0] if len(entries) == 1 and not self.spawns.get(entries[0]) else None
 
     def unplaced(self, name, zone=None, x=None, y=None):
         """(entry, (map, x, y)) for a name exactly one template has, that nobody spawned, reported at a place the
@@ -331,12 +341,16 @@ def evidence(pack, npcs, objects=None):
             return 'npc', entry, ''
         if why == 'not_spawned':
             place('npc', npcs, record, zone_key)
+            if npcs.only(record.get('name')):
+                return 'npc', npcs.only(record.get('name')), ''       # nobody spawned them yet: the row says they are needed
         if objects is not None and why == 'name_unknown':
             entry, other = objects.find(record.get('name'), record.get(zone_key), record.get('x'), record.get('y'))
             if entry:
                 return 'go', entry, ''
             if other == 'not_spawned':
                 place('go', objects, record, zone_key)
+                if objects.only(record.get('name')):
+                    return 'go', objects.only(record.get('name')), ''
             why = other if other != 'name_unknown' else why
         return None, None, why
 
@@ -370,10 +384,11 @@ def evidence(pack, npcs, objects=None):
             how = source.get('how') if isinstance(source, dict) else None
             if how in VENDORS:
                 entry, why = npcs.find(source.get('name'), source.get('place'), source.get('x'), source.get('y'))
+                if not entry and why == 'not_spawned':
+                    place('npc', npcs, source, 'place')
+                    entry = npcs.only(source.get('name'))                # a vendor nobody spawned yet: its stock is known
                 if not entry:
                     left['report_' + why] += 1
-                    if why == 'not_spawned':
-                        place('npc', npcs, source, 'place')
                 elif (entry, item_id) not in seen_sell:
                     seen_sell.add((entry, item_id))
                     ev['sell'].append([entry, item_id, 0])

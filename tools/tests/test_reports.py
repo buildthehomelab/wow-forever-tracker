@@ -45,6 +45,7 @@ class Names(unittest.TestCase):
     def test_a_creature_nobody_spawned_and_one_that_stands_elsewhere(self):
         npcs = matcher({'Elder': [300], 'Wanderer': [301]}, {301: [(1, 100.0, 100.0)]})
         self.assertEqual(npcs.find('Elder', 'Orgrimmar', 50, 50), (None, 'not_spawned'))
+        self.assertEqual((npcs.only('elder'), npcs.only('Wanderer'), npcs.only('Nobody')), (300, None, None))
         self.assertEqual(npcs.find('Wanderer', 'Orgrimmar', 12.0, 12.0), (301, ''))               # 28 yards off: a rough pin
         self.assertEqual(npcs.find('Wanderer', 'Orgrimmar', 90.0, 90.0), (None, 'position_far'))  # 1,100 yards off: another one
 
@@ -67,15 +68,26 @@ class Evidence(unittest.TestCase):
         ev, left = reports.evidence(pack([quest]), self.npcs, self.objects)
         self.assertEqual((ev['start'], ev['end'], left, ev['place']), ([['go', 9000, 7], ['npc', 100, 7]], [['npc', 101, 7]], {}, []))
 
-    def test_a_giver_nobody_spawned_gets_the_place_players_reported(self):
+    def test_a_giver_nobody_spawned_still_gives_the_quest(self):
         npcs = matcher({'Elder': [300], 'Furmund': [100], 'Twin': [104, 105]}, {100: [(1, 509.0, 653.0)]})
         quest = {'id': 7, 'seen_by_players': True, 'start': [{'name': 'Elder', 'zone': 'Orgrimmar', 'x': 40.0, 'y': 41.5}, {'name': 'Twin', 'zone': 'Orgrimmar', 'x': 1, 'y': 1}],
                  'end': [{'name': 'Elder', 'zone': 'Orgrimmar', 'x': 40.0, 'y': 41.5}, {'name': 'Elder'}]}
-        item = {'id': 159, 'sources': [{'how': 'Sold by a vendor', 'name': 'Elder', 'place': 'Orgrimmar', 'x': 60.0, 'y': 10.0}]}
+        item = {'id': 159, 'sources': [{'how': 'Sold by a vendor', 'name': 'Elder', 'place': 'Orgrimmar', 'x': 60.0, 'y': 10.0},
+                                       {'how': 'Creature drop', 'name': 'Elder', 'place': 'Orgrimmar', 'rate': {'drops': 5, 'kills': 20}}]}
         ev, left = reports.evidence(pack([quest], [item]), npcs)
-        self.assertEqual((ev['start'], ev['end'], ev['sell']), ([], [], []))            # nothing to write: there is nobody to give the quest yet
+        # the one template of that name is who players took the quest from and bought from: the rows say the server needs them
+        self.assertEqual((ev['start'], ev['end'], ev['sell']), ([['npc', 300, 7]], [['npc', 300, 7]], [[300, 159, 0]]))
+        # and where they stood is kept for the locator
         self.assertEqual(ev['place'], [['npc', 300, 'Elder', [{'m': 1, 'x': 400.0, 'y': 415.0}, {'m': 1, 'x': 600.0, 'y': 100.0}]]])
-        self.assertEqual(left['report_not_spawned'], 5)                                  # "Twin" is two templates: nobody's place
+        # "Twin" is two templates, neither spawned: nobody's row; and a drop is only a creature's that stands somewhere
+        self.assertEqual((ev['drop'], left), ([], {'report_not_spawned': 2}))
+
+    def test_an_object_nobody_spawned_gives_the_quest_too(self):
+        npcs = matcher({}, {})
+        objects = matcher({'Wanted Poster': [9000]}, {})
+        quest = {'id': 7, 'seen_by_players': True, 'start': [{'name': 'Wanted Poster', 'zone': 'Orgrimmar', 'x': 40, 'y': 40}]}
+        ev, left = reports.evidence(pack([quest]), npcs, objects)
+        self.assertEqual((ev['start'], ev['place'], left), ([['go', 9000, 7]], [['go', 9000, 'Wanted Poster', [{'m': 1, 'x': 400.0, 'y': 400.0}]]], {}))
 
     def test_a_quest_nobody_saw_is_classics_word(self):
         quest = {'id': 7, 'start': [{'name': 'Furmund', 'zone': 'Orgrimmar', 'x': 50.9, 'y': 65.3}]}
