@@ -143,6 +143,8 @@ if [ "$timezone_ok" = "0" ]; then
 fi
 printf '; Written by docker/entrypoint.sh at every start: FT_TIMEZONE, else TZ, else UTC.\ndate.timezone = "%s"\n' "$timezone" \
     > "${PHP_INI_DIR:-/usr/local/etc/php}/conf.d/forever-tracker-timezone.ini"
+# the analysis (Python) and the logs keep the same clock as the website: the date an analysis writes is read back by PHP
+export TZ="$timezone"
 say "timezone $timezone"
 
 # (An import's lock, data/source-<source>.running, is held by its process and let go by the system when the process
