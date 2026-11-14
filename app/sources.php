@@ -214,12 +214,49 @@ function source_skill_line(string $skill, string $spellName): int
     return 0;
 }
 
+/**
+ * The cards a new card of $source replaces: that source's earlier cards (file "<source>@…") nothing was ever applied
+ * from. $cards: [id => file] of ft_imports; $logs: the history's import operations (items, state of ft_forge_log).
+ * A card an operation was applied from is kept, rolled back since or not (it may be applied in part, and the card
+ * says what the rest is), and so is one whose apply is still being written; a failed apply wrote nothing. The history
+ * keeps its own SQL and rollback: forgetting a card takes nothing from it.
+ */
+function source_stale_cards(string $source, array $cards, array $logs): array
+{
+    $used = [];
+    foreach ($logs as $log) {
+        if (($log['state'] ?? '') === 'failed') continue;
+        $items = is_array($log['items'] ?? null) ? $log['items'] : (json_decode((string)($log['items'] ?? ''), true) ?: []);
+        foreach ($items as $item) if (is_array($item) && ($item['type'] ?? '') === 'import') $used[(int)($item['id'] ?? 0)] = true;
+    }
+    $stale = [];
+    foreach ($cards as $id => $file) if (str_starts_with((string)$file, $source . '@') && !isset($used[(int)$id])) $stale[] = (int)$id;
+    return $stale;
+}
+
+/** Forgets the cards a new card of $source replaces (source_stale_cards); returns how many. */
+function source_supersede(string $source): int
+{
+    import_schema();
+    forge_schema();
+    $cards = array_column(rows('SELECT id, file FROM ft_imports WHERE file LIKE ?', [addcslashes($source, '%_\\') . '@%']), 'file', 'id');
+    if (!$cards) return 0;
+    $stale = source_stale_cards($source, $cards, rows("SELECT items, state FROM ft_forge_log WHERE FIND_IN_SET('import', kind)"));
+    foreach ($stale as $id) import_delete($id);
+    return count($stale);
+}
+
 /** Saves tables as an import card (preview, apply, history, rollback, data repo export). */
 function source_card(string $source, string $name, string $file, array $tables, array $left): array
 {
     import_schema();
-    if (!$tables) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left,
-        'message' => sprintf(t('%s has nothing this server lacks.', '%s n’a rien qui manque à ce serveur.'), SOURCES[$source][0] ?? $source)];
+    // every card is built against the gaps and the database as they are now, so the newest one of a source says all
+    // its earlier ones said and is still true: without this each new AtlasLoot version and each click left one more
+    // card for the same gap. Also when the new card would be empty: the old ones then offer what is no longer missing.
+    $replaced = source_supersede($source);
+    $replacedNote = $replaced ? ' ' . sprintf(t('%d earlier card(s) of this source that were never applied were replaced.', '%d carte(s) précédente(s) de cette source, jamais appliquée(s), ont été remplacée(s).'), $replaced) : '';
+    if (!$tables) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left, 'replaced' => $replaced,
+        'message' => sprintf(t('%s has nothing this server lacks.', '%s n’a rien qui manque à ce serveur.'), SOURCES[$source][0] ?? $source) . $replacedNote];
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = count($entry['groups'][0]['rows']);
     $name .= ' · ' . (SOURCES[$source][1] ?? '');
     rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
@@ -227,8 +264,8 @@ function source_card(string $source, string $name, string $file, array $tables, 
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     import_index($id, $tables);
-    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0,
-            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts)))];
+    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced,
+            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts))) . $replacedNote];
 }
 
 /** GET with a user agent; [status, body]. */

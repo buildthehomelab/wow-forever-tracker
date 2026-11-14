@@ -56,6 +56,12 @@ repeat its rows.
 
 Each card lists what was left out and why, and carries the source's licence in its name.
 
+**One card per source.** A card is built against the gaps and the server as they are at that moment, so a new card of
+a source says everything its earlier ones said that is still true. Making one therefore forgets that source's earlier
+cards nothing was ever applied from (also when the new one turns out empty: nothing is missing any more). A card you
+applied, in whole or in part, stays, rolled back since or not; the history keeps every operation's SQL and rollback
+whatever happens to its card.
+
 ## Running them
 
 - The Forge › Imports: *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
