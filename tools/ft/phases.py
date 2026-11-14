@@ -72,6 +72,25 @@ def load(file=None):
     return phases
 
 
+def closed(phases, current='', today=None):
+    """Numbers (from 1) of the phases not open yet, by the website's rule (closed_phases() in app/bootstrap.php):
+    [phases] current decides when set ("all", "none", or a key or number that opens it and every phase before it);
+    otherwise each phase opens on its own date, and one without a date stays closed."""
+    current = str(current or '').strip().lower()
+    keys = [str(p.get('key', '')).lower() for p in phases]
+    up_to = None
+    if current == 'all':
+        up_to = len(phases)
+    elif current in ('none', 'false', 'off', 'no'):
+        up_to = 0
+    elif current.isdigit():
+        up_to = min(int(current), len(phases))
+    elif current in keys:
+        up_to = keys.index(current) + 1
+    today = today or datetime.date.today().isoformat()
+    return [n for n, p in enumerate(phases, 1) if not (n <= up_to if up_to is not None else bool(p.get('opens')) and str(p['opens']) <= today)]
+
+
 def world_facts(phases, content):
     """What the server's databases add (kept apart so tests can pass their own): creature names for the name matches,
     where objects stand, and where the locator placed the creatures and objects not spawned yet."""
@@ -224,10 +243,14 @@ def assign(content, ctx, phases, facts):
     for item, spells in ctx.get('creates', {}).items():
         for spell in spells:
             add([item], ('spell', spell))
-    quests = ctx.get('quests', {})
+    # Only the quests the official client has: the world database also holds quests of other versions of the game,
+    # and a reward of one of those would release an item nobody can earn that way (the analysis' rules count the
+    # same quests).
+    official = content.get('quest') or {}
+    quests = {quest: row for quest, row in ctx.get('quests', {}).items() if not official or quest in official}
     for quest, row in quests.items():
         rewards = {int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} | {int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)}
-        add(rewards - {0}, ('quest', quest))
+        add((rewards | {int(row.get('StartItem') or 0)}) - {0}, ('quest', quest))   # StartItem: handed over on accept
 
     # ---- spell sources: trainers and automatic learning are the open world
     spell_sources = {}
@@ -237,10 +260,9 @@ def assign(content, ctx, phases, facts):
         for item in items:
             spell_sources.setdefault(spell, set()).add(('item', item))
     for quest, row in quests.items():
-        for key in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3'):
-            spell = int(row.get(key) or 0)
-            if spell:
-                spell_sources.setdefault(spell, set()).add(('quest', quest))
+        shown = {int(row.get(key) or 0) for key in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')}
+        for spell in (shown | ctx.get('quest_display_spells', {}).get(quest, set())) - {0}:
+            spell_sources.setdefault(spell, set()).add(('quest', quest))
     for source, target in ctx.get('learn_chain', ()):
         spell_sources.setdefault(target, set()).add(('spell', source))
 
@@ -310,6 +332,20 @@ def assign(content, ctx, phases, facts):
             break
     else:
         log('phases: still changing after 20 rounds, some resources may stay untagged')
+
+    # An item with no source at all says nothing about when it opens, and would count as a gap of today. When
+    # every item of the same name that does have a source waits for a phase, it waits with them: Forever's own copy
+    # of Sulfuras (a new id, no loot row yet) is no more a launch gap than the original.
+    named = {}
+    for item, entity in content.get('item', {}).items():
+        name = normal(entity.get('name_en') or entity.get('name'))
+        if name and item in sources:
+            named.setdefault(name, []).append(item_phase.get(item, 0))
+    for item, entity in content.get('item', {}).items():
+        if item not in sources and item not in fixed['item']:
+            twins = named.get(normal(entity.get('name_en') or entity.get('name')), [])
+            if twins and all(twins):
+                item_phase[item] = min(twins)
 
     out = {}
 

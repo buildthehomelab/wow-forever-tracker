@@ -87,10 +87,18 @@ the original game's unused Emerald Dream and Caverns of Time maps. The analysis 
 
 The same goes for boss rows that are no boss of their own (`tools/ft/bosses.py`): Season of Discovery's raid versions of
 Blackfathom Deeps, Gnomeregan and the Sunken Temple, and a fight the client lists again in the same instance (the
-lowest id is the one counted). A boss also counts as present when a script brings it in instead of a spawn row: a
-summon group, a SmartAI summon or a summoning spell names its creature, or the creature has a C++ script in an
-instance that has one. Its page then says "Not spawned: a script brings in creature N". Encounters named after an
-event (The Seven, Ring of Law) are found by one of their creatures.
+lowest id is the one counted). A boss is found first by the core's own word: its instance scripts say which creature
+is which encounter (`tools/world/summoned.json`, see docs/ARCHITECTURE.md), so no name is compared. It counts as present
+when it is spawned in the instance, or when a script brings it in instead: the instance script names it, or a summon
+group, a SmartAI summon, a summoning spell or a C++ `SummonCreature` call names its creature. Its page then says "Not
+spawned: a script brings in creature N". A creature that only has a C++ script in an instance that has one still
+counts, with a "Placed by a script: check in game" note that weighs nothing. Where no script names the creature, names
+decide: the same name first, then the boss's name as whole words of the creature's (Sneed in Sneed's Shredder, not
+Hakkar in Hakkari Priest). Encounters named after an event (The Seven, Ring of Law) are found by one of their
+creatures.
+
+An item with no source at all does not say when it opens. When every item of the same name that has a source waits
+for a phase, it waits with them (Forever's own copy of Sulfuras, a new id without a loot row yet).
 
 Also under *Internal / test*: a boss of a test instance, placeholder mounts, pets, toys and recipes (`[PH] ...`), and
 flight points nobody flies from: boats, zeppelins and script targets of the original game (no faction can use them),

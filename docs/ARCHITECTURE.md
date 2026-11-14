@@ -23,6 +23,8 @@ server DB2, world, hotfixes, auth, maps ──────┤
 | `ft/content.py` | Official content of one build (13 resource types) and build-to-build diffs |
 | `ft/server.py` | What the server provides: its DB2 files, hotfix rows, spawns, loot, vendors, trainers, quests, instances, map files |
 | `ft/rules.py` | Availability checks of every resource, with English and French details |
+| `ft/summons.py`, `world/summoned.json` | What is in the game without a spawn row: the database's summons, and the core's C++ scripts read once by `make_summoned.py` |
+| `ft/bosses.py` | Which client encounters are a boss of their own, and how each is found on the server |
 | `ft/tooltips.py`, `ft/spelltext.py` | In-game tooltips, with the core's item formulas and a renderer for spell description templates |
 | `ft/forge.py` | Fixes: SQL to apply and to roll back |
 | `ft/output.py` | Writes everything into the tracker database, swapping the tables atomically |
@@ -35,8 +37,21 @@ five differ by one or two points on a stat, most likely server-side overrides).
 
 An item is *obtainable* when one of its sources is active: loot of a spawned creature or object (through reference
 loot), pickpocketing, skinning, fishing, a spawned vendor, the shop, a container that is obtainable, the reward of
-a quest that can be done, or a craft that can be learned. Quests, items and crafts depend on each other, so the
-analysis repeats until nothing changes.
+a quest that can be done (its reward, or the item its giver hands over on accept), or a craft that can be learned.
+Quests, items and crafts depend on each other, so the analysis repeats until nothing changes.
+
+*Spawned* includes what something brings in without a spawn row: Reginald Windsor walks into Stormwind when his quest
+calls him, and Darkmaster Gandling appears when his six lieutenants are dead. The world database knows part of it (a
+SmartAI summon, a summon group, an event script, a summoning spell); the core's C++ scripts know the rest, and
+`tools/make_summoned.py /path/to/core` reads them into `tools/world/summoned.json`: the entries a `SummonCreature` or
+`SummonGameObject` call names, and which creature each instance script counts as which boss encounter. Run it again
+when the core moves to a commit with new scripts (the file records the commit it was read from). A summoned creature
+counts for its loot, its stock, its quests and kill objectives, never as a trainer, and the locator does not offer
+to spawn it.
+
+A quest also has a *Quest text* check: the giver's text (description or objectives) for a quest taken from a giver,
+and the turn-in text (`quest_offer_reward`, or `quest_request_items` for a quest that asks for items) for one handed
+in to someone. It weighs little: a quest that can be done without its words reads Incomplete near 90%, not missing.
 
 ## The world build (`tools/ft/layers.py`, `tools/ft/replay.py`, `tools/ft/facts.py`, `tools/ft/luadata.py`, `tools/ft/resolve.py`, `tools/ft/export.py`, `tools/ft/quests.py`, `tools/ft/npcs.py`, `tools/ft/world.py`)
 

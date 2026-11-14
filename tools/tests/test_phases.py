@@ -126,8 +126,48 @@ class Assign(unittest.TestCase):
         tagged = phases.assign(content(), x, PHASES, dict(FACTS, located=[('npc', 4242, MC)]))
         self.assertEqual(tagged[('item', 6)], 2)  # not spawned, the locator placed it in Molten Core
 
+    def test_a_copy_without_a_source_waits_with_the_original(self):
+        c = content()
+        c['item'][1] = {'name_en': 'Sulfuras, Hand of Ragnaros'}        # Ragnaros' drop
+        c['item'][6] = {'name_en': 'Sulfuras, Hand of Ragnaros'}        # Forever's own copy: a new id, no source yet
+        tagged = phases.assign(c, ctx(), PHASES, FACTS)
+        self.assertEqual(tagged[('item', 6)], 2)
+        c['item'][9] = {'name_en': 'Sulfuras, Hand of Ragnaros'}        # ...unless one of that name is sold outside
+        self.assertNotIn(('item', 6), phases.assign(c, ctx(), PHASES, FACTS))
+
+    def test_a_quest_of_another_game_version_gives_nothing(self):
+        x = ctx()
+        x['quests'][70000] = {'QuestSortID': 0, 'RewardItem1': 1}       # not in the official client
+        x['q_start_npc'].append((GIVER, 70000))
+        x['q_end_npc'].append((GIVER, 70000))
+        self.assertEqual(phases.assign(content(), x, PHASES, FACTS)[('item', 1)], 2)   # still only Ragnaros' drop
+
+    def test_the_package_a_giver_hands_over(self):
+        x = ctx()
+        x['quests'][104]['StartItem'] = 6                               # quest 104 is open: so is its package
+        self.assertNotIn(('item', 6), phases.assign(content(), x, PHASES, FACTS))
+        x['quests'][101]['StartItem'] = 8888 + 1
+        c = content()
+        c['item'][8889] = {}
+        self.assertEqual(phases.assign(c, x, PHASES, FACTS)[('item', 8889)], 2)        # quest 101 waits for Molten Core
+
     def test_no_phases(self):
         self.assertEqual(phases.assign(content(), ctx(), [], FACTS), {})
+
+
+class Closed(unittest.TestCase):
+    """Which phases are not open: the same answer as the website (closed_phases() in app/bootstrap.php)."""
+
+    def test_each_phase_opens_on_its_date(self):
+        self.assertEqual(phases.closed(PHASES, today='2026-12-08'), [1, 2])
+        self.assertEqual(phases.closed(PHASES, today='2026-12-09'), [2])   # no date: stays closed
+
+    def test_current_decides_when_set(self):
+        self.assertEqual(phases.closed(PHASES, 'all', today='2026-01-01'), [])
+        self.assertEqual(phases.closed(PHASES, 'none', today='2027-01-01'), [1, 2])
+        self.assertEqual(phases.closed(PHASES, 'First-Raids', today='2026-01-01'), [2])
+        self.assertEqual(phases.closed(PHASES, '2', today='2026-01-01'), [])
+        self.assertEqual(phases.closed(PHASES, 'no-such-phase', today='2026-12-09'), [2])   # a typo: the dates decide
 
 
 class Load(unittest.TestCase):

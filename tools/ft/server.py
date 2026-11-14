@@ -2,12 +2,13 @@
 import json
 import os
 
-from . import db2, sqlio
+from . import db2, sqlio, summons
 from .config import CONFIG, DATA
 from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
+SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 
 
 def log(message):
@@ -39,6 +40,26 @@ def server_dbc():
 def server_db2(name):
     path = os.path.join(server_dbc(), name + '.db2')
     return list(db2.Table(path, name)) if os.path.isfile(path) else []
+
+
+def vendor_items(rows):
+    """[(vendor, item)] with the borrowed lists written out: a negative item in npc_vendor is another vendor's entry,
+    whose whole stock this vendor sells too (the core follows it the same way, a list inside a list included)."""
+    stock, borrows = {}, {}
+    for vendor, item in rows:
+        (stock if item > 0 else borrows).setdefault(vendor, set()).add(abs(item))
+    out = []
+    for vendor in set(stock) | set(borrows):
+        items, seen, todo = set(), set(), [vendor]
+        while todo:
+            current = todo.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            items |= stock.get(current, set())
+            todo.extend(borrows.get(current, ()))
+        out.extend((vendor, item) for item in sorted(items))
+    return out
 
 
 def server_state():
@@ -93,23 +114,47 @@ def server_state():
         npc_maps.setdefault(int(row['map']), []).append({'id': int(row['id']), 'n': int(row['n']), 'name': row['name'] or '',
                                                           'scripted': bool(row['ScriptName']) or row['AIName'] == 'SmartAI'})
     ctx['npc_maps'] = npc_maps
-    # Creatures something brings into the world without a spawn row: a summon group, a SmartAI summon, a summoning
-    # spell. With the unspawned creatures that have a C++ script, they are the bosses a script places (ft.bosses).
-    summoned = ints('SELECT action_param1 FROM smart_scripts WHERE action_type = 12')
-    if sqlio.has_table('creature_summon_groups'):
-        summoned |= ints('SELECT entry FROM creature_summon_groups')
-    summoned |= spell_summons
-    ctx['summoned_npc'] = summoned
+    # Creatures and world objects something brings into the world without a spawn row (ft.summons): the database's
+    # summons, the summoning spells, and what the core's C++ scripts summon. With the creatures an instance script
+    # names as a boss encounter and the unspawned ones that have a C++ script, they are the bosses a script places
+    # (ft.bosses); for loot, vendors and quests a summoned creature is as present as a spawned one (ft.rules).
+    summoned, summoned_go, core = summons.known(spell_summons)
+    ctx['summoned_npc'], ctx['summoned_go'] = summoned, summoned_go
+    ctx['encounter_npc'] = core['encounters']
+    ctx['summon_script'] = core['creatures']
+    bound = {entry for entries in core['encounters'].values() for entry in entries}
     ctx['unspawned_npc'] = [{'id': int(r['entry']), 'name': r['name'] or '', 'script': bool(r['ScriptName'])}
                             for r in q("SELECT ct.entry, ct.name, ct.ScriptName FROM creature_template ct WHERE NOT EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry)")
-                            if r['ScriptName'] or int(r['entry']) in summoned]
+                            if r['ScriptName'] or int(r['entry']) in summoned or int(r['entry']) in bound]
+    # A kill objective may name a credit creature nobody spawns: the creatures that give that credit when they die.
+    kill_credit = {}
+    for r in q('SELECT entry, KillCredit1, KillCredit2 FROM creature_template WHERE KillCredit1 <> 0 OR KillCredit2 <> 0'):
+        for credit in {int(r['KillCredit1'] or 0), int(r['KillCredit2'] or 0)} - {0}:
+            kill_credit.setdefault(credit, set()).add(int(r['entry']))
+    ctx['kill_credit'] = kill_credit
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]
+    # Flight points without a flight master: an NPC's script puts the player on the path (the druids' flights out of
+    # Moonglade). The nodes a SmartAI "activate taxi" path leaves from.
+    script_paths = ints(f'SELECT action_param1 FROM smart_scripts WHERE action_type = {SMART_ACTIVATE_TAXI}')
+    ctx['script_taxi_nodes'] = {r['FromTaxiNode'] for r in srv('TaxiPath') if r['ID'] in script_paths}
 
     quests = {}
-    for row in q('SELECT ID, LogTitle, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, ' + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
+    # HasText: the giver's words or the objectives text, as a flag (the texts themselves would be most of the memory)
+    for row in q("SELECT ID, LogTitle, QuestType, QuestSortID, QuestInfoID, Flags, StartItem, RewardSpell, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, "
+                 "(COALESCE(QuestDescription, '') <> '' OR COALESCE(LogDescription, '') <> '') HasText, "
+                 + ', '.join([f'RewardItem{i}' for i in range(1, 5)] + [f'RewardChoiceItemID{i}' for i in range(1, 7)]) + ' FROM quest_template'):
         quests[int(row['ID'])] = row
+    # What the NPC says at the turn-in: the reward text, or the "have you got it?" text of a quest that asks for items.
+    ctx['quest_turn_in_text'] = ints("SELECT ID FROM quest_offer_reward WHERE COALESCE(RewardText, '') <> ''") | \
+        ints("SELECT ID FROM quest_request_items WHERE COALESCE(CompletionText, '') <> ''")
+    # The spells a quest shows as its reward: the core reads this table, not quest_template's three columns.
+    display_spells = {}
+    if sqlio.has_table('quest_reward_display_spell'):
+        for r in q('SELECT QuestID, SpellID FROM quest_reward_display_spell WHERE SpellID > 0'):
+            display_spells.setdefault(int(r['QuestID']), set()).add(int(r['SpellID']))
+    ctx['quest_display_spells'] = display_spells
     ctx['quest_fr'] = {int(r['ID']): r['LogTitle'] for r in q("SELECT ID, LogTitle FROM quest_template_locale WHERE locale='frFR'") if r['LogTitle']} \
         if CONFIG.french() else {}
     ctx['quest_level'] = {int(r['ID']): (int(r['QuestLevel'] or 0), int(r['MinLevel'] or 0)) for r in q('SELECT ID, QuestLevel, MinLevel FROM quest_classic_level')} if sqlio.has_table('quest_classic_level') else {}
@@ -137,7 +182,7 @@ def server_state():
     ctx['npc_loot'] = [(int(r['Entry']), int(r['LootID'] or 0), int(r['PickPocketLootID'] or 0), int(r['SkinLootID'] or 0))
                        for r in q('SELECT Entry, LootID, PickPocketLootID, SkinLootID FROM creature_template_difficulty WHERE DifficultyID IN (0,1)')]
     ctx['go_loot'] = [(int(r['entry']), int(r['type']), int(r['Data1'] or 0)) for r in q('SELECT entry, type, Data1 FROM gameobject_template WHERE type IN (3, 25)')]
-    ctx['vendors'] = pairs('SELECT entry, item FROM npc_vendor WHERE type = 1')
+    ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]
     ctx['trainers'] = pairs('SELECT CreatureID, TrainerID FROM creature_trainer')
@@ -164,6 +209,9 @@ def server_state():
     ctx['map_tiles'] = tiles
     ctx['mmaps'] = {int(n[:4]) for n in listing('mmaps') if n.endswith('.mmap') and n[:4].isdigit()}
     ctx['vmaps'] = {int(n) for n in listing('vmaps') if n.isdigit()}
+    # Areas a map of the game draws: a zone players walk in. "Crafting" is an area too, but only a heading quests are
+    # sorted under, and it has no graveyard to ask for.
+    ctx['mapped_zones'] = {r['AreaID'] for r in srv('UiMapAssignment') if r['AreaID']}
     world_map = os.path.join(DATA, 'world-map.json')
     try:
         ctx['ui_maps'] = json.load(open(world_map, encoding='utf-8'))['maps']

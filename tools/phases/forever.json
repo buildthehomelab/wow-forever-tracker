@@ -19,8 +19,9 @@
    "key": "later-raids",
    "name": "Later raids",
    "opens": null,
-   "source": "In the client, no date announced",
-   "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"]
+   "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in",
+   "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"],
+   "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271]
   }
  ]
 }

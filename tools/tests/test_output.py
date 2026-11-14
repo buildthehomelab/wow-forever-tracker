@@ -92,5 +92,22 @@ class Written(unittest.TestCase):
         self.assertEqual(self.internal('item', 279254), 0)
 
 
+
+class Names(unittest.TestCase):
+    """Words a test name and a real name share: only the test's shape hides a resource."""
+
+    def test_real_names_stay(self):
+        for name in ('Monster Omelet', 'Recipe: Monster Omelet', 'Test of Faith', 'Test of Lore', 'Test of Endurance', 'The Test of Righteousness',
+                     'Put to the Test', 'Signed copy of the Green Hills of Stranglethorn', 'Unused Scraping Vial', "Old Serra'kis",
+                     'Thunderfury, Blessed Blade of the Windseeker'):
+            self.assertFalse(output.named_internal(name), name)
+
+    def test_test_and_placeholder_names_are_internal(self):
+        for name in ('Monster - Sword2H, Corrupted Ashbringer', '[PH] Brown Prideclaw', 'Test Dungeon', 'QA Test Item', 'TEST Sword', 'Test Item 3',
+                     'TestItem', 'Test2', '76 test item', 'Thunderfury, Blessed Blade of the Windseeker DEPRECATED', "Bloodied Zin'rokh Visual [DNT]",
+                     'Copy of Hearthstone', 'Sword (copy)', 'Cloak - Unused', 'UNUSED Boots', 'NOT USED', 'No Longer in Use', 'OLD Cloak', '<Unused>'):
+            self.assertTrue(output.named_internal(name), name)
+
+
 if __name__ == '__main__':
     unittest.main()

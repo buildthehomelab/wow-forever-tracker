@@ -26,22 +26,28 @@ SOURCES = {
     'prospecting': L('Prospecting', 'Prospection'), 'milling': L('Milling', 'Broyage'), 'questdrop': L('Quest loot', 'Butin de quête'),
     'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
+    'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
 }
 
 
 # The Eastern Plaguelands towers: the flight master is there only while a faction holds the tower (the world PvP
 # script places it), so no spawn row is expected.
 TOWER_TAXI = {84, 85, 86, 87}
+QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without being accepted, so no giver's text
 
 
 def evaluate_all(content, ctx):
     log('evaluating availability')
     known = ctx['known']
-    npc_spawned, go_spawned = ctx['spawned_npc'], ctx['spawned_go']
+    # In the world: spawned, or brought in by a script, a summon group or a spell (ft.summons). Trainers stay with
+    # the spawned ones: nobody trains at a creature that is there for a minute.
+    npc_placed, go_placed = ctx['spawned_npc'], ctx['spawned_go']
+    npc_spawned, go_spawned = npc_placed | ctx.get('summoned_npc', set()), go_placed | ctx.get('summoned_go', set())
+    kill_credit = ctx.get('kill_credit', {})
 
     trainer_npcs = {}
     for npc, trainer in ctx['trainers']:
-        if npc in npc_spawned:
+        if npc in npc_placed:
             trainer_npcs.setdefault(trainer, set()).add(npc)
     ctx['trainer_npcs'] = trainer_npcs
     trained = {spell for trainer, spell in ctx['trainer_spells'] if trainer in trainer_npcs}
@@ -134,6 +140,7 @@ def evaluate_all(content, ctx):
             row = ctx['quests'].get(quest, {})
             add({int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} - {0}, 'quest')
             add({int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)} - {0}, 'quest')
+            add({int(row.get('StartItem') or 0)} - {0}, 'questgive')   # the package the giver hands over on accept
         learnable = trained | ctx['auto_learn'] | {spell for spell, items in ctx['teaches'].items() if items & set(sources)}
         for item, spells in ctx['creates'].items():
             if spells & learnable:
@@ -153,6 +160,7 @@ def evaluate_all(content, ctx):
     for quest in available_quests:
         row = ctx['quests'].get(quest, {})
         quest_spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
+        quest_spells |= ctx.get('quest_display_spells', {}).get(quest, set())
     learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
     for source, target in ctx['learn_chain']:
         if source in learnable:
@@ -241,7 +249,7 @@ def evaluate_all(content, ctx):
         checks.append(check(any(e[2] for e in end), 'ender', L(en or 'No quest ender.', fr or 'Aucun valideur.'), 2))
         problems = []
         for kind, obj, amount in objectives.get(quest_id, []):
-            if kind == 0 and obj not in npc_spawned:
+            if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned):
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
                 problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
@@ -253,6 +261,16 @@ def evaluate_all(content, ctx):
             checks.append(check(not problems, 'objectives', detail, 2))
         if quest_id in disabled_quests:
             checks.append(check(False, 'enabled', L('Disabled in the disables table.', 'Désactivée dans la table disables.'), 3))
+        # The words: a quest that works with an empty window is not finished. Only what every such quest shows is
+        # asked for: the giver's text (a quest taken from a giver; an auto-complete one has none by design) and the
+        # turn-in text (a quest handed in to someone).
+        lacking = []
+        if start and int(row.get('QuestType') or 0) != QUEST_TYPE_AUTOCOMPLETE and not int(row.get('HasText') or 0):
+            lacking.append(L('no quest text (description, objectives)', 'pas de texte de quête (description, objectifs)'))
+        if end and quest_id not in ctx.get('quest_turn_in_text', ()):
+            lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
+        if start or end:
+            checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))
         return checks
 
     boxes = {}
@@ -281,7 +299,7 @@ def evaluate_all(content, ctx):
 
     def boss_match(boss_id, boss, map_id):
         return bosses.find(boss_id, boss, ctx['npc_maps'].get(map_id, []), ctx.get('unspawned_npc', ()), ctx.get('summoned_npc', ()),
-                           bool(ctx['instance_template'].get(map_id)))
+                           bool(ctx['instance_template'].get(map_id)), ctx.get('encounter_npc', {}).get(boss_id, ()))
 
     def dungeon_result(map_id, entity):
         kind = entity['kind']
@@ -313,7 +331,7 @@ def evaluate_all(content, ctx):
 
     def boss_result(boss_id, entity):
         npc, how = boss_match(boss_id, entity, entity['map'])
-        if how == 'summoned':
+        if how in ('summoned', 'scripted'):
             detail = L(f"Not spawned: a script brings in creature {npc['id']} “{npc['name']}”", f"Non placé : un script fait apparaître le PNJ {npc['id']} « {npc['name']} »")
         elif npc:
             detail = L(f"Creature {npc['id']} “{npc['name']}”", f"PNJ {npc['id']} « {npc['name']} »")
@@ -323,6 +341,10 @@ def evaluate_all(content, ctx):
         if how == 'spawned':
             checks.append(check(npc['scripted'], 'boss_script', L('ScriptName or SmartAI', 'ScriptName ou SmartAI') if npc['scripted']
                                 else L('No script: the boss has no mechanics.', 'Pas de script : le boss n’a pas ses mécaniques.'), 2))
+        elif how == 'scripted':
+            # weight 0: said aloud, not counted. Nothing names what summons it; its own script and the instance's are the only sign.
+            checks.append(check(False, 'boss_placed', L('To check in game: no summon of it is known, only its C++ script in a scripted instance.',
+                                                        'À vérifier en jeu : aucune invocation connue, seulement son script C++ dans une instance scriptée.'), 0))
         return checks
 
     def zone_result(zone_id, entity):
@@ -336,7 +358,10 @@ def evaluate_all(content, ctx):
         if zone_quests:
             ready = sum(1 for qid in zone_quests if qid in available_quests)
             checks.append(check(ready >= len(zone_quests) * 0.8, 'zone_quests', L(f'{ready} / {len(zone_quests)} quests can be done', f'{ready} / {len(zone_quests)} quêtes faisables'), 3))
-        checks.append(check(zone_id in ctx['graveyards'], 'graveyard', L('graveyard_zone', 'graveyard_zone'), 1))
+        # a graveyard for a zone a map draws; without the map data every zone is asked, as before
+        mapped = ctx.get('mapped_zones') or ()
+        if not mapped or zone_id in mapped:
+            checks.append(check(zone_id in ctx['graveyards'], 'graveyard', L('graveyard_zone', 'graveyard_zone'), 1))
         return checks
 
     def recipe_result(spell_id, entity):
@@ -402,6 +427,9 @@ def evaluate_all(content, ctx):
         held = node_id in TOWER_TAXI
         if held:
             detail = L('Its flight master appears while a faction holds the tower.', 'Son maître de vol apparaît quand une faction tient la tour.')
+        elif node_id in ctx.get('script_taxi_nodes', ()) and not (near is not None and near < 60):
+            held = True   # no flight master by design: an NPC's script starts the flight (the druids' flights out of Moonglade)
+            detail = L('No flight master: an NPC’s script starts the flight from here.', 'Pas de maître de vol : le script d’un PNJ lance le vol depuis ici.')
         return [check(node_id in known['taxi'], 'core', L('Server TaxiNodes.db2.', 'TaxiNodes.db2 du serveur.'), 1),
                 check(held or (near is not None and near < 60), 'flightmaster', detail, 3)]
 
