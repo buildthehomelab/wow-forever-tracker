@@ -15,7 +15,7 @@ say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
 for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_SITE_NAME \
-           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC; do
+           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
     eval "value=\${$var:-}"
     case "$value" in
         *\"*|*'
@@ -106,6 +106,10 @@ recheck_days = ${FT_WOWHEAD_RECHECK_DAYS:-7}
 [collector]
 auto_apply = 0
 
+[phases]
+file = "${FT_PHASES_FILE:-}"
+current = "${FT_PHASE:-}"
+
 [admin]
 gm_level = ${FT_GM_LEVEL:-3}
 vendor_entry = ${FT_VENDOR_ENTRY:-0}
@@ -152,9 +156,13 @@ first_run() {
     # Bumped when a new image analyses differently (2: "new in Forever" against the Classic Era client; 3: trainer fixes
     # skip talents and FT_FORGE_TRAINER_SKIP_IDS, which is part of the marker too; 4: Wowhead checks new items and
     # trainer spells; 5: every item players cannot get, Season of Discovery ones included; 6: items
-    # Wowhead does not know stay visible, creature checks): the stored
+    # Wowhead does not know stay visible, creature checks; 7: release phases, the phase list's checksum is part of the marker): the stored
     # analysis is then redone once at the next start.
-    marker="$languages analysis=6 skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    # the phase list's contents count, not only its name: a new image may ship new dates or raids
+    phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
+    case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
+    phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
+    marker="$languages analysis=7 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

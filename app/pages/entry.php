@@ -26,7 +26,7 @@ foreach (['teach', 'creates'] as $key) {
 if (!empty($data['item'])) $teach['item'] = rows("SELECT * FROM ft_entities WHERE type = 'item' AND id = ?", [(int)$data['item']]);
 if (!empty($data['spell'])) $teach['spell'] = rows("SELECT * FROM ft_entities WHERE type = 'spell' AND id = ?", [(int)$data['spell']]);
 if (!empty($data['ranks'])) $teach['ranks'] = rows("SELECT * FROM ft_entities WHERE type = 'spell' AND id IN (" . implode(',', array_map('intval', $data['ranks'])) . ') ORDER BY FIELD(id,' . implode(',', array_map('intval', $data['ranks'])) . ')');
-$zoneQuests = $type === 'zone' ? rows("SELECT status, COUNT(*) n FROM ft_entities WHERE type = 'quest' AND sub = ? GROUP BY status", [(string)$id]) : [];
+$zoneQuests = $type === 'zone' ? rows("SELECT IF(status <> 'ok' AND " . later_sql() . ", 'later', status) status, COUNT(*) n FROM ft_entities WHERE type = 'quest' AND sub = ? GROUP BY 1", [(string)$id]) : [];
 $fixes = is_admin() && table_exists('ft_fixes') ? rows('SELECT kind, db, rows_count, needs, summary FROM ft_fixes WHERE type = ? AND id = ?', [$type, $id]) : [];
 $applied = is_admin() && table_exists('ft_forge_log') ? rows("SELECT id, kind, created_at, state FROM ft_forge_log WHERE JSON_CONTAINS(items, JSON_OBJECT('type', ?, 'id', ?)) ORDER BY id DESC LIMIT 5", [$type, $id]) : [];
 $fieldLabels = ['name' => t('Name', 'Nom'), 'quality' => t('Quality', 'Qualité'), 'ilvl' => t('Item level', 'Niveau d’objet'), 'req' => t('Required level', 'Niveau requis'),
@@ -42,7 +42,8 @@ page_start($name, $type);
 ?>
 <nav class="crumbs"><a href="<?= e(url()) ?>"><i class="fas fa-house"></i></a><i class="fas fa-chevron-right"></i><a href="<?= e(type_url($type)) ?>"><?= e(type_label($type)) ?></a><i class="fas fa-chevron-right"></i><span><?= e($name) ?></span></nav>
 
-<section class="entry-hero is-<?= e($r['status']) ?>">
+<?php $later = is_later($r); ?>
+<section class="entry-hero is-<?= e($later ? 'later' : $r['status']) ?>">
   <div class="entry-icon"><?= icon_html($r, $type, 'large', false) ?></div>
   <div class="entry-title">
     <span class="eyebrow"><?= e(type_label($type)) ?> · ID <?= (int)$r['id'] ?></span>
@@ -51,6 +52,7 @@ page_start($name, $type);
       <?php if ($otherName): ?><span class="tag is-plain" lang="<?= fr() ? 'en' : 'fr' ?>"><i class="fas fa-language"></i> <?= e($otherName) ?></span><?php endif; ?>
       <?php if ($r['is_new']): ?><em class="tag is-new"><i class="fas fa-star"></i> <?= e(t('New in Forever', 'Nouveau dans Forever')) ?></em><?php endif; ?>
       <?php if ((int)$r['internal']): ?><em class="tag"><?= e(t('Internal / test content', 'Contenu interne / de test')) ?></em><?php endif; ?>
+      <?php if ((int)($r['phase'] ?? 0) && isset(phases()[(int)$r['phase']])): ?><em class="tag <?= $later ? 'is-later' : 'is-plain' ?>" title="<?= e((string)(phases()[(int)$r['phase']]['source'] ?? '')) ?>"><i class="fas fa-hourglass-half"></i> <?= e(phase_title((int)$r['phase'])) ?></em><?php endif; ?>
       <span class="tag is-plain"><i class="fas fa-code-branch"></i> <?= e(t('since build', 'depuis le build')) ?> <?= (int)$r['first_build'] ?></span>
     </div>
     <div class="entry-links">
@@ -61,7 +63,7 @@ page_start($name, $type);
   </div>
   <div class="entry-score">
     <div class="ring-wrap is-md"><?= ring((int)$r['score'], 104, 'is-' . $r['status']) ?><div class="ring-label"><strong><?= (int)$r['score'] ?></strong><small>%</small></div></div>
-    <?= status_badge($r['status']) ?>
+    <?= $later ? row_badge($r) : status_badge($r['status']) ?>
   </div>
 </section>
 
@@ -81,14 +83,14 @@ page_start($name, $type);
         <?php if (isset($data['pos'])): ?><div><dt><?= e(t('Position', 'Position')) ?></dt><dd><?= e(implode(' / ', $data['pos'])) ?> · <?= e(t('map', 'carte')) ?> <?= (int)($data['map'] ?? 0) ?></dd></div><?php endif; ?>
         <?php if ($r['sub'] !== '' && !in_array($type, ['quest', 'item'], true)): ?><div><dt><?= e(t('Category', 'Catégorie')) ?></dt><dd><?= e(sub_label($r['sub'])) ?></dd></div><?php endif; ?>
         <div><dt><?= e(t('First seen', 'Vu depuis')) ?></dt><dd><?= e(t('build', 'build')) ?> <?= (int)$r['first_build'] ?></dd></div>
-        <?php if ($zoneQuests): ?><div><dt><?= e(t('Quests of the zone', 'Quêtes de la zone')) ?></dt><dd class="badges"><?php foreach ($zoneQuests as $zq): ?><?= status_badge($zq['status']) ?> <b><?= (int)$zq['n'] ?></b> <?php endforeach; ?></dd></div><?php endif; ?>
+        <?php if ($zoneQuests): ?><div><dt><?= e(t('Quests of the zone', 'Quêtes de la zone')) ?></dt><dd class="badges"><?php foreach ($zoneQuests as $zq): ?><?= $zq['status'] === 'later' ? '<span class="badge is-later"><i></i>' . e(t('Later', 'Plus tard')) . '</span>' : status_badge($zq['status']) ?> <b><?= (int)$zq['n'] ?></b> <?php endforeach; ?></dd></div><?php endif; ?>
       </dl>
       <?php if (!empty($data['text'])): ?><blockquote class="quote"><?= e($data['text']) ?><cite>Wowhead Forever</cite></blockquote><?php endif; ?>
       <?php if (($data['wowhead'] ?? '') === 'season'): ?><p class="muted small"><?= e(t('Wowhead marks it as added in Season of Discovery, maybe not in WoW: Forever: listed under Internal / test.', 'Wowhead l’indique ajouté par la Saison de la Découverte, peut-être absent de WoW: Forever : classé en Interne / test.')) ?></p><?php elseif (($data['wowhead'] ?? '') === 'unknown'): ?><p class="muted small"><?= e(t('Wowhead\'s Forever database does not list it yet: it may be content players have not discovered. Wowhead is asked again regularly.', 'La base Forever de Wowhead ne le liste pas encore : c’est peut-être du contenu que les joueurs n’ont pas découvert. Wowhead est consulté à nouveau régulièrement.')) ?></p><?php endif; ?>
       <?php if (!empty($data['unnamed'])): ?><p class="muted small"><?= e(t('The client only lists this quest ID. Run the analysis with --wowhead to name it.', 'Le client ne donne que l’ID de cette quête. Lancez l’analyse avec --wowhead pour la nommer.')) ?></p><?php endif; ?>
       <?php foreach (['spell' => t('Spell', 'Sort'), 'item' => t('Item', 'Objet'), 'teach' => t('Taught by', 'Appris par'), 'creates' => t('Creates', 'Crée'), 'ranks' => t('Ranks', 'Rangs')] as $key => $label): if (empty($teach[$key])) continue; ?>
         <p class="facts-title"><?= e($label) ?></p>
-        <ul class="list is-compact"><?php foreach ($teach[$key] as $t): ?><li><?= icon_html($t, $t['type']) ?><div class="list-main"><?= name_link($t, $t['type']) ?></div><?= status_badge($t['status'], (int)$t['score']) ?></li><?php endforeach; ?></ul>
+        <ul class="list is-compact"><?php foreach ($teach[$key] as $t): ?><li><?= icon_html($t, $t['type']) ?><div class="list-main"><?= name_link($t, $t['type']) ?></div><?= row_badge($t) ?></li><?php endforeach; ?></ul>
       <?php endforeach; ?>
     </section>
   </div>
@@ -144,7 +146,7 @@ page_start($name, $type);
     <?php if ($related): ?>
     <section class="block">
       <header class="block-head"><div><span class="eyebrow"><?= e($type === 'dungeon' ? t('Encounters', 'Rencontres') : t('Instance', 'Instance')) ?></span><h2><?= e($type === 'dungeon' ? t('Bosses of this instance', 'Boss de cette instance') : t('Where this boss is fought', 'Où se combat ce boss')) ?></h2></div></header>
-      <ul class="list is-grid"><?php foreach ($related as $x): ?><li><?= icon_html($x, $x['type']) ?><div class="list-main"><?= name_link($x, $x['type']) ?><small><?= e(other_name($x)) ?></small></div><?= status_badge($x['status'], (int)$x['score']) ?></li><?php endforeach; ?></ul>
+      <ul class="list is-grid"><?php foreach ($related as $x): ?><li><?= icon_html($x, $x['type']) ?><div class="list-main"><?= name_link($x, $x['type']) ?><small><?= e(other_name($x)) ?></small></div><?= row_badge($x) ?></li><?php endforeach; ?></ul>
     </section>
     <?php endif; ?>
 

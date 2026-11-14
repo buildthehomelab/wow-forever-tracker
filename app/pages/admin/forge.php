@@ -13,6 +13,10 @@ $q = trim(mb_substr((string)($_GET['q'] ?? ''), 0, 60));
 $filterType = isset(TYPES[$_GET['type'] ?? '']) ? $_GET['type'] : '';
 $onlyNew = !empty($_GET['new']);
 $showInternal = !empty($_GET['internal']);
+// Items a release phase not open yet brings (docs/PHASES.md): selling them at a vendor would release them early, so they
+// stay out of the Items tab unless asked for.
+$showLater = !empty($_GET['later']);
+$vendorLaterSql = $showLater ? '' : ' AND ' . released_sql('e.');
 $quality = isset($_GET['quality']) && $_GET['quality'] !== '' ? (int)$_GET['quality'] : null;
 $teachesOnly = !empty($_GET['teaches']);
 $page = max(1, (int)($_GET['p'] ?? 1));
@@ -22,7 +26,7 @@ $internalSql = $showInternal ? '' : ' AND e.internal = 0';
 $tabCounts = [];
 foreach (rows("SELECT f.kind, COUNT(*) n FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE 1$internalSql GROUP BY f.kind") as $x) $tabCounts[$x['kind']] = (int)$x['n'];
 $sourceFailing = "JSON_CONTAINS(e.checks, JSON_OBJECT('code', 'source', 'ok', false))";
-$tabCounts['vendor'] = (int)value("SELECT COUNT(*) FROM ft_entities e WHERE e.type = 'item' AND $sourceFailing$internalSql");
+$tabCounts['vendor'] = (int)value("SELECT COUNT(*) FROM ft_entities e WHERE e.type = 'item' AND $sourceFailing$internalSql$vendorLaterSql");
 
 $where = []; $params = [];
 if ($q !== '') {
@@ -35,6 +39,7 @@ $typeOptions = [];
 if ($tab === 'vendor') {
     $where[] = "e.type = 'item'";
     $where[] = $sourceFailing;
+    if (!$showLater) $where[] = released_sql('e.');
     if ($quality !== null) { $where[] = 'e.quality = ?'; $params[] = $quality; }
     if ($teachesOnly) {
         $taught = [];
@@ -48,7 +53,7 @@ if ($tab === 'vendor') {
     if ($importedOnly) $where[] = $hasImports ? 'e.id IN (SELECT item FROM ft_import_items)' : '0';
     $whereSql = implode(' AND ', $where);
     $total = (int)value("SELECT COUNT(*) FROM ft_entities e WHERE $whereSql", $params);
-    $list = rows("SELECT e.type, e.id, 'vendor' kind, e.name, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.internal, e.level, e.checks FROM ft_entities e
+    $list = rows("SELECT e.type, e.id, 'vendor' kind, e.name, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.internal, e.level, e.checks" . phase_column('e.') . " FROM ft_entities e
         WHERE $whereSql ORDER BY e.is_new DESC, e.quality DESC, e.level DESC, e.name LIMIT $perPage OFFSET " . (($page - 1) * $perPage), $params);
     // what the imported files know about these items: [item => [[kind, source, name]]]
     $importSources = [];
@@ -66,14 +71,14 @@ if ($tab === 'vendor') {
             $importSources[(int)$f['item']][] = [$f['kind'], (int)$f['source'], $names[$key] ?? ('#' . $f['source'])];
         }
     }
-    $importedCount = $hasImports ? (int)value("SELECT COUNT(DISTINCT s.item) FROM ft_import_items s JOIN ft_entities e ON e.type = 'item' AND e.id = s.item WHERE $sourceFailing" . ($showInternal ? '' : ' AND e.internal = 0')) : 0;
+    $importedCount = $hasImports ? (int)value("SELECT COUNT(DISTINCT s.item) FROM ft_import_items s JOIN ft_entities e ON e.type = 'item' AND e.id = s.item WHERE $sourceFailing" . ($showInternal ? '' : ' AND e.internal = 0') . $vendorLaterSql) : 0;
 } else {
     $where[] = 'f.kind = ?'; $params[] = $tab;
     if ($filterType !== '') { $where[] = 'f.type = ?'; $params[] = $filterType; }
     $whereSql = implode(' AND ', $where);
     foreach (rows("SELECT f.type, COUNT(*) n FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE f.kind = ?$internalSql GROUP BY f.type", [$tab]) as $x) $typeOptions[$x['type']] = (int)$x['n'];
     $total = (int)value("SELECT COUNT(*) FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE $whereSql", $params);
-    $list = rows("SELECT f.type, f.id, f.kind, f.db, f.rows_count, f.needs, f.summary, e.name, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.internal, e.level
+    $list = rows("SELECT f.type, f.id, f.kind, f.db, f.rows_count, f.needs, f.summary, e.name, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.internal, e.level" . phase_column('e.') . "
         FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE $whereSql ORDER BY e.is_new DESC, FIELD(f.type,'dungeon','talent','spell','recipe','mount','pet','toy','achievement','item'), e.name
         LIMIT $perPage OFFSET " . (($page - 1) * $perPage), $params);
 }
@@ -136,6 +141,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
     <?php foreach ($qualities as $value => $label): ?><option value="<?= $value ?>" <?= $quality === $value ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?></select></label>
   <label class="toggle"><input type="checkbox" name="teaches" value="1" <?= $teachesOnly ? 'checked' : '' ?> data-autosubmit><span></span><?= e(t('Teaches a recipe, mount, pet or toy', 'Apprend une recette, monture, mascotte ou jouet')) ?></label>
   <label class="toggle"><input type="checkbox" name="imported" value="1" <?= $importedOnly ? 'checked' : '' ?> data-autosubmit><span></span><?= e(t('Found in an import', 'Trouvé dans un import')) ?> (<?= number($importedCount) ?>)</label>
+  <?php if (phases_pending()): ?><label class="toggle" title="<?= e(t('Items a release phase not open yet brings: a vendor would release them early.', 'Objets d’une phase pas encore ouverte : un marchand les sortirait en avance.')) ?>"><input type="checkbox" name="later" value="1" <?= $showLater ? 'checked' : '' ?> data-autosubmit><span></span><?= e(t('Later phases', 'Phases à venir')) ?></label><?php endif; ?>
   <?php endif; ?>
   <label class="toggle"><input type="checkbox" name="new" value="1" <?= $onlyNew ? 'checked' : '' ?> data-autosubmit><span></span><?= e(t('New in Forever', 'Nouveau dans Forever')) ?></label>
   <label class="toggle"><input type="checkbox" name="internal" value="1" <?= $showInternal ? 'checked' : '' ?> data-autosubmit><span></span><?= e(t('Internal / test', 'Interne / test')) ?></label>
@@ -161,7 +167,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
         <?php else: ?><span><?= e($summary) ?></span><?php endif; ?>
         <?php if (!empty($x['needs'])): ?><small class="warn-text"><i class="fas fa-link"></i> <?= e(t('needs the hotfix fix first', 'nécessite d’abord la correction hotfix')) ?></small><?php endif; ?>
         <?php if ($done): ?><small class="ok-text"><i class="fas fa-circle-check"></i> <?= e(t('applied, waiting for the next analysis', 'appliquée, en attente de la prochaine analyse')) ?></small><?php endif; ?></td>
-      <td><?= status_badge($x['status'], (int)$x['score']) ?></td>
+      <td><?= row_badge($x) ?></td>
       <td class="num"><?= $x['kind'] === 'vendor' ? count($importSources[(int)$x['id']] ?? []) : (int)$x['rows_count'] ?></td>
     </tr>
   <?php endforeach; ?>

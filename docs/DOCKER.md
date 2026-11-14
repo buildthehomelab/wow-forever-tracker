@@ -66,6 +66,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_BUILD` | from `auth.realmlist` | Client build of the server data |
 | `FT_ANALYSE_ON_START` | `new-build` | `new-build`: only for a build without a snapshot; `always`; `never` |
 | `FT_WOWHEAD` | `1` | `0`: the analysis does not ask Wowhead's public tooltips for the names of new quests the server lacks, nor check the items players cannot get and the new trainer spells (the first check of ~7,000 items takes about an hour, then it is cached) |
+| `FT_PHASE` | empty | Last release phase your realm has opened ([PHASES.md](PHASES.md)): empty = by the phases' dates; a phase key, a number, `all` or `none` |
+| `FT_PHASES_FILE` | `tools/phases/forever.json` | Another phase list, or `none`. A change re-analyses once |
 | `FT_LOCATE` | `1` | `0`: no locator after the first analysis (it asks Wowhead's public tooltips, slowly) |
 | `FT_ADMIN_USER`, `FT_ADMIN_PASSWORD` | `admin`, empty | Local administrator; empty password: game masters only |
 | `FT_GM_LEVEL` | `3` | GM level a game account needs to log in as an administrator |

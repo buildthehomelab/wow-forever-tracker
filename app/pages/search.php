@@ -16,7 +16,7 @@ page_start(t('Search', 'Recherche') . ($q !== '' ? ' · ' . $q : ''), 'search');
 <p class="result-count"><b><?= count($results) ?></b> <?= e(t('results', 'résultats')) ?></p>
 <ul class="list is-grid">
 <?php foreach ($results as $x): ?>
-  <li><?= icon_html($x, $x['type']) ?><div class="list-main"><?= name_link($x, $x['type']) ?><small><?= e(type_label($x['type'])) ?> · ID <?= (int)$x['id'] ?><?= (int)$x['internal'] ? ' · ' . e(t('internal', 'interne')) : '' ?></small></div><?= status_badge($x['status'], (int)$x['score']) ?></li>
+  <li><?= icon_html($x, $x['type']) ?><div class="list-main"><?= name_link($x, $x['type']) ?><small><?= e(type_label($x['type'])) ?> · ID <?= (int)$x['id'] ?><?= (int)$x['internal'] ? ' · ' . e(t('internal', 'interne')) : '' ?></small></div><?= row_badge($x) ?></li>
 <?php endforeach; ?>
 </ul>
 <?php endif; ?>

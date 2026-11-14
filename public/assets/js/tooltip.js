@@ -169,7 +169,7 @@
     if (t.col && t.k === 'item' && t.src) body.push('<div class="wt-gap"></div>' + text(t.src, 'c-muted'));
     if (!options.static && data.status) {
       const fails = (data.fails || []).slice(0, 2).map(esc).join(' · ');
-      body.push(`<div class="wt-foot"><span class="wt-status is-${data.status}"><i></i>${esc(data.statusLabel)}${data.status === 'partial' ? ' · ' + data.score + '%' : ''}</span>${fails ? `<small>${fails}</small>` : ''}<span class="wt-brand">Forever Tracker · ${esc(data.type)}</span></div>`);
+      body.push(`<div class="wt-foot"><span class="wt-status is-${data.status}"><i></i>${esc(data.statusLabel)}${data.status === 'partial' ? ' · ' + data.score + '%' : ''}${data.phase ? ' · ' + esc(data.phase) : ''}</span>${fails ? `<small>${fails}</small>` : ''}<span class="wt-brand">Forever Tracker · ${esc(data.type)}</span></div>`);
     }
     const quality = t.k === 'item' ? ` q${t.q || 0}` : '';
     const icon = data.icon ? `<span class="wt-icon${quality}" style="background-image:url('${esc(data.icon)}')"></span>` : '';

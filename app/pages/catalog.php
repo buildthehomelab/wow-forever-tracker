@@ -3,7 +3,8 @@
 $perPage = 50;
 $page = max(1, min(2000, (int)($_GET['p'] ?? 1)));
 $q = trim(mb_substr((string)($_GET['q'] ?? ''), 0, 60));
-$status = in_array($_GET['status'] ?? '', ['ok', 'partial', 'missing', 'todo'], true) ? $_GET['status'] : '';
+$status = in_array($_GET['status'] ?? '', ['ok', 'partial', 'missing', 'todo', 'later'], true) ? $_GET['status'] : '';
+if ($status === 'later' && !phases_pending()) $status = '';
 $onlyNew = !empty($_GET['new']);
 $showInternal = !empty($_GET['internal']);
 $sub = mb_substr((string)($_GET['sub'] ?? ''), 0, 60);
@@ -12,8 +13,10 @@ $sort = array_key_exists($_GET['sort'] ?? '', $sorts) ? $_GET['sort'] : ($type =
 
 $where = ['e.type = ?']; $params = [$type];
 if (!$showInternal) $where[] = 'e.internal = 0';
-if ($status === 'todo') $where[] = "e.status <> 'ok'";
-elseif ($status !== '') { $where[] = 'e.status = ?'; $params[] = $status; }
+// the status filters count what is open now; "later" is what a release phase not open yet will bring (docs/PHASES.md)
+if ($status === 'later') { $where[] = "e.status <> 'ok'"; $where[] = later_sql('e.'); }
+elseif ($status === 'todo') { $where[] = "e.status <> 'ok'"; $where[] = released_sql('e.'); }
+elseif ($status !== '') { $where[] = 'e.status = ?'; $params[] = $status; if ($status !== 'ok') $where[] = released_sql('e.'); }
 if ($onlyNew) $where[] = 'e.is_new = 1';
 if ($q !== '') {
     if (ctype_digit($q)) { $where[] = 'e.id = ?'; $params[] = (int)$q; }
@@ -25,8 +28,9 @@ if ($sub !== '') {
 }
 $whereSql = implode(' AND ', $where);
 $total = (int)value("SELECT COUNT(*) FROM ft_entities e WHERE $whereSql", $params);
-$counts = ['ok' => 0, 'partial' => 0, 'missing' => 0];
-foreach (rows('SELECT status, COUNT(*) n FROM ft_entities e WHERE e.type = ? AND e.internal = 0 GROUP BY status', [$type]) as $r) $counts[$r['status']] = (int)$r['n'];
+$counts = ['ok' => 0, 'partial' => 0, 'missing' => 0] + (phases_pending() ? ['later' => 0] : []);
+foreach (rows("SELECT IF(e.status <> 'ok' AND " . later_sql('e.') . ", 'later', e.status) s, COUNT(*) n FROM ft_entities e WHERE e.type = ? AND e.internal = 0 GROUP BY 1", [$type]) as $r) $counts[$r['s']] = (int)$r['n'];
+$tiles = array_keys($counts);
 $list = rows("SELECT e.* FROM ft_entities e WHERE $whereSql ORDER BY {$sorts[$sort]} LIMIT $perPage OFFSET " . (($page - 1) * $perPage), $params);
 $fixes = [];
 if (is_admin() && $list && table_exists('ft_fixes')) {
@@ -60,18 +64,18 @@ page_start(type_label($type), $type, type_desc($type));
     <span class="page-icon"><i class="fas <?= TYPES[$type][1] ?>"></i></span>
     <div><span class="eyebrow"><?= e(t('Resources', 'Ressources')) ?></span><h1><?= e(type_label($type)) ?></h1><p><?= e(type_desc($type)) ?></p></div>
   </div>
-  <div class="stat-tiles">
-    <?php foreach (['ok', 'partial', 'missing'] as $s): ?>
-      <a class="stat-tile is-<?= $s ?> <?= $status === $s ? 'is-active' : '' ?>" href="<?= e($pageUrl(['status' => $status === $s ? '' : $s, 'p' => ''])) ?>"><strong><?= number($counts[$s]) ?></strong><span><?= e(status_label($s)) ?></span><em><?= $all ? round(100 * $counts[$s] / $all) : 0 ?>%</em></a>
+  <div class="stat-tiles<?= count($tiles) === 4 ? ' has-4' : '' ?>">
+    <?php foreach ($tiles as $s): ?>
+      <a class="stat-tile is-<?= $s ?> <?= $status === $s ? 'is-active' : '' ?>" href="<?= e($pageUrl(['status' => $status === $s ? '' : $s, 'p' => ''])) ?>"><strong><?= number($counts[$s]) ?></strong><span><?= e($s === 'later' ? t('Later', 'Plus tard') : status_label($s)) ?></span><em><?= $all ? round(100 * $counts[$s] / $all) : 0 ?>%</em></a>
     <?php endforeach; ?>
-    <span class="stack is-wide" aria-hidden="true"><?php foreach (['ok', 'partial', 'missing'] as $s): ?><i class="is-<?= $s ?>" style="width:<?= $all ? round(100 * $counts[$s] / $all, 2) : 0 ?>%"></i><?php endforeach; ?></span>
+    <span class="stack is-wide" aria-hidden="true"><?php foreach ($tiles as $s): ?><i class="is-<?= $s ?>" style="width:<?= $all ? round(100 * $counts[$s] / $all, 2) : 0 ?>%"></i><?php endforeach; ?></span>
   </div>
 </section>
 
 <form class="toolbar" method="get" data-autosubmit-form>
   <label class="field is-search"><i class="fas fa-magnifying-glass"></i><input name="q" value="<?= e($q) ?>" placeholder="<?= e(t('Filter by name or ID…', 'Filtrer par nom ou ID…')) ?>" aria-label="<?= e(t('Name or ID', 'Nom ou ID')) ?>"></label>
   <div class="segmented" role="group" aria-label="<?= e(t('Status', 'Statut')) ?>">
-    <?php foreach (['' => t('All', 'Tous'), 'todo' => t('To do', 'À faire'), 'ok' => status_label('ok'), 'partial' => status_label('partial'), 'missing' => status_label('missing')] as $value => $label): ?>
+    <?php foreach (['' => t('All', 'Tous'), 'todo' => t('To do', 'À faire'), 'ok' => status_label('ok'), 'partial' => status_label('partial'), 'missing' => status_label('missing')] + (phases_pending() ? ['later' => t('Later', 'Plus tard')] : []) as $value => $label): ?>
       <label class="<?= $value !== '' && $value !== 'todo' ? 'is-' . $value : '' ?>"><input type="radio" name="status" value="<?= $value ?>" <?= $status === $value ? 'checked' : '' ?> data-autosubmit><span><?= e($label) ?></span></label>
     <?php endforeach; ?>
   </div>
@@ -108,7 +112,7 @@ page_start(type_label($type), $type, type_desc($type));
         <small><?= e(implode(' · ', array_filter([$subText, $other]))) ?></small></div></td>
       <?php if ($levelHeader): ?><td class="num" data-label="<?= e($levelHeader) ?>"><?= (int)$r['level'] ?: '—' ?></td><?php endif; ?>
       <td class="missing-cell"><?php if ($fails): ?><span><?= e(check_label($fails[0])) ?></span><small><?= e(mb_strimwidth(tr($fails[0]['detail']), 0, 96, '…')) ?></small><?php if (count($fails) > 1): ?><small class="more">+<?= count($fails) - 1 ?> <?= e(t('more', 'autre(s)')) ?></small><?php endif; ?><?php else: ?><span class="muted">—</span><?php endif; ?></td>
-      <td><?= status_badge($r['status'], (int)$r['score']) ?></td>
+      <td><?= row_badge($r) ?></td>
       <td class="num"><?php if ($wh): ?><a class="id-link" href="<?= e($wh) ?>" target="_blank" rel="noopener" title="Wowhead"><?= (int)$r['id'] ?></a><?php else: ?><span class="id-link"><?= (int)$r['id'] ?></span><?php endif; ?></td>
     </tr>
   <?php endforeach; ?>

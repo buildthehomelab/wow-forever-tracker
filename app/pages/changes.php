@@ -17,7 +17,7 @@ $summary = [];
 foreach (rows("SELECT c.type, c.kind, COUNT(*) n FROM ft_changes c LEFT JOIN ft_entities e ON e.type = c.type AND e.id = c.id WHERE c.build = ?$visible GROUP BY c.type, c.kind", [$build]) as $x)
     $summary[$x['type']][$x['kind']] = (int)$x['n'];
 $limit = $filterType !== '' ? 500 : 40;
-$list = rows("SELECT c.*, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.data FROM ft_changes c LEFT JOIN ft_entities e ON e.type = c.type AND e.id = c.id
+$list = rows("SELECT c.*, e.name_en, e.icon, e.quality, e.status, e.score, e.is_new, e.data" . phase_column('e.') . " FROM ft_changes c LEFT JOIN ft_entities e ON e.type = c.type AND e.id = c.id
     WHERE $where ORDER BY FIELD(c.type,'dungeon','boss','zone','quest','mount','pet','toy','talent','spell','recipe','item','achievement','taxi'), FIELD(c.kind,'added','modified','removed'), c.name LIMIT 5000", $params);
 $grouped = [];
 foreach ($list as $x) $grouped[$x['type']][] = $x;
@@ -104,7 +104,7 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
       <?php if ($fields): ?><span class="change-fields"><?php foreach (array_slice($fields, 0, 3, true) as $field => [$before, $after]): ?>
         <span><em><?= e($fieldLabels[$field] ?? $field) ?></em> <?php if (!is_array($before) && !is_array($after) && mb_strlen((string)$before) < 40 && mb_strlen((string)$after) < 40): ?><del><?= e($before === '' || $before === null ? '∅' : $before) ?></del> → <ins><?= e($after === '' || $after === null ? '∅' : $after) ?></ins><?php else: ?><ins><?= e(t('changed', 'modifié')) ?></ins><?php endif; ?></span>
       <?php endforeach; ?><?= count($fields) > 3 ? '<span class="more">+' . (count($fields) - 3) . '</span>' : '' ?></span><?php else: ?><span></span><?php endif; ?>
-      <span class="change-status"><?= $x['status'] ? status_badge($x['status'], (int)$x['score']) : '' ?><?php if ($wh): ?><a class="icon-btn is-small" href="<?= e($wh) ?>" target="_blank" rel="noopener" aria-label="Wowhead"><i class="fas fa-arrow-up-right-from-square"></i></a><?php endif; ?></span>
+      <span class="change-status"><?= $x['status'] ? row_badge($x) : '' ?><?php if ($wh): ?><a class="icon-btn is-small" href="<?= e($wh) ?>" target="_blank" rel="noopener" aria-label="Wowhead"><i class="fas fa-arrow-up-right-from-square"></i></a><?php endif; ?></span>
     </li>
   <?php endforeach; ?>
   </ul>

@@ -18,7 +18,7 @@ $unknownToCore = $client && $serverBuild && $serverBuild < (int)$client['build']
 $changeCounts = [];
 foreach (rows('SELECT build, kind, COUNT(*) n FROM ft_changes GROUP BY build, kind') as $r) $changeCounts[$r['build']][$r['kind']] = (int)$r['n'];
 $priorities = rows("SELECT type, id, name, sub, icon, quality, status, score, is_new, checks FROM ft_entities
-    WHERE internal = 0 AND status <> 'ok' AND type IN ('dungeon','boss','zone') ORDER BY FIELD(type,'dungeon','zone','boss'), is_new DESC, score ASC LIMIT 8");
+    WHERE internal = 0 AND status <> 'ok' AND " . released_sql() . " AND type IN ('dungeon','boss','zone') ORDER BY FIELD(type,'dungeon','zone','boss'), is_new DESC, score ASC LIMIT 8");
 $latestBuild = (int)value('SELECT MAX(build) FROM ft_changes');
 $latestVersion = '';
 foreach ($builds as $b) if ((int)$b['build'] === $latestBuild) $latestVersion = $b['version'];
@@ -54,6 +54,12 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
   <article class="kpi is-gold"><span class="kpi-icon"><i class="fas fa-star"></i></span><div><strong><?= number($totals['new']) ?></strong><span><?= e(t('new in Forever', 'nouveautés Forever')) ?></span></div></article>
 </section>
 
+<?php $later = later_counts(); if ($later): ?>
+<div class="alert is-later"><i class="fas fa-hourglass-half"></i><div><strong><?= e(sprintf(t('%s gaps wait for a release phase that is not open yet.', '%s manques attendent une phase qui n’est pas encore ouverte.'), number(array_sum($later)))) ?></strong>
+  <?= e(t('The client already carries them, but the game has not released them: they are left out of the coverage and the work list until their phase opens.', 'Le client les contient déjà, mais le jeu ne les a pas encore sortis : ils sont exclus de la couverture et de la liste de travail jusqu’à l’ouverture de leur phase.')) ?>
+  <ul class="phase-list"><?php foreach ($later as $n => $count): $p = phases()[$n] ?? null; if (!$p) continue; ?><li><b><?= e($p['name']) ?></b> <small><?= e(phase_when($p)) ?></small> <span><?= number($count) ?></span></li><?php endforeach; ?></ul>
+  <a href="<?= e(url('todo', ['when' => 'later'])) ?>"><?= e(t('See them', 'Les voir')) ?> →</a></div></div>
+<?php endif; ?>
 <?php if ($unknownShare >= .5): ?>
 <div class="alert"><i class="fas fa-triangle-exclamation"></i><div><strong><?= e(t('Most resources look unknown to the core.', 'La plupart des ressources semblent inconnues du core.')) ?></strong>
   <?= e(sprintf(t('%d%% of items, spells and talents are missing from the server data the analysis read. [server] root and dbc in config.ini probably do not lead to your server’s .db2 files (for example data/dbc/enUS). Fix them and run the analysis again.', '%d %% des objets, sorts et talents manquent dans les données serveur lues par l’analyse. [server] root et dbc dans config.ini ne mènent probablement pas aux fichiers .db2 de votre serveur (par exemple data/dbc/enUS). Corrigez-les et relancez l’analyse.'), round(100 * $unknownShare))) ?></div></div>
@@ -92,7 +98,7 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
     <ul class="list">
     <?php foreach ($priorities as $r): $fail = failing_checks(json_decode($r['checks'], true) ?: []); ?>
       <li><?= icon_html($r, $r['type']) ?><div class="list-main"><?= name_link($r, $r['type']) ?><?= $r['is_new'] ? ' <em class="tag is-new">' . e(t('New', 'Nouveau')) . '</em>' : '' ?>
-        <small><?= e(type_label($r['type'])) ?><?= $fail ? ' · ' . e(check_label($fail[0])) : '' ?></small></div><?= status_badge($r['status'], (int)$r['score']) ?></li>
+        <small><?= e(type_label($r['type'])) ?><?= $fail ? ' · ' . e(check_label($fail[0])) : '' ?></small></div><?= row_badge($r) ?></li>
     <?php endforeach; ?>
     </ul>
   </section>

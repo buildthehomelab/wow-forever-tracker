@@ -83,6 +83,15 @@ The worldserver needs the ForeverTracker core module (`core/forge_commands.cpp`)
 | `branch` | `forever` | Wowhead branch the locator reads positions from |
 | `pause` | `0.4` | Seconds between two requests to Wowhead |
 
+## `[phases]`
+
+Release phases ([PHASES.md](PHASES.md)): content the client carries but the game has not opened yet shows as *Later*.
+
+| Key | Meaning |
+|---|---|
+| `file` | The phase list, relative to the tracker folder. Empty: `tools/phases/forever.json`; `none`: no phases. A change needs a new analysis |
+| `current` | The last phase your realm has opened. Empty: each phase opens on its date. Or a phase key, a number, `all` or `none`. Read by the website at each page |
+
 ## `[admin]` and `[admins]`
 
 | Key | Default | |
