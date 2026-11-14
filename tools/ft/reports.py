@@ -94,7 +94,11 @@ class Matcher:
 
 
 ALLIANCE, HORDE = 'Alliance', 'Horde'
-RACES = {ALLIANCE: 1 | 4 | 8 | 64, HORDE: 2 | 16 | 32 | 128}     # the eight races every version has, as race mask bits
+# The race masks the live server sends for a quest of one side (EG Link's recordings of its answers: 301 Alliance
+# quests carry the first, the Horde's the second). They hold the eight old races (0x4D, 0xB2), Forever's new race of
+# each side (bits 32 and 33) and the bits of races this version does not have.
+RACES = {ALLIANCE: 0x55155555B1354C4D, HORDE: 0xAA2AAAAA4E0AB3B2}
+EVERYONE = 2 ** 64 - 1
 RACE_SIDE = {'human': ALLIANCE, 'dwarf': ALLIANCE, 'night elf': ALLIANCE, 'gnome': ALLIANCE,
              'orc': HORDE, 'undead': HORDE, 'tauren': HORDE, 'troll': HORDE}
 
@@ -112,12 +116,13 @@ def side_of(text):
 
 
 def allowed_sides(mask):
-    """The sides a server's AllowableRaces lets take a quest. 0 and "every bit" are everyone."""
+    """The sides a server's AllowableRaces lets take a quest. 0 and "every bit" are everyone; a mask with bits of
+    neither side names no side this list knows (an empty set)."""
     try:
         mask = int(mask or 0)
     except (TypeError, ValueError):
         return {ALLIANCE, HORDE}
-    if mask <= 0 or mask >= 2 ** 63:
+    if mask <= 0 or mask == EVERYONE:
         return {ALLIANCE, HORDE}
     return {side for side, bits in RACES.items() if mask & bits}
 

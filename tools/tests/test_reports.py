@@ -121,7 +121,12 @@ class Sides(unittest.TestCase):
         both = {'Alliance', 'Horde'}
         self.assertEqual([reports.allowed_sides(m) for m in (0, '0', 18446744073709551615, -1, 77, 178, 8, 255, 1 | 2, None, 'x')],
                          [both, both, both, both, {'Alliance'}, {'Horde'}, {'Alliance'}, both, both, both, both])
-        self.assertEqual(reports.allowed_sides(1 << 20), set())   # only a race this list does not know: no side it can name
+        # the masks the live server sends: all of a side's races (the top bit is set in the Horde's: it is not "everyone")
+        self.assertEqual((reports.allowed_sides(0x55155555B1354C4D), reports.allowed_sides(0xAA2AAAAA4E0AB3B2), reports.allowed_sides('12261800583900083122')),
+                         ({'Alliance'}, {'Horde'}, {'Horde'}))
+        # Forever's new race of each side
+        self.assertEqual((reports.allowed_sides(0x100000000), reports.allowed_sides(0x200000000), reports.allowed_sides(0x300000000)), ({'Alliance'}, {'Horde'}, both))
+        self.assertEqual(reports.allowed_sides(1 << 40) - both, set())
 
     def test_only_quests_players_saw_have_a_word_on_their_side(self):
         found = reports.quest_sides(pack([{'id': 1, 'side': 'Alliance', 'seen_by_players': True}, {'id': 2, 'side': 'Horde'},
