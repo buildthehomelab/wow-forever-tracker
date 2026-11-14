@@ -87,6 +87,10 @@ def has_table(name, database='world'):
     return bool(query(f"SHOW TABLES LIKE '{name}'", database))
 
 
+def has_column(table_name, name, database='world'):
+    return has_table(table_name, database) and bool(query(f"SHOW COLUMNS FROM `{table_name}` LIKE '{name}'", database))
+
+
 def execute_file(path, database, account=None, binary=False):
     """`binary`: the file's bytes reach the server as they are and the client's own commands (source, system ...) are off."""
     cnf = _client_file(account)

@@ -18,7 +18,8 @@ import math
 import os
 import re
 
-from . import sqlio, summons
+from . import phases, sqlio, summons
+from .config import CONFIG
 from .config import DATA
 from .content import builds, table
 from .geo import Geo
@@ -60,8 +61,12 @@ def candidates():
         if len(item['reasons']) < 12 and [role, ref_type, int(ref_id)] not in item['reasons']:
             item['reasons'].append([role, ref_type, int(ref_id)])
 
+    # What a release phase that is not open yet will bring is no work of today: the website leaves it out of the
+    # work list, and so do the spawns (a closed raid's bosses and quest givers come back when its phase opens).
+    waiting = phases.closed(phases.load(), CONFIG.get('phases', 'current'))
+    later = f" AND phase NOT IN ({in_list(waiting)})" if waiting and sqlio.has_column('ft_entities', 'phase', 'tracker') else ''
     entities = {}
-    for row in sqlio.query("SELECT type, id, name, name_en, checks, data FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('quest', 'item', 'spell', 'recipe', 'boss')", 'tracker'):
+    for row in sqlio.query("SELECT type, id, name, name_en, checks, data FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('quest', 'item', 'spell', 'recipe', 'boss')" + later, 'tracker'):
         entities.setdefault(row['type'], []).append((int(row['id']), row, json.loads(row['checks'] or '[]')))
 
     # ---- quests: givers, enders and objectives nobody spawned
