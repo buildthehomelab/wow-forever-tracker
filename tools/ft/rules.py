@@ -1,8 +1,8 @@
 """Availability rules: one list of weighted checks per resource. Labels come from the check code
 (translated by the website); details are given in English and French."""
 import math
-import re
 
+from . import bosses
 from .server import log
 
 
@@ -27,6 +27,11 @@ SOURCES = {
     'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
 }
+
+
+# The Eastern Plaguelands towers: the flight master is there only while a faction holds the tower (the world PvP
+# script places it), so no spawn row is expected.
+TOWER_TAXI = {84, 85, 86, 87}
 
 
 def evaluate_all(content, ctx):
@@ -268,15 +273,15 @@ def evaluate_all(content, ctx):
         if row and int(row['QuestSortID'] or 0) > 0:
             official_quests_by_zone.setdefault(int(row['QuestSortID']), []).append(quest_id)
 
-    def normal(name):
-        return re.sub(r'[^a-z0-9]', '', (name or '').lower())
+    # Rows of the client that are no boss of their own (Season of Discovery's raid versions, the same fight listed
+    # again): they do not count among an instance's bosses, and the analysis files them under Internal / test.
+    shadows = bosses.shadows(content['boss'])
+    for boss_id, (reason, kept) in shadows.items():
+        content['boss'][boss_id]['shadow'] = {'reason': reason, 'kept': kept}
 
-    def boss_match(boss, map_id):
-        targets = {normal(boss.get('name_en')), normal(boss.get('name'))} - {''}
-        for npc in ctx['npc_maps'].get(map_id, []):
-            if normal(npc['name']) in targets or any(t and t in normal(npc['name']) for t in targets if len(t) > 5):
-                return npc
-        return None
+    def boss_match(boss_id, boss, map_id):
+        return bosses.find(boss_id, boss, ctx['npc_maps'].get(map_id, []), ctx.get('unspawned_npc', ()), ctx.get('summoned_npc', ()),
+                           bool(ctx['instance_template'].get(map_id)))
 
     def dungeon_result(map_id, entity):
         kind = entity['kind']
@@ -295,20 +300,27 @@ def evaluate_all(content, ctx):
         npcs = ctx['npc_maps'].get(map_id, [])
         spawned = sum(n['n'] for n in npcs)
         objects = ctx['go_counts'].get(map_id, 0)
-        checks.append(check(spawned >= 10, 'spawns', L(f'{spawned} creatures, {objects} world objects', f'{spawned} PNJ, {objects} objets du monde'), 3))
-        encounters = [b for b in content['boss'].values() if b['map'] == map_id]
+        # a battleground is mostly flags, gates and graveyards: Warsong Gulch has five creatures and works
+        populated = spawned >= 10 if kind in (1, 2) else spawned + objects >= 10
+        checks.append(check(populated, 'spawns', L(f'{spawned} creatures, {objects} world objects', f'{spawned} PNJ, {objects} objets du monde'), 3))
+        encounters = [(i, b) for i, b in content['boss'].items() if b['map'] == map_id and i not in shadows]
         if encounters:
-            found = sum(1 for b in encounters if boss_match(b, map_id))
+            found = sum(1 for i, b in encounters if boss_match(i, b, map_id)[0])
             checks.append(check(found == len(encounters), 'bosses', L(f'{found} / {len(encounters)} bosses found among the spawned creatures', f'{found} / {len(encounters)} boss trouvés parmi les PNJ placés'), 3))
         if map_id in ctx['disabled'].get(2, set()):
             checks.append(check(False, 'enabled', L('Map disabled in disables.', 'Carte désactivée dans disables.'), 3))
         return checks
 
     def boss_result(boss_id, entity):
-        npc = boss_match(entity, entity['map'])
-        checks = [check(npc is not None, 'boss_spawn', L(f"Creature {npc['id']} “{npc['name']}”", f"PNJ {npc['id']} « {npc['name']} »") if npc
-                        else L('No spawned creature of that name in the instance.', 'Aucun PNJ placé de ce nom dans l’instance.'), 3)]
-        if npc:
+        npc, how = boss_match(boss_id, entity, entity['map'])
+        if how == 'summoned':
+            detail = L(f"Not spawned: a script brings in creature {npc['id']} “{npc['name']}”", f"Non placé : un script fait apparaître le PNJ {npc['id']} « {npc['name']} »")
+        elif npc:
+            detail = L(f"Creature {npc['id']} “{npc['name']}”", f"PNJ {npc['id']} « {npc['name']} »")
+        else:
+            detail = L('No spawned creature of that name in the instance.', 'Aucun PNJ placé de ce nom dans l’instance.')
+        checks = [check(npc is not None, 'boss_spawn', detail, 3)]
+        if how == 'spawned':
             checks.append(check(npc['scripted'], 'boss_script', L('ScriptName or SmartAI', 'ScriptName ou SmartAI') if npc['scripted']
                                 else L('No script: the boss has no mechanics.', 'Pas de script : le boss n’a pas ses mécaniques.'), 2))
         return checks
@@ -387,8 +399,11 @@ def evaluate_all(content, ctx):
         x, y = entity['pos'][0], entity['pos'][1]
         near = min((math.hypot(fx - x, fy - y) for m, fx, fy in ctx['flight_spawns'] if m == entity['map']), default=None)
         detail = L(f'{near:.0f} yd away', f'à {near:.0f} m') if near is not None and near < 5000 else L('No flight master nearby.', 'Aucun maître de vol à proximité.')
+        held = node_id in TOWER_TAXI
+        if held:
+            detail = L('Its flight master appears while a faction holds the tower.', 'Son maître de vol apparaît quand une faction tient la tour.')
         return [check(node_id in known['taxi'], 'core', L('Server TaxiNodes.db2.', 'TaxiNodes.db2 du serveur.'), 1),
-                check(near is not None and near < 60, 'flightmaster', detail, 3)]
+                check(held or (near is not None and near < 60), 'flightmaster', detail, 3)]
 
     rules = {'item': item_result, 'spell': spell_result, 'talent': talent_result, 'quest': quest_result, 'dungeon': dungeon_result,
              'boss': boss_result, 'zone': zone_result, 'recipe': recipe_result, 'mount': mount_result, 'pet': pet_result, 'toy': toy_result,

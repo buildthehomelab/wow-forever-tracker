@@ -6,11 +6,26 @@ import re
 from . import sqlio
 from .baseline import Baseline
 
-INTERNAL_NAME = re.compile(r'^\s*\[|^\s*<|^\s*$|^zz|Test(?![a-z])|\btest\b|\b(OLD|TEST|Test|DEPRECATED|Deprecated|DEP|PH|DNT|QA|Unused|UNUSED|NYI|Monster|Monstre|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\bcopy\b')
+INTERNAL_NAME = re.compile(r'^\s*\[|^\s*<|^\s*$|^zz|Test(?![a-z])|\btest\b|\b(OLD|TEST|Test|DEPRECATED|Deprecated|DEP|PH|DNT|QA|Unused|UNUSED|NYI|Monster|Monstre|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\bcopy\b|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b')
 # Flight paths a quest flies you along (TaxiNodes rows named "Quest Path 11512: ..."), not flight points.
 QUEST_PATH = re.compile(r'^Quest Path \d+')
 DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach', 'creates')
 TABLES = ('ft_builds', 'ft_entities', 'ft_changes', 'ft_meta', 'ft_tooltips', 'ft_fixes')
+
+
+def named_internal(name):
+    """A placeholder or test name ([PH] Brown Prideclaw, NOT USED); an empty name says nothing either way."""
+    return bool(name and INTERNAL_NAME.search(name))
+
+
+def unused_taxi(node_id, entity, baseline, dungeons):
+    """A flight point no player flies from: a node inside a battleground (Alterac Valley's), or one the original game
+    already had that neither faction can use (boats, zeppelins, script targets, Programmer Isle). Forever's own
+    nodes carry no faction bit either, so only the Classic Era ones are judged by it."""
+    if entity.get('map') in dungeons:
+        return True
+    flags = int((entity.get('facts') or {}).get('flags') or 0)
+    return not flags & 3 and baseline.has('TaxiNodes', node_id) is True
 
 SCHEMA_SQL = """
 CREATE TABLE ft_builds_new (build INT PRIMARY KEY, version VARCHAR(32), released DATE NULL, note TEXT, source VARCHAR(255), is_server TINYINT NOT NULL DEFAULT 0, counts JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -110,11 +125,23 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name else 0
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
-                if kind == 'taxi' and QUEST_PATH.search(name_en or name):
+                if kind == 'taxi' and (QUEST_PATH.search(name_en or name) or unused_taxi(entity_id, entity, baseline, content['dungeon'])):
                     internal = 1
+                if kind == 'boss':
+                    home = content['dungeon'].get(int(entity.get('map') or 0)) or {}
+                    if named_internal(home.get('name_en') or home.get('name')):
+                        internal = 1  # a boss of a test instance
+                    if entity.get('shadow'):
+                        # no boss of its own (ft.bosses.shadows): Season of Discovery's raid version, or the same fight again
+                        internal = 1
+                        data['encounter'] = entity['shadow']['reason']
+                        if entity['shadow']['kept']:
+                            data['same'] = entity['shadow']['kept']
                 if kind in ('dungeon', 'boss') and baseline.season_map(entity_id if kind == 'dungeon' else int(entity.get('map') or 0)):
                     internal = 1  # a Season of Discovery instance (or one never opened) and its bosses: listed under Internal / test
                     data['season'] = True
+            elif kind in ('mount', 'pet', 'toy', 'recipe'):
+                internal = 1 if named_internal(name_en or name) else 0  # unnamed ones stay: content players have yet to discover
             verdict = (wowhead or {}).get((kind, entity_id))
             if verdict == 'season':
                 internal = 1  # Wowhead marks it as a Season of Discovery leftover

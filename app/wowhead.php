@@ -62,12 +62,23 @@ function wowhead_quest_ender_name(string $text): string
     return in_array($name, ['You', 'Your'], true) ? '' : $name;
 }
 
-/** Quest enders from Wowhead's quest summaries, for the quests the server has no ender for, as an import card. */
+/** The official quests of the last analysis that are not internal: [id => true]. */
+function official_quests(): array
+{
+    $out = [];
+    foreach (rows("SELECT id FROM ft_entities WHERE type = 'quest' AND internal = 0") as $r) $out[(int)$r['id']] = true;
+    return $out;
+}
+
+/** Quest enders from Wowhead's quest summaries, for the official quests the server has no ender for, as an import card. */
 function wowhead_quest_import(): array
 {
     import_schema();
     $quests = rows('SELECT q.ID, q.LogTitle FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender e WHERE e.quest = q.ID)
         AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID) ORDER BY q.ID', [], 'world');
+    // only the client's own quests: the server's quest_template also holds the quests of other versions of the game
+    $official = official_quests();
+    $quests = array_values(array_filter($quests, fn ($q) => isset($official[(int)$q['ID']])));
     $left = ['not_looked_up_yet' => 0, 'not_on_wowhead' => 0, 'no_ender_named' => 0, 'name_not_on_server' => 0, 'name_not_unique' => 0];
     $named = [];
     foreach ($quests as $q) {

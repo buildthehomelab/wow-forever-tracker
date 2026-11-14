@@ -37,17 +37,20 @@ const SOURCES = [
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
 ];
 
-/** The analysis' gaps: items players cannot get (not internal), quests without giver / ender. */
+/** The analysis' gaps: items players cannot get (not internal), official quests without giver / ender. */
 function source_gaps(): array
 {
     $ids = function (string $sql, string $database = 'tracker'): array { $out = []; foreach (rows($sql, [], $database) as $r) $out[(int)reset($r)] = true; return $out; };
     // a quest an item starts (the Ancient Petrified Leaf) has no giver on purpose: a source naming the creature that
     // drops the item, or the chest it lies in, as its giver would be wrong
     $byItem = array_fill_keys(array_map('intval', (array)(meta()['item_quests'] ?? [])), true);
+    // the server's quest_template holds tens of thousands of quests WoW: Forever does not have (other versions of the
+    // game): only the client's own quests are gaps worth a lookup
+    $official = official_quests();
     return [
         'items' => $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
-        'noGiver' => array_diff_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'), $byItem),
-        'noEnder' => $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
+        'noGiver' => array_intersect_key(array_diff_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'), $byItem), $official),
+        'noEnder' => array_intersect_key($ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'), $official),
     ];
 }
 

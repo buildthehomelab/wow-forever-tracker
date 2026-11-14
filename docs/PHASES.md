@@ -48,6 +48,9 @@ place stays a normal gap. The tracker would rather show one gap too many than hi
 The analysis log lists what each phase tagged. It also names any instance in the list that the client doesn't carry:
 an encrypted map, a renamed one, or a typo.
 
+An encrypted instance has no name to match, so list it by map id. The shipped file does that for map 3002: the client
+has no Map row for it but two raid encounters on it, so it is one of the two new first raids.
+
 Editing the list needs a new analysis (the Forge's *Run again*). With Docker, set `FT_PHASES_FILE` to use another
 file. The container analyses again once at its next start whenever the list's contents change: another file, or a
 new image that ships new dates.
@@ -81,3 +84,14 @@ which the Classic Era client gained after the original game (The Tainted Scar, K
 the original game's unused Emerald Dream and Caverns of Time maps. The analysis lists them and their bosses under
 *Internal / test*, like the items Wowhead marks as Season of Discovery ones. The rule is in `tools/ft/baseline.py`
 (`season_map`): an instance above the original game's ids that is in the Classic Era client.
+
+The same goes for boss rows that are no boss of their own (`tools/ft/bosses.py`): Season of Discovery's raid versions of
+Blackfathom Deeps, Gnomeregan and the Sunken Temple, and a fight the client lists again in the same instance (the
+lowest id is the one counted). A boss also counts as present when a script brings it in instead of a spawn row: a
+summon group, a SmartAI summon or a summoning spell names its creature, or the creature has a C++ script in an
+instance that has one. Its page then says "Not spawned: a script brings in creature N". Encounters named after an
+event (The Seven, Ring of Law) are found by one of their creatures.
+
+Also under *Internal / test*: a boss of a test instance, placeholder mounts, pets, toys and recipes (`[PH] ...`), and
+flight points nobody flies from: boats, zeppelins and script targets of the original game (no faction can use them),
+and a battleground's own nodes. Unnamed recipes stay visible: no name is no reason to hide them.
