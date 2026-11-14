@@ -260,11 +260,14 @@ icyveins_resume() {
 }
 
 # In the background, one after the other: the first analysis, then the import a restart cut short.
+STARTED="/tmp/forever-tracker-started"   # the start's own analysis is over (or there was none): the client check may begin
+rm -f "$STARTED"
 start_work() {
     if [ "${FT_ANALYSE_ON_START:-new-build}" != "never" ]; then
         first_run &
         wait $! || true   # whatever became of the analysis, the import below does not depend on it
     fi
+    : > "$STARTED"
     icyveins_resume
 }
 start_work &
@@ -307,7 +310,10 @@ client_watch() {
     hours="$(expr "${FT_CLIENT_EVERY_HOURS:-6}" + 0 || true)"
     if [ "$hours" -eq 0 ]; then say "FT_CLIENT_EVERY_HOURS=0: the client is not checked on Blizzard's servers"; return; fi
     clog="$DATA/client.log"
-    sleep 1200   # after the start's own analysis
+    # after the start's own analysis, not a fixed time after the start: a minute once it is over (two hours at most)
+    waited=0
+    while [ ! -f "$STARTED" ] && [ "$waited" -lt 7200 ]; do sleep 15; waited=$((waited + 15)); done
+    sleep 60
     while :; do
         nap=$((hours * 3600))
         if analysis_running; then

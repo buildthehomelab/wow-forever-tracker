@@ -44,6 +44,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -79,6 +80,23 @@ def snapshot(args):
     if args.note:
         info['note'] = args.note
     json.dump(info, open(meta, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def client_check(args):
+    """What the container does on its own every few hours, at once: the live build from the CDN when it is new (or a
+    key it waited for is out), Blizzard's hotfixes, and the analysis when either brought something."""
+    started = time.time()
+    url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
+    new = client.check(
+        lambda: client.fetch(log=client.calm(log)),
+        lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url),
+        log)
+    if not (new or args.always):
+        log(f"nothing new on Blizzard's servers: the analysis was not run (check done in {time.time() - started:.0f} s)")
+        return
+    # the analysis in a process of its own: nothing this one has read of the builds is carried into it
+    sys.stdout.flush()
+    sys.exit(subprocess.call([sys.executable, '-X', 'utf8', '-u', os.path.abspath(__file__), 'analyse'] + (['--wowhead'] if args.wowhead else [])))
 
 
 def client_status():
@@ -356,6 +374,9 @@ def main():
     fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
     fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
     sub.add_parser('hotfixes', help="store Blizzard's live hotfixes with the snapshot of their build (the public cache, [client] hotfix_cache)")
+    check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
+    check.add_argument('--wowhead', action='store_true', help='as for analyse')
+    check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -393,6 +414,8 @@ def main():
         locator.run(args)
     elif args.command == 'client':
         client_status()
+    elif args.command == 'check':
+        client_check(args)
     elif args.command == 'hotfixes':
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
         result = hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)

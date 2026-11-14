@@ -74,10 +74,7 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
 <?php elseif ($behind): ?>
 <div class="alert is-warn"><i class="fas fa-triangle-exclamation"></i><div><strong><?= e(t('Your server data is behind the official client.', 'Les données de votre serveur sont en retard sur le client officiel.')) ?></strong>
   <?= e(sprintf(t('The server loads the DB2 of build %d while the official client is %s.', 'Le serveur charge les DB2 du build %d alors que le client officiel est en %s.'), $serverBuild, $client['version'])) ?>
-  <?= e($unknownToCore
-        ? sprintf(t('Of the %s resources added since, %s are unknown to the server’s data.', 'Sur les %s ressources ajoutées depuis, %s sont inconnues des données du serveur.'), number($addedSince), number($unknownToCore))
-        : ($addedSince ? sprintf(t('The server’s data already knows the %s resources added since.', 'Les données du serveur connaissent déjà les %s ressources ajoutées depuis.'), number($addedSince))
-                       : t('No tracked resource was added since.', 'Aucune ressource suivie n’a été ajoutée depuis.'))) ?>
+  <?= e(home_added_since($addedSince, $unknownToCore)) ?>
   <a href="<?= e(url('changes')) ?>"><?= e(t('See what changed', 'Voir ce qui a changé')) ?> →</a></div></div>
 <?php endif; ?>
 

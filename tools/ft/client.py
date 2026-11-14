@@ -141,6 +141,35 @@ def unlocked(build, published):
     return sorted({key for keys in waiting_keys(build).values() for key in keys} & known)
 
 
+def calm(log):
+    """A log for the lines of a check. They go to the file the website reads to tell how a run ended, and it takes
+    "Error" or "Traceback" anywhere in it for a crash: a server that answered "HTTP Error 503" is no crash."""
+    return lambda text: log(str(text).replace('Error', 'error').replace('Traceback', 'traceback'))
+
+
+def check(fetch_client, fetch_hotfixes, log=print):
+    """The live build, then Blizzard's hotfixes: True when either stored something the analysis has not seen.
+
+    fetch_client: a function -> the result of fetch(); fetch_hotfixes: a function -> the result of hotfixes.fetch(),
+    asked after the build so that a cache for the build just stored finds its snapshot. A source that cannot be
+    reached is said and passed over: the other one is still asked."""
+    say = calm(log)
+    new = False
+    try:
+        result = fetch_client()
+        say('client: ' + result['message'])
+        new = result['code'] == FETCHED
+    except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
+        say(f"client: Blizzard's servers could not be read ({error}): the stored build stays")
+    try:
+        result = fetch_hotfixes()
+        say('hotfixes: ' + result['message'])
+        new = new or result['code'] == 0
+    except (RuntimeError, OSError, LookupError, ValueError) as error:
+        say(f'hotfixes: the cache could not be read ({error})')
+    return new
+
+
 def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, live=None, published=None, waiting=None):
     """Snapshots the live build from the CDN when it is newer than the newest snapshot, or reads it again when a key
     the stored copy was waiting for has been published.

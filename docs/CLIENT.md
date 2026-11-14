@@ -57,9 +57,23 @@ there was nothing new and 2 when it refused one.
 
 ## In the container
 
-Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch`, and the analysis after it when a build was
-stored. The check itself is two small requests. The log is `data/client.log`. The container needs to reach
-`us.patch.battle.net:1119` and Blizzard's CDN hosts.
+Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch` and `hotfixes` (below), and the analysis after
+them when either stored something. The first check comes a minute after the start's own analysis is over, the next
+ones every `FT_CLIENT_EVERY_HOURS`. The check itself is a few small requests. The log is `data/client.log`. The
+container needs to reach `us.patch.battle.net:1119` and Blizzard's CDN hosts.
+
+## Check now
+
+**Check the client now**, in the Forge next to **Run again**, does the same at once, and so does:
+
+```bash
+python tools/tracker.py check
+```
+
+It asks for the live build, then for the hotfixes, and runs the analysis only when one of them brought something new
+(`--always`: whatever they brought; `--wowhead`: as for `analyse`). With nothing new it says so and ends in a few
+seconds. A server that does not answer is said in the log and passed over: what is stored stays. Started from the
+Forge, its lines are in the analysis log on that page, and nothing else can be started until it is over.
 
 ## Hotfixes: the game as it is played today
 

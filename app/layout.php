@@ -21,6 +21,18 @@ function coverage(): array
     return $coverage;
 }
 
+/** What the newer client build added and how much of it the server's data lacks, in words, one resource or many. */
+function home_added_since(int $added, int $unknown): string
+{
+    if (!$added) return t('No tracked resource was added since.', 'Aucune ressource suivie n’a été ajoutée depuis.');
+    if ($added === 1) return $unknown
+        ? t('The one resource added since is unknown to the server’s data.', 'La seule ressource ajoutée depuis est inconnue des données du serveur.')
+        : t('The server’s data already knows the one resource added since.', 'Les données du serveur connaissent déjà la seule ressource ajoutée depuis.');
+    if (!$unknown) return sprintf(t('The server’s data already knows the %s resources added since.', 'Les données du serveur connaissent déjà les %s ressources ajoutées depuis.'), number($added));
+    return $unknown === 1
+        ? sprintf(t('Of the %s resources added since, one is unknown to the server’s data.', 'Sur les %s ressources ajoutées depuis, une est inconnue des données du serveur.'), number($added))
+        : sprintf(t('Of the %s resources added since, %s are unknown to the server’s data.', 'Sur les %s ressources ajoutées depuis, %s sont inconnues des données du serveur.'), number($added), number($unknown));
+}
 /** Gaps a release phase not open yet will bring: [phase number => count] (the work list's lines: no internal or duplicate). */
 function later_counts(): array
 {
