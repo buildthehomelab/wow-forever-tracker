@@ -22,6 +22,9 @@ $tableLabels = [
     'npc_vendor' => t('Vendors', 'Marchands'), 'quest_template' => t('Quests', 'Quêtes'), 'creature_queststarter' => t('Quest givers', 'Donneurs de quête'),
     'creature_questender' => t('Quest enders', 'Valideurs de quête'), 'trainer_spell' => t('Trainers', 'Entraîneurs'), 'gossip_menu_option' => t('Gossip options', 'Options de dialogue'),
     'gameobject_queststarter' => t('Quest givers (objects)', 'Donneurs de quête (objets)'), 'gameobject_questender' => t('Quest enders (objects)', 'Valideurs de quête (objets)'),
+    // rows the server already has, whose value the source measured again (docs/SOURCES.md)
+    'creature_loot_template.Chance' => t('Creature drop chances that moved', 'Chances de butin de PNJ qui ont bougé'),
+    'gameobject_loot_template.Chance' => t('Chest drop chances that moved', 'Chances de butin de coffre qui ont bougé'),
 ];
 $leftLabels = [
     'vendor_unknown' => t('vendors unknown to this server', 'marchands inconnus de ce serveur'), 'cost_unknown' => t('items paid with items or currencies (no known ExtendedCost)', 'objets payés en objets ou monnaies (ExtendedCost inconnu)'),
@@ -36,6 +39,9 @@ $leftLabels = [
     'atlasloot_several_creatures' => t('AtlasLoot lists naming several creatures, none of whose loot gives the list\'s other items', 'listes AtlasLoot à plusieurs PNJ dont aucun butin ne donne les autres objets de la liste'),
     'witness_eglink_unreachable' => t('EG Link unreachable: its recordings could not confirm', 'EG Link injoignable : ses enregistrements n’ont pas pu confirmer'),
     'witness_foreverdb_unreachable' => t('ForeverDB.net unreachable: its recordings could not confirm', 'ForeverDB.net injoignable : ses enregistrements n’ont pas pu confirmer'),
+    'drop_same' => t('drops the server has whose chance has not moved', 'butins que le serveur a et dont la chance n’a pas bougé'),
+    'drop_differs_core' => t('drops whose chance differs but that no import brought (the core’s own rows: not changed)', 'butins dont la chance diffère mais qu’aucun import n’a apportés (lignes du core : inchangées)'),
+    'drop_differs_trusted' => t('drops whose chance differs from a more trusted source’s row (not changed)', 'butins dont la chance diffère de celle d’une source plus fiable (inchangés)'),
     'loot_chance_unknown' => t('drops without a known chance', 'butins sans chance connue'), 'loot_unknown_creature' => t('drops of creatures or chests unknown to this server', 'butins de PNJ ou coffres inconnus de ce serveur'),
     'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
     'trainer_level_unknown' => t('class spells without a known level', 'sorts de classe sans niveau connu'), 'trainer_previous_rank_unknown' => t('higher ranks whose previous rank is unknown', 'rangs supérieurs dont le rang précédent est inconnu'),
@@ -166,7 +172,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <?php if ($ignored): ?><p class="muted small"><?= e(t('Left out:', 'Écarté :')) ?> <?= e(implode(', ', array_map(fn($t, $n) => ($leftLabels[$t] ?? $t) . " ($n)", array_keys($ignored), $ignored))) ?></p><?php endif; ?>
   <div class="btn-row">
     <button class="btn is-small" type="button" data-import-preview><i class="fas fa-eye"></i> <?= e(t('Preview', 'Aperçu')) ?></button>
-    <button class="btn is-small is-gold" type="button" data-import-apply><i class="fas fa-bolt"></i> <?= e(t('Apply what is missing', 'Appliquer ce qui manque')) ?></button>
+    <button class="btn is-small is-gold" type="button" data-import-apply><i class="fas fa-bolt"></i> <?= e(array_filter(array_keys($counts), fn($k) => str_contains((string)$k, '.')) ? t('Apply what is ticked', 'Appliquer ce qui est coché') : t('Apply what is missing', 'Appliquer ce qui manque')) ?></button>
   </div>
 </article>
 <?php endforeach; ?>
@@ -175,6 +181,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <header class="block-head"><div><span class="eyebrow"><?= e(t('How it merges', 'Comment la fusion se fait')) ?></span><h2><?= e(t('Safe by design', 'Sûr par conception')) ?></h2></div></header>
   <ul class="confirm-points">
     <li><i class="fas fa-shield-halved"></i><?= e(t('Only INSERT rows are read; DELETE and UPDATE statements of the file are never run.', 'Seules les lignes INSERT sont lues ; les DELETE et UPDATE du fichier ne sont jamais exécutés.')) ?></li>
+    <li><i class="fas fa-rotate"></i><?= e(t('A drop chance a source measured again is proposed as a line of its card, only for rows an import brought and only by a source at least as trusted; each change names the value it replaces and can be rolled back.', 'Une chance de butin mesurée à nouveau par une source est proposée sur une ligne de sa carte, seulement pour les lignes apportées par un import et par une source au moins aussi fiable ; chaque changement nomme la valeur qu’il remplace et peut être annulé.')) ?></li>
     <li><i class="fas fa-code-merge"></i><?= e(t('Rows your server already has are left out; spawns get new guids, and a spawn that already stands within 3 yards is left out with its addon.', 'Les lignes déjà présentes sont écartées ; les placements reçoivent de nouveaux guid, et un placement qui existe déjà à moins de 3 mètres est écarté avec son addon.')) ?></li>
     <li><i class="fas fa-sack-dollar"></i><?= e(t('Loot works at once: a creature whose LootID is 0 gets its own loot table.', 'Le butin fonctionne aussitôt : un PNJ dont le LootID vaut 0 reçoit sa propre table de butin.')) ?></li>
     <li><i class="fas fa-rotate-left"></i><?= e(t('Columns your core does not have are dropped. The history keeps the exact SQL and a rollback.', 'Les colonnes que votre core n’a pas sont ignorées. L’historique garde le SQL exact et l’annulation.')) ?></li>

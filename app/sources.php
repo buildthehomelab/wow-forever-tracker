@@ -202,6 +202,143 @@ function source_tables(array $ev, string $label, array $gaps): array
     return [$tables, array_filter($left)];
 }
 
+// ------------------------------------------------------------------ rows the server already has, measured again
+// The sources keep growing: Icy Veins' players loot more corpses every day, and Blizzard rebalances. An import that only
+// adds what is missing would keep the first number it ever read. So each import also compares the drops the server
+// already has with what the source says now, and proposes the new chance where it moved (docs/SOURCES.md).
+//
+// Whose row may be changed: one an import brought (its Comment names the source), by the same source or a more trusted
+// one ([sources] trust). A row no import brought (the core's own data, a hand fix) and a row of a more trusted source
+// are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
+
+/** How a source is named in a loot row's Comment or a ledger note. */
+const SOURCE_MARKS = ['wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
+/** The sources, most trusted first, when [sources] trust says nothing: Wowhead, then Questie's data (it comes through
+ *  NorgannonDB), then Icy Veins; the others after them. */
+const SOURCE_TRUST = 'wowhead,norgannondb,icyveins,eglink,foreverdb,atlasloot';
+
+/** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
+function source_trust(?string $configured = null): array
+{
+    $configured ??= (string)config('sources', 'trust', '');
+    $order = [];
+    foreach (array_merge(explode(',', strtolower($configured)), explode(',', SOURCE_TRUST)) as $name) {
+        $name = trim($name);
+        if ($name === 'questie') $name = 'norgannondb';
+        if (isset(SOURCE_MARKS[$name]) && !in_array($name, $order, true)) $order[] = $name;
+    }
+    return $order;
+}
+
+/** The source a Comment or a note names first ("Icy Veins 2026-11-14" -> icyveins), or null: no import wrote it. */
+function source_named(?string $text): ?string
+{
+    $found = null; $at = PHP_INT_MAX;
+    foreach (SOURCE_MARKS as $source => $mark) {
+        $i = stripos((string)$text, $mark);
+        if ($i !== false && $i < $at) { $found = $source; $at = $i; }
+    }
+    return $found;
+}
+
+/** May $source change a row that $origin wrote? 'yes'; 'core' (no import wrote it); 'trusted' (a more trusted source did). */
+function source_may_change(string $source, ?string $origin, ?array $trust = null): string
+{
+    if ($origin === null) return 'core';
+    $trust ??= source_trust();
+    $mine = array_search($source, $trust, true); $theirs = array_search($origin, $trust, true);
+    if ($mine === false) return 'trusted';
+    return $theirs === false || $mine <= $theirs ? 'yes' : 'trusted';
+}
+
+/** A drop chance moved enough to be worth a change: by $percent % of what it was, and by 0.05 points at least (a
+ *  source that counts a few more corpses shifts every number a little, and each change is a line in a file). */
+function source_chance_moved(float $old, float $new, float $percent = 10.0): bool
+{
+    $step = abs($new - $old);
+    return $step >= 0.05 && $step >= $old * $percent / 100 - 1e-9;
+}
+
+/**
+ * The drops a source would change. $measured: ["table:entry:item" => chance %] as the source says now; $current:
+ * the same keys => ['Chance' => float, 'Comment' => string] as the server has them. Returns [[table => [[Entry, 0,
+ * Item, new chance], …]], left out]: what did not move, and what moved but belongs to the core or a more trusted source.
+ */
+function source_drop_changes(string $source, array $measured, array $current, float $percent = 10.0, ?array $trust = null): array
+{
+    $rows = []; $left = ['drop_same' => 0, 'drop_differs_core' => 0, 'drop_differs_trusted' => 0];
+    foreach ($measured as $key => $chance) {
+        if (!isset($current[$key]) || $chance <= 0) continue;
+        $new = round(min(100, max(0.01, (float)$chance)), 2);
+        if (!source_chance_moved((float)$current[$key]['Chance'], $new, $percent)) { $left['drop_same']++; continue; }
+        $may = source_may_change($source, source_named($current[$key]['Comment'] ?? ''), $trust);
+        if ($may !== 'yes') { $left['drop_differs_' . $may]++; continue; }
+        [$table, $entry, $item] = explode(':', $key);
+        $rows[$table][] = [(int)$entry, 0, (int)$item, $new];
+    }
+    return [$rows, array_filter($left)];
+}
+
+/** The server's drop rows for the creatures and chests of the evidence, and the evidence keyed like them: [measured, current]. */
+function source_drops_now(array $ev): array
+{
+    $drops = ['npc' => [], 'go' => []];
+    foreach ($ev['drop'] ?? [] as $d) {
+        [$kind, $id, $item, $chance] = $d;
+        if (!empty($d[4])) continue;   // an even share AtlasLoot guessed is no measure
+        $drops[$kind][(int)$id][(int)$item] = max($drops[$kind][(int)$id][(int)$item] ?? 0, (float)$chance);
+    }
+    $entryOf = ['creature_loot_template' => [], 'gameobject_loot_template' => []];
+    foreach (array_chunk(array_keys($drops['npc']), 1000) as $chunk) {
+        foreach (rows('SELECT Entry, LootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $entryOf['creature_loot_template'][(int)$r['Entry']] = (int)$r['LootID'] ?: (int)$r['Entry'];
+    }
+    foreach (array_chunk(array_keys($drops['go']), 1000) as $chunk) {
+        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) if (in_array((int)$r['type'], [3, 25], true) && (int)$r['Data1']) $entryOf['gameobject_loot_template'][(int)$r['entry']] = (int)$r['Data1'];
+    }
+    $measured = []; $current = [];
+    foreach (['creature_loot_template' => 'npc', 'gameobject_loot_template' => 'go'] as $table => $kind) {
+        foreach ($drops[$kind] as $id => $list) {
+            if (!isset($entryOf[$table][$id])) continue;
+            foreach ($list as $item => $chance) $measured["$table:{$entryOf[$table][$id]}:$item"] = max($measured["$table:{$entryOf[$table][$id]}:$item"] ?? 0, $chance);
+        }
+        $entries = array_values(array_unique($entryOf[$table]));
+        foreach (array_chunk($entries, 500) as $chunk) {
+            foreach (rows("SELECT Entry, Item, Chance, Comment FROM `$table` WHERE ItemType = 0 AND Entry IN (" . implode(',', $chunk) . ')', [], 'world') as $r) {
+                $key = "$table:" . (int)$r['Entry'] . ':' . (int)$r['Item'];
+                if (isset($measured[$key])) $current[$key] = ['Chance' => (float)$r['Chance'], 'Comment' => (string)$r['Comment']];
+            }
+        }
+    }
+    return [$measured, $current];
+}
+
+/** What $source would change in rows the server already has, as Forge "set" operations, and what it left alone. */
+function source_refresh(array $ev, string $source): array
+{
+    if (!filter_var(config('sources', 'refresh', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)) return [[], []];
+    [$measured, $current] = source_drops_now($ev);
+    [$rows, $left] = source_drop_changes($source, $measured, $current, (float)(config('sources', 'chance_tolerance', 10) ?: 10));
+    $changes = [];
+    foreach ($rows as $table => $list) {
+        $changes[] = ['db' => 'world', 'table' => $table, 'columns' => ['Entry', 'ItemType', 'Item', 'Chance'], 'match' => ['Entry', 'ItemType', 'Item'], 'set' => 'Chance', 'rows' => $list];
+    }
+    return [$changes, $left];
+}
+
+/** Items of the drops $source may change: the ones a source that asks item by item (Icy Veins) looks up again besides the gaps. */
+function source_refresh_items(string $source): array
+{
+    if (!filter_var(config('sources', 'refresh', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)) return [];
+    $trust = source_trust(); $items = [];
+    foreach (SOURCE_MARKS as $origin => $mark) {
+        if (source_may_change($source, $origin, $trust) !== 'yes') continue;
+        foreach (['creature_loot_template', 'gameobject_loot_template'] as $table) {
+            foreach (rows("SELECT DISTINCT Item FROM `$table` WHERE ItemType = 0 AND Comment LIKE ?", ['%' . addcslashes($mark, '%_\\') . '%'], 'world') as $r) $items[(int)$r['Item']] = true;
+        }
+    }
+    return $items;
+}
+
 /**
  * Keeps the vendors and drops of $ev that one of the live-Forever recordings ($witnesses: EG Link, ForeverDB.net, Icy
  * Veins; AtlasLoot for drops) also saw: the same creature (or chest) selling or dropping the same item. NorgannonDB mixes Classic databases
@@ -272,7 +409,7 @@ function source_supersede(string $source): int
 }
 
 /** Saves tables as an import card (preview, apply, history, rollback, data repo export). */
-function source_card(string $source, string $name, string $file, array $tables, array $left): array
+function source_card(string $source, string $name, string $file, array $tables, array $left, array $changes = []): array
 {
     import_schema();
     // every card is built against the gaps and the database as they are now, so the newest one of a source says all
@@ -280,17 +417,21 @@ function source_card(string $source, string $name, string $file, array $tables, 
     // card for the same gap. Also when the new card would be empty: the old ones then offer what is no longer missing.
     $replaced = source_supersede($source);
     $replacedNote = $replaced ? ' ' . sprintf(t('%d earlier card(s) of this source that were never applied were replaced.', '%d carte(s) précédente(s) de cette source, jamais appliquée(s), ont été remplacée(s).'), $replaced) : '';
-    if (!$tables) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left, 'replaced' => $replaced,
-        'message' => sprintf(t('%s has nothing this server lacks.', '%s n’a rien qui manque à ce serveur.'), SOURCES[$source][0] ?? $source) . $replacedNote];
+    if (!$tables && !$changes) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left, 'replaced' => $replaced,
+        'message' => sprintf(t('%s has nothing this server lacks, and nothing it has moved.', '%s n’a rien qui manque à ce serveur, et rien de ce qu’il a n’a bougé.'), SOURCES[$source][0] ?? $source) . $replacedNote];
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = count($entry['groups'][0]['rows']);
+    // values measured again: one line of the card each ("creature_loot_template.Chance"), ticked or not like a table
+    $moved = 0;
+    foreach ($changes as $op) { $counts[$op['table'] . '.' . $op['set']] = count($op['rows']); $moved += count($op['rows']); }
     $name .= ' · ' . (SOURCES[$source][1] ?? '');
     rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
     $id = (int)db()->insert_id;
     @mkdir(import_dir() . '/parsed', 0775, true);
-    file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables, 'changes' => $changes], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION));
     import_index($id, $tables);
-    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced,
-            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts))) . $replacedNote];
+    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced, 'moved' => $moved,
+            'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts) - $moved))
+                . ($moved ? ' ' . sprintf(t('%s value(s) it measured again differ from the server’s.', '%s valeur(s) qu’il a mesurées à nouveau diffèrent de celles du serveur.'), number($moved)) : '') . $replacedNote];
 }
 
 /** GET with a user agent; [status, body, length]: the size the server announced for the body (Content-Length), null
@@ -376,7 +517,8 @@ function eglink_import(): array
     if (empty($r['ev'])) return $r;
     $label = 'EG Link ' . substr($r['commit'], 0, 8);
     [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
-    return source_card('eglink', $label, 'eglink@' . $r['commit'], $tables, $left);
+    [$changes, $moved] = source_refresh($r['ev'], 'eglink');
+    return source_card('eglink', $label, 'eglink@' . $r['commit'], $tables, $left + $moved, $changes);
 }
 
 /** What EG Link recorded: ['ev' => evidence, 'commit' => sha], or ['ok' => false, 'message']. */
@@ -465,7 +607,8 @@ function foreverdb_import(): array
     if (empty($r['ev'])) return $r;
     $label = 'ForeverDB.net ' . $r['version'];
     [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
-    return source_card('foreverdb', $label, 'foreverdb@' . $r['version'], $tables, $left);
+    [$changes, $moved] = source_refresh($r['ev'], 'foreverdb');
+    return source_card('foreverdb', $label, 'foreverdb@' . $r['version'], $tables, $left + $moved, $changes);
 }
 
 /** What ForeverDB.net's players saw on Forever: ['ev' => evidence, 'version'], or ['ok' => false, 'message']. */
@@ -621,7 +764,9 @@ function icyveins_import(?callable $progress = null): array
     $gaps = source_gaps();
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => []];
     $asked = 0; $done = 0;
-    $todo = count($gaps['items']) + count($gaps['noGiver'] + $gaps['noEnder']);
+    // besides the gaps: the items of the drops an import brought, to see whether their chance moved (source_refresh)
+    $again = array_diff_key(source_refresh_items('icyveins'), $gaps['items']);
+    $todo = count($gaps['items']) + count($again) + count($gaps['noGiver'] + $gaps['noEnder']);
     $trainers = source_trainer_npcs();
     $todo += count($trainers);
     // a line (and a sign of life on the Imports page) every 20 lookups: ten seconds while Icy Veins is asked
@@ -635,7 +780,7 @@ function icyveins_import(?callable $progress = null): array
         return (array)($data['relations'] ?? []);
     };
     try {
-        foreach (array_keys($gaps['items']) as $item) {
+        foreach (array_keys($gaps['items'] + $again) as $item) {
             icyveins_item_evidence($ev, $item, $get('item', $item)); $tick();
         }
         foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
@@ -664,7 +809,8 @@ function icyveins_import(?callable $progress = null): array
     $label = 'Icy Veins ' . date('Y-m-d');
     [$tables, $left] = source_tables($ev, $label, $gaps);
     if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) $left['icyveins_lookup_limit_reached_run_again'] = 1;
-    return source_card('icyveins', $label, 'icyveins@' . date('Y-m-d'), $tables, $left);
+    [$changes, $moved] = source_refresh($ev, 'icyveins');
+    return source_card('icyveins', $label, 'icyveins@' . date('Y-m-d'), $tables, $left + $moved, $changes);
 }
 
 // ------------------------------------------------------------------ background runs (long imports)

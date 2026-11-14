@@ -66,6 +66,26 @@ function forge_in(array $columns, array $tuples, string $database): string
 
 function forge_key(array $values): string { return implode("\x1f", array_map(fn($v) => is_float($v) ? sprintf('%.9g', $v) : (string)$v, $values)); }
 
+/** Marks the statements of a "set" operation (forge_set_statement): the data repo export keeps them as they are. */
+const FORGE_SET_MARK = '/* refresh */';
+
+/** Two values of a column are the same: numbers within a rounding step of each other (a FLOAT column does not hold
+ *  4.35 exactly), anything else as text. */
+function forge_same_value($a, $b): bool
+{
+    if (is_float($a) || is_float($b)) return abs((float)$a - (float)$b) < 0.005;
+    return (string)$a === (string)$b;
+}
+
+/** "UPDATE t SET column = new WHERE key AND column is still old": the guard is a range for a decimal number, since a
+ *  FLOAT column never equals the literal it was written from. */
+function forge_set_statement(string $table, string $column, $new, $old, string $condition, string $database): string
+{
+    $c = forge_ident($column);
+    $guard = is_float($old) || is_float($new) ? 'ABS(' . $c . ' - ' . forge_literal((float)$old, $database) . ') < 0.005' : $c . ' <=> ' . forge_literal($old, $database);
+    return 'UPDATE ' . forge_ident($table) . ' SET ' . $c . ' = ' . forge_literal($new, $database) . ' WHERE ' . $condition . ' AND ' . $guard . ' ' . FORGE_SET_MARK . ';';
+}
+
 /** Adds an operation to the merged list: one entry per database/table/columns, rows unique on their match columns. */
 function forge_merge(array &$ops, array $op): void
 {
@@ -74,11 +94,14 @@ function forge_merge(array &$ops, array $op): void
     if (!in_array($database, ['world', 'hotfixes'], true) || $table === '' || !$columns || !$match || array_diff($match, $columns)) return;
     // "fill": the last column is set on existing rows only where it is still 0 / NULL (rows are never inserted)
     // "bits": the last column's value is OR-ed into that column of existing rows that lack those bits (npcflag 128)
+    // "set": the last column of existing rows takes a new value, whatever it holds now (a source measured it again);
+    //         the rollback puts back what was there (rows are never inserted)
     $fill = (string)($op['fill'] ?? '');
     $bits = (string)($op['bits'] ?? '');
-    if (($fill !== '' && end($columns) !== $fill) || ($bits !== '' && end($columns) !== $bits)) return;
-    $id = $database . '.' . $table . '.' . implode(',', $columns) . ($fill !== '' ? '.fill' : '') . ($bits !== '' ? '.bits' : '');
-    $ops[$id] ??= ['db' => $database, 'table' => $table, 'columns' => $columns, 'match' => $match, 'hash' => (int)($op['hash'] ?? 0), 'rows' => [], 'duplicates' => 0, 'fill' => $fill, 'bits' => $bits];
+    $set = (string)($op['set'] ?? '');
+    if (($fill !== '' && end($columns) !== $fill) || ($bits !== '' && end($columns) !== $bits) || ($set !== '' && (end($columns) !== $set || in_array($set, $match, true)))) return;
+    $id = $database . '.' . $table . '.' . implode(',', $columns) . ($fill !== '' ? '.fill' : '') . ($bits !== '' ? '.bits' : '') . ($set !== '' ? '.set' : '');
+    $ops[$id] ??= ['db' => $database, 'table' => $table, 'columns' => $columns, 'match' => $match, 'hash' => (int)($op['hash'] ?? 0), 'rows' => [], 'duplicates' => 0, 'fill' => $fill, 'bits' => $bits, 'set' => $set];
     $where = array_map(fn($c) => array_search($c, $columns, true), $match);
     foreach ($op['rows'] ?? [] as $row) {
         if (!is_array($row) || count($row) !== count($columns)) continue;
@@ -184,6 +207,36 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
                 $value = (int)$row[$at];
                 $plans[$database]['apply'][] = 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($flag) . ' = ' . forge_ident($flag) . ' | ' . $value . ' WHERE ' . $condition . ';';
                 array_unshift($plans[$database]['rollback'], 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($flag) . ' = ' . forge_ident($flag) . ' & ~' . $value . ' WHERE ' . $condition . ';');
+            }
+            continue;
+        }
+        if (($op['set'] ?? '') !== '') {
+            // give the column of existing rows a new value. Each statement names the value it replaces, so it changes
+            // nothing when the row moved on meanwhile, run twice it changes nothing more, and the rollback (the same
+            // statement the other way round) undoes only what this operation did.
+            $column = $op['set']; $at = count($columns) - 1; $todo = [];
+            foreach (array_chunk(array_values($op['rows']), 500) as $chunk) {
+                $wanted = [];
+                foreach ($chunk as $row) $wanted[forge_key(array_map(fn($i) => $row[$i], $where))] = $row;
+                $tuples = array_map(fn($row) => array_map(fn($i) => $row[$i], $where), $chunk);
+                foreach (rows('SELECT ' . implode(',', array_map('forge_ident', $match)) . ', ' . forge_ident($column) . ' v FROM ' . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $found) {
+                    $current = $found['v']; unset($found['v']);
+                    $key = forge_key(array_values($found));
+                    if (!isset($wanted[$key]) || $current === null) continue;
+                    $new = $wanted[$key][$at];
+                    $old = is_float($new) ? (float)$current : (is_int($new) ? (int)$current : (string)$current);
+                    if (forge_same_value($old, $new)) continue;
+                    $todo[] = [$wanted[$key], $old];
+                }
+            }
+            $tables[$database . '.' . $table . '.' . $column] = [count($todo), count($op['rows']) - count($todo)];
+            if (!$todo) continue;
+            $inserted += count($todo);
+            $plans[$database] ??= ['apply' => [], 'rollback' => []];
+            foreach ($todo as [$row, $old]) {
+                $condition = implode(' AND ', array_map(fn($i) => forge_ident($columns[$i]) . ' = ' . forge_literal($row[$i], $database), $where));
+                $plans[$database]['apply'][] = forge_set_statement($table, $column, $row[$at], $old, $condition, $database);
+                array_unshift($plans[$database]['rollback'], forge_set_statement($table, $column, $old, $row[$at], $condition, $database));
             }
             continue;
         }

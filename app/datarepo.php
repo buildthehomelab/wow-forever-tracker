@@ -55,7 +55,7 @@ function datarepo_file_name(array $log): string
  */
 function datarepo_changes(array $log): array
 {
-    $out = ['inserts' => [], 'spawns' => [], 'updates' => [], 'skipped' => []];
+    $out = ['inserts' => [], 'spawns' => [], 'updates' => [], 'refreshed' => [], 'skipped' => []];
     foreach (json_decode($log['sql_rollback'], true) ?: [] as $database => $sql) {
         if ($database === 'console') {
             // console spawns: "forge delete npc|go <guid>"
@@ -81,7 +81,10 @@ function datarepo_changes(array $log): array
     foreach (json_decode($log['sql_apply'], true) ?: [] as $database => $sql) {
         if ($database !== 'world') continue;
         foreach (forge_statements($sql) as $statement) {
-            if (preg_match('/^UPDATE `([A-Za-z0-9_]+)` SET `([A-Za-z0-9_]+)` = `\2` \| (\d+) WHERE (.+?);?$/s', $statement, $m)) {
+            if (str_contains($statement, FORGE_SET_MARK)) {
+                // a refreshed value: the statement already names the value it replaces, so it is safe to run twice as it is
+                $out['refreshed'][] = rtrim($statement, ';') . ';';
+            } elseif (preg_match('/^UPDATE `([A-Za-z0-9_]+)` SET `([A-Za-z0-9_]+)` = `\2` \| (\d+) WHERE (.+?);?$/s', $statement, $m)) {
                 $out['updates'][] = "UPDATE `$m[1]` SET `$m[2]` = `$m[2]` | $m[3] WHERE $m[4] AND (`$m[2]` & $m[3]) <> $m[3];";
             } elseif (preg_match('/^UPDATE `([A-Za-z0-9_]+)` SET `([A-Za-z0-9_]+)` = (.+?) WHERE (.+?);?$/s', $statement, $m)) {
                 $out['updates'][] = "UPDATE `$m[1]` SET `$m[2]` = $m[3] WHERE $m[4] AND (`$m[2]` IS NULL OR `$m[2]` = 0 OR `$m[2]` = '');";
@@ -89,6 +92,21 @@ function datarepo_changes(array $log): array
         }
     }
     return $out;
+}
+
+/** The names of the import cards an operation applied, without their licence text ("Icy Veins 2026-11-14"); [] for
+ *  another kind of operation, or when the cards were forgotten since. */
+function datarepo_sources(array $log): array
+{
+    $ids = [];
+    foreach (json_decode((string)($log['items'] ?? ''), true) ?: [] as $item) if (is_array($item) && ($item['type'] ?? '') === 'import') $ids[(int)($item['id'] ?? 0)] = true;
+    if (!$ids || !table_exists('ft_imports')) return [];
+    $names = [];
+    foreach (rows('SELECT name FROM ft_imports WHERE id IN (' . implode(',', array_keys($ids)) . ') ORDER BY id') as $r) {
+        $name = trim(preg_replace('/[\x00-\x1f]+/', ' ', explode(' · ', (string)$r['name'])[0]));
+        if ($name !== '') $names[$name] = true;
+    }
+    return array_keys($names);
 }
 
 /** Stage, filter and insert one table's rows; $rows are read from the world database (column => value). */
@@ -141,7 +159,9 @@ function datarepo_export(int $logId): array
     $log = row('SELECT * FROM ft_forge_log WHERE id = ?', [$logId]);
     if (!$log || $log['state'] !== 'applied') return ['ok' => false, 'message' => t('Only applied operations can be exported.', 'Seules les opérations appliquées peuvent être exportées.')];
     $file = datarepo_file_name($log);
-    $note = 'Forge #' . (int)$log['id'] . ' (' . $log['kind'] . ')';
+    // an import names its card (the source and its version) in every ledger note and in the header: "Icy Veins 2026-11-14"
+    $sources = datarepo_sources($log);
+    $note = mb_substr('Forge #' . (int)$log['id'] . ($sources ? ': ' . implode(', ', $sources) : ' (' . $log['kind'] . ')'), 0, 250);
     $changes = datarepo_changes($log);
     $warnings = $changes['skipped']; $blocks = []; $count = 0;
 
@@ -170,6 +190,10 @@ function datarepo_export(int $logId): array
         $blocks[] = array_merge(['-- flags and empty columns the operation set (only where still unset)'], $changes['updates']);
         $count += count($changes['updates']);
     }
+    if ($changes['refreshed']) {
+        $blocks[] = array_merge(['-- values a source measured again: each statement names the value it replaces, so it changes nothing where the', '-- row moved on, and nothing more when it runs again'], $changes['refreshed']);
+        $count += count($changes['refreshed']);
+    }
     if (!$blocks) return ['ok' => false, 'message' => $warnings ? implode(' ', $warnings) : t('Nothing of this operation is left to export.', 'Plus rien à exporter pour cette opération.')];
 
     $items = json_decode((string)$log['items'], true) ?: [];
@@ -178,6 +202,7 @@ function datarepo_export(int $logId): array
         "-- Everlake Forge #{$log['id']}: " . forge_kind_label(explode(',', $log['kind'])[0]) . ', ' . count($items) . ' resource(s), ' . $count . ' row(s)',
         "-- $file: exported by the Forever Tracker Forge (https://github.com/buildthehomelab/wow-forever-tracker) from a realm where it was applied and tested first.",
         '-- Made from the official WoW Forever client data' . ($build ? " (build $build)" : '') . ' and the Forge rules (docs/FORGE.md); rows as they were on that realm when exported.',
+        ...($sources ? ['-- Sources: ' . implode(', ', $sources) . ' (NOTICE.md, Forge exports).'] : []),
         '-- Never edit this file once it is deployed: a later fix is a new file. Running it again changes nothing: a row is added only',
         '-- where none exists, spawns only where the same creature or object is not already within ' . DATAREPO_SAME_SPAWN . ' yards, and each added row is recorded in ' . DATAREPO_LEDGER . '.',
         '',
