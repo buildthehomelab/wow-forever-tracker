@@ -257,6 +257,7 @@ def analyse(args):
             log('warning: server build unknown: set [server] build in config.ini')
     contents, changes, first_seen, changed_in = [], [], {}, {}
     previous = None
+    by_hotfix = {}   # kind -> resources that exist by hotfix alone and were not called "added" (see below)
     for b in build_list:
         log(f"official content of build {b['build']}")
         current = official_content.official(b['dir'])
@@ -267,7 +268,16 @@ def analyse(args):
             for entity_id in entities:
                 first_seen.setdefault((kind, entity_id), b['build'])
         if previous is not None:
+            before = build_list[build_list.index(b) - 1]
+            # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
+            # never stored, it would read "added in this build", five thousand items at once, although nothing says
+            # when it appeared: it is not listed as a change, and it counts as known since the build before.
+            alone = official_content.hotfix_only(b['dir']) if not hotfixes.has_own(before['dir']) else set()
             for kind, entity_id, change, fields in official_content.diff_builds(previous, current):
+                if change == 'added' and (kind, entity_id) in alone:
+                    first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], before['build'])
+                    by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
+                    continue
                 name = (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')
                 changes.append((b['build'], build_list[build_list.index(b) - 1]['build'], kind, entity_id, change, fields, name))
                 changed_in[(kind, entity_id)] = b['build']
@@ -279,7 +289,10 @@ def analyse(args):
     for b in build_list:
         if hotfixes.summary(b['dir']):
             log(f"hotfixes over build {b['build']}: " + hotfixes.summary(b['dir']))
+    if by_hotfix:
+        log('known by hotfix alone, not listed as added: ' + ', '.join(f'{kind}={n}' for kind, n in sorted(by_hotfix.items())))
     ctx = server.server_state()
+    ctx['hotfix_only'] = by_hotfix
     # Only the quests new in Forever: the Classic Era ones are known, and asking Wowhead about thousands more takes long.
     baseline = Baseline()
     unknown_quests = [q for q in content['quest'] if q not in ctx['quests'] and baseline.is_new('quest', q, {})]

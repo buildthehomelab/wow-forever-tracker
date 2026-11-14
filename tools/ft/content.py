@@ -30,6 +30,19 @@ SCRIPT_EFFECTS, SCRIPT_AURAS = {3, 77}, {4, 226}
 EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL = 24, 36
 
 
+# The table whose row is the resource itself: a resource whose row there exists by hotfix alone is in no build's tables.
+OWN_TABLE = {'item': 'ItemSparse', 'spell': 'SpellName', 'quest': 'QuestV2', 'achievement': 'Achievement', 'mount': 'Mount', 'toy': 'Toy',
+             'pet': 'BattlePetSpecies', 'taxi': 'TaxiNodes', 'dungeon': 'Map', 'boss': 'DungeonEncounter', 'zone': 'AreaTable', 'talent': 'Talent'}
+
+
+def hotfix_only(folder):
+    """{(kind, id)} of the resources of a snapshot that exist by hotfix alone (after official(folder) read it): thousands
+    of WoW: Forever's items are in no client table and reach the client by hotfix. No build's tables say when such a
+    resource appeared, so a comparison of two builds cannot call it "added"."""
+    added = hotfixes.ADDED.get(folder, {})
+    return {(kind, entity_id) for kind, name in OWN_TABLE.items() for entity_id in added.get(name, ())}
+
+
 def builds():
     found = []
     for name in os.listdir(BUILDS) if os.path.isdir(BUILDS) else []:

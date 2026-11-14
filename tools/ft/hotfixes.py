@@ -132,6 +132,8 @@ FILE = 'hotfixes.bin'                 # in data/builds/<build>/: the cache as it
 MIRROR = 'https://storage.googleapis.com/raidbots-static/wow/forever/enUS/DBCache.bin'
 STATS = {}                            # build folder -> {table: [added, changed, removed, misfit]} of the last overlay
 ORIGIN = {}                           # build folder -> the earlier build its hotfixes were carried over from, or None
+ADDED = {}                            # build folder -> {table: {ids of the rows that exist by hotfix alone}}
+OWN = {}                              # build folder -> the snapshot has a cache of its own build
 _loaded = {}
 
 
@@ -157,6 +159,7 @@ def cached(folder):
     file). ({}, None) when there is neither."""
     if folder not in _loaded:
         found = _own(folder)
+        OWN[folder] = found is not None
         origin = None
         if found is None:
             found = {}
@@ -196,10 +199,17 @@ def overlay(folder, table, rows):
             elif record_id not in by_id:
                 by_id[record_id] = row
                 stat[0] += 1
+                ADDED.setdefault(folder, {}).setdefault(table.name, set()).add(record_id)
             elif by_id[record_id] != row:
                 by_id[record_id] = row
                 stat[1] += 1
     return list(by_id.values())
+
+
+def has_own(folder):
+    """The snapshot has the hotfix cache of its own build (not one carried over, not none)."""
+    cached(folder)
+    return OWN.get(folder, False)
 
 
 def summary(folder):

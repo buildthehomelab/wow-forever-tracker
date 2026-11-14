@@ -186,7 +186,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # release phases in order (number = position + 1): ft_entities.phase holds the number, 0 = released
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
-                'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else []}
+                'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else [],
+                # resources that exist by hotfix alone and that the changelog therefore does not call "added": {kind: count}
+                'hotfix_only': (ctx.get('hotfix_only') or {}) if ctx else {}}
         for key, value in meta.items():
             out.write(f"INSERT INTO ft_meta_new VALUES ({e(key)},{e(dumps(value))});\n")
         # atomic swap

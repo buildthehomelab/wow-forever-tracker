@@ -14,7 +14,11 @@ $meta = meta();
 $client = $builds[0] ?? null;
 $serverBuild = (int)($meta['server_build'] ?? 0);
 $unknownShare = (float)value("SELECT AVG(JSON_EXTRACT(checks, '$[0].code') = 'core' AND JSON_EXTRACT(checks, '$[0].ok') = false) FROM ft_entities WHERE internal = 0 AND type IN ('item','spell','talent')");
-$unknownToCore = $client && $serverBuild && $serverBuild < (int)$client['build'] ? (int)value('SELECT COUNT(*) FROM ft_entities WHERE internal = 0 AND first_build > ?', [$serverBuild]) : 0;
+// what the newer client build added: how much of it, and how much of that the server's own data does not know (the
+// "core" check fails: the row is neither in the server's DB2 files nor in its hotfixes database)
+$behind = $client && $serverBuild && $serverBuild < (int)$client['build'];
+$addedSince = $behind ? (int)value('SELECT COUNT(*) FROM ft_entities WHERE internal = 0 AND first_build > ?', [$serverBuild]) : 0;
+$unknownToCore = $behind ? (int)value("SELECT COUNT(*) FROM ft_entities WHERE internal = 0 AND first_build > ? AND JSON_CONTAINS(checks, JSON_OBJECT('code', 'core', 'ok', false))", [$serverBuild]) : 0;
 $changeCounts = [];
 foreach (rows('SELECT build, kind, COUNT(*) n FROM ft_changes GROUP BY build, kind') as $r) $changeCounts[$r['build']][$r['kind']] = (int)$r['n'];
 $priorities = rows("SELECT type, id, name, sub, icon, quality, status, score, is_new, checks FROM ft_entities
@@ -67,9 +71,13 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
 <?php if (!$serverBuild): ?>
 <div class="alert"><i class="fas fa-circle-question"></i><div><strong><?= e(t('Your server’s client build is unknown.', 'Le build client de votre serveur est inconnu.')) ?></strong>
   <?= e(t('Set [server] build (for example 70450) or build_file in config.ini, then run the analysis again.', 'Renseignez [server] build (par exemple 70450) ou build_file dans config.ini, puis relancez l’analyse.')) ?></div></div>
-<?php elseif ($unknownToCore): ?>
-<div class="alert is-warn"><i class="fas fa-triangle-exclamation"></i><div><strong><?= e(t('Your server data is one build behind.', 'Les données de votre serveur ont un build de retard.')) ?></strong>
-  <?= e(sprintf(t('The server loads the DB2 of build %d while the official client is %s: %s resources added since are unknown to the core.', 'Le serveur charge les DB2 du build %d alors que le client officiel est en %s : %s ressources ajoutées depuis sont inconnues du core.'), $serverBuild, $client['version'], number($unknownToCore))) ?>
+<?php elseif ($behind): ?>
+<div class="alert is-warn"><i class="fas fa-triangle-exclamation"></i><div><strong><?= e(t('Your server data is behind the official client.', 'Les données de votre serveur sont en retard sur le client officiel.')) ?></strong>
+  <?= e(sprintf(t('The server loads the DB2 of build %d while the official client is %s.', 'Le serveur charge les DB2 du build %d alors que le client officiel est en %s.'), $serverBuild, $client['version'])) ?>
+  <?= e($unknownToCore
+        ? sprintf(t('Of the %s resources added since, %s are unknown to the server’s data.', 'Sur les %s ressources ajoutées depuis, %s sont inconnues des données du serveur.'), number($addedSince), number($unknownToCore))
+        : ($addedSince ? sprintf(t('The server’s data already knows the %s resources added since.', 'Les données du serveur connaissent déjà les %s ressources ajoutées depuis.'), number($addedSince))
+                       : t('No tracked resource was added since.', 'Aucune ressource suivie n’a été ajoutée depuis.'))) ?>
   <a href="<?= e(url('changes')) ?>"><?= e(t('See what changed', 'Voir ce qui a changé')) ?> →</a></div></div>
 <?php endif; ?>
 
