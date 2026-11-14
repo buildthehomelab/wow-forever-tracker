@@ -97,6 +97,9 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
 | `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
+| `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot` (docs/SOURCES.md, *Rows the server already has*) |
+| `FT_SOURCES_REFRESH` | `1` | `0`: imports only add what is missing; they no longer propose a new value for a drop chance that moved |
+| `FT_SOURCES_CHANCE_TOLERANCE` | `10` | A drop chance has moved when it changed by this percent of what it was (and by 0.05 points at least) |
 | `FT_ATLASLOOT_GUESS` | `1` | `0`: AtlasLoot drops without a measured chance are left out instead of getting an even share of their boss's list |
 | `FT_NORGANNONDB_COMMIT` | empty | NorgannonDB commit the import reads (empty: the tested one) |
 | `FT_FORGE_TRAINER_SKIP_IDS` | empty | Spell ids and ranges the Forge never offers at trainers (`400000-499999, 12345`); a change re-analyses once at the next start |

@@ -27,7 +27,8 @@ if ($upload) {
 }
 
 $id = (int)($input['id'] ?? 0);
-$tables = array_values(array_filter((array)($input['tables'] ?? []), fn($t) => is_string($t) && preg_match('/^\w+$/', $t)));
+// a table, or "table.column": a column whose values a source measured again
+$tables = array_values(array_filter((array)($input['tables'] ?? []), fn($t) => is_string($t) && preg_match('/^\w+(\.\w+)?$/', $t)));
 switch ((string)($input['action'] ?? '')) {
     case 'import':
         $file = basename((string)($input['file'] ?? ''));

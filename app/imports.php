@@ -210,6 +210,8 @@ function import_build(int $id, array $only = [], array $items = []): array
     $data = import_load($id);
     if (!$data) return ['plans' => [], 'rows' => 0, 'skipped' => 0, 'duplicates' => 0, 'tables' => [], 'warnings' => [t('This import has no data any more: import the file again.', 'Cet import n’a plus de données : importez le fichier à nouveau.')], 'items' => []];
     $tables = $data['tables'];
+    // values a source measured again (source_refresh): each a line of the card named "table.column", ticked like a table
+    $changes = array_values(array_filter($data['changes'] ?? [], fn($op) => is_array($op) && isset($op['table'], $op['set']) && (!$only || in_array($op['table'] . '.' . $op['set'], $only, true))));
     if ($only) $tables = array_intersect_key($tables, array_flip($only));
     $warnings = []; $ops = []; $nearby = 0; $unknown = 0; $lootIds = []; $vendors = [];
     $itemSet = $items ? array_flip(array_map('intval', $items)) : null;
@@ -308,6 +310,8 @@ function import_build(int $id, array $only = [], array $items = []): array
         foreach (array_keys($lootIds) as $entry) $fill[] = [$entry, 0, $entry];
         forge_merge($ops, ['db' => 'world', 'table' => 'creature_template_difficulty', 'columns' => ['Entry', 'DifficultyID', 'LootID'], 'match' => ['Entry', 'DifficultyID'], 'fill' => 'LootID', 'rows' => $fill]);
     }
+    // only the whole card changes values: "the sources of these items" (the Items page) adds what is missing, no more
+    if ($itemSet === null) foreach ($changes as $op) forge_merge($ops, $op);
     if ($nearby) $warnings[] = sprintf(t('%d spawn(s) already stand at the same place on the server and were left out.', '%d placement(s) existent déjà au même endroit sur le serveur et ont été écartés.'), $nearby);
     if ($unknown) $warnings[] = sprintf(t('%d row(s) were left out: unknown template or a value the importer could not read.', '%d ligne(s) écartées : modèle inconnu ou valeur illisible.'), $unknown);
     $built = forge_plan($ops, [], $warnings);

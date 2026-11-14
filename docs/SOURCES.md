@@ -66,6 +66,31 @@ cards nothing was ever applied from (also when the new one turns out empty: noth
 applied, in whole or in part, stays, rolled back since or not; the history keeps every operation's SQL and rollback
 whatever happens to its card.
 
+## Rows the server already has
+
+The sources keep growing: Icy Veins' players loot more corpses every day, EG Link adds a client build, and the game
+is rebalanced. An import that only added what is missing would keep the first number it ever read. So an import also
+compares the **drops the server already has** with what its source says now, and where a chance moved it proposes the
+new one, as a line of its card: *Creature drop chances that moved*, *Chest drop chances that moved*. Tick or untick the
+line like a table; nothing changes until the card is applied.
+
+- **Whose rows.** Only a row an import brought: its `Comment` names the source (`Icy Veins 2026-11-14`). The source
+  itself may change it, and so may a more trusted one. A row no import brought (the core's own data, a hand fix) and a
+  row of a more trusted source are counted on the card (*differs ... not changed*) and left alone.
+- **Trust.** `[sources] trust` lists the sources, most trusted first. By default: Wowhead, then Questie's data (it
+  comes through NorgannonDB), then Icy Veins, then EG Link, ForeverDB.net and AtlasLoot.
+- **Moved.** By a tenth of what it was (`[sources] chance_tolerance`, percent) and by 0.05 points at least: a source
+  that counted a few more corpses shifts every number a little, and each change is a line in a file.
+- **Safe.** Each statement names the value it replaces (`... AND ABS(Chance - 7.75) < 0.005`): it changes nothing where
+  the row moved on meanwhile, nothing more when it runs again, and the rollback is the same statement the other way
+  round. *Data repo .sql* exports it as it is.
+- **Which sources.** Icy Veins (it looks the items of imported drops up again, besides the gaps; its answers are kept
+  for two weeks), EG Link and ForeverDB.net (their whole files are read anyway). Not yet: NorgannonDB (it is asked about
+  the gaps only), AtlasLoot (its measures are the other sources'), and values other than a drop's chance (a trainer's
+  price, a vendor's stock).
+
+`[sources] refresh = 0` turns it off: imports then only add.
+
 ## Running them
 
 - The Forge › Imports: *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.

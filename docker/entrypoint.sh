@@ -15,7 +15,7 @@ say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
 for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_SITE_NAME \
-           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
+           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
     eval "value=\${$var:-}"
     case "$value" in
         *\"*|*'
@@ -93,6 +93,11 @@ max = ${FT_ICYVEINS_MAX:-20000}
 
 [atlasloot]
 guess = ${FT_ATLASLOOT_GUESS:-1}
+
+[sources]
+trust = "${FT_SOURCES_TRUST:-}"
+refresh = ${FT_SOURCES_REFRESH:-1}
+chance_tolerance = ${FT_SOURCES_CHANCE_TOLERANCE:-10}
 
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"
