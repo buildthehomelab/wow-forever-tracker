@@ -95,7 +95,8 @@ def evaluate_all(content, ctx):
         for items in table_items(name).values():
             add(items, name)
     add({item for npc, item in ctx['quest_items_npc'] if npc in npc_spawned} | {item for go, item in ctx['quest_items_go'] if go in go_spawned}, 'questdrop')
-    add({item for npc, item in ctx['vendors'] if npc in npc_spawned}, 'vendor')
+    vendor_sources = npc_spawned | ctx.get('scripted_vendors', set())
+    add({item for npc, item in ctx['vendors'] if npc in vendor_sources}, 'vendor')
     add(ctx['shop_items'], 'shop')
     loot_unplaced = set()
     for items in table_items('creature').values():
