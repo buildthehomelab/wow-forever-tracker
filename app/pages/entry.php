@@ -28,7 +28,7 @@ if (!empty($data['spell'])) $teach['spell'] = rows("SELECT * FROM ft_entities WH
 if (!empty($data['ranks'])) $teach['ranks'] = rows("SELECT * FROM ft_entities WHERE type = 'spell' AND id IN (" . implode(',', array_map('intval', $data['ranks'])) . ') ORDER BY FIELD(id,' . implode(',', array_map('intval', $data['ranks'])) . ')');
 $zoneQuests = $type === 'zone' ? rows("SELECT IF(status <> 'ok' AND " . later_sql() . ", 'later', status) status, COUNT(*) n FROM ft_entities WHERE type = 'quest' AND sub = ? GROUP BY 1", [(string)$id]) : [];
 $fixes = is_admin() && table_exists('ft_fixes') ? rows('SELECT kind, db, rows_count, needs, summary FROM ft_fixes WHERE type = ? AND id = ?', [$type, $id]) : [];
-$applied = is_admin() && table_exists('ft_forge_log') ? rows("SELECT id, kind, created_at, state FROM ft_forge_log WHERE JSON_CONTAINS(items, JSON_OBJECT('type', ?, 'id', ?)) ORDER BY id DESC LIMIT 5", [$type, $id]) : [];
+$applied = is_admin() && table_exists('ft_forge_log') ? rows("SELECT id, kind, created_at, state FROM ft_forge_log WHERE state IN ('applied', 'rolled_back') AND JSON_CONTAINS(items, JSON_OBJECT('type', ?, 'id', ?)) ORDER BY id DESC LIMIT 5", [$type, $id]) : [];
 $fieldLabels = ['name' => t('Name', 'Nom'), 'quality' => t('Quality', 'Qualité'), 'ilvl' => t('Item level', 'Niveau d’objet'), 'req' => t('Required level', 'Niveau requis'),
     'slot' => t('Slot', 'Emplacement'), 'stats' => t('Stats', 'Caractéristiques'), 'sell' => t('Sell price', 'Prix de vente'), 'buy' => t('Buy price', 'Prix d’achat'),
     'desc' => 'Description', 'aura' => t('Aura text', 'Texte de l’aura'), 'effects' => t('Effects', 'Effets'), 'level' => t('Level', 'Niveau'), 'rank' => t('Rank', 'Rang'),

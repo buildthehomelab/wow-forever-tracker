@@ -2,6 +2,9 @@
 // The Forge: turns selected fixes into SQL, applies them in transactions and keeps a history with rollbacks.
 
 const FORGE_KINDS = ['hotfix', 'trainer', 'instance', 'vendor'];
+/** Seconds after which an operation still "pending" was not left that way by a run in progress: the website stopped,
+ *  or lost its database, between writing the change and recording what became of it. */
+const FORGE_PENDING_STALE = 600;
 
 function forge_schema(): void
 {
@@ -9,6 +12,16 @@ function forge_schema(): void
         admin VARCHAR(190) NOT NULL, kind VARCHAR(64) NOT NULL, items JSON NOT NULL, rows_count INT NOT NULL DEFAULT 0, sql_apply JSON NOT NULL, sql_rollback JSON NOT NULL,
         state VARCHAR(16) NOT NULL, message TEXT, rolled_back_at DATETIME NULL, KEY ix_state (state)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
+
+/** States of an operation: pending (its history row is written, the change is being applied or was interrupted),
+ *  applied, failed (nothing was kept), rolled_back. Only "applied" counts as on the server (lists, data repo export). */
+function forge_state_label(string $state): string
+{
+    return ['applied' => t('Applied', 'Appliquée'), 'failed' => t('Failed', 'Échec'), 'rolled_back' => t('Rolled back', 'Annulée'),
+            'pending' => t('Not confirmed', 'Non confirmée')][$state] ?? $state;
+}
+/** SQL: 1 for an operation left "pending" by a run that never finished (see FORGE_PENDING_STALE). */
+function forge_interrupted_sql(): string { return "(state = 'pending' AND created_at < NOW() - INTERVAL " . FORGE_PENDING_STALE . ' SECOND)'; }
 
 function forge_kind_label(string $kind): string
 {
@@ -263,20 +276,34 @@ function forge_commit(array $built, string $kinds): array
         if ($built['items'] && $built['skipped']) return ['ok' => true, 'log' => 0, 'message' => t('Everything selected is already on the server: nothing to do.', 'Tout ce qui est choisi est déjà sur le serveur : rien à faire.')] + $result;
         return ['ok' => false, 'message' => $built['warnings'] ? implode(' ', $built['warnings']) : t('Nothing to apply.', 'Rien à appliquer.')] + $result;
     }
-    [$ok, $message] = forge_run($built['plans'], 'apply');
+    // The history row comes first, as "pending", and the change after it. The other way round, a history row that
+    // could not be written (the tracker's database gone, a script larger than MySQL takes in one packet) left the
+    // change live with no rollback kept anywhere. If the row fails now, nothing has been changed yet.
     $script = fn($part) => json_encode(array_map(fn($p) => implode("\n", $p[$part]), $built['plans']), JSON_UNESCAPED_UNICODE);
     rows('INSERT INTO ft_forge_log (admin, kind, items, rows_count, sql_apply, sql_rollback, state, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-        (string)admin()['name'], $kinds, json_encode($built['items']), $built['rows'], $script('apply'), $script('rollback'),
-        $ok ? 'applied' : 'failed', $ok ? implode(' ', $built['warnings']) : $message,
+        (string)(admin()['name'] ?? 'cli'), $kinds, json_encode($built['items']), $built['rows'], $script('apply'), $script('rollback'), 'pending', '',
     ]);
-    return ['ok' => $ok, 'log' => (int)db()->insert_id, 'message' => $message] + $result;
+    $log = (int)db()->insert_id;
+    [$ok, $message] = forge_run($built['plans'], 'apply');
+    try {
+        // (rolled_back_at: someone may have rolled a slow run back before it ended; what it then wrote is on the server)
+        rows('UPDATE ft_forge_log SET state = ?, message = ?, rolled_back_at = NULL WHERE id = ?', [$ok ? 'applied' : 'failed', $ok ? implode(' ', $built['warnings']) : $message, $log]);
+    } catch (mysqli_sql_exception $e) {
+        // the change is made (or not) either way; the row stays "pending", and the history offers its rollback
+        error_log('Forever Tracker: Forge operation #' . $log . ' ' . ($ok ? 'was applied' : 'failed') . ' but its history row could not be updated: ' . $e->getMessage());
+        $result['warnings'][] = sprintf(t('The history could not be updated (%s): operation #%d stays "not confirmed" there, with its SQL and its rollback.', 'L’historique n’a pas pu être mis à jour (%s) : l’opération n°%d y reste « non confirmée », avec son SQL et son annulation.'), $e->getMessage(), $log);
+    }
+    return ['ok' => $ok, 'log' => $log, 'message' => $message] + $result;
 }
 
 function forge_rollback(int $logId): array
 {
     forge_schema();
-    $log = row('SELECT * FROM ft_forge_log WHERE id = ?', [$logId]);
-    if (!$log || $log['state'] !== 'applied') return ['ok' => false, 'message' => t('This operation cannot be rolled back.', 'Cette opération ne peut pas être annulée.')];
+    $log = row('SELECT *, ' . forge_interrupted_sql() . ' interrupted FROM ft_forge_log WHERE id = ?', [$logId]);
+    // a pending operation is being applied right now, unless it has been pending for too long to be: then nobody
+    // recorded whether its change was written, and its rollback (which removes only what it would have added) may run
+    if ($log && $log['state'] === 'pending' && !$log['interrupted']) return ['ok' => false, 'message' => t('This operation is still being applied: wait for it to end.', 'Cette opération est encore en cours d’application : attendez qu’elle se termine.')];
+    if (!$log || !in_array($log['state'], ['applied', 'pending'], true)) return ['ok' => false, 'message' => t('This operation cannot be rolled back.', 'Cette opération ne peut pas être annulée.')];
     $plans = []; $console = null;
     foreach (json_decode($log['sql_rollback'], true) ?: [] as $database => $sql) {
         if ($database === 'console') $console = (string)$sql; else $plans[$database] = ['rollback' => $sql];
