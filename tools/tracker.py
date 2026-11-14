@@ -121,7 +121,16 @@ def refresh_quests(args):
                 out[int(row['ID'])] = row
         return out
     rows = read('quest_template', 'ID') or {}
-    changes, left = refresh.quest_changes(records, rows, read('quest_objectives', 'QuestID'), read('quest_classic_money', 'ID'), read('quest_classic_level', 'ID'))
+    # reputation tiers in points: the client's own table, from the server's copy (row 1: gains, row 2: losses)
+    tiers = None
+    try:
+        table = {int(r['ID']): [int(r.get(f'Difficulty{i}') or 0) for i in range(1, 11)] for r in server.server_db2('QuestFactionReward')}
+        tiers = {1: table[1], 2: table.get(2) or [-value for value in table[1]]} if 1 in table else None
+    except (SystemExit, KeyError, ValueError, TypeError):
+        pass
+    if tiers is None:
+        log("refresh: the server's QuestFactionReward.db2 could not be read: reputation written another way than the row is left alone")
+    changes, left = refresh.quest_changes(records, rows, read('quest_objectives', 'QuestID'), read('quest_classic_level', 'ID'), tiers)
     result = {'changes': changes, 'left': left, 'records': len(records), 'quests': len(set(records) & set(rows))}
     with open(args.out + '.part', 'w', encoding='utf-8') as handle:
         json.dump(result, handle, ensure_ascii=False)

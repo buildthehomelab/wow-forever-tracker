@@ -334,8 +334,7 @@ function source_refresh(array $ev, string $source): array
 const SOURCE_QUEST_REFRESH = [
     'quest_template' => ['ID', '/^(Reward(Item|Amount|ChoiceItemID|ChoiceItemQuantity|FactionID|FactionValue|FactionOverride|CurrencyID|CurrencyQty)\d|RewardSpell|RewardXPDifficulty|RewardXPMultiplier|LogTitle|LogDescription|QuestDescription|AreaDescription|QuestCompletionLog)$/'],
     'quest_objectives' => ['ID', '/^(Amount|Description)$/'],
-    'quest_classic_money' => ['ID', '/^RewardMoney$/'],
-    'quest_classic_level' => ['ID', '/^(QuestLevel|MinLevel)$/'],
+    'quest_classic_level' => ['ID', '/^MinLevel$/'],
 ];
 
 /**
