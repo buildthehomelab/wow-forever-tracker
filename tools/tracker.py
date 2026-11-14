@@ -51,7 +51,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft import client, content as official_content, forge, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -79,6 +79,17 @@ def snapshot(args):
     if args.note:
         info['note'] = args.note
     json.dump(info, open(meta, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def client_status():
+    """Prints what is live, what is stored and what the server runs, and whether a fetch would bring something."""
+    state = client.status()
+    live = state['live']
+    print('live on Blizzard\'s servers:  ' + (f"{live['version']}" if 'version' in live else f"unknown ({live.get('error', '')})"))
+    print(f"newest snapshot:            {state['snapshot'] or 'none'}")
+    print(f"the server's client data:   {state['server'] or 'unknown'}")
+    if 'build' in live and live['build'] > state['snapshot']:
+        print('tracker.py fetch would store the live build.')
 
 
 def wowhead_names(quest_ids):
@@ -324,6 +335,10 @@ def main():
     locate.add_argument('--refresh', action='store_true', help='ask Wowhead again even for the resources already cached')
     locate.add_argument('--limit', type=int, default=0, help='ask Wowhead for at most N new resources this time')
     locate.add_argument('--offline', action='store_true', help='only use the Wowhead answers already cached')
+    sub.add_parser('client', help='which client build is live, which the tracker holds and which the server runs')
+    fetch = sub.add_parser('fetch', help="store the live client build's tables from Blizzard's CDN when it is newer than the newest snapshot")
+    fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
+    fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -359,6 +374,12 @@ def main():
         snapshot(args)
     elif args.command == 'locate':
         locator.run(args)
+    elif args.command == 'client':
+        client_status()
+    elif args.command == 'fetch':
+        result = client.fetch(force=args.force, keep_cache=args.keep_cache, log=log)
+        log('client: ' + result['message'])
+        sys.exit(result['code'])
     else:
         analyse(args)
 

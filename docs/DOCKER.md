@@ -98,6 +98,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
 | `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
+| `FT_CLIENT_EVERY_HOURS` | `6` | Hours between checks of Blizzard's version server for a new client build, read from the CDN when there is one (docs/CLIENT.md); `0`: never |
+| `FT_CLIENT_PRODUCT` | `wowf` | The game whose live build is read (`wowf`: WoW: Forever) |
 | `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot`. The game client and the CDN always come before all of them (docs/SOURCES.md, *Rows the server already has*) |
 | `FT_SOURCES_REFRESH` | `1` | `0`: imports only add what is missing; they no longer propose a new value for a drop chance that moved |
 | `FT_SOURCES_CHANCE_TOLERANCE` | `10` | A drop chance has moved when it changed by this percent of what it was (and by 0.05 points at least) |

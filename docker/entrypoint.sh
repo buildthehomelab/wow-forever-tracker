@@ -15,7 +15,7 @@ say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
 for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_SITE_NAME \
-           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
+           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_CLIENT_PRODUCT FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
     eval "value=\${$var:-}"
     case "$value" in
         *\"*|*'
@@ -83,6 +83,7 @@ password = "${FT_RA_PASSWORD:-}"
 
 [client]
 path = ""
+product = "${FT_CLIENT_PRODUCT:-wowf}"
 
 [forge]
 trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
@@ -290,5 +291,50 @@ atlasloot_watch() {
     done
 }
 atlasloot_watch &
+
+# The official client from Blizzard's own servers (docs/CLIENT.md): every FT_CLIENT_EVERY_HOURS (0 = never) the version
+# server is asked which build is live. A newer build than the newest snapshot is read from the CDN and stored, and so
+# is the stored build again once a key it was waiting for is published (unreleased content opens with time). Then the
+# analysis runs, so the report compares the server with what players' clients hold today. The check itself is two small
+# requests; reading a build is a few hundred MB, once a build.
+analysis_running() {
+    # a log without its end mark that was written to in the last ten minutes: an analysis (the website's or ours)
+    [ -f "$DATA/analysis.log" ] && ! grep -q '^FT-END' "$DATA/analysis.log" && [ -n "$(find "$DATA/analysis.log" -mmin -10 2>/dev/null)" ]
+}
+client_watch() {
+    case "${FT_CLIENT_EVERY_HOURS:-6}" in ''|*[!0-9]*|?????*) say "FT_CLIENT_EVERY_HOURS must be a whole number up to 9999: no client check"; return ;; esac
+    hours="$(expr "${FT_CLIENT_EVERY_HOURS:-6}" + 0 || true)"
+    if [ "$hours" -eq 0 ]; then say "FT_CLIENT_EVERY_HOURS=0: the client is not checked on Blizzard's servers"; return; fi
+    clog="$DATA/client.log"
+    sleep 1200   # after the start's own analysis
+    while :; do
+        nap=$((hours * 3600))
+        if analysis_running; then
+            nap=900
+        else
+            if as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" fetch > "$clog" 2>&1; then rc=0; else rc=$?; fi
+            tail -n 1 "$clog" 2>/dev/null | sed 's/^/[forever-tracker] /'
+            if [ "$rc" -eq 0 ] && ! analysis_running; then
+                alog="$DATA/analysis.log"
+                steps="analyse"; [ "${FT_LOCATE:-1}" = "1" ] && steps="$steps locate"
+                for step in $steps; do
+                    date +%s > "$DATA/analysis.state"; chown www-data:www-data "$DATA/analysis.state"
+                    : > "$alog"; chown www-data:www-data "$alog"
+                    say "client: $step after the new build (log in data/analysis.log)"
+                    case "$step" in
+                        analyse) if [ "${FT_WOWHEAD:-1}" = "1" ]; then set -- analyse --wowhead; else set -- analyse; fi ;;
+                        *) set -- "$step" ;;
+                    esac
+                    if as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" "$@" >> "$alog" 2>&1; then ok=1; else ok=0; fi
+                    echo FT-END >> "$alog"
+                    tail -n 3 "$alog" | sed 's/^/[forever-tracker]   /'
+                    [ "$ok" = "1" ] || { say "client: $step failed (full log: data/analysis.log)"; break; }
+                done
+            fi
+        fi
+        sleep "$nap"
+    done
+}
+client_watch &
 
 exec docker-php-entrypoint "$@"

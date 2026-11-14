@@ -21,6 +21,7 @@ server DB2, world, hotfixes, auth, maps ──────┤
 | `ft/db2.py` | WDC5 reader: dense and sparse records, bit-packed, pallet and common data, copy tables, relationship columns, encrypted sections (counted, skipped) |
 | `schema/db2-schema.json` | Column names and layouts of every DB2 table, generated from the core's `DB2Metadata.h` / `DB2LoadInfo.h` by `make_db2_schema.py` |
 | `ft/content.py` | Official content of one build (13 resource types) and build-to-build diffs |
+| `ft/client.py`, `ft/cdn.py`, `schema/db2-files.json` | The live client build's tables straight from Blizzard's CDN, stored as a snapshot; read again when a key of unreleased content is published (docs/CLIENT.md) |
 | `ft/server.py` | What the server provides: its DB2 files, hotfix rows, spawns, loot, vendors, trainers, quests, instances, map files |
 | `ft/rules.py` | Availability checks of every resource, with English and French details |
 | `ft/summons.py`, `world/summoned.json` | What is in the game without a spawn row: the database's summons, and the core's C++ scripts read once by `make_summoned.py` |
