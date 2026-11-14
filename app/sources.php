@@ -192,6 +192,24 @@ function source_tables(array $ev, string $label, array $gaps): array
         }
     }
 
+    // ---- what the NPC says at the turn-in: 'text' => [quest, 'complete'|'progress', text]. A row for a quest that
+    // has none in that table; a quest that has a row there, with words or without, is left as it is
+    $windows = ['complete' => ['quest_offer_reward', 'RewardText'], 'progress' => ['quest_request_items', 'CompletionText']];
+    $said = [];
+    foreach ($ev['text'] ?? [] as [$quest, $moment, $text]) if (isset($windows[$moment]) && trim((string)$text) !== '') $said[$moment][(int)$quest] = (string)$text;
+    foreach ($said as $moment => $list) {
+        [$table, $column] = $windows[$moment];
+        if (!table_exists($table, 'world')) continue;
+        $quests = $ids('SELECT ID FROM quest_template WHERE ID IN (' . $in(array_keys($list)) . ')');
+        $have = $ids("SELECT ID FROM `$table` WHERE ID IN (" . $in(array_keys($list)) . ')');
+        foreach ($list as $quest => $text) {
+            if (!isset($quests[$quest])) { $left['quest_unknown']++; continue; }
+            if (isset($have[$quest])) { $left['text_known'] = ($left['text_known'] ?? 0) + 1; continue; }
+            if (isset($gaps['later']['quests'][$quest])) continue;
+            $rows[$table][] = ['ID' => $quest, $column => $text, 'VerifiedBuild' => 0];
+        }
+    }
+
     foreach ($ev['left'] ?? [] as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
     $tables = [];
     foreach ($rows as $table => $records) {
@@ -584,6 +602,12 @@ function foreverchanges_evidence(array $result): array
     foreach ((array)($result['ev']['sell'] ?? []) as $r) if (is_array($r) && count($r) === 3 && $whole($r[0]) && $whole($r[1]) && is_int($r[2]) && $r[2] >= 0) $ev['sell'][] = [$r[0], $r[1], $r[2]];
     foreach ((array)($result['ev']['drop'] ?? []) as $r) {
         if (is_array($r) && count($r) === 4 && $r[0] === 'npc' && $whole($r[1]) && $whole($r[2]) && (is_int($r[3]) || is_float($r[3])) && $r[3] > 0 && $r[3] <= 100) $ev['drop'][] = ['npc', $r[1], $r[2], (float)$r[3]];
+    }
+    // what the NPC says: a quest, the window, and words a row can hold (no control characters but none are expected:
+    // line breaks are written $B)
+    foreach ((array)($result['ev']['text'] ?? []) as $r) {
+        if (is_array($r) && count($r) === 3 && $whole($r[0]) && in_array($r[1], ['complete', 'progress'], true) && is_string($r[2])
+            && trim($r[2]) !== '' && strlen($r[2]) <= 8000 && !preg_match('/[\x00-\x1f\x7f]|‹|›/u', $r[2])) $ev['text'][] = [$r[0], $r[1], $r[2]];
     }
     foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^report_[a-z_]+$/', (string)$why) && (int)$n > 0) $ev['left'][(string)$why] = (int)$n;
     return $ev;

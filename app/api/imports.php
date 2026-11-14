@@ -26,7 +26,8 @@ if ($upload) {
         $pack = foreverchanges_pack();
         @mkdir(dirname($pack), 0775, true);
         $head = (string)@file_get_contents($file['tmp_name'], false, null, 0, 2);
-        if ($head !== "\x1f\x8b" || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/foreverchanges_pack.py.', 'Ce n’est pas un paquet créé par tools/foreverchanges_pack.py.')]);
+        // a zip (the pack beside the rest of the site's data) or, from an earlier pack tool, gzipped JSON
+        if (!in_array($head, ["PK", "\x1f\x8b"], true) || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/foreverchanges_pack.py.', 'Ce n’est pas un paquet créé par tools/foreverchanges_pack.py.')]);
         json_out(foreverchanges_import());
     }
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);

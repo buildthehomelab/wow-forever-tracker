@@ -9,8 +9,11 @@ a quest is for, what sells or drops each item, and where the NPCs, rares and boo
 those lists, gzipped JSON, about a megabyte: small enough to send through the Imports page. The tracker never asks
 the site for anything.
 
-Not packed, on purpose: what a quest's NPC says at the turn-in (the site shows it with the name of the player who
-recorded it where the server has a placeholder), the item tooltips, and the pages in other languages.
+The pack is a zip. `pack.json` is what the tracker reads today: the lists above, a few MB. Beside it, under `site/`,
+is every data file of the site in English as the crawl has it (the whole quest and item lists with every field, the
+maps, the dungeons, the professions), so that a later version of the tracker can read more without a new crawl or a
+new upload. Left out: the HTML pages, which show the same data inside the site's own layout, and the data files in
+the six other languages.
 
 The site's base is Classic's data with what Forever changed on top. What its players saw is marked, and only that
 is evidence about Forever: a quest with `seen_by_players`, a drop counted in kills. The rest is kept in the pack as
@@ -20,10 +23,11 @@ import gzip
 import json
 import sqlite3
 import sys
+import zipfile
 
 FORMAT = 'foreverchanges-pack/1'
 QUEST_FIELDS = ('id', 'title', 'new', 'seen_by_players', 'side', 'class', 'type', 'level', 'min_level', 'start', 'end', 'xp',
-                'reputation', 'reward_items')
+                'reputation', 'reward_items', 'texts')
 # how an item is come by, as the site words it: the ones the tracker turns into rows
 ITEM_SOURCES = ('Creature drop', 'From a rare', 'Sold by a vendor', 'Sold by a quartermaster')
 
@@ -84,14 +88,37 @@ def pack(db):
     return {'format': FORMAT, 'site': 'foreverchanges.pro', 'retrieved': newest[:10], 'quests': quests, 'items': items, 'npcs': npcs, 'pins': pins}
 
 
+OTHER_LANGUAGES = ('de', 'es', 'fr', 'ru', 'zh-cn', 'zh-tw')
+
+
+def english(path):
+    """A data file of the site that is not one of another language's copies."""
+    parts = path.split('/')
+    if path.endswith(('.xml', '.html')):
+        return False          # the sitemaps and the terms page: no data
+    if parts[0] != 'tracker-pages':
+        return True
+    if any(part in OTHER_LANGUAGES for part in parts[1:-1]):
+        return False
+    return not (len(parts) > 3 and parts[1] == 'items' and parts[2] == 'u' and parts[3] != 'en')
+
+
 def main(argv):
     if len(argv) != 3:
         raise SystemExit(__doc__.strip().split('\n\n')[1].strip())
     db = sqlite3.connect(f'file:{argv[1]}?mode=ro&immutable=1', uri=True)
     data = pack(db)
     body = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-    with gzip.open(argv[2], 'wb', compresslevel=9) as handle:
-        handle.write(body)
+    files = size = 0
+    with zipfile.ZipFile(argv[2], 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        archive.writestr('pack.json', body)
+        for path, blob in db.execute('SELECT path, body_gzip FROM exports ORDER BY path'):
+            if english(path):
+                raw = gzip.decompress(blob)
+                archive.writestr('site/' + path, raw)
+                files += 1
+                size += len(raw)
+    print(f'{files} data files of the site kept beside it ({size / 1048576:.0f} MB as text)')
     print(f"{len(data['quests'])} quests, {len(data['items'])} items with a source, {len(data['npcs'])} NPCs and {len(data['pins'])} pins of its maps, "
           f"read {data['retrieved']}: {argv[2]}")
 

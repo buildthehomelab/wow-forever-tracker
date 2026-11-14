@@ -20,8 +20,11 @@ repeat its rows.
 
 ## ForeverChanges: names and places, from a file
 
-`python tools/foreverchanges_pack.py copy.db out.fcpack` trims a crawl of the site (the SQLite file it leaves, several
-hundred MB) down to its quest and item lists, a few MB. Send the `.fcpack` on the Imports page: it becomes the one
+`python tools/foreverchanges_pack.py copy.db out.fcpack` makes a pack from a crawl of the site (the SQLite file it
+leaves, several hundred MB): a zip of under 10 MB. Inside, `pack.json` is the lists the tracker reads (quests, item
+sources, the NPCs and pins of the maps), and `site/` holds every data file of the site in English as the crawl has
+it, kept so that a later version can read more without a new upload. The HTML pages (the same data inside the
+site's layout) and the six other languages are what makes the crawl big, and are left out. Send the `.fcpack` on the Imports page: it becomes the one
 pack the tracker keeps (`data/foreverchanges/pack.fcpack`) and a card is made at once; *Read the pack again* makes a
 new card after an analysis.
 
@@ -62,10 +65,19 @@ Two more things come out of the same pack:
   compared the two directly, named about 300 quests wrongly. It also read the Horde's race mask as "everyone",
   because its top bit is set: the masks are now the ones the live server sends for each side.
 
+- **What the NPC says at the turn-in.** For the quests players saw and that have no row for that window on the
+  server (`quest_offer_reward`, `quest_request_items`). The site shows these texts as a player's client did, and
+  marks what the server keeps as a placeholder: `‹name›`, `‹class›`, `‹race›` become `$N`, `$C`, `$R`, a line break
+  `$B`, and the window's own list under the text ("Sealed Apprentice Crate (1)") is cut off. About one name in five
+  is not marked: the recording player's own name stands there ("You have served well, Fuzzy."). So a text is left
+  out when it has a capitalised word the site's own data does not know (its quest titles, NPC, zone and item names,
+  and Classic's texts, where it marked every name itself), or names a class or a race in plain words. Where EG
+  Link recorded the same window in one wording, that text is taken first: it keeps the server's own placeholders.
+  Checked on the 448 texts both have: every one of the 18 the site wrote a name or a class into is left out, and
+  360 of the 370 taken are the recording's text word for word (the other ten differ by a comma or a verb).
+
 Not taken from the site, and why:
 
-- **What the NPC says at the turn-in.** The site shows it as a player's client did, with that player's name where
-  the server holds a placeholder ("You have served well, Fuzzy."). It would greet every player by that name.
 - **Boss loot of the dungeon pages.** The new items, which are the ones the server lacks, carry no drop chance there;
   AtlasLoot already says which boss drops them.
 - **Gathering nodes.** Positions without a height; placing them is the locator's work, not an import's.
