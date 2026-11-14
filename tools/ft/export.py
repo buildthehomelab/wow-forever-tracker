@@ -21,7 +21,8 @@ The rules a file follows:
 
 What is written today: the templates of NPCs that are friendly to players (ft/npcs.py: what the NPC looks like from
 the record the server sent, its level from a source that states it, its faction a stand-in by side), quests
-(ft/quests.py: the quest's row from the record, its objectives, levels, money and reward spells), the quest starters
+(ft/quests.py: the quest's row from the record, its objectives, levels, money and reward spells, and what its NPC
+says at the turn-in where the live game's recordings have it in one wording), the quest starters
 and enders of NPCs and objects, and vendor items sold for money in endless supply: a recording of the live game
 shows it, or, where nobody recorded the vendor's window, the world's other vendors all sell the item that way.
 Everything else that is ready is held back with its reason, and what waits for it waits with it.
@@ -63,9 +64,13 @@ NPC_CHILDREN = (('creature_template_difficulty', 'Entry', ('Entry', 'DifficultyI
 # the tables a quest's own rows go to, with the column that names the quest and the key the ledger records
 CHILDREN = (('quest_objectives', 'QuestID', ('ID',)), ('quest_classic_level', 'ID', ('ID',)), ('quest_template_classic_level', 'ID', ('ID', 'LevelType')),
             ('quest_classic_money', 'ID', ('ID',)), ('quest_reward_display_spell', 'QuestID', ('QuestID', 'Idx')), ('quest_template_addon', 'ID', ('ID',)))
+# what the quest's NPC says when it is handed in and while it is not done yet: (table, the moment a recording calls it, the text's column).
+# These come with a quest where a recording has them, and a quest is not refused for a text the world holds already.
+TEXTS = (('quest_offer_reward', 'complete', 'RewardText'), ('quest_request_items', 'progress', 'CompletionText'))
 # the tables with a VerifiedBuild column: 0, not a recording
-VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell', NPC, 'creature_template_difficulty', 'creature_template_model')
-KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, NPC: 1, VENDOR: 4}, **{table: len(key) for table, _parent, key in CHILDREN + NPC_CHILDREN})
+VERIFIED = (QUEST, 'quest_objectives', 'quest_reward_display_spell', NPC, 'creature_template_difficulty', 'creature_template_model',
+            'quest_offer_reward', 'quest_request_items')
+KEYS = dict({table: 2 for table in ORDER}, **{QUEST: 1, NPC: 1, VENDOR: 4}, **{table: len(key) for table, _parent, key in CHILDREN + NPC_CHILDREN}, **{table: 1 for table, _moment, _column in TEXTS})
 QUESTGIVER_FLAG, VENDOR_FLAG, QUESTGIVER_OBJECT = 2, 128, 2
 BATCH = 200
 REFUSED = ('the replayed world does not take it: it holds the row by now, an earlier file added it and it was taken out since, '
@@ -206,9 +211,17 @@ def quest_row(decision, known, world, arriving=()):
     previous = known.get('previous', 0)
     addon = {'AllowableClasses': known.get('classes') or made.classes, 'PrevQuestID': previous if previous in world['quests'] else 0}
     stated = bool(known.get('classes') or addon['PrevQuestID'])                  # QuestieDB's word is in the row: it is named as a source
-    data = {'quest': made, 'addon': addon if any(addon.values()) else None, 'record': f"{known['source']}@{known['build']}",
+    texts, texts_from = {}, {}                       # the texts the recordings have, from a source this row may name
+    for table, moment, _column in TEXTS:
+        heard = (known.get('texts') or {}).get(moment)
+        if heard and (allowed == 'private' or heard['use'] == 'public'):
+            text, _why = quests.said(heard['wordings'])
+            if text:
+                texts[table], texts_from[table] = text, (heard['source'], heard['build'])
+    data = {'quest': made, 'addon': addon if any(addon.values()) else None, 'record': f"{known['source']}@{known['build']}", 'texts': texts,
+            'texts_from': {table: f'{source}@{build}' for table, (source, build) in texts_from.items()},
             'needs': [number for number in quests.targets(made)['npc'] if number not in world['npcs']],          # the NPCs written with it that it cannot do without
-            'sources': {known['source']} | ({known['addon_source']} if stated else set()),
+            'sources': {known['source']} | ({known['addon_source']} if stated else set()) | {source for source, _build in texts_from.values()},
             'from_questiedb': {key: value for key, value in (('AllowableClasses', known.get('classes', 0)), ('PrevQuestID', addon['PrevQuestID'])) if value}}
     return Row(QUEST, (quest,), note(decision, allowed), made.template['LogTitle'], allowed, decision, data), ''
 
@@ -472,6 +485,18 @@ def quest_block(rows, file):
     out.append(f"INSERT INTO {quote(QUEST)} ({columns}, `VerifiedBuild`) SELECT {columns}, 0 FROM {quote(QUESTS)} s WHERE s.`missing` = 1 ORDER BY s.`n`")
     out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, `k1`, `file`, `note`) SELECT {literal(QUEST)}, s.`ID`, {literal(file)}, s.`note` FROM {quote(QUESTS)} s WHERE s.`missing` = 1")
     out += brought(CHILDREN, children, QUESTS, 'ID', {'quest_objectives': OBJECTIVES}, file)
+    for table, _moment, column in TEXTS:              # a text goes in for a quest this file added, unless the world holds one or a file added one before
+        records = [collections.OrderedDict((('ID', row.key[0]), (column, row.data['texts'][table]))) for row in rows if row.data.get('texts', {}).get(table)]
+        if not records:
+            continue
+        out += staged_like(STAGE, table, records, ', `free` TINYINT NOT NULL DEFAULT 0')
+        out.append(f"UPDATE {quote(STAGE)} p JOIN {quote(QUESTS)} s ON s.`ID` = p.`ID` SET p.`free` = 1 WHERE s.`missing` = 1 "
+                   f"AND NOT EXISTS (SELECT 1 FROM {quote(table)} c WHERE c.`ID` = p.`ID`) "
+                   f"AND NOT EXISTS (SELECT 1 FROM {quote(LEDGER)} r WHERE r.`tbl` = {literal(table)} AND r.`k1` = p.`ID`)")
+        out.append(f"INSERT INTO {quote(table)} (`ID`, {quote(column)}, `VerifiedBuild`) SELECT p.`ID`, p.{quote(column)}, 0 FROM {quote(STAGE)} p WHERE p.`free` = 1 ORDER BY p.`n`")
+        out.append(f"INSERT INTO {quote(LEDGER)} (`tbl`, `k1`, `file`, `note`) SELECT {literal(table)}, p.`ID`, {literal(file)}, s.`note` "
+                   f"FROM {quote(STAGE)} p JOIN {quote(QUESTS)} s ON s.`ID` = p.`ID` WHERE p.`free` = 1")
+        out.append(f'DROP TEMPORARY TABLE {quote(STAGE)}')
     out.append(f'DROP TEMPORARY TABLE {quote(QUESTS)}')
     return out
 
@@ -685,6 +710,7 @@ def described(row):
     quest, addon = row.data['quest'], row.data['addon']
     return {'record': row.data['record'], 'with': {'quest_objectives': len(quest.objectives), 'quest_reward_display_spell': len(quest.spells),
                                                   'quest_classic_money': int(bool(quest.money)), 'quest_template_addon': int(bool(addon))},
+            'texts': dict(sorted(row.data['texts_from'].items())),          # each goes in unless the world holds a text there already
             'from_questiedb': row.data['from_questiedb'], 'classes': (addon or {}).get('AllowableClasses', 0), 'unread': list(quest.unread)}
 
 
@@ -717,8 +743,11 @@ def load_prices(db, registry, database='tracker'):
 
 
 def load_quests(db, registry, wanted, database='tracker'):
-    """{quest: {'use', 'source', 'build', 'record', and what QuestieDB adds: 'classes', 'previous', 'addon_source'}} for
-    the quests in `wanted`. The record is the newest one a source that may give rows recorded on the live game, a
+    """{quest: {'use', 'source', 'build', 'record', what QuestieDB adds: 'classes', 'previous', 'addon_source', and
+    'texts': {moment: {'use', 'source', 'build', 'wordings'}}, what was said in the quest's windows} for
+    the quests in `wanted`. A moment's wordings are all that the sources of one use recorded on the live game, over
+    every build (the publishable sources', else the private ones'), under the newest recording's source and build: a
+    text that reads otherwise on another build is not one text. The record is the newest one a source that may give rows recorded on the live game, a
     publishable source first. QuestieDB (a publishable source's entry) adds what no record holds: the classes the
     quest is for, and the one quest that must be done before it; its hand fix is read after its generated list."""
     out, best = {}, {}
@@ -738,6 +767,28 @@ def load_quests(db, registry, wanted, database='tracker'):
                 except ValueError:
                     record = None
                 best[quest], out[quest] = rank, {'use': use, 'source': row['source'], 'build': build, 'record': record}
+        heard = {}
+        for row in db.query(f"SELECT source, subject, build, data FROM {facts.FACTS} WHERE kind = 'text' AND subject_kind = 'quest' AND subject IN ({ids})", database):
+            quest = int(row['subject'])
+            if quest not in out or row['source'] not in registry.sources:
+                continue
+            use, build = registry.source(row['source'])['use'], int(row['build'])
+            if use == 'reference' or not registry.witness(row['source'], '', build)[1]:
+                continue
+            try:
+                said = json.loads(row['data'])
+            except ValueError:
+                continue
+            for moment, lines in (said.items() if isinstance(said, dict) else ()):
+                # what the window showed, not the quest cache's copy of the offer (that is the record's description already)
+                wordings = [line['text'] for line in lines if isinstance(line, dict) and isinstance(line.get('text'), str) and not line.get('template')] \
+                    if isinstance(lines, list) else []
+                if wordings:
+                    said_so = heard.setdefault((quest, moment, use), {'newest': (-1, ''), 'wordings': []})
+                    said_so['newest'] = max(said_so['newest'], (build, row['source']))
+                    said_so['wordings'] += wordings
+        for (quest, moment, use), said_so in sorted(heard.items(), key=lambda item: item[0][2] == 'public'):        # a publishable source's word last: it stands
+            out[quest].setdefault('texts', {})[moment] = {'use': use, 'source': said_so['newest'][1], 'build': said_so['newest'][0], 'wordings': said_so['wordings']}
         for row in db.query(f"SELECT source, subject, data FROM {facts.FACTS} WHERE kind = 'entry' AND subject_kind = 'quest' AND subject IN ({ids}) "
                             f"ORDER BY source, build", database):
             quest = int(row['subject'])
@@ -925,6 +976,8 @@ def trial(db, build, files):
         return {file: set() for file, _rows in files}
     if QUEST in tables:
         tables += [table for table, _quest, _key in CHILDREN]
+        tables += [table for table, _moment, _column in TEXTS                 # only where a quest brings a text: an older world may lack the tables
+                   if any(row.table == QUEST and row.data['texts'].get(table) for _file, rows in files for row in rows)]
     if NPC in tables:
         tables += [table for table, _npc, _key in NPC_CHILDREN]
     names = ', '.join(literal(file) for file, _rows in files)

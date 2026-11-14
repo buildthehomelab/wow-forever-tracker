@@ -97,5 +97,20 @@ class Rows(unittest.TestCase):
         self.assertEqual(broken(zoneAreaId=-5), ['zoneAreaId or categoryId is not a number the column takes'])
 
 
+class Said(unittest.TestCase):
+    def test_one_wording_is_the_text_with_the_world_s_line_breaks(self):
+        self.assertEqual(quests.said(['Well done, $N.\n\nTake this.']), ('Well done, $N.$B$BTake this.', ''))
+        self.assertEqual(quests.said(['  One. \r\n Two.\rThree.  ']), ('One.$BTwo.$BThree.', ''))
+        self.assertEqual(quests.said(['Same.\n', 'Same.', '  Same.']), ('Same.', ''))              # one wording, however often it was seen
+        self.assertEqual(quests.said(["It's \\ 'quoted' \u00e9."]), ("It's \\ 'quoted' \u00e9.", ''))
+
+    def test_what_is_not_one_text_is_not_taken(self):
+        self.assertEqual(quests.said(['To a mage.', 'To a warrior.']), (None, '2 wordings were recorded'))
+        self.assertEqual(quests.said([]), (None, 'nothing was recorded'))
+        self.assertEqual(quests.said(['  ', None, 5]), (None, 'nothing was recorded'))
+        self.assertEqual(quests.said(['a\x00b']), (None, 'it is not text the file can hold'))
+        self.assertEqual(quests.said(['half a pair \ud83d']), (None, 'it is not text the file can hold'))
+
+
 if __name__ == '__main__':
     unittest.main()

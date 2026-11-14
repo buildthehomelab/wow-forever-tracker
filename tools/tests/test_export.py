@@ -187,6 +187,24 @@ class Quests(unittest.TestCase):
         rows, held = export.plan(decisions, WORLD, {}, EXTRA, records)
         return rows, {(h.decision['kind'], h.decision['subject'], h.decision['object']): h.reason for h in held}
 
+    def test_a_quest_brings_the_texts_a_recording_has(self):
+        heard = lambda use, *wordings: {'use': use, 'source': 'eglink' if use == 'public' else 'icyveins', 'build': LIVE, 'wordings': list(wordings)}
+        pair = [ready('gives', 'npc', 1, 200), ready('takes', 'npc', 1, 200), ready('quest', 'quest', 200, rule='record-seen-live')]
+        row = lambda texts, **more: next(r for r in self.plan(pair, {200: known(texts=texts, **more)})[0] if r.table == 'quest_template')
+        both = row({'complete': heard('public', 'Well done.\n\nHere.'), 'progress': heard('public', 'Not yet?'), 'accept': heard('public', 'Go.')})
+        self.assertEqual(both.data['texts'], {'quest_offer_reward': 'Well done.$B$BHere.', 'quest_request_items': 'Not yet?'})     # the offer is the record's description
+        self.assertEqual(export.described(both)['texts'], {'quest_offer_reward': 'eglink@70862', 'quest_request_items': 'eglink@70862'})
+        self.assertEqual(both.data['sources'], {'eglink'})
+        # two wordings are two answers: neither is taken; a text only a source without a licence recorded stays out of a row that may be published
+        self.assertEqual(row({'complete': heard('public', 'To a mage.', 'To a warrior.'), 'progress': heard('private', 'Not yet?')}).data['texts'], {})
+        private = row({'progress': heard('private', 'Not yet?')}, use='private')
+        self.assertEqual((private.allowed, private.data['texts'], private.data['sources']), ('private', {'quest_request_items': 'Not yet?'}, {'icyveins'}))
+        self.assertEqual(row(None).data['texts'], {})
+        statements = ';\n'.join(export.body([both], 'f.sql'))
+        self.assertIn("NOT EXISTS (SELECT 1 FROM `quest_offer_reward` c WHERE c.`ID` = p.`ID`)", statements)       # a text the world holds is left alone
+        self.assertIn("INSERT INTO `quest_request_items` (`ID`, `CompletionText`, `VerifiedBuild`) SELECT p.`ID`, p.`CompletionText`, 0", statements)
+        self.assertNotIn('quest_offer_reward', ';\n'.join(export.body([row(None)], 'f.sql')))
+
     def test_a_quest_comes_with_its_giver_and_its_ender(self):
         rows, held = self.plan([ready('gives', 'npc', 1, 200), ready('takes', 'object', 50, 200), ready('quest', 'quest', 200, rule='record-seen-live'),
                                 ready('gives', 'npc', 2, 100)], {200: known()})
@@ -276,7 +294,8 @@ class Quests(unittest.TestCase):
                 self.records, self.entries = records, entries
 
             def query(self, sql, _database):
-                return self.entries if "kind = 'entry'" in sql else self.records
+                return self.entries if "kind = 'entry'" in sql else self.texts if "kind = 'text'" in sql else self.records
+            texts = []
         record = lambda source, quest, build, data=None: {'source': source, 'subject': str(quest), 'build': str(build), 'data': json.dumps(data or {'title': source})}
         entry = lambda quest, parts, source='questie': {'source': source, 'subject': str(quest), 'data': json.dumps({'parts': parts})}
         found = export.load_quests(Stored(
@@ -290,6 +309,24 @@ class Quests(unittest.TestCase):
              entry(213, {'generated': {'requiredClasses': 3, 'preQuestSingle': [100]}, 'fix': {'requiredClasses': 'classIDs.PALADIN', 'preQuestSingle': [100, 101]}}),
              entry(214, {'trace': {'requiredClasses': 9}, 'fix': {'name': 'only a name'}}), entry(215, {'generated': {'requiredClasses': 3}}, 'icyveins'),
              entry(299, {'generated': {'requiredClasses': 3}})]), REGISTRY, range(200, 300))
+        said = lambda source, quest, build, **moments: {'source': source, 'subject': str(quest), 'build': str(build),
+                                                        'data': json.dumps({m: [{'text': t} if isinstance(t, str) else t for t in lines] for m, lines in moments.items()})}
+        stored = Stored([record('eglink', q, LIVE) for q in (300, 301, 302)], [])
+        stored.texts = [
+            said('eglink', 300, LIVE, complete=['Done.'], progress=['Yet?'], accept=[{'text': 'The cache.', 'template': 'questCache'}]),
+            said('eglink', 300, LIVE + 9, complete=['Done.']), said('eglink', 300, 70450, complete=['Before the live game.']),
+            said('icyveins', 300, LIVE + 20, complete=['What a private source saw.']), said('wowhead', 300, LIVE, complete=['A reference.']),
+            said('eglink', 301, LIVE, complete=['To you, $r.']), said('eglink', 301, LIVE + 9, complete=['To you, skyborne.']),
+            said('icyveins', 302, LIVE, progress=['Only here.']), said('eglink', 399, LIVE, complete=['No record of it.']),
+            {'source': 'eglink', 'subject': '302', 'build': str(LIVE), 'data': '{broken'}, {'source': 'eglink', 'subject': '302', 'build': str(LIVE), 'data': json.dumps({'complete': 'junk', 'progress': ['junk', {'text': 5}]})}]
+        heard = export.load_quests(stored, REGISTRY, range(300, 400))
+        # a publishable source's wordings over every live build, under its newest recording; the cache's copy of the offer is not a window
+        self.assertEqual(heard[300]['texts'], {'complete': {'use': 'public', 'source': 'eglink', 'build': LIVE + 9, 'wordings': ['Done.', 'Done.']},
+                                               'progress': {'use': 'public', 'source': 'eglink', 'build': LIVE, 'wordings': ['Yet?']}})
+        # two builds, two wordings: one of them is the recorder's guess, and nothing says which
+        self.assertEqual(quests.said(heard[301]['texts']['complete']['wordings']), (None, '2 wordings were recorded'))
+        self.assertEqual(heard[302]['texts'], {'progress': {'use': 'private', 'source': 'icyveins', 'build': LIVE, 'wordings': ['Only here.']}})
+        self.assertNotIn(399, heard)
         # the newest live record of a source that may be published; a private one only when no public source has any; never a reference's or a beta one
         self.assertEqual({q: (k['use'], k['source'], k['build']) for q, k in found.items() if q < 210},
                          {200: ('public', 'eglink', LIVE), 201: ('private', 'icyveins', LIVE), 205: ('public', 'eglink', LIVE)})
@@ -861,7 +898,11 @@ class QuestsOnMySQL(unittest.TestCase):
         clash = dict(RECORD, title='Clash', objectives=[{'id': 4000, 'typeId': 1, 'objectId': 5, 'storageIndex': 0, 'amount': 1}])
         stored = {'eglink': [Fact('quest', 'quest', 200, 0, 70450, 1, dict(RECORD, title='Before the live game')),
                              Fact('quest', 'quest', 200, 0, LIVE, 2, dict(RECORD, categoryId=141, zoneAreaId=0)),
-                             Fact('quest', 'quest', 201, 0, LIVE, 1, clash), Fact('quest', 'quest', 202, 0, 70450, 1, RECORD)],
+                             Fact('quest', 'quest', 201, 0, LIVE, 1, clash), Fact('quest', 'quest', 202, 0, 70450, 1, RECORD),
+                             Fact('text', 'quest', 200, 0, 70450, 1, {'complete': [{'text': 'Said before the live game.'}]}),
+                             Fact('text', 'quest', 200, 0, LIVE, 2, {'complete': [{'text': "You've done it, $N.\n\nIt's 'over'."}],
+                                                                    'progress': [{'text': 'Are they gone?'}, {'text': 'Are they gone yet?'}],
+                                                                    'accept': [{'text': 'They dig too deep.', 'template': 'questCache'}]})],
                   'questie': [Fact('entry', 'quest', 200, 0, 0, 0, {'parts': {'generated': {'requiredClasses': 3}, 'fix': {'preQuestSingle': [100], 'requiredClasses': 2}}})]}
         for source, rows in stored.items():
             path = os.path.join(cls.folder.name, source + '.sql')
@@ -888,6 +929,10 @@ CREATE TABLE quest_reward_display_spell (QuestID int unsigned, Idx int unsigned,
   VerifiedBuild int NOT NULL DEFAULT 99, PRIMARY KEY (QuestID, Idx));
 CREATE TABLE quest_template_addon (ID int unsigned PRIMARY KEY, MaxLevel tinyint unsigned NOT NULL DEFAULT 0, AllowableClasses int unsigned NOT NULL DEFAULT 0,
   PrevQuestID int NOT NULL DEFAULT 0, ScriptName varchar(64) NOT NULL DEFAULT '');
+CREATE TABLE quest_offer_reward (ID int unsigned PRIMARY KEY, Emote1 smallint NOT NULL DEFAULT 0, EmoteDelay1 int unsigned NOT NULL DEFAULT 0, RewardText mediumtext,
+  VerifiedBuild int NOT NULL DEFAULT 99);
+CREATE TABLE quest_request_items (ID int unsigned PRIMARY KEY, EmoteOnComplete smallint unsigned NOT NULL DEFAULT 0, CompletionText mediumtext, VerifiedBuild int NOT NULL DEFAULT 99);
+INSERT INTO quest_request_items (ID, CompletionText) VALUES (203, 'What the world says already.');
 CREATE TABLE creature_template (entry int unsigned PRIMARY KEY, name text, npcflag bigint unsigned NOT NULL DEFAULT 0);
 INSERT INTO creature_template VALUES (1, 'Anna', 0), (2, 'Bert', 2), (3, 'Kobold', 0);
 CREATE TABLE creature (guid int PRIMARY KEY, id int); CREATE TABLE gameobject (guid int PRIMARY KEY, id int);
@@ -947,6 +992,9 @@ CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEF
                 self.assertEqual(self.table('SELECT * FROM quest_classic_money'), [('200', '350', '0')])
                 self.assertEqual(self.table('SELECT * FROM quest_reward_display_spell'), [('200', '0', '635', '0', '2', '0')])
                 self.assertEqual(self.table('SELECT ID, AllowableClasses, PrevQuestID, ScriptName FROM quest_template_addon'), [('200', '2', '100', '')])
+                # the hand-in text of the live game's recording, its line breaks as $B; two wordings of the progress text: none
+                self.assertEqual(self.table('SELECT ID, Emote1, RewardText, VerifiedBuild FROM quest_offer_reward'), [('200', '0', "You've done it, $N.$B$BIt's 'over'.", '0')])
+                self.assertEqual(self.table('SELECT ID FROM quest_request_items'), [('203',)])
                 self.assertEqual(self.table('SELECT id, quest FROM creature_queststarter'), [('1', '200')])
                 self.assertEqual(self.table('SELECT id, quest FROM creature_questender'), [('2', '200')])
                 self.assertEqual(self.table('SELECT entry, npcflag FROM creature_template ORDER BY entry'), [('1', '2'), ('2', '2'), ('3', '0')])
@@ -954,6 +1002,7 @@ CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEF
                     ('creature_questender', '2', '200', 'seen-live: eglink@70862'), ('creature_queststarter', '1', '200', 'seen-live: eglink@70862'),
                     ('quest_classic_level', '200', '0', 'record-seen-live: eglink@70862'), ('quest_classic_money', '200', '0', 'record-seen-live: eglink@70862'),
                     ('quest_objectives', '5001', '0', 'record-seen-live: eglink@70862'), ('quest_objectives', '5002', '0', 'record-seen-live: eglink@70862'),
+                    ('quest_offer_reward', '200', '0', 'record-seen-live: eglink@70862'),
                     ('quest_reward_display_spell', '200', '0', 'record-seen-live: eglink@70862'), ('quest_template', '200', '0', 'record-seen-live: eglink@70862'),
                     ('quest_template_addon', '200', '0', 'record-seen-live: eglink@70862'), ('quest_template_classic_level', '200', '2', 'record-seen-live: eglink@70862')])
             # the owners take the quest out: no later file brings it back, nor any row of it
@@ -964,6 +1013,24 @@ CREATE TABLE npc_vendor (entry int unsigned NOT NULL, slot smallint NOT NULL DEF
             again = export.export(self.db, self.WORLD_DB, self.db, REGISTRY, resolve.load_world(self.db, self.WORLD_DB), later, '2026-11-14', write=False)
             self.assertEqual((again['files'], len(again['refused'])), ({}, 6))
             self.assertEqual(self.table('SELECT ID FROM quest_template'), [('100',)])
+
+            # a text the world holds already is left alone, and the quest still goes in, with the text the world lacks
+            heard = lambda text: {'use': 'public', 'source': 'eglink', 'build': LIVE, 'wordings': [text]}
+            other = dict(RECORD, title='Second', objectives=[{'id': 6001, 'typeId': 0, 'objectId': 3, 'storageIndex': 0, 'amount': 1}])
+            row, why = export.quest_row(ready('quest', 'quest', 203, rule='record-seen-live'),
+                                        known(other, texts={'complete': heard('Thanks.'), 'progress': heard('Not what the world says.')}), world)
+            self.assertEqual(why, '')
+            file = '2026_11_15_950_world_everlake_build.sql'
+            self.assertEqual(export.trial(self.db, self.WORLD_DB, [(file, [row])]), {file: {
+                ('quest_template', (203,)), ('quest_objectives', (6001,)), ('quest_classic_level', (203,)), ('quest_template_classic_level', (203, 2)),
+                ('quest_classic_money', (203,)), ('quest_reward_display_spell', (203, 0)), ('quest_offer_reward', (203,))}})
+            for _run in (1, 2):
+                self.db.execute(';\n'.join(export.body([row], file)) + ';\n', self.WORLD_DB)
+                self.assertEqual(self.table('SELECT ID, RewardText, VerifiedBuild FROM quest_offer_reward ORDER BY ID'),
+                                 [('200', "You've done it, $N.$B$BIt's 'over'.", '0'), ('203', 'Thanks.', '0')])
+                self.assertEqual(self.table('SELECT ID, CompletionText, VerifiedBuild FROM quest_request_items'), [('203', 'What the world says already.', '99')])
+                self.assertEqual(self.table("SELECT tbl, k1 FROM everlake_import_rows WHERE k1 = 203 AND tbl IN ('quest_offer_reward', 'quest_request_items')"),
+                                 [('quest_offer_reward', '203')])                              # only what the file added is recorded as its own
 
 
 @unittest.skipUnless(os.environ.get('FT_TEST_CONFIG'), 'set FT_TEST_CONFIG to a config.ini of a throwaway MySQL server to run')

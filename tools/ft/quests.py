@@ -56,7 +56,8 @@ LEFT = ('quest_template.RewardMoneyDifficulty, RewardMoneyMultiplier and RewardB
         'quest_description_conditional, quest_completion_log_conditional, quest_treasure_pickers. A quest that has any names them under "unread"',
         f'quest_objectives.Flags is {OBJECTIVE_FLAGS} for every objective: what four in five recorded Forever objectives hold, not this quest\'s own',
         'quest_template_addon beyond the classes (QuestieDB\'s word, else the class of a class category) and the one quest before it that QuestieDB states',
-        'quest_offer_reward, quest_request_items, quest_details (what the NPC says and does at the turn-in), quest_poi')
+        'quest_offer_reward and quest_request_items where no recording of the live game has the text in one wording, and their emotes always; '
+        'quest_details (what the NPC does when it offers the quest), quest_poi')
 
 # the quest categories that are a class (QuestSort), and that class's bit in a class mask
 CLASS_OF_CATEGORY = {81: 1, 141: 2, 261: 4, 162: 8, 262: 16, 82: 64, 161: 128, 61: 256, 263: 1024}
@@ -204,3 +205,18 @@ def targets(quest):
     to names an NPC, one to use an object names an object; the other kinds name nothing the world's templates hold."""
     return {'npc': sorted({o['ObjectID'] for o in quest.objectives if o['Type'] in (0, 3) and o['ObjectID'] > 0}),
             'object': sorted({o['ObjectID'] for o in quest.objectives if o['Type'] == 2 and o['ObjectID'] > 0})}
+
+
+def said(wordings):
+    """(the text of a quest's window as a row holds it, '') or (None, why not). `wordings` are the texts a source saw
+    in that window on one build. One wording is the text; line breaks are written as $B, as most of the world's own
+    texts have them. Several wordings are several answers (the NPC speaks otherwise to another class, or the text
+    changed during the build): none is taken."""
+    texts = sorted({re.sub(r'[ \t]*(?:\r\n|\r|\n)[ \t]*', '$B', text.strip()) for text in wordings if isinstance(text, str) and text.strip()})
+    if not texts:
+        return None, 'nothing was recorded'
+    if len(texts) > 1:
+        return None, f'{len(texts)} wordings were recorded'
+    if not _text(texts[0]):
+        return None, 'it is not text the file can hold'
+    return texts[0], ''
