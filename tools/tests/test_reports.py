@@ -65,7 +65,17 @@ class Evidence(unittest.TestCase):
         quest = {'id': 7, 'seen_by_players': True, 'start': [{'name': 'Furmund', 'zone': 'Orgrimmar', 'x': 50.9, 'y': 65.3}, {'name': 'Wanted Poster', 'zone': 'Orgrimmar', 'x': 40, 'y': 40}],
                  'end': [{'name': 'Sagorne', 'zone': 'Orgrimmar', 'x': 38.7, 'y': 35.9}]}
         ev, left = reports.evidence(pack([quest]), self.npcs, self.objects)
-        self.assertEqual((ev['start'], ev['end'], left), ([['go', 9000, 7], ['npc', 100, 7]], [['npc', 101, 7]], {}))
+        self.assertEqual((ev['start'], ev['end'], left, ev['place']), ([['go', 9000, 7], ['npc', 100, 7]], [['npc', 101, 7]], {}, []))
+
+    def test_a_giver_nobody_spawned_gets_the_place_players_reported(self):
+        npcs = matcher({'Elder': [300], 'Furmund': [100], 'Twin': [104, 105]}, {100: [(1, 509.0, 653.0)]})
+        quest = {'id': 7, 'seen_by_players': True, 'start': [{'name': 'Elder', 'zone': 'Orgrimmar', 'x': 40.0, 'y': 41.5}, {'name': 'Twin', 'zone': 'Orgrimmar', 'x': 1, 'y': 1}],
+                 'end': [{'name': 'Elder', 'zone': 'Orgrimmar', 'x': 40.0, 'y': 41.5}, {'name': 'Elder'}]}
+        item = {'id': 159, 'sources': [{'how': 'Sold by a vendor', 'name': 'Elder', 'place': 'Orgrimmar', 'x': 60.0, 'y': 10.0}]}
+        ev, left = reports.evidence(pack([quest], [item]), npcs)
+        self.assertEqual((ev['start'], ev['end'], ev['sell']), ([], [], []))            # nothing to write: there is nobody to give the quest yet
+        self.assertEqual(ev['place'], [['npc', 300, 'Elder', [{'m': 1, 'x': 400.0, 'y': 415.0}, {'m': 1, 'x': 600.0, 'y': 100.0}]]])
+        self.assertEqual(left['report_not_spawned'], 5)                                  # "Twin" is two templates: nobody's place
 
     def test_a_quest_nobody_saw_is_classics_word(self):
         quest = {'id': 7, 'start': [{'name': 'Furmund', 'zone': 'Orgrimmar', 'x': 50.9, 'y': 65.3}]}

@@ -309,6 +309,9 @@ def player_reports(args):
     continent = {area['ID']: area.get('ContinentID') for area in official_content.table(builds[-1]['dir'], 'AreaTable', 'enUS')}
     spots, unplaced = reports.places(pack, known, standing, lambda kind, name: by_pin[kind].get(name, []), continent.get)
     left.update(unplaced)
+    # and the quest givers, enders and vendors nobody spawned, where the reports place them
+    have = {(kind, entry) for kind, entry, _name, _points in spots}
+    spots += [row for row in ev.pop('place', []) if (row[0], row[1]) not in have]
     # what the NPC says at the turn-in. EG Link's recording of the same window keeps the server's own placeholders:
     # where it has one wording, that is the text; the site's, with its marks turned back, is for the rest
     recorded = {}

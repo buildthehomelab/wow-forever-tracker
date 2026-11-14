@@ -93,6 +93,15 @@ class Matcher:
                 return inside[0], ''
         return None, 'several_same_name'
 
+    def unplaced(self, name, zone=None, x=None, y=None):
+        """(entry, (map, x, y)) for a name exactly one template has, that nobody spawned, reported at a place the
+        maps can name; else None. It is somebody to place: the place is for the locator."""
+        entries = self.creatures.get(str(name or '').strip().lower()) or []
+        if len(entries) != 1 or self.spawns.get(entries[0]) or x is None or y is None:
+            return None
+        spot = self.where(zone_name(zone), x, y) if zone else None
+        return (entries[0], spot) if spot else None
+
 
 ALLIANCE, HORDE = 'Alliance', 'Horde'
 # The race masks the live server sends for a quest of one side (EG Link's recordings of its answers: 301 Alliance
@@ -303,17 +312,31 @@ def evidence(pack, npcs, objects=None):
     """
     if not isinstance(pack, dict) or pack.get('format') != FORMAT:
         raise ValueError(f'not a {FORMAT} file (tools/foreverchanges_pack.py makes one)')
-    ev = {'start': [], 'end': [], 'sell': [], 'drop': []}
+    ev = {'start': [], 'end': [], 'sell': [], 'drop': [], 'place': []}
     left = collections.Counter()
+    placed = {}
+
+    def place(kind, matcher, record, zone_key):
+        """A quest giver, ender or vendor nobody spawned, reported at a place: kept for the locator."""
+        found = matcher.unplaced(record.get('name'), record.get(zone_key), record.get('x'), record.get('y'))
+        if found:
+            points = placed.setdefault((kind, found[0]), [str(record.get('name') or ''), []])[1]
+            point = {'m': int(found[1][0]), 'x': round(float(found[1][1]), 1), 'y': round(float(found[1][2]), 1)}
+            if point not in points and len(points) < 20:
+                points.append(point)
 
     def who(record, zone_key='zone'):
         entry, why = npcs.find(record.get('name'), record.get(zone_key), record.get('x'), record.get('y'))
         if entry:
             return 'npc', entry, ''
+        if why == 'not_spawned':
+            place('npc', npcs, record, zone_key)
         if objects is not None and why == 'name_unknown':
             entry, other = objects.find(record.get('name'), record.get(zone_key), record.get('x'), record.get('y'))
             if entry:
                 return 'go', entry, ''
+            if other == 'not_spawned':
+                place('go', objects, record, zone_key)
             why = other if other != 'name_unknown' else why
         return None, None, why
 
@@ -349,6 +372,8 @@ def evidence(pack, npcs, objects=None):
                 entry, why = npcs.find(source.get('name'), source.get('place'), source.get('x'), source.get('y'))
                 if not entry:
                     left['report_' + why] += 1
+                    if why == 'not_spawned':
+                        place('npc', npcs, source, 'place')
                 elif (entry, item_id) not in seen_sell:
                     seen_sell.add((entry, item_id))
                     ev['sell'].append([entry, item_id, 0])
@@ -377,4 +402,5 @@ def evidence(pack, npcs, objects=None):
         ev[role] = sorted({tuple(row) for row in ev[role]})
         ev[role] = [list(row) for row in ev[role]]
     ev['sell'].sort()
+    ev['place'] = [[kind, entry, name, points] for (kind, entry), (name, points) in sorted(placed.items()) if points]
     return ev, dict(left)
