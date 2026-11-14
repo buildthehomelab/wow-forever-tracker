@@ -400,6 +400,9 @@ function admin(): ?array
     return $_SESSION['ft_admin'] ?? null;
 }
 function is_admin(): bool { return admin() !== null; }
+/** A private tracker ([site] public = 0) seen by a visitor who is not an administrator: only the login page shows,
+ *  and nothing of the analysis with it (no coverage, no build numbers, no dates, no API answers). */
+function site_private(): bool { return !config('site', 'public', 1) && !is_admin(); }
 function require_admin(): void
 {
     if (!is_admin()) redirect(url('login', ['next' => $_SERVER['REQUEST_URI'] ?? '']));

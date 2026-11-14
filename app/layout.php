@@ -35,12 +35,15 @@ function later_counts(): array
 
 function page_start(string $title, string $active = '', string $description = ''): void
 {
-    $builds = builds();
+    // a private tracker's login page: the brand, the theme and language switches and the form, nothing of the analysis
+    // (coverage bars, the "To add" count, build numbers) and no search, which only administrators may ask
+    $private = site_private();
+    $builds = $private ? [] : builds();
     $client = $builds[0] ?? null;
-    $meta = meta();
+    $meta = $private ? [] : meta();
     $serverBuild = (int)($meta['server_build'] ?? 0);
     $behind = $client && $serverBuild && $serverBuild < (int)$client['build'];
-    $coverage = coverage();
+    $coverage = $private ? [] : coverage();
     $site = (string)config('site', 'name', 'Forever Tracker');
     $otherLang = fr() ? 'en' : 'fr';
     $query = $_GET; $query['lang'] = $otherLang;
@@ -73,6 +76,7 @@ function page_start(string $title, string $active = '', string $description = ''
       <img src="<?= e(asset('img/logo.svg')) ?>" alt="" width="30" height="30">
       <span><strong><?= e($site) ?></strong><small><?= e(t('Official content vs. your server', 'Contenu officiel vs votre serveur')) ?></small></span>
     </a>
+    <?php if (!$private): ?>
     <button class="side-search" type="button" data-palette-open>
       <i class="fas fa-magnifying-glass"></i><span><?= e(t('Search…', 'Rechercher…')) ?></span><kbd>Ctrl K</kbd>
     </button>
@@ -94,6 +98,7 @@ function page_start(string $title, string $active = '', string $description = ''
         </a>
       <?php endforeach; ?>
     </nav>
+    <?php endif; ?>
     <div class="side-foot">
       <?php if ($client): ?>
       <div class="build-chips">
@@ -120,13 +125,13 @@ function page_start(string $title, string $active = '', string $description = ''
     <header class="top">
       <button class="icon-btn top-menu" type="button" data-side-open aria-label="Menu"><i class="fas fa-bars"></i></button>
       <a class="top-brand" href="<?= e(url()) ?>"><img src="<?= e(asset('img/logo.svg')) ?>" alt="" width="28" height="28"><strong><?= e($site) ?></strong></a>
-      <button class="top-search" type="button" data-palette-open><i class="fas fa-magnifying-glass"></i><span><?= e(t('Search an item, quest, spell, dungeon…', 'Chercher un objet, une quête, un sort, un donjon…')) ?></span><kbd>Ctrl K</kbd></button>
+      <?php if (!$private): ?><button class="top-search" type="button" data-palette-open><i class="fas fa-magnifying-glass"></i><span><?= e(t('Search an item, quest, spell, dungeon…', 'Chercher un objet, une quête, un sort, un donjon…')) ?></span><kbd>Ctrl K</kbd></button><?php endif; ?>
       <?php if ($client): ?>
         <span class="top-status <?= $behind ? 'is-warn' : 'is-ok' ?>"><i></i><?= $behind ? e(sprintf(t('Server %d · client %d', 'Serveur %d · client %d'), $serverBuild, (int)$client['build'])) : e(t('Server up to date', 'Serveur à jour')) ?></span>
       <?php endif; ?>
     </header>
     <main class="content" id="content">
-<?php if (!ready() && !str_starts_with($active, 'login')): ?>
+<?php if (!str_starts_with($active, 'login') && !ready()): ?>
       <section class="empty-state"><div class="empty-icon"><i class="fas fa-database"></i></div><h1><?= e(t('No analysis yet', 'Aucune analyse pour le moment')) ?></h1>
         <p><?= e(t('Run the analysis once; the website fills itself. The setup wizard does it for you.', 'Lancez l’analyse une fois ; le site se remplit tout seul. L’assistant d’installation le fait pour vous.')) ?></p>
         <p><a class="btn is-gold" href="<?= e(url('setup')) ?>"><i class="fas fa-wand-magic-sparkles"></i> <?= e(t('Open the setup wizard', 'Ouvrir l’assistant d’installation')) ?></a></p>
@@ -136,17 +141,20 @@ function page_start(string $title, string $active = '', string $description = ''
 
 function page_end(): void
 {
-    $meta = meta();
+    // a private tracker tells a visitor neither when it was analysed nor that it can be searched
+    $private = site_private();
+    $meta = $private ? [] : meta();
     $when = isset($meta['generated_at']) ? date(t('M j, Y · H:i', 'd/m/Y · H:i'), strtotime((string)$meta['generated_at'])) : '—';
     ?>
     </main>
     <footer class="foot">
-      <p><strong><?= e(config('site', 'name', 'Forever Tracker')) ?></strong> · <?= e(t('Analysis of', 'Analyse du')) ?> <?= e($when) ?> · <?php if (config('site', 'repository_url')): ?><a href="<?= e(config('site', 'repository_url')) ?>" rel="noopener">ForeverTracker <?= e(FT_VERSION) ?></a><?php else: ?>ForeverTracker <?= e(FT_VERSION) ?><?php endif; ?></p>
+      <p><strong><?= e(config('site', 'name', 'Forever Tracker')) ?></strong> · <?php if (!$private): ?><?= e(t('Analysis of', 'Analyse du')) ?> <?= e($when) ?> · <?php endif; ?><?php if (config('site', 'repository_url')): ?><a href="<?= e(config('site', 'repository_url')) ?>" rel="noopener">ForeverTracker <?= e(FT_VERSION) ?></a><?php else: ?>ForeverTracker <?= e(FT_VERSION) ?><?php endif; ?></p>
       <p class="legal"><?= e(t('Unofficial tool, not affiliated with Blizzard Entertainment. Game content and icons © Blizzard Entertainment.', 'Outil non officiel, sans lien avec Blizzard Entertainment. Contenu du jeu et icônes © Blizzard Entertainment.')) ?></p>
     </footer>
   </div>
 </div>
 
+<?php if (!$private): ?>
 <div class="palette" id="palette" hidden>
   <div class="palette-box" role="dialog" aria-modal="true" aria-label="<?= e(t('Search', 'Recherche')) ?>">
     <label class="palette-input"><i class="fas fa-magnifying-glass"></i><input type="search" autocomplete="off" spellcheck="false" placeholder="<?= e(t('Name in English or French, or an ID…', 'Nom en français ou en anglais, ou un ID…')) ?>"><kbd>Esc</kbd></label>
@@ -154,6 +162,7 @@ function page_end(): void
     <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> <?= e(t('navigate', 'naviguer')) ?></span><span><kbd>↵</kbd> <?= e(t('open', 'ouvrir')) ?></span><a href="<?= e(url('search')) ?>" data-palette-all><?= e(t('All results', 'Tous les résultats')) ?> →</a></div>
   </div>
 </div>
+<?php endif; ?>
 <div class="tt" id="tt" hidden></div>
 <script>window.FT = {base: <?= json_encode(base_path()) ?>, lang: <?= json_encode(lang()) ?>, csrf: <?= json_encode(is_admin() ? csrf_token() : '') ?>};</script>
 <script src="<?= e(asset('js/tooltip.js')) ?>" defer></script>
