@@ -238,9 +238,101 @@ def wowhead_verdicts(content, results, baseline, ask):
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
+def merge_checks(rows, sided):
+    """The rows of ft_npc_checks: the level and rank findings (11 columns each) with the side findings ((entry, name,
+    issue, note)) added, one row per creature. A creature with only a side finding has no level, rank or Wowhead values."""
+    by_entry = {row[0]: list(row) for row in rows}
+    for entry, name, issue, note in sided:
+        row = by_entry.setdefault(entry, [entry, name, None, None, 0, None, None, 0, '', '', ''])
+        kinds = [kind for kind in row[9].split(',') if kind]
+        if issue not in kinds:
+            kinds.append(issue)
+        row[9] = ','.join(kinds)
+        row[10] = (row[10] + ' ' if row[10] else '') + note + '.'
+    return [tuple(by_entry[entry]) for entry in sorted(by_entry)]
+
+
+def side_checks():
+    """Compares whose side each creature is on with what players saw on the live game (ft.sides): [(entry, name,
+    issue, note)]. The recordings are EG Link's, of the commit its import last read (data/eglink); without one the
+    check is not made."""
+    from ft import facts, layers, sides
+    root = os.path.join(DATA, 'eglink')
+    commits = [name for name in (os.listdir(root) if os.path.isdir(root) else []) if facts.COMMIT.fullmatch(name)]
+    if not commits:
+        log('side check: no EG Link recording yet (Imports > Import EG Link reads one): not made')
+        return []
+    folder = os.path.join(root, max(commits, key=lambda name: os.path.getmtime(os.path.join(root, name))))
+    wanted = ('creatures', 'npcs')
+    try:
+        facts.fetch_eglink(os.path.basename(folder), folder, datasets=wanted)
+    except facts.SourceError as error:
+        log(f'side check: {str(error).strip()}; the files already here are read')
+    live = sides.recorded(facts.eglink(folder, datasets=wanted), layers.load().live_from)
+    ids = sorted(live)
+    creatures = {}
+    for start in range(0, len(ids), 1000):
+        for row in sqlio.query('SELECT ct.entry, ct.name, ct.faction, ct.npcflag, ct.type, EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry) spawned '
+                               'FROM creature_template ct WHERE ct.entry IN (' + ','.join(map(str, ids[start:start + 1000])) + ')'):
+            creatures[int(row['entry'])] = row
+    templates = {int(r['ID']): r for r in server.server_db2('FactionTemplate')}
+    factions = {int(r['ID']): r for r in server.server_db2('Faction')} or None
+    try:
+        shown = shown_to_one_side(sides, sorted(creatures))
+    except (RuntimeError, KeyError, ValueError, TypeError) as error:
+        log(f'side check: the phases and conditions could not be read ({str(error)[:120]}): who the server shows a creature to is not checked')
+        shown = {}
+    found, counts = sides.compare(live, creatures, templates, factions, shown)
+    log('side check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing to compare')
+        + f' ({len(live)} creatures recorded on live, {len(shown)} shown to one side only on the server)')
+    return found
+
+
+def shown_to_one_side(sides, entries):
+    """{entry: side} of the creatures the server shows to one side only: every spawn in a phase or a spawn group that
+    a team condition closes to that side, or a visibility condition on the creature itself."""
+    by_source = {}
+    for row in sqlio.query('SELECT SourceTypeOrReferenceId t, SourceGroup g, SourceEntry e, ElseGroup, ConditionTypeOrReference, ConditionValue1, NegativeCondition '
+                           'FROM conditions WHERE SourceTypeOrReferenceId IN (26, 32, 33)'):
+        by_source.setdefault((int(row['t']), int(row['g']), int(row['e'])), []).append(row)
+    phase_areas, group_side, entry_side = {}, {}, {}
+    for (kind, group, entry), rows in by_source.items():
+        side = sides.team_of(rows)
+        if kind == 26:
+            phase_areas.setdefault(group, []).append(side)        # a phase, per area it is given in
+        elif kind == 33 and side:
+            group_side[entry] = side
+        elif kind == 32 and group == 5 and side:                  # 5: a creature
+            entry_side[entry] = side
+    phase_side = {phase: found[0] for phase, found in phase_areas.items() if found[0] and all(side == found[0] for side in found)}
+    members = {}
+    for row in server.server_db2('PhaseXPhaseGroup'):
+        members.setdefault(int(row['PhaseGroupID']), []).append(int(row['PhaseID']))
+    for group, phases in members.items():
+        found = {phase_side.get(phase) for phase in phases}
+        if len(found) == 1 and None not in found:
+            phase_side[('group', group)] = found.pop()
+    if not (phase_side or group_side or entry_side):
+        return {}
+    spawns = {}
+    grouped = sqlio.has_table('spawn_group')
+    for start in range(0, len(entries), 1000):
+        chunk = ','.join(map(str, entries[start:start + 1000]))
+        for row in sqlio.query('SELECT c.id, c.PhaseId, c.PhaseGroup, ' + ('COALESCE(g.groupId, 0)' if grouped else '0') + ' spawn_group FROM creature c '
+                               + ('LEFT JOIN spawn_group g ON g.spawnType = 0 AND g.spawnId = c.guid ' if grouped else '') + f'WHERE c.id IN ({chunk})'):
+            spawns.setdefault(int(row['id']), []).append((int(row['PhaseId'] or 0), int(row['PhaseGroup'] or 0), int(row['spawn_group'] or 0)))
+    out = {}
+    for entry in entries:
+        side = sides.shown_to(spawns.get(entry, []), phase_side, group_side, entry_side.get(entry)) if entry in spawns or entry in entry_side else None
+        if side:
+            out[entry] = side
+    return out
+
+
 def npc_checks(ask):
     """Compares the level and rank of the spawned creatures that matter most (quest givers, enders and targets, elites,
-    rares, bosses) with Wowhead's Forever tooltips; writes ft_npc_checks (report only, nothing is changed)."""
+    rares, bosses) with Wowhead's Forever tooltips, and every recorded creature's side with the live game (side_checks);
+    writes ft_npc_checks (a report: nothing is changed by it)."""
     from ft.wowhead import Wowhead
     levels = sqlio.has_table('creature_classic_level')
     rows = sqlio.query(
@@ -281,17 +373,24 @@ def npc_checks(ask):
         for i in issues:
             counts[i] = counts.get(i, 0) + 1
         if issues:
-            out.append((entry, r['name'] or '', lo, hi, rank, facts['min'], facts['max'], facts['rank'], facts['type'], ','.join(issues)))
+            out.append((entry, r['name'] or '', lo, hi, rank, facts['min'], facts['max'], facts['rank'], facts['type'], ','.join(issues), ''))
     log('npc check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing cached'))
     if wh.summary():
         log('wowhead creatures: ' + wh.summary())
+    # whose side each creature is on, against the live game: its own rows, or a note on a row above
+    try:
+        sided = side_checks()
+    except Exception as error:  # a report only: it never takes the level and rank checks with it
+        log(f'side check failed, skipped: {error}')
+        sided = []
+    out = merge_checks(out, sided)
     e = sqlio.escape
     path = os.path.join(DATA, 'npc-checks.sql')
     with open(path, 'w', encoding='utf-8') as f:
         f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_npc_checks;\n'
                 'CREATE TABLE ft_npc_checks (entry INT NOT NULL PRIMARY KEY, name VARCHAR(255) NOT NULL, level_min INT NULL, level_max INT NULL,'
                 ' rank_id TINYINT NOT NULL, wh_min INT NULL, wh_max INT NULL, wh_rank TINYINT NOT NULL, wh_type VARCHAR(64) NOT NULL,'
-                ' issues VARCHAR(32) NOT NULL, KEY ix_issues (issues)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+                ' issues VARCHAR(64) NOT NULL, note TEXT NOT NULL, KEY ix_issues (issues)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
         for chunk in range(0, len(out), 500):
             f.write('INSERT INTO ft_npc_checks VALUES ' + ','.join('(' + ','.join(e(v) for v in row) + ')' for row in out[chunk:chunk + 500]) + ';\n')
     sqlio.execute_file(path, 'tracker')

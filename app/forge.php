@@ -126,7 +126,7 @@ function forge_merge(array &$ops, array $op): void
 function forge_check_ops(array $check, string $kind): array
 {
     $entry = (int)($check['entry'] ?? 0);
-    if (!$entry || !in_array($kind, explode(',', (string)($check['issues'] ?? '')), true)) return [];
+    if (!$entry || !in_array($kind, ['level', 'rank'], true) || !in_array($kind, explode(',', (string)($check['issues'] ?? '')), true)) return [];
     $set = fn(string $table, string $column, int $value) => ['db' => 'world', 'table' => $table, 'columns' => ['entry', $column], 'match' => ['entry'], 'set' => $column, 'rows' => [[$entry, $value]]];
     if ($kind === 'rank') return [$set('creature_template', 'Classification', (int)$check['wh_rank'])];
     if ($kind !== 'level' || $check['level_min'] === null || $check['wh_min'] === null || $check['wh_max'] === null || (int)$check['wh_min'] < 1 || (int)$check['wh_max'] < (int)$check['wh_min']) return [];

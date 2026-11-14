@@ -118,6 +118,34 @@ Wowhead's public Forever tooltips about what the server lacks:
   summary sends the player back to, when exactly one spawned creature has that name. An import card, reviewed before
   it is applied.
 
+## Whose side a creature is on
+
+A creature's faction decides whom it helps and whom it attacks, and whose reputation lowers a vendor's prices. No
+client table holds it, so the analysis never compared it with anything. Players' recordings of the live game (EG
+Link, the commit *Import EG Link* last read) do not state the faction either, but they state what follows from it:
+how each side's players saw the creature (hated to exalted) and which side it served (a vendor's window, a quest, a
+flight). The *Checks* page lists the spawned creatures where the server and the live game cannot both be right:
+
+| Tab | The server says | The live game says |
+|---|---|---|
+| *Faction* | its faction attacks a side | players of that side saw it neutral or friendly, or were served by it |
+| *Faction* | its faction is a side's friend | players of that side only ever saw it hostile |
+| *Shown to one side* | only one side sees it (a phase or a spawn group behind a team condition, or a visibility condition) | players of the other side saw it or were served by it |
+| *Vendor reputation* | a vendor's faction has no reputation behind it, so no reputation discount applies | it sold to one side only |
+
+What it leaves alone, on purpose:
+
+- **Neutral against friendly.** That depends on the reputation the player who recorded it had earned.
+- **A side that never recorded a creature.** Nobody of that side went there, or looked. So a creature the server
+  shows to everyone that only one side should see (two versions of a starting zone, one per side) is **not** found
+  this way: the recordings can show that a side saw something, never that it could not.
+- **Creatures nobody spawned** (a warlock's demon, a totem: its side is its master's) and a beast players only saw
+  friendly (somebody's pet), unless it also served them.
+
+Nothing can be ticked: no source states which faction is the right one. The note names the server's faction and what
+each side saw, which is usually enough to pick the right faction by hand. `tools/ft/sides.py` holds the rules. Without
+an EG Link recording in `data/eglink` the check is not made, and the analysis log says so.
+
 ## Filling the gaps from open data
 
 NorgannonDB, EG Link, ForeverDB.net and Icy Veins each become an import aimed at the analysis' gaps, under the same
