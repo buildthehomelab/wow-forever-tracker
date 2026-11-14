@@ -28,6 +28,8 @@ WORKDIR /opt/forever-tracker
 # data/: client builds, Wowhead cache, logs (keep it in a volume)
 VOLUME /opt/forever-tracker/data
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD php -r 'exit(@file_get_contents("http://127.0.0.1/") === false ? 1 : 0);'
+# The check always comes with the same session cookie: sessions are kept for a week in the data volume, and a check
+# without one would leave a new session file there every 30 seconds.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD php -r 'exit(@file_get_contents("http://127.0.0.1/", false, stream_context_create(["http" => ["header" => "Cookie: ft_session=healthcheck"]])) === false ? 1 : 0);'
 ENTRYPOINT ["forever-tracker-entrypoint"]
 CMD ["apache2-foreground"]
