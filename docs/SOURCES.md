@@ -37,6 +37,11 @@ new card after an analysis.
   and ender of a quest marked as seen by players, vendors, and drops counted in at least ten kills (the chance is
   drops over kills). Left out: a quest nobody saw, a drop given as a bare percentage (Classic's), a quest an item
   starts.
+- **A drop is a creature's own when players saw it more than once, from few creatures.** The first card made on a
+  whole world was nine tenths Waylaid Crates: world drops, each listed under some fifty creatures that happened to be
+  killed when one fell, nearly always once. A drop seen once is a sighting, not a rate, and an item fifteen or more
+  different creatures drop is nobody's own loot (it belongs to the world's shared tables, which no report
+  describes). Both are left out and counted on the card.
 - From there the rules are every source's: only the analysis' gaps, a vendor or drop the server already has is left
   out, and the card is previewed and applied like any other.
 
