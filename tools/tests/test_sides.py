@@ -27,8 +27,20 @@ def template(faction, group, friends, enemies, enemy_ids=(), friend_ids=()):
 # as the client has them: Stormwind, Orgrimmar, Friendly, Monster, Creature, Booty Bay
 TEMPLATES = {11: template(72, 3, 2, 12), 85: template(76, 5, 4, 10), 35: template(31, 0, 1, 0), 14: template(14, 8, 0, 1),
              7: template(7, 0, 0, 0), 120: template(21, 0, 0, 0), 99: template(900, 0, 0, 0, enemy_ids=[2])}
-FACTIONS = {72: {'Name': 'Stormwind', 'ReputationIndex': 19}, 76: {'Name': 'Orgrimmar', 'ReputationIndex': 14}, 31: {'Name': 'Friendly', 'ReputationIndex': -1},
-            14: {'Name': 'Monster', 'ReputationIndex': -1}, 21: {'Name': 'Booty Bay', 'ReputationIndex': 1}, 900: {'Name': 'Sky Elf Camp', 'ReputationIndex': -1}}
+def reputation(name, index, *entries):
+    """A Faction row; entries: (race mask, base) for its four reputation entries."""
+    row = {'Name': name, 'ReputationIndex': index}
+    for i in range(1, 5):
+        mask, base = (list(entries) + [(0, 0)] * 4)[i - 1]
+        row.update({f'ReputationRaceMask{i}1': mask, f'ReputationRaceMask{i}2': 0, f'ReputationClassMask{i}': 0, f'ReputationBase{i}': base})
+    return row
+
+
+# Stormwind: the Alliance's races start friendly, the Horde's at the bottom. The Gelkis: everyone starts neutral.
+FACTIONS = {72: reputation('Stormwind', 19, (1, 3100), (2, -42000)), 76: reputation('Orgrimmar', 14, (2, 3100), (1, -42000)),
+            31: reputation('Friendly', -1), 14: reputation('Monster', -1), 21: reputation('Booty Bay', 1, (3, 500)),
+            92: reputation('Gelkis Clan Centaur', 2, (3, 2000)), 893: reputation('Revantusk Trolls', -1), 900: reputation('Sky Elf Camp', -1)}
+TEMPLATES.update({132: template(92, 8, 0, 1), 1494: template(893, 4, 4, 2)})
 
 
 def live(**entries):
@@ -90,6 +102,16 @@ class Faction(unittest.TestCase):
         self.assertEqual([(r[0], r[2]) for r in rows], [(3, 'faction')])   # a beast that gives a quest is no pet
         self.assertEqual(counts.get('not_spawned'), 1)
 
+    def test_a_reputation_players_earn_says_nothing(self):
+        # the Gelkis attack by default and befriend whoever earned it: one player's friendly centaur is no finding
+        told = live(n1={'Horde': [5]}, n2={'Horde': [1]}, n3={'Alliance': [5, 6], 'Horde': [5]})
+        rows, counts = sides.compare(told, {1: npc(132), 2: npc(120), 3: npc(11)}, TEMPLATES, FACTIONS)
+        # ... but the Horde's standing with Stormwind is fixed at the bottom: a Stormwind NPC friendly to them is one
+        self.assertEqual([(r[0], r[2]) for r in rows], [(3, 'faction')])
+        self.assertEqual(counts.get('reputation_decides'), 2)
+        self.assertEqual((sides.standing(FACTIONS[72], 'Horde'), sides.standing(FACTIONS[72], 'Alliance'), sides.standing(FACTIONS[31], 'Horde'),
+                          sides.standing(FACTIONS[92], 'Horde')), (-42000, 3100, None, 2000))
+
     def test_what_agrees_is_not_listed(self):
         told = live(n1={'Alliance': [5, 6], 'Horde': [1]}, n2={'Alliance': [2]}, n3={'Horde': [4]}, n4={'Alliance': [5]})
         self.assertEqual(found(told, {1: npc(11), 2: npc(14), 3: npc(7), 4: npc(35)}), [])
@@ -138,10 +160,12 @@ class Discount(unittest.TestCase):
     def test_a_one_sided_vendor_whose_faction_has_no_reputation(self):
         told = live(n1={'Alliance': [5], 'served': {'Alliance': ['Merchant']}}, n2={'served': {'Alliance': ['Merchant']}},
                     n3={'served': {'Alliance': ['Merchant'], 'Horde': ['Merchant']}}, n4={'served': {'Alliance': ['QuestGiver']}})
-        creatures = {1: npc(35, npcflag=128), 2: npc(11, npcflag=128), 3: npc(35, npcflag=128), 4: npc(35, npcflag=2)}
+        told.update(live(n5={'served': {'Horde': ['Merchant']}}))
+        creatures = {1: npc(35, npcflag=128), 2: npc(11, npcflag=128), 3: npc(35, npcflag=128), 4: npc(35, npcflag=2), 5: npc(1494, npcflag=128)}
         rows, _ = sides.compare(told, creatures, TEMPLATES, FACTIONS)
-        self.assertEqual([(r[0], r[2]) for r in rows], [(1, 'discount')])   # 2 has Stormwind's reputation, 3 sells to both, 4 sells nothing
-        self.assertIn('faction 35 (Friendly) has no reputation', rows[0][3])
+        # 2 has Stormwind's reputation, 3 sells to both, 4 sells nothing, 5 is of a side's own faction that has no reputation on live either
+        self.assertEqual([(r[0], r[2]) for r in rows], [(1, 'discount')])
+        self.assertIn('faction 35 (Friendly) on the server is a general one without a reputation', rows[0][3])
         self.assertEqual(sides.compare(told, creatures, TEMPLATES)[0], [])   # without the faction table the check is not made
 
 

@@ -22,6 +22,9 @@ changes, and most were the same thing written another way. So:
   - **Text is compared as it reads.** Line breaks ($B or a line feed), runs of spaces, and the case of a placeholder
     ($n, $N) do not count. Where the record writes an amount as a placeholder ("$1oa Gnarlpine Fangs") and the row as
     its number ("15 Gnarlpine Fangs"), the text is the same: the amount itself is compared with the objective.
+  - **Rewards are compared as a list, not slot by slot.** The same items, choices, currencies or reputations in
+    another order are no change. Where the list really differs, the slots take the record's; a record with fewer
+    entries than the row is a record that names less, and the row stays.
   - **The end text stands in either column.** Rows of older data hold it in QuestCompletionLog, the record in
     AreaDescription: the same text in the other column is no change.
   - **Not compared at all:** the money (the server sends the amount for the player who asked: at the level cap it is
@@ -46,9 +49,10 @@ import re
 from . import quests
 
 SLOTS = 5   # reputation rewards of a quest
-REWARDS = tuple(name.format(i) for names, most in ((('RewardItem{}', 'RewardAmount{}'), 4), (('RewardChoiceItemID{}', 'RewardChoiceItemQuantity{}'), 6),
-                                                   (('RewardCurrencyID{}', 'RewardCurrencyQty{}'), 4)) for i in range(1, most + 1) for name in names) \
-    + ('RewardSpell', 'RewardXPDifficulty', 'RewardXPMultiplier')
+# rewards a quest gives several of: (the thing, how many, slots)
+LISTS = (('RewardItem{}', 'RewardAmount{}', 4), ('RewardChoiceItemID{}', 'RewardChoiceItemQuantity{}', 6), ('RewardCurrencyID{}', 'RewardCurrencyQty{}', 4))
+SINGLE = ('RewardSpell', 'RewardXPDifficulty', 'RewardXPMultiplier')
+REWARDS = tuple(name.format(i) for thing, count, most in LISTS for i in range(1, most + 1) for name in (thing, count)) + SINGLE
 REPUTATION = tuple(name.format(i) for i in range(1, SLOTS + 1) for name in ('RewardFactionID{}', 'RewardFactionValue{}', 'RewardFactionOverride{}'))
 TEXTS = tuple(column for column, _name in quests.TEXTS)
 END_TEXTS = {'AreaDescription': 'QuestCompletionLog', 'QuestCompletionLog': 'AreaDescription'}
@@ -131,6 +135,13 @@ def newest_live(facts, live_from):
     return out
 
 
+def _int(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _build(row):
     try:
         return int(row.get('VerifiedBuild') or 0)
@@ -174,7 +185,23 @@ def quest_changes(records, rows, objectives=None, levels=None, tiers=None):
             found[table, ('ID',), column].append([key, value])
             return True
 
-        for column in REWARDS + TEXTS:
+        for thing, count, most in LISTS:
+            columns = [(thing.format(i), count.format(i)) for i in range(1, most + 1)]
+            if not all(a in row and b in row for a, b in columns):
+                continue
+            old_list = sorted((_int(row[a]), _int(row[b])) for a, b in columns if _int(row[a]))
+            new_list = sorted((_int(new[a]), _int(new[b])) for a, b in columns if _int(new[a]))
+            if old_list == new_list:
+                continue   # the same rewards, in whatever order
+            if len(new_list) < len(old_list):
+                why.add('quest_value_gone')
+                continue
+            for a, b in columns:
+                for column in (a, b):
+                    if not same(row[column], new[column]):
+                        found['quest_template', ('ID',), column].append([quest, new[column]])
+                        changed = True
+        for column in SINGLE + TEXTS:
             if column not in row:
                 continue
             other = END_TEXTS.get(column)
@@ -183,25 +210,30 @@ def quest_changes(records, rows, objectives=None, levels=None, tiers=None):
             if other and empty(new[column]) and not empty(row[column]) and same(row[column], new[other]):
                 continue   # and the same seen from the column the row holds it in
             changed |= take('quest_template', quest, column, row[column], new[column])
-        for slot in range(1, SLOTS + 1):
-            faction, value, override = (f'{name}{slot}' for name in ('RewardFactionID', 'RewardFactionValue', 'RewardFactionOverride'))
-            if not all(column in row for column in (faction, value, override)):
-                continue
-            if same(row[faction], new[faction]):
-                old_points, new_points = points(row[value], row[override], tiers), points(new[value], new[override], tiers)
-                if old_points is None or new_points is None:
-                    if not (same(row[value], new[value]) and same(row[override], new[override])):
-                        why.add('quest_reputation_other_form')
-                    continue
-                if abs(old_points - new_points) < 0.005:
-                    continue   # the same points, as a tier or as an override
-            elif empty(new[faction]):
+        slots = [tuple(f'{name}{slot}' for name in ('RewardFactionID', 'RewardFactionValue', 'RewardFactionOverride')) for slot in range(1, SLOTS + 1)]
+        if all(column in row for names in slots for column in names):
+            def given(source, names):
+                faction, value, override = (source[name] for name in names)
+                return _int(faction), points(value, override, tiers), (_int(value), _int(override))
+            old_rep = [given(row, names) for names in slots if _int(row[names[0]])]
+            new_rep = [given(new, names) for names in slots if _int(new[names[0]])]
+            if any(amount is None for _faction, amount, _raw in old_rep + new_rep):
+                # a tier that cannot be read: only the same form can be compared
+                if sorted((f, raw) for f, _a, raw in old_rep) != sorted((f, raw) for f, _a, raw in new_rep):
+                    why.add('quest_reputation_other_form')
+            elif sorted((f, round(a, 2)) for f, a, _raw in old_rep) == sorted((f, round(a, 2)) for f, a, _raw in new_rep):
+                pass   # the same reputations, as tiers or overrides, in whatever order
+            elif len(new_rep) < len(old_rep):
                 why.add('quest_value_gone')
-                continue
-            for column in (faction, value, override):
-                if not same(row[column], new[column]):
-                    found['quest_template', ('ID',), column].append([quest, new[column]])
-                    changed = True
+            else:
+                for names in slots:
+                    ours, theirs = given(row, names), given(new, names)
+                    if ours[0] == theirs[0] and (not ours[0] or abs(ours[1] - theirs[1]) < 0.005):
+                        continue   # this slot gives the same already
+                    for column in names:
+                        if not same(row[column], new[column]):
+                            found['quest_template', ('ID',), column].append([quest, new[column]])
+                            changed = True
         if any(column in row and not same(row[column], new[column]) for column in MECHANICS):
             why.add('quest_mechanics_differ')
         for objective in made.objectives:

@@ -131,11 +131,18 @@ flight). The *Checks* page lists the spawned creatures where the server and the 
 | *Faction* | its faction attacks a side | players of that side saw it neutral or friendly, or were served by it |
 | *Faction* | its faction is a side's friend | players of that side only ever saw it hostile |
 | *Shown to one side* | only one side sees it (a phase or a spawn group behind a team condition, or a visibility condition) | players of the other side saw it or were served by it |
-| *Vendor reputation* | a vendor's faction has no reputation behind it, so no reputation discount applies | it sold to one side only |
+| *Vendor reputation* | a vendor's faction is a general one (the same to both sides, no reputation behind it), so no reputation discount applies | the recordings show it selling to one side only |
+
+*Vendor reputation* is the weakest of the three: the other side may simply not have come by. A vendor of one side's own
+faction that has no reputation (the Revantusk trolls) is not listed: that is Blizzard's choice, and it gives no
+discount on live either.
 
 What it leaves alone, on purpose:
 
 - **Neutral against friendly.** That depends on the reputation the player who recorded it had earned.
+- **A faction whose reputation players earn.** A Gelkis centaur is friendly to the player who earned it and hostile to
+  the next one, so what one player saw says nothing (the first list on a whole world named six of them). Such a
+  faction is compared only where a side's standing is fixed at the bottom, as the Horde's is with Stormwind.
 - **A side that never recorded a creature.** Nobody of that side went there, or looked. So a creature the server
   shows to everyone that only one side should see (two versions of a starting zone, one per side) is **not** found
   this way: the recordings can show that a side saw something, never that it could not.
