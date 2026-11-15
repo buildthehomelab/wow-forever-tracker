@@ -244,9 +244,24 @@ class HowASpellIsLearned(unittest.TestCase):
     def test_a_spell_a_trainer_or_an_item_holds_is_still_asked_for(self):
         # never learned by the table, yet a trainer lists it: the trainer is what is missing
         status, detail, granted = self.spell(5857, never_learned={5857}, trainers=[(200, 7)], trainer_spells=[(7, 5857)])
-        self.assertEqual((status, detail, granted), ('partial', 'A trainer has it but is not spawned.', set()))
+        self.assertEqual((status, detail, granted), ('partial', 'Trainer 200 has it but is not spawned.', set()))
         status, detail, granted = self.spell(17632, cast_by={17632: 1}, teaches={17632: {13517}})
         self.assertEqual((status, detail, granted), ('partial', 'Taught by item 13517, which players cannot get.', set()))
+
+    def test_a_reward_of_a_quest_nobody_can_do_yet_names_the_quest(self):
+        # quest 2771 casts 11203 on its reward, which teaches Ornate Mithril Helm; nobody gives the quest yet
+        waiting = dict(quests={2771: quest_row(RewardSpell=11203)}, spell_teaches={(11203, 9980)})
+        status, detail, granted = self.spell(9980, never_learned={9980}, **waiting)
+        self.assertEqual((status, detail, granted), ('partial', 'Reward of quest 2771, which players cannot do yet.', set()))
+        # the quest's display spell counts the same way, and a pattern nobody can get is not what it waits for
+        shown = dict(quests={7: quest_row(), 8: quest_row()}, quest_display_spells={7: {9980}, 8: {9980}}, teaches={9980: {7987}})
+        self.assertEqual(self.spell(9980, **shown)[1], 'Reward of quest 7, 8, which players cannot do yet.')
+        # once somebody gives and takes the quest the spell is simply learnable
+        done = dict(waiting, q_start_npc=[(100, 2771)], q_end_npc=[(100, 2771)], spawned_npc={100}, quest_turn_in_text={2771})
+        self.assertEqual(evaluate({'spell': {9980: {'sub': 'class'}}, 'quest': {2771: {}}}, world(**done))[('spell', 9980)][0], 'ok')
+
+    def test_a_trainer_list_no_creature_uses(self):
+        self.assertEqual(self.spell(10841, trainer_spells=[(7, 10841)])[1], 'A trainer list has it, but no creature uses that list.')
 
     def test_nothing_known_is_said_as_before(self):
         self.assertEqual(self.spell(5)[:2], ('partial', 'No trainer, automatic learning or item.'))
@@ -256,6 +271,14 @@ class HowASpellIsLearned(unittest.TestCase):
         results = evaluate({'recipe': {818: {}}, 'spell': {818: {'sub': 'profession'}}}, ctx)
         self.assertEqual(results[('recipe', 818)][0], 'ok')
         self.assertEqual(results[('spell', 818)][0], 'ok')
+
+    def test_a_recipe_says_what_it_waits_for(self):
+        detail = lambda **over: next(c for c in evaluate({'recipe': {30021: {}}, 'spell': {30021: {'sub': 'profession'}}}, world(**over))[('recipe', 30021)][2]
+                                     if c['code'] == 'learn')['detail']['en']
+        self.assertEqual(detail(), 'No trainer and no recipe.')
+        self.assertEqual(detail(teaches={30021: {23689}}), 'Taught by item 23689, which players cannot get.')
+        self.assertEqual(detail(teaches={30021: {23689}}, quests={6: quest_row(RewardSpell=30021)}), 'Reward of quest 6, which players cannot do yet.')
+        self.assertEqual(detail(trainers=[(12939, 7)], trainer_spells=[(7, 30021)]), 'Trainer 12939 has it but is not spawned.')
 
 
 class AchievementRewards(unittest.TestCase):
