@@ -2,6 +2,7 @@
 world into a scratch database (docs/WORLD-BUILD.md)."""
 import collections
 import os
+import re
 
 import datetime
 
@@ -35,6 +36,29 @@ def build_database():
     return sqlio.Account(CONFIG.get('build', 'user'), CONFIG.get('build', 'password')), name
 
 
+def replay_until(args):
+    """The day the world is replayed to: --until, or the day of a step of the timeline (--at, as `tracker.py checkout`
+    names it: the build's day, or the day its hotfix update was read); None: every file."""
+    until = getattr(args, 'until', None)
+    at = getattr(args, 'at', None)
+    if at:
+        from . import checkout
+        try:
+            step = checkout.find(at)
+        except ValueError as error:
+            raise SystemExit(f'replay: {error}')
+        if not step.get('date'):
+            raise SystemExit(f'replay: step {at} has no day')
+        until = str(step['date'])
+        print(f"the world as of step {step['id']} ({until}): pair it with `tracker.py checkout {step['id']}`")
+    if until and not re.match(r'^\d{4}-\d{2}-\d{2}$', until):
+        raise SystemExit(f'replay: --until {until}: write the day as YYYY-MM-DD')
+    dumped = re.search(r'(\d{4})_(\d{2})_(\d{2})', os.path.basename(getattr(args, 'dump', '') or ''))
+    if until and dumped and until < '-'.join(dumped.groups()):
+        print(f"warning: the release dump is of {'-'.join(dumped.groups())}: the world cannot go back further than that, only its later files are left out")
+    return until
+
+
 def run_replay(args):
     folders = []
     if args.core:
@@ -49,9 +73,10 @@ def run_replay(args):
     if not folders:
         raise SystemExit('nothing to replay: give --core, --data or --folder')
     protected = [CONFIG.db(name) for name in ('tracker', 'world', 'hotfixes', 'auth')]
+    until = replay_until(args)
     db, build = build_database()
     try:
-        result = replay.replay(db, build, args.dump, folders, protected, args.keep_going, args.trust_account, print)
+        result = replay.replay(db, build, args.dump, folders, protected, args.keep_going, args.trust_account, print, until)
     except (replay.ReplayError, RuntimeError) as error:
         raise SystemExit(f'replay: {str(error).strip()}')
     print(f"{result['files']} files, {len(result['failed'])} failed, {result['rows']} rows written by a file")

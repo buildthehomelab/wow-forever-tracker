@@ -190,6 +190,7 @@ loot table linked when it had none, and columns or tables your core does not hav
 | [Docker](docs/DOCKER.md) | One container, configured from its environment |
 | [The Forge](docs/FORGE.md) | Every fix, how it is applied and rolled back |
 | [Spawns and imports](docs/SPAWNS.md) | The locator, the four ways to spawn, the core module, the ForeverForge and ForeverScribe addons, importing WowPacketParser SQL files |
+| [Checkout](docs/CHECKOUT.md) | The client's data at any build or day of hotfixes, as an SQL file for a test realm's hotfixes database |
 | [The world build](docs/WORLD-BUILD.md) | Building the world data from layers of sources: licences, witnesses, pinned versions |
 | [Configuration](docs/CONFIGURATION.md) | Every setting of `config.ini` |
 | [Architecture](docs/ARCHITECTURE.md) | The code: analysis, tables, website, Forge engine |

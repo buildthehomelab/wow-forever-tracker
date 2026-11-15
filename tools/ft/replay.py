@@ -289,17 +289,31 @@ def file_sha1s(path):
     return {hashlib.sha1(raw).hexdigest().upper(), hashlib.sha1(raw.replace(b'\r\n', b'\n')).hexdigest().upper()}
 
 
-def plan(folders, applied=None):
+DATED = re.compile(r'^(\d{4})_(\d{2})_(\d{2})_')
+
+
+def file_day(name):
+    """The day an update file is named for ('2026_10_14_00_world.sql' -> '2026-10-14'); None when its name has none."""
+    found = DATED.match(name)
+    return f'{found.group(1)}-{found.group(2)}-{found.group(3)}' if found else None
+
+
+def plan(folders, applied=None, until=None):
     """[(name, path, label)] of the update files to run, in the updater's order: by file name, over every folder.
 
     `applied` is the release's `updates` table as {name: hash, or None for an archived file}. As the core's updater
     does, a file the release lists is left out when its content still has that hash (or the release recorded none,
-    or it is archived), and runs again when it was changed since."""
+    or it is archived), and runs again when it was changed since.
+
+    `until` ('YYYY-MM-DD'): the world as it stood that day. A file named for a later day is left out; a file whose name
+    carries no day runs (the updater runs it in name order, and nothing says when it was written)."""
     applied = applied or {}
     found = collect(folders)
     out = []
     for name in sorted(found):
         if name in applied and (not applied[name] or applied[name].upper() in file_sha1s(found[name][1])):
+            continue
+        if until and (file_day(name) or '') > until:
             continue
         out.append(found[name])
     return out
@@ -442,12 +456,13 @@ def run(db, build, statements):
 
 
 # ------------------------------------------------------------------ the replay
-def replay(db, build, dump, folders, protected=(), keep_going=False, trust_account=False, log=lambda message: None):
+def replay(db, build, dump, folders, protected=(), keep_going=False, trust_account=False, log=lambda message: None, until=None):
     """Builds the scratch database `build` from the release dump and the update files of `folders` ([(label, folder)]).
 
     Returns {'files': n, 'failed': [(name, error)], 'rows': n}. With `keep_going` a failing file is recorded and
     the replay goes on; without it the replay stops there, as the core's updater would. `trust_account` skips the
-    check of the account's rights: only for a throwaway server that holds nothing else.
+    check of the account's rights: only for a throwaway server that holds nothing else. `until` ('YYYY-MM-DD'): only
+    the files named for that day or before (plan()); 'later' in the result counts those left out.
     """
     check_name(build, protected)
     definers = check_dump(dump)
@@ -481,7 +496,12 @@ def replay(db, build, dump, folders, protected=(), keep_going=False, trust_accou
     if db.query("SHOW TABLES LIKE 'updates'", build):
         for row in db.query('SELECT name, hash FROM updates', build):
             applied[row['name']] = row.get('hash') or ''
-    files = plan(folders, applied)
+    files = plan(folders, applied, until)
+    later = len(plan(folders, applied)) - len(files)
+    if until:
+        undated = sum(1 for name, _path, _label in files if not file_day(name))
+        log(f'the world as of {until}: {later} update files named for a later day are left out'
+            + (f'; {undated} without a day in their name run all the same' if undated else ''))
     keys = table_keys(db, build)
     run(db, build, add_triggers(untriggered(db, build), keys))
     log(f'{len(files)} update files to run ({len(applied)} listed by the release)')
@@ -547,7 +567,7 @@ def replay(db, build, dump, folders, protected=(), keep_going=False, trust_accou
             log(f'{number} / {len(files)}')
     run(db, build, SUMMARISE)
     rows = int(db.query(f'SELECT COUNT(*) n FROM {quote(ORIGIN)}', build)[0]['n'])
-    return {'files': len(files), 'failed': failed, 'rows': rows}
+    return {'files': len(files), 'failed': failed, 'rows': rows, 'later': later}
 
 
 def summary(db, build):

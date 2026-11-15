@@ -24,6 +24,7 @@ from .config import BUILDS, CONFIG, DATA, SCHEMA
 
 FILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'schema', 'db2-files.json')
 CACHE = os.path.join(DATA, 'cdn')
+COMPLETE_CACHE = os.path.join(DATA, 'cdn-checkout')   # complete()'s own: the client check removes CACHE when it is done
 LOCALE = 'enUS'   # the root file's enUS entries are the ones read (ft.cdn.root_entries)
 
 FETCHED, UP_TO_DATE, REFUSED = 0, 3, 2   # exit codes of `tracker.py fetch`
@@ -330,9 +331,14 @@ def store(build, version, tables, still, numbers, source, day=None, more=None):
     with open(os.path.join(scratch, 'build.json'), 'w', encoding='utf-8') as handle:
         json.dump(info, handle, ensure_ascii=False, indent=1)
     if os.path.isdir(target):          # a build read again: the new copy replaces it whole
-        kept = os.path.join(target, hotfixes.FILE)   # but its hotfixes are not the CDN's to give back
+        # but its hotfixes are not the CDN's to give back: the newest cache and every cache kept before it (with the
+        # steps worked out of them) go over to the new copy
+        kept = os.path.join(target, hotfixes.FILE)
         if os.path.isfile(kept):
             shutil.copy2(kept, os.path.join(scratch, hotfixes.FILE))
+        kept = os.path.join(target, hotfixes.HISTORY)
+        if os.path.isdir(kept):
+            shutil.copytree(kept, os.path.join(scratch, hotfixes.HISTORY))
         shutil.rmtree(target)
     os.replace(scratch, target)
 
@@ -488,6 +494,66 @@ def alone_here(name):
         handle.close()
         return None
     return handle
+
+
+def complete(build, names, product=None, log=print, listed=None, opener=None, keep_cache=False):
+    """Reads the tables an earlier build was stored without (ft.checkout needs every table of a step), from Blizzard's
+    CDN, into its folder. names: the tables wanted. Returns {table: why} of those it could not store (another layout,
+    not in this build, encrypted without a published key); the rest are stored, also when one is refused. listed and
+    opener as for history_run (tests)."""
+    folder = os.path.join(BUILDS, str(build))
+    wanted = {name: file_id for name, file_id in files().items() if name in names and not os.path.isfile(os.path.join(folder, LOCALE, name + '.db2'))}
+    if not wanted:
+        return {}
+    product = product or product_name()
+    entries = (listed or (lambda: cdn.builds(history_products(product) or {product: ''}, CONFIG.get('client', 'build_list') or None)))()
+    entry = next((e for e in entries if e['build'] == build), None)
+    if entry is None:
+        return {name: f'build {build} is not on the list of builds' for name in wanted}
+    log(f'client: reading {len(wanted)} more table(s) of build {entry["version"]} from the CDN')
+    try:
+        if opener:
+            reader, waiting, use_keys = opener(entry)
+        else:
+            tact = cdn.Earlier(COMPLETE_CACHE, entry, product=entry.get('product') or product, log=lambda text: None)
+            tact.prepare(list(wanted.values()) + [KEY_LOOKUP_FILE])
+            reader, waiting, use_keys = (lambda file_id, tact=tact: tact.read(file_id, partial=True)), (lambda tact=tact: tact.absent), tact.extra_keys.update
+        numbers = read_key_numbers(reader)
+        handed = hotfix_keys(newest_snapshot(), numbers)
+        if handed and use_keys:
+            use_keys(handed)
+        tables, refused = {}, {}
+        for name, file_id in sorted(wanted.items()):
+            try:
+                tables[name], _hidden = mark_decrypted(reader(file_id))
+            except KeyError:
+                refused[name] = 'not in this build'
+            except cdn.Encrypted:
+                refused[name] = 'encrypted: no published key'
+        for name, why in layout_problems(tables, snapshot_layouts()):
+            refused[name] = why
+            tables.pop(name, None)
+        os.makedirs(os.path.join(folder, LOCALE), exist_ok=True)
+        for name, data in tables.items():
+            path = os.path.join(folder, LOCALE, name + '.db2')
+            with open(f'{path}.tmp', 'wb') as handle:
+                handle.write(data)
+            os.replace(f'{path}.tmp', path)
+        if tables:
+            info = build_info(build) or {}
+            by_id = {file_id: name for name, file_id in wanted.items()}
+            still = {by_id[int(file_id)]: sorted(keys) for file_id, keys in (waiting() or {}).items() if int(file_id) in by_id and by_id[int(file_id)] in tables and keys}
+            info['waiting'] = {**(info.get('waiting') or {}), **still}
+            info['key_ids'] = {**(info.get('key_ids') or {}), **{key: numbers[key] for keys in still.values() for key in keys if key in numbers}}
+            meta = os.path.join(folder, 'build.json')
+            with open(f'{meta}.tmp', 'w', encoding='utf-8') as handle:
+                json.dump(info, handle, ensure_ascii=False, indent=1)
+            os.replace(f'{meta}.tmp', meta)
+        log(f'client: build {entry["version"]}: {len(tables)} more table(s) stored' + (f', {len(refused)} not ({", ".join(f"{n}: {w}" for n, w in sorted(refused.items())[:4])})' if refused else ''))
+        return refused
+    finally:
+        if not keep_cache and not opener:
+            shutil.rmtree(COMPLETE_CACHE, ignore_errors=True)
 
 
 def history(product=None, log=print, listed=None, opener=None, keep_cache=False, again=False, limit=0, path=None, origin=None):

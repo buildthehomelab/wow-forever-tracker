@@ -145,8 +145,11 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
   <header class="block-head"><div><span class="eyebrow">Blizzard</span><h2><?= e($note['title'] ?: t('Official patch notes', 'Notes de mise à jour officielles')) ?></h2></div><?php if ($note['url']): ?><a class="link" href="<?= e($note['url']) ?>" target="_blank" rel="noopener"><?= e(t('Source', 'Source')) ?> ↗</a><?php endif; ?></header>
   <div class="prose"><?= markdown((string)$note['body']) ?></div>
 </section>
-<?php elseif (is_admin() && $build): ?>
+<?php elseif (is_admin() && $build && !$hotfix): ?>
 <p class="muted"><a href="<?= e(url('admin/notes', ['build' => $build])) ?>"><i class="fas fa-pen-to-square"></i> <?= e(t('Add Blizzard’s patch notes for this build', 'Ajouter les notes de mise à jour de Blizzard pour ce build')) ?></a></p>
+<?php endif; ?>
+<?php if (is_admin() && $build && $current && !$vanillaBuild): $stepId = $build . ($hotfix ? '+' . $hotfix : ''); ?>
+<p class="muted"><a href="<?= e(url('admin/checkout')) ?>#step-<?= e($stepId) ?>"><i class="fas fa-code-branch"></i> <?= e(t('Check out this step: its client data as a test realm’s hotfixes database', 'Extraire cette étape : ses données client comme base hotfixes d’un royaume de test')) ?></a></p>
 <?php endif; ?>
 
 <?php $firstHeld = !$hotfix && $builds && $build === (int)end($builds)['build'];

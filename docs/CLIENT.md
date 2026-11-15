@@ -204,6 +204,8 @@ Each step is worked out once and kept next to its cache (`<cache>.changelog.json
 hotfix steps with the builds, so the original game plus every build and every day's hotfixes must give today's game.
 Hotfixes from before the tracker kept them cannot be had again: the history starts the first day a cache is kept.
 
+A step can be turned back into data a test realm loads: [CHECKOUT.md](CHECKOUT.md).
+
 ## What it does not do yet
 
 - **Hotfixes before the history.** The hotfixes of a build from before its first kept cache are part of the

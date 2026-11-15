@@ -52,6 +52,12 @@ switch ($action) {
         json_out(analysis_start('check'));
     case 'analysis_status':
         json_out(['ok' => true] + analysis_status());
+    case 'checkout':
+        require_once FT_APP . '/checkout.php';
+        json_out(checkout_start((string)($input['step'] ?? '')));
+    case 'checkout_status':
+        require_once FT_APP . '/checkout.php';
+        json_out(['ok' => true] + checkout_status());
 }
 
 // ------------------------------------------------------------------ spawns (locator results)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Checkout: the client's data at any step.** `tracker.py checkout <step>` writes the tables of a build or of a
+  day's hotfixes (`70938+1`) as an SQL file for a test realm's hotfixes database: every record that differs from the
+  server's DB2 files, removals as `hotfix_data` status 2, one push, exact floats, a manifest of what it holds and what
+  it left out (docs/CHECKOUT.md). `--fetch` reads the tables an earlier build was stored without from Blizzard's CDN.
+  On the website: The Forge → Checkout makes a step's file in the background and hands it out.
+- **The world as of a day.** `world replay --until YYYY-MM-DD` (or `--at <step>`, the day of a step of the timeline)
+  leaves out the update files named for a later day, to pair the world with a checkout of the same step.
+- **A build read again keeps its hotfix history.** When a key comes out and a build is read again, its kept hotfix
+  caches and their steps go over to the new copy (they were only kept for the newest cache).
 - **Hotfixes as entries of their own.** Every hotfix cache that differs from the one before is kept, compressed,
   with its build (`data/builds/<build>/hotfixes/`). A build is compared as it stood with its first cache, and each
   later day's hotfixes are an entry of their own on the timeline and in the changelog: what they added, changed or

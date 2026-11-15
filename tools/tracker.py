@@ -637,6 +637,50 @@ def analyse(args):
     log(f'done in {time.time() - started:.0f} s')
 
 
+def checkout_cmd(args):
+    """The client's data at a step of the timeline, as an SQL file for a hotfixes database (docs/CHECKOUT.md)."""
+    from ft import checkout
+    if args.step == 'list':
+        for step in checkout.steps():
+            print(f"{step['id']:>12}  {step['version']:<16} {step['date'] or '':<10}  " + (f"hotfixes of {step['cache_day']}" if step.get('cache_day') else 'no hotfixes kept')
+                  + ('  (tables missing: --fetch reads them from the CDN)' if step['partial'] else ''))
+        return
+    try:
+        step = checkout.find(args.step)
+    except ValueError as error:
+        sys.exit(str(error))
+    server_build = CONFIG.server_build()
+    if not server_build:
+        sys.exit('server build unknown: set [server] build in config.ini (the checkout writes rows for that build)')
+    if args.fetch and step['partial']:
+        # the client check reads builds into the same CDN folder: one at a time
+        gate = client.alone_here('history.lock')
+        if gate is None:
+            sys.exit('checkout: a client check is reading builds from the CDN right now: try again when it is done')
+        try:
+            refused = client.complete(step['build'], set(checkout.tracked()), log=log)
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            sys.exit(f'checkout: the other tables of build {step["build"]} could not be read from the CDN ({error}): nothing written')
+        finally:
+            gate.close()
+        for name, why in sorted(refused.items()):
+            log(f'checkout: {name} of build {step["build"]} could not be read: {why}')
+        step = checkout.find(step['id'])   # stored now: no longer partial
+    try:
+        made = checkout.plan(step, carry=not args.no_carry, log=log)
+    except (RuntimeError, OSError) as error:
+        sys.exit(f'checkout: the hotfixes database could not be read ({error})')
+    made['carry'] = not args.no_carry
+    path = args.out or os.path.join(checkout.OUT, f"hotfixes-{step['id']}.sql")
+    manifest = checkout.write(step, made, path, server_build)
+    rows = sum(t['rows'] for t in manifest['tables'].values())
+    removed = sum(t['removed'] for t in manifest['tables'].values())
+    log(f"checkout {step['id']}: {len(manifest['tables'])} tables, {rows} records over your server's files, {removed} removed, "
+        f"{len(manifest['skipped'])} tables left out -> {path}")
+    for name, why in sorted(manifest['skipped'].items()):
+        log(f'  left out: {name}: {why}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -678,6 +722,11 @@ def main():
     check = sub.add_parser('check', help='fetch, hotfixes and history, then analyse when one of them brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
+    out = sub.add_parser('checkout', help="the client's data at a step of the timeline (a build, or a build's hotfix update: 70938+1) as an SQL file for a test realm's hotfixes database; 'list' names the steps (docs/CHECKOUT.md)")
+    out.add_argument('step', help="'list', 'latest', a build (70450) or a hotfix update (70938+1)")
+    out.add_argument('--out', help='the SQL file to write (data/checkout/hotfixes-<step>.sql); its manifest is written beside it (.json)')
+    out.add_argument('--fetch', action='store_true', help="first read the tables a build stored for the changelog alone lacks from Blizzard's CDN")
+    out.add_argument('--no-carry', action='store_true', help='leave out the records that exist by hotfix alone when the step has no hotfixes kept')
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -689,6 +738,9 @@ def main():
     rep.add_argument('--data', help="a folder of update files from your data repository (its sql/world)")
     rep.add_argument('--folder', action='append', help='another folder of update files, as label=folder (repeatable)')
     rep.add_argument('--keep-going', action='store_true', help='record a failing file and go on (default: stop, as the updater does)')
+    when = rep.add_mutually_exclusive_group()
+    when.add_argument('--until', help="the world as it stood that day (YYYY-MM-DD): update files named for a later day are left out")
+    when.add_argument('--at', help="the world as of a step of the timeline (70707, 70938+1: its day), to pair with `tracker.py checkout` of that step")
     rep.add_argument('--trust-account', action='store_true',
                      help='run although the MySQL account can write to other databases: only on a throwaway server that holds nothing else')
     fact = world_sub.add_parser('facts', help='read what a source says into the tracker database, or list what is stored')
@@ -711,6 +763,8 @@ def main():
         world.run(args)
     elif args.command == 'snapshot':
         snapshot(args)
+    elif args.command == 'checkout':
+        checkout_cmd(args)
     elif args.command == 'locate':
         locator.run(args)
     elif args.command == 'client':
