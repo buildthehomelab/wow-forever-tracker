@@ -10,7 +10,7 @@ a page.**
 
 | Piece | What it does |
 |---|---|
-| `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: reads one page every few seconds, keeps what it read in the tab's storage, saves it as a file |
+| `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: reads one page every 11 to 14 seconds, keeps what it read in the tab's storage, saves it as a file |
 | `tools/wowhead_pages.py` | lists the pages worth reading (`todo`), puts what the crawler saved into the cache (`merge`), says what the cache holds (`stats`) |
 | `tools/wowhead-pages/cache/<kind>.jsonl` | the pages read so far, one line a page, sorted by id |
 | `app/wowheadpages.php` | turns the cache into an import card: The Forge › Imports › *Import Wowhead pages*, or `php tools/source-import.php wowhead` |
@@ -50,14 +50,18 @@ import reads both folders and takes the newer answer of each page.
 
 ## The pace
 
-Wowhead blocks an address that asks for about 35 pages in a minute and a half: every page then answers 405 for about
-eight minutes. The crawler asks for one page every 9 to 11 seconds (`WHC.pace(seconds)` changes it, never below 4),
-about 6 pages a minute: 1,000 pages take close to three hours. When a block comes anyway it waits eight and a half
+Wowhead blocks an address that asks too fast: every page then answers 405 for about eight minutes. About 35 pages in
+a minute and a half does it, and so does one page every 7 seconds kept up for five minutes. One every 10 seconds ran
+without a block. The crawler asks for one page every 11 to 14 seconds (`WHC.pace(seconds)` changes the 11), a little
+under 5 pages a minute: 1,000 pages take three and a half hours. When a block comes anyway it waits eight and a half
 minutes, twice as long when the next answer is a block again (34 minutes at most), and goes on with the same page.
 Ten requests in a row without any answer stop it.
 
-Wowhead's own page keeps asking for things in the background, and those requests count too. Other tabs on Wowhead
-from the same address share the limit: do not run two crawls at once.
+Wowhead's own page keeps asking for things in the background, and those requests count too. So the crawler puts
+every `fetch` of its tab to Wowhead in the same line as its own pages (`pageRequests` in `WHC.status()` counts them).
+What the page loads another way (images, scripts) is not in that line.
+Other tabs on Wowhead from the same address share the limit: do not run two crawls at once, and do not browse
+Wowhead while one runs.
 
 ## The import
 

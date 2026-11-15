@@ -234,13 +234,30 @@
   };
   const state = {
     queue: store.get('queue', []),        // 'item:123', in order
-    gap: store.get('gap', 9000),          // ms between two requests, plus up to `jitter`
-    jitter: 2000,
+    gap: store.get('gap', 11000),         // ms between two requests, plus up to `jitter`
+    jitter: 3000,
+    nextSlot: 0,                          // when the next request to Wowhead may leave, the page's own ones included
     blockWait: 8.5 * 60000,               // after a block; doubled while blocks follow each other, 34 min at most
     blockedUntil: store.get('blockedUntil', 0),
-    blocks: 0, errors: 0, fetched: 0, skipped: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '',
+    blocks: 0, errors: 0, fetched: 0, skipped: 0, pageRequests: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '',
   };
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Wowhead counts every request from this address, and its own page keeps asking for things in the background. So
+  // every fetch of this tab to Wowhead waits its turn in one line: the crawler's pages and the page's own requests.
+  const pageFetch = root.__whcFetch || (root.__whcFetch = root.fetch.bind(root));
+  async function turn() {
+    const now = Date.now();
+    const at = Math.max(now, state.nextSlot);
+    state.nextSlot = at + state.gap + Math.random() * state.jitter;
+    if (at > now) await sleep(at - now);
+  }
+  root.fetch = async function (input, init) {
+    let own = false;
+    try { own = new URL(typeof input === 'string' ? input : input.url, location.href).origin === location.origin; } catch (error) { /* not a URL: let fetch say so */ }
+    if (own) { state.pageRequests++; await turn(); }
+    return pageFetch(input, init);
+  };
 
   let opening = null;
   function db() {
@@ -282,7 +299,8 @@
     const id = Number(idText);
     let response, html;
     try {
-      response = await fetch('/' + BRANCH + '/' + kind + '=' + id, { credentials: 'same-origin', redirect: 'follow' });
+      await turn();
+      response = await pageFetch('/' + BRANCH + '/' + kind + '=' + id, { credentials: 'same-origin', redirect: 'follow' });
       html = await response.text();
     } catch (error) { return { status: 'error', note: String(error) }; }
     const record = extract(kind, id, html, response.status, response.url);
@@ -318,7 +336,6 @@
       }
       state.errors = 0; state.blocks = 0; state.fetched++;
       state.queue.shift(); store.set('queue', state.queue);
-      if (state.queue.length) await sleep(state.gap + Math.random() * state.jitter);
     }
     if (!state.queue.length) { store.set('run', false); state.note = state.note || 'queue done'; }
     state.running = false;
@@ -332,7 +349,7 @@
     return {
       running: state.running, queued: state.queue.length, read: counts, thisRun: state.fetched,
       perMinute: state.startedAt && minutes > 0.5 ? Math.round(state.fetched / minutes * 10) / 10 : null,
-      last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
+      pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
       blockedFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
     };
   }
@@ -360,7 +377,7 @@
     add, status, lines, save, state, extract,
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },
-    pace: seconds => { state.gap = Math.max(4, Number(seconds)) * 1000; store.set('gap', state.gap); return state.gap; },
+    pace: seconds => { state.gap = Math.max(4, Number(seconds)) * 1000; store.set('gap', state.gap); return state.gap; },   // under 10 gets blocked
     clearQueue: () => { state.queue = []; store.set('queue', []); },
     forget: key => pages('readwrite', s => s.delete(key)),
   };

@@ -230,7 +230,7 @@ def main(argv=None):
     elif args.command == 'todo':
         for kind, ids in todo(args.csv, args.kind, args.min_item, args.max_age).items():
             ids = ids[:args.limit] if args.limit else ids
-            print(f'// {kind}: {len(ids)} pages, about {len(ids) / 6.5 / 60:.1f} h at one page every 9 seconds', file=sys.stderr)
+            print(f'// {kind}: {len(ids)} pages, about {len(ids) / 4.8 / 60:.1f} h at one page every 11 to 14 seconds', file=sys.stderr)
             if ids:
                 print(f"await WHC.add('{kind}', {json.dumps(ids, separators=(',', ':'))});")
     else:
