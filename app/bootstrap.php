@@ -173,6 +173,11 @@ function builds(): array
     static $builds = null;
     return $builds ??= ready() ? rows('SELECT build, version, released, note, source, is_server, counts FROM ft_builds ORDER BY build DESC') : [];
 }
+/** A build of the beta: stored from a product of that name (tools/ft/client.py, history). */
+function build_is_beta(array $build): bool
+{
+    return stripos((string)($build['source'] ?? ''), 'beta') !== false;
+}
 
 // ------------------------------------------------------------------ resource types
 /** type => [path, icon, English, French, English description, French description, Wowhead kind] */

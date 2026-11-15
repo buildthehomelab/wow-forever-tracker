@@ -12,6 +12,7 @@ tables are named: the schema has to follow the core first (tools/make_db2_schema
 than the same table has in the newest snapshot, which the tracker reads today, and another than the schema names.
 """
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -19,7 +20,7 @@ import struct
 import tempfile
 
 from . import cdn, content, db2, hotfixes
-from .config import BUILDS, CONFIG, DATA
+from .config import BUILDS, CONFIG, DATA, SCHEMA
 
 FILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'schema', 'db2-files.json')
 CACHE = os.path.join(DATA, 'cdn')
@@ -93,7 +94,8 @@ def layout_problems(tables, known=None, schema=None):
 def snapshot_layouts(build=None):
     """{table: layout hash} of a stored snapshot (the newest by default): the layouts the tracker reads today."""
     builds = content.builds()
-    folder = next((b['dir'] for b in builds if b['build'] == build), builds[-1]['dir'] if builds else None)
+    whole = [b for b in builds if not b['partial']] or builds
+    folder = next((b['dir'] for b in builds if b['build'] == build), whole[-1]['dir'] if whole else None)
     out = {}
     for name in content.TABLES if folder else []:
         path = os.path.join(folder, LOCALE, name + '.db2')
@@ -259,12 +261,14 @@ def calm(log):
     return lambda text: log(str(text).replace('Error', 'error').replace('Traceback', 'traceback'))
 
 
-def check(fetch_client, fetch_hotfixes, log=print):
-    """The live build, then Blizzard's hotfixes: True when either stored something the analysis has not seen.
+def check(fetch_client, fetch_hotfixes, log=print, fetch_history=None):
+    """The live build, then Blizzard's hotfixes, then the builds before: True when one of them stored something the
+    analysis has not seen.
 
     fetch_client: a function -> the result of fetch(); fetch_hotfixes: a function -> the result of hotfixes.fetch(),
-    asked after the build so that a cache for the build just stored finds its snapshot. A source that cannot be
-    reached is said and passed over: the other one is still asked."""
+    asked after the build so that a cache for the build just stored finds its snapshot; fetch_history: a function ->
+    the result of history(), asked last (it fills in below the newest snapshot, with the keys handed out so far). A
+    source that cannot be reached is said and passed over: the others are still asked."""
     say = calm(log)
     new = False
     try:
@@ -289,7 +293,48 @@ def check(fetch_client, fetch_hotfixes, log=print):
                 say('client: ' + result['message'])
         except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
             say(f"client: Blizzard's servers could not be read ({error}): the stored build stays")
-    return new or stored
+    before = False
+    if fetch_history:
+        try:
+            result = fetch_history()
+            say('earlier builds: ' + result['message'])
+            before = result['code'] == FETCHED
+        except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
+            say(f'earlier builds: the list of builds could not be read ({error}): asked again at the next check')
+    return new or stored or before
+
+
+def store(build, version, tables, still, numbers, source, day=None, more=None):
+    """Writes a build's tables as its snapshot, whole or not at all. tables: {name: bytes}; still: {table: [key
+    names]} of the parts nobody can read yet; numbers: {key name: number}; day: the day the build came out, when
+    something says so (else the day it was first stored); more: other things build.json says of it."""
+    scratch = os.path.join(BUILDS, f'.{build}.part')
+    shutil.rmtree(scratch, ignore_errors=True)
+    os.makedirs(os.path.join(scratch, LOCALE))
+    for name, data in tables.items():
+        with open(os.path.join(scratch, LOCALE, name + '.db2'), 'wb') as handle:
+            handle.write(data)
+    target = os.path.join(BUILDS, str(build))
+    info = {}
+    try:
+        with open(os.path.join(target, 'build.json'), encoding='utf-8-sig') as handle:
+            info = json.load(handle)   # a build read again: the day it was first seen and its note stay
+    except (OSError, ValueError):
+        pass
+    today = datetime.date.today().isoformat()
+    info.update({'build': build, 'version': version, 'date': info.get('date') or day or today, 'read': today, 'waiting': still,
+                 # the numbers of the keys still waited for: a hotfix hands a key out by its number
+                 'key_ids': {key: numbers[key] for keys in still.values() for key in keys if key in numbers},
+                 'source': source})
+    info.update(more or {})
+    with open(os.path.join(scratch, 'build.json'), 'w', encoding='utf-8') as handle:
+        json.dump(info, handle, ensure_ascii=False, indent=1)
+    if os.path.isdir(target):          # a build read again: the new copy replaces it whole
+        kept = os.path.join(target, hotfixes.FILE)   # but its hotfixes are not the CDN's to give back
+        if os.path.isfile(kept):
+            shutil.copy2(kept, os.path.join(scratch, hotfixes.FILE))
+        shutil.rmtree(target)
+    os.replace(scratch, target)
 
 
 def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, live=None, published=None, waiting=None, use_keys=None):
@@ -358,7 +403,7 @@ def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, l
         if index % 20 == 0:
             log(f'client: {index}/{len(wanted)} tables')
     # the layouts the tracker reads today: those of the newest other build (a build read again is no witness for itself)
-    earlier = [b['build'] for b in content.builds() if b['build'] != build]
+    earlier = [b['build'] for b in content.builds() if b['build'] != build and not b['partial']]
     known = snapshot_layouts(earlier[-1]) if earlier else {}
     # a table the newest snapshot does not have either is no loss (the tracker lives without it today)
     problems = [(name, why) for name, why in problems if name in known or not known]
@@ -368,39 +413,201 @@ def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, l
                 'message': f'build {version} was not stored: ' + '; '.join(f'{name} ({why})' for name, why in problems[:8])
                            + (f' and {len(problems) - 8} more' if len(problems) > 8 else '')
                            + '. The schema has to follow the core first (tools/make_db2_schema.py).'}
-    scratch = os.path.join(BUILDS, f'.{build}.part')
-    shutil.rmtree(scratch, ignore_errors=True)
-    os.makedirs(os.path.join(scratch, LOCALE))
-    for name, data in tables.items():
-        with open(os.path.join(scratch, LOCALE, name + '.db2'), 'wb') as handle:
-            handle.write(data)
     # what could not be read, by table: the keys to watch for (unlocked)
     by_id = {file_id: name for name, file_id in wanted.items()}
     still = {by_id[int(file_id)]: sorted(keys) for file_id, keys in ((waiting or dict)() or {}).items() if int(file_id) in by_id and keys}
-    target = os.path.join(BUILDS, str(build))
-    info = {}
-    try:
-        with open(os.path.join(target, 'build.json'), encoding='utf-8-sig') as handle:
-            info = json.load(handle)   # a build read again: the day it was first seen and its note stay
-    except (OSError, ValueError):
-        pass
-    today = datetime.date.today().isoformat()
-    info.update({'build': build, 'version': version, 'date': info.get('date') or today, 'read': today, 'waiting': still,
-                 # the numbers of the keys still waited for: a hotfix hands a key out by its number
-                 'key_ids': {key: numbers[key] for keys in still.values() for key in keys if key in numbers},
-                 'source': f'Blizzard CDN ({product}, build config {live.get("config", "")[:12]})'})
-    with open(os.path.join(scratch, 'build.json'), 'w', encoding='utf-8') as handle:
-        json.dump(info, handle, ensure_ascii=False, indent=1)
-    if os.path.isdir(target):          # a build read again: the new copy replaces it whole
-        kept = os.path.join(target, hotfixes.FILE)   # but its hotfixes are not the CDN's to give back
-        if os.path.isfile(kept):
-            shutil.copy2(kept, os.path.join(scratch, hotfixes.FILE))
-        shutil.rmtree(target)
-    os.replace(scratch, target)
-    if not keep_cache:
+    store(build, version, tables, still, numbers, f'Blizzard CDN ({product}, build config {live.get("config", "")[:12]})')
+    if not keep_cache and tact is not None:
         # the lookup database and the indexes of this build (several hundred MB): the next build needs its own
         shutil.rmtree(CACHE, ignore_errors=True)
     return {'code': FETCHED, 'build': build, 'version': version, 'problems': [],
             'message': f'build {version}: {len(tables)} tables stored from the CDN'
                        + (f', {hidden} section(s) of unreleased content still hidden (their keys are not published yet; the build is read again when one is)' if hidden else '')
                        + ' (run the analysis)'}
+
+
+# --- the builds before: the changelog back to the beta -------------------------------------------
+
+REFUSALS = os.path.join(BUILDS, 'history.json')   # the earlier builds that could not be stored, and why
+HISTORY = 'wow_classic_beta:1.60.'                # [client] history, when config.ini does not say
+GIVE_UP = 3                                       # builds in a row that could not be reached: the rest waits
+
+
+def history_products(product=None, setting=None):
+    """{product: version prefix} of the products whose builds make the history: the live product itself, and those
+    [client] history names, each with the versions that count ("wow_classic_beta:1.60.": WoW: Forever's beta was
+    shipped under the Classic beta's name, next to other games' betas). None when it says "off"."""
+    setting = CONFIG.get('client', 'history', HISTORY) if setting is None else setting
+    if setting.strip().lower() in ('off', 'no', 'none', '0'):
+        return None
+    out = {product or product_name(): ''}
+    for part in setting.replace(';', ',').split(','):
+        name, _sep, prefix = part.strip().partition(':')
+        if name:
+            out.setdefault(name.strip(), prefix.strip())
+    return out
+
+
+def schema_mark():
+    """What a refusal depends on: the tables' layouts as the tracker reads them (a refused build is asked again when
+    the schema has changed)."""
+    try:
+        with open(SCHEMA, 'rb') as handle:
+            return hashlib.sha1(handle.read()).hexdigest()[:12]
+    except OSError:
+        return ''
+
+
+def refusals(path=None):
+    try:
+        with open(path or REFUSALS, encoding='utf-8') as handle:
+            found = json.load(handle)
+        return found if isinstance(found, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def earlier_files():
+    """{table: file data id} of what an earlier build is stored with: the tables compared build after build."""
+    known = files()
+    return {name: known[name] for name in content.DIFF_TABLES if name in known}
+
+
+def alone_here(name):
+    """An open file whose lock says "one at a time" (the container's check and the Forge's can start together), or
+    None when another run holds it. Where the system has no such lock (Windows), a file all the same: nothing there
+    starts two checks by itself."""
+    os.makedirs(BUILDS, exist_ok=True)
+    handle = open(os.path.join(BUILDS, name), 'a')
+    try:
+        import fcntl
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:
+        pass
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def history(product=None, log=print, listed=None, opener=None, keep_cache=False, again=False, limit=0, path=None):
+    """history_run(), one at a time: a second run started while the first is reading the builds stores nothing."""
+    gate = alone_here('history.lock')
+    if gate is None:
+        return {'code': UP_TO_DATE, 'stored': [], 'refused': {}, 'failed': {}, 'message': 'another check is reading the earlier builds: left to it'}
+    try:
+        return history_run(product, log, listed, opener, keep_cache, again, limit, path)
+    finally:
+        gate.close()
+
+
+def history_run(product=None, log=print, listed=None, opener=None, keep_cache=False, again=False, limit=0, path=None):
+    """Stores the builds that came before the newest snapshot and have none, from Blizzard's CDN: the changelog then
+    goes back build by build to the first beta. Only the tables the changelog compares are stored (the tooltips, the
+    Forge and the map read the newest build alone).
+
+    A build whose tables have another layout than the tracker reads is not stored and remembered (history.json): it
+    is asked again when the schema changes, or with again. A build that could not be reached is tried at the next
+    call. Returns {'code': FETCHED | UP_TO_DATE, 'stored': [builds], 'refused': {build: why}, 'failed': {build: why},
+    'message'}. For tests: listed (a function -> cdn.builds()), opener (an entry of the list -> (reader, waiting,
+    use_keys))."""
+    product = product or product_name()
+    have = newest_snapshot()
+    products = history_products(product)
+    done = {'code': UP_TO_DATE, 'stored': [], 'refused': {}, 'failed': {}}
+    if products is None:
+        return {**done, 'message': 'the earlier builds are not asked for ([client] history = off)'}
+    if not have:
+        return {**done, 'message': 'no snapshot yet: the earlier builds are read once there is one'}
+    builds = (listed or (lambda: cdn.builds(products, CONFIG.get('client', 'build_list') or None)))()
+    stored = {b['build']: b for b in content.builds()}
+    # the day a stored build came out, where the list knows better than the day the tracker first saw it
+    for entry in builds:
+        info = build_info(entry['build']) if entry['build'] in stored else {}
+        if info and entry['date'] and info.get('date') != entry['date'] and not info.get('dated'):
+            info.update({'date': entry['date'], 'dated': 'list'})
+            meta = os.path.join(BUILDS, str(entry['build']), 'build.json')
+            with open(f'{meta}.tmp', 'w', encoding='utf-8') as handle:
+                json.dump(info, handle, ensure_ascii=False, indent=1)
+            os.replace(f'{meta}.tmp', meta)
+            done['code'] = FETCHED   # the analysis writes the builds' days
+    mark = schema_mark()
+    refused = {} if again else {build: note for build, note in refusals(path).items() if isinstance(note, dict) and note.get('schema') == mark}
+    todo = [entry for entry in builds if entry['build'] < have and entry['build'] not in stored and str(entry['build']) not in refused]
+    if limit:
+        todo = todo[-limit:]
+    if not todo:
+        waiting = len([b for b in refused if int(b) < have and int(b) not in stored])
+        return {**done, 'message': f'every earlier build the list names is stored ({len([b for b in stored if b < have])} before {have})'
+                                   + (f'; {waiting} could not be read with this schema' if waiting else '')}
+    log(f'client: {len(todo)} earlier build(s) have no snapshot ({todo[0]["version"]} to {todo[-1]["version"]}): reading their tables from the CDN (once)')
+    wanted = earlier_files()
+    known = snapshot_layouts()
+    unreachable = 0
+    for index, entry in enumerate(todo, 1):
+        build, version = entry['build'], entry['version']
+        try:
+            if opener:
+                reader, waiting, use_keys = opener(entry)
+            else:
+                tact = cdn.Earlier(CACHE, entry, product=product, log=lambda text: None)
+                tact.prepare(list(wanted.values()) + [KEY_LOOKUP_FILE])
+                reader, waiting, use_keys = (lambda file_id, tact=tact: tact.read(file_id, partial=True)), (lambda tact=tact: tact.absent), tact.extra_keys.update
+            numbers = read_key_numbers(reader)
+            handed = hotfix_keys(have, numbers)   # the keys Blizzard has handed out since open what was hidden then
+            if handed and use_keys:
+                use_keys(handed)
+            tables, problems = {}, []
+            for name, file_id in sorted(wanted.items()):
+                try:
+                    tables[name], _hidden = mark_decrypted(reader(file_id))
+                except KeyError:
+                    if name in known:
+                        problems.append((name, 'not in this build'))
+                except cdn.Encrypted:
+                    problems.append((name, 'encrypted: no published key'))
+            problems += layout_problems(tables, known)
+        except cdn.Gone as error:
+            # a definite answer, not a server in trouble: the next build is asked as usual
+            done['failed'][build] = str(error)
+            log(f"client: earlier build {version} ({index}/{len(todo)}) is not on Blizzard's CDN whole any more ({error}): asked again at the next check")
+            continue
+        except (RuntimeError, OSError, LookupError, ValueError, struct.error, StopIteration) as error:
+            done['failed'][build] = str(error)
+            log(f'client: earlier build {version} ({index}/{len(todo)}) could not be read ({error}): tried again at the next check')
+            unreachable += 1
+            if unreachable >= GIVE_UP:
+                log(f'client: {GIVE_UP} builds in a row could not be read: the others wait for the next check')
+                break
+            continue
+        unreachable = 0
+        if problems:
+            why = '; '.join(f'{name} ({reason})' for name, reason in problems[:6]) + (f' and {len(problems) - 6} more' if len(problems) > 6 else '')
+            done['refused'][build] = why
+            log(f'client: earlier build {version} ({index}/{len(todo)}) was not stored: {why}')
+            continue
+        by_id = {file_id: name for name, file_id in wanted.items()}
+        still = {by_id[int(file_id)]: sorted(keys) for file_id, keys in (waiting() or {}).items() if int(file_id) in by_id and keys}
+        store(build, version, tables, still, numbers, f'Blizzard CDN ({entry["product"]}, build config {entry["config"][:12]})', entry['date'] or None,
+              {'tables': 'changelog', 'dated': 'list', **({'note': 'Beta build.'} if 'beta' in entry['product'] else {})})
+        done['stored'].append(build)
+        log(f'client: earlier build {version} ({index}/{len(todo)}): {len(tables)} tables stored')
+    if done['refused'] or again:
+        kept = {} if again else refusals(path)
+        kept.update({str(build): {'why': why, 'schema': mark} for build, why in done['refused'].items()})
+        for build in done['stored']:
+            kept.pop(str(build), None)
+        target = path or REFUSALS
+        with open(f'{target}.tmp', 'w', encoding='utf-8') as handle:
+            json.dump(kept, handle, ensure_ascii=False, indent=1)
+        os.replace(f'{target}.tmp', target)
+    if not keep_cache and not opener:
+        shutil.rmtree(CACHE, ignore_errors=True)
+    if done['stored']:
+        done['code'] = FETCHED
+    parts = [f'{len(done["stored"])} earlier build(s) stored']
+    if done['refused']:
+        parts.append(f'{len(done["refused"])} not stored (another table layout)')
+    if done['failed']:
+        parts.append(f'{len(done["failed"])} could not be read (tried again at the next check)')
+    return {**done, 'message': ', '.join(parts) + (' (run the analysis)' if done['code'] == FETCHED else '')}
