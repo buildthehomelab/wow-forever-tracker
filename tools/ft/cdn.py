@@ -17,9 +17,13 @@ file is checked against its content key, so a wrong byte anywhere above fails lo
 
 Adapted from tools/tact/tact.py of wow-project-everlake (same authors).
 """
+import bisect
 import concurrent.futures
 import hashlib
+import http.client
+import json
 import os
+import re
 import sqlite3
 import struct
 import threading
@@ -35,10 +39,15 @@ ENUS = 0x2  # root locale flag
 LOW_VIOLENCE = 0x80  # root content flag: the censored copy of a file
 NO_NAME_HASH = 0x10000000  # root content flag: the block has no name hashes
 LOOSE = -1  # archive number of a file stored on its own
+PAUSE = 3   # seconds before the hosts are asked a second time for a file none of them gave
 
 
 class Encrypted(Exception):
     """A file (or part of one) under a key nobody has published: unreleased content."""
+
+
+class Gone(RuntimeError):
+    """The CDN says it does not have the file (403, 404): a build long replaced is taken off, host by host."""
 
 
 def get(url, headers=None, tries=5):
@@ -47,8 +56,10 @@ def get(url, headers=None, tries=5):
             with urllib.request.urlopen(urllib.request.Request(url, headers={**UA, **(headers or {})}),
                                         timeout=120) as r:
                 return r.read()
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            if attempt == tries - 1 or getattr(e, "code", 0) == 404:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as e:
+            if getattr(e, "code", 0) in (403, 404):
+                raise Gone("%s: %s" % (url, e))
+            if attempt == tries - 1:
                 raise RuntimeError("%s: %s" % (url, e))
             time.sleep(1 + 2 * attempt)
 
@@ -239,8 +250,29 @@ class Tact:
         self.db = sqlite3.connect(db, check_same_thread=False)
         self.archives = [r[0] for r in self.db.execute("SELECT hash FROM archives ORDER BY id")]
 
-    def url(self, kind, name, suffix=""):
-        return "http://%s/%s/%s/%s/%s/%s%s" % (self.hosts[0], self.path, kind, name[:2], name[2:4], name, suffix)
+    def url(self, kind, name, suffix="", host=None):
+        return "http://%s/%s/%s/%s/%s/%s%s" % (host or self.hosts[0], self.path, kind, name[:2], name[2:4], name, suffix)
+
+    def fetch(self, kind, name, suffix="", headers=None):
+        """A CDN file (or the part of it the headers ask for) from the first host that gives it. The hosts do not all
+        keep an old build's files, one that says "not here" may say otherwise a moment later, and one of them closes
+        the line on some parts of some archives: each is asked twice before the file counts as gone or out of reach,
+        and the host that answered is asked first from then on."""
+        last = None
+        for again in range(2):
+            for host in list(self.hosts):
+                try:
+                    data = get(self.url(kind, name, suffix, host), headers, tries=1)
+                    if host != self.hosts[0]:
+                        self.hosts = [host] + [other for other in self.hosts if other != host]
+                    return data
+                except Gone as e:
+                    last = last if isinstance(last, RuntimeError) and not isinstance(last, Gone) else e
+                except RuntimeError as e:
+                    last = e
+            if not again:
+                time.sleep(PAUSE)
+        raise last
 
     def stored(self, kind, name, suffix=""):
         """A whole CDN file, kept in the cache."""
@@ -248,7 +280,7 @@ class Tact:
         if os.path.exists(path):
             return open(path, "rb").read()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        data = get(self.url(kind, name, suffix))
+        data = self.fetch(kind, name, suffix)
         tmp = "%s.%d.part" % (path, threading.get_ident())
         with open(tmp, "wb") as f:
             f.write(data)
@@ -305,9 +337,8 @@ class Tact:
     def raw(self, ekey, archive, offset, size):
         """The stored (BLTE) bytes of one file."""
         if archive == LOOSE:
-            return get(self.url("data", ekey.hex()))
-        data = get(self.url("data", self.archives[archive]),
-                   {"Range": "bytes=%d-%d" % (offset, offset + size - 1)})
+            return self.fetch("data", ekey.hex())
+        data = self.fetch("data", self.archives[archive], headers={"Range": "bytes=%d-%d" % (offset, offset + size - 1)})
         if len(data) != size:
             raise RuntimeError("archive %s: asked for %d bytes, got %d" % (self.archives[archive], size, len(data)))
         return data
@@ -323,7 +354,10 @@ class Tact:
                                   (int(fdid),)).fetchone()
         if not row:
             raise KeyError("file %s is not in build %s" % (fdid, self.version))
-        raw = self.raw(*row[1:])
+        return self.decoded(fdid, self.raw(*row[1:]), row[0], partial)
+
+    def decoded(self, fdid, raw, ckey, partial=False):
+        """The plain bytes of a stored file, checked against its content key (see read)."""
         try:
             data = blte(raw)
         except Encrypted:
@@ -346,9 +380,206 @@ class Tact:
                     return data
             else:
                 data = blte(raw, self.keys)
-        if hashlib.md5(data).digest() != row[0]:
+        if hashlib.md5(data).digest() != ckey:
             raise RuntimeError("file %s doesn't match its content key" % fdid)
         return data
+
+
+# --- an earlier build, read sparingly -----------------------------------------------------------
+
+BUILDS = "https://wago.tools/api/builds"
+HEX = re.compile(r"[0-9a-f]{32}")
+
+
+def builds(products, url=None, fetch=None):
+    """Every build Blizzard shipped of these products, oldest first:
+    [{'build', 'version', 'config', 'cdn', 'date', 'product'}].
+
+    Blizzard's version server names the live build only. Which builds came before, and the two config files that
+    name each of them on the CDN, is kept by wago.tools; the files themselves are still Blizzard's and are read from
+    Blizzard's CDN. products: {product: version prefix} ('': every version). A build two products had (the last beta
+    builds were the first live ones) is listed once, under the product that had it first. fetch: url -> bytes."""
+    listed = json.loads((fetch or get)(url or BUILDS))
+    found = {}
+    for product, prefix in products.items():
+        for row in (listed.get(product) or []) if isinstance(listed, dict) else []:
+            version, day = str(row.get("version") or ""), str(row.get("created_at") or "")[:10]
+            names = str(row.get("build_config") or "").lower(), str(row.get("cdn_config") or "").lower()
+            # what goes into an address or a file name is taken only in the shape it must have
+            if (not re.fullmatch(r"\d+(\.\d+){3}", version) or not version.startswith(prefix) or row.get("is_bgdl")
+                    or not all(HEX.fullmatch(name) for name in names)):
+                continue
+            entry = {"build": int(version.rsplit(".", 1)[-1]), "version": version, "config": names[0], "cdn": names[1],
+                     "date": day if re.fullmatch(r"\d{4}-\d\d-\d\d", day) else "", "product": product}
+            known = found.get(entry["build"])
+            if known is None or (entry["date"] and entry["date"] < (known["date"] or "9")):
+                found[entry["build"]] = entry
+    return [found[build] for build in sorted(found)]
+
+
+def index_find(data, wanted):
+    """{encoded key: (size, offset)} for the wanted keys an archive index holds (offset 0 in a loose file index).
+    The index is sorted: the block is found by its first key, never the whole index read."""
+    _ver, _a, _b, block_kb, off_size, size_size, key_size, sum_size, _count = struct.unpack_from(
+        "<8BI", data, len(data) - 20)
+    if key_size != 16 or size_size != 4 or off_size not in (0, 4) or sum_size != 8:
+        raise ValueError("unknown archive index layout")
+    entry, block = key_size + size_size + off_size, block_kb * 1024
+    firsts = [data[b * block:b * block + 16] for b in range((len(data) - 28) // (block + key_size + sum_size))]
+    out = {}
+    for key in wanted:
+        b = bisect.bisect_right(firsts, key) - 1
+        at = data.find(key, b * block, (b + 1) * block) if b >= 0 else -1
+        while at >= 0 and (at - b * block) % entry:   # the same bytes inside another entry
+            at = data.find(key, at + 1, (b + 1) * block)
+        if at >= 0:
+            size, offset = struct.unpack_from(">II", data, at + 16) if off_size else (struct.unpack_from(">I", data, at + 16)[0], 0)
+            out[key] = (size, offset)
+    return out
+
+
+class Earlier(Tact):
+    """A build that is no longer live, named by its two config files (builds()), read for a handful of files.
+
+    The live build is indexed whole (Tact): every file of it, a few hundred MB, once. For the changelog of thirty
+    earlier builds that would be gigabytes. This reads only what the files asked for need: the encoding file's page
+    table and the few pages that hold their keys (ranged requests into it: its pages are stored plain), the root file,
+    and the archive indexes, which the builds share and which are kept in the cache between them. A file is checked
+    against its content key exactly as in Tact.
+
+    pin: {'config', 'cdn', 'version'}. prepare(file data ids) first, then read()."""
+
+    def __init__(self, cache, pin, product="wowf", log=print):
+        self.dir = os.path.join(cache, "tact")
+        self.log = log
+        os.makedirs(self.dir, exist_ok=True)
+        where = next(r for r in table(get(VERSIONS % (product, "cdns")).decode()) if r["Name"] == "us")
+        self.build, self.cdn, self.version = pin["config"], pin["cdn"], pin["version"]
+        self.path, self.hosts = where["Path"], where["Hosts"].split()
+        self.lock = threading.Lock()
+        self.keys = None
+        self.extra_keys = {}
+        self.absent = {}
+        self.where = {}   # file data id -> (content key, encoded key, archive, offset, size)
+        build, cdn = config(self.stored("config", self.build).decode()), config(self.stored("config", self.cdn).decode())
+        self.root = bytes.fromhex(build["root"][0])
+        self.archives, self.loose = cdn["archives"], cdn.get("file-index", [])
+        self.encoding = build["encoding"][1]
+        head = self.part(0, 4096)
+        size = struct.unpack_from(">I", head, 4)[0] if head[:4] == b"BLTE" else 0
+        if not size:
+            raise RuntimeError("the encoding file of build %s has no chunk table: it cannot be read in parts" % self.version)
+        if size > len(head):
+            head = self.part(0, size)
+        entry = 40 if head[8] & 0x10 else 24
+        self.chunks, at, plain_at = [], size, 0   # (where it is stored, stored size, where its plain bytes start, plain size)
+        for i in range(int.from_bytes(head[9:12], "big")):
+            stored, plain = struct.unpack_from(">II", head, 12 + i * entry)
+            self.chunks.append((at, stored, plain_at, plain))
+            at, plain_at = at + stored, plain_at + plain
+        self.whole = {}   # chunk number -> its plain bytes, for a chunk that had to be decoded whole
+        self.modes = {}
+        start = self.plain(0, 22)
+        if start[:2] != b"EN":
+            raise ValueError("not an encoding file")
+        _ver, self.ckey_size, self.ekey_size, page_kb, _epage_kb, pages, _epages, _unk, espec = struct.unpack_from(">BBBHHIIBI", start, 2)
+        if self.ckey_size != 16 or self.ekey_size != 16:
+            raise ValueError("unknown encoding file layout")
+        self.page = page_kb * 1024
+        listing = self.plain(22 + espec, pages * 32)   # each page's first content key and the MD5 of the page
+        self.firsts = [listing[p * 32:p * 32 + 16] for p in range(pages)]
+        self.sums = [listing[p * 32 + 16:p * 32 + 32] for p in range(pages)]
+        self.pages_at = 22 + espec + pages * 32
+
+    def part(self, offset, size):
+        """size stored bytes of the encoding file from offset (fewer at its end)."""
+        return self.fetch("data", self.encoding, headers={"Range": "bytes=%d-%d" % (offset, offset + size - 1)})
+
+    def plain(self, offset, size):
+        """size plain bytes of the encoding file from offset, asking the CDN for no more than they need."""
+        out = []
+        for number, (at, stored, plain_at, plain) in enumerate(self.chunks):
+            first, last = max(offset, plain_at), min(offset + size, plain_at + plain)
+            if first >= last:
+                continue
+            if number not in self.modes:
+                self.modes[number] = self.part(at, 1)[:1]
+            if self.modes[number] == b"N":   # stored as it is, after the mode byte: only the bytes asked for
+                piece = self.part(at + 1 + first - plain_at, last - first)
+            else:
+                if number not in self.whole:
+                    self.whole[number] = blte_chunk(self.part(at, stored), number, None)
+                piece = self.whole[number][first - plain_at:last - plain_at]
+            if len(piece) != last - first:
+                raise RuntimeError("encoding file of build %s: asked for %d bytes, got %d" % (self.version, last - first, len(piece)))
+            out.append(piece)
+        return b"".join(out)
+
+    def encoded(self, ckeys):
+        """{content key: encoded key} from the encoding file's pages, each page checked against its MD5."""
+        by_page = {}
+        for ckey in ckeys:
+            page = bisect.bisect_right(self.firsts, ckey) - 1
+            if page >= 0:
+                by_page.setdefault(page, []).append(ckey)
+
+        def read(page):
+            data = self.plain(self.pages_at + page * self.page, self.page)
+            if hashlib.md5(data).digest() != self.sums[page]:
+                raise RuntimeError("encoding file of build %s: page %d doesn't match its checksum" % (self.version, page))
+            return page, data
+        out = {}
+        with concurrent.futures.ThreadPoolExecutor(8) as ex:
+            for page, data in ex.map(read, sorted(by_page)):
+                wanted, o = set(by_page[page]), 0
+                while o + 22 <= len(data) and data[o]:
+                    count = data[o]
+                    if data[o + 6:o + 22] in wanted:
+                        out[data[o + 6:o + 22]] = data[o + 22:o + 38]
+                    o += 22 + count * 16
+        return out
+
+    def located(self, ekeys):
+        """{encoded key: (archive, offset, size)} from the archive indexes (kept in the cache: the builds share them)."""
+        wanted, out = set(ekeys), {}
+        with concurrent.futures.ThreadPoolExecutor(12) as ex:
+            for number, data in enumerate(ex.map(lambda h: self.stored("data", h, ".index"), self.archives)):
+                for ekey, (size, offset) in index_find(data, wanted - out.keys()).items():
+                    out[ekey] = (number, offset, size)
+        for name in self.loose:
+            for ekey, (size, _offset) in index_find(self.stored("data", name, ".index"), wanted - out.keys()).items():
+                out[ekey] = (LOOSE, 0, size)
+        return out
+
+    def prepare(self, fdids):
+        """Finds where the bytes of these files are; a file the build does not have is left out (read: KeyError)."""
+        wanted = {int(fdid) for fdid in fdids}
+        self.log("tact: build %s: root file" % self.version)
+        root = self.encoded([self.root]).get(self.root)
+        place = self.located([root]).get(root) if root else None
+        if not place:
+            raise RuntimeError("the root file of build %s is in no archive" % self.version)
+        data = blte(self.raw(root, *place))
+        if hashlib.md5(data).digest() != self.root:
+            raise RuntimeError("the root file of build %s doesn't match its content key" % self.version)
+        ckeys = {}
+        for fdid, ckey in root_entries(data):
+            if fdid in wanted:
+                ckeys.setdefault(fdid, ckey)   # the uncensored copy comes first
+        del data
+        ekeys = self.encoded(ckeys.values())
+        places = self.located(ekeys.values())
+        for fdid, ckey in ckeys.items():
+            ekey = ekeys.get(ckey)
+            if ekey in places:
+                self.where[fdid] = (ckey, ekey) + places[ekey]
+        self.log("tact: build %s: %d of %d files found" % (self.version, len(self.where), len(wanted)))
+
+    def read(self, fdid, partial=False):
+        row = self.where.get(int(fdid))
+        if not row:
+            raise KeyError("file %s is not in build %s" % (fdid, self.version))
+        return self.decoded(fdid, self.raw(*row[1:]), row[0], partial)
 
 
 def published_keys():

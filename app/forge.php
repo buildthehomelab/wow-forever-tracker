@@ -446,15 +446,15 @@ function analysis_status(): array
     return ['running' => $started && !$finished && $alive, 'started' => $started, 'failed' => $failed, 'log' => implode("\n", array_slice($lines, -14))];
 }
 /**
- * The last time Blizzard's servers were asked, by tools/tracker.py (fetch, hotfixes, check; data/client-check.json):
- * ['client' => ['at' => time, 'code' => int|null, 'message' => text], 'hotfixes' => the same], what was never asked
+ * The last time Blizzard's servers were asked, by tools/tracker.py (fetch, hotfixes, history, check; data/client-check.json):
+ * ['client' => ['at' => time, 'code' => int|null, 'message' => text], 'hotfixes' and 'history' => the same], what was never asked
  * left out. code null: the server could not be read.
  */
 function client_check_notes(?string $path = null): array
 {
     $state = json_decode((string)@file_get_contents($path ?? FT_ROOT . '/data/client-check.json'), true);
     $out = [];
-    foreach (['client', 'hotfixes'] as $kind) {
+    foreach (['client', 'hotfixes', 'history'] as $kind) {
         $note = is_array($state) ? ($state[$kind] ?? null) : null;
         if (is_array($note) && (int)($note['at'] ?? 0) > 0) $out[$kind] = ['at' => (int)$note['at'], 'code' => isset($note['code']) ? (int)$note['code'] : null, 'message' => (string)($note['message'] ?? '')];
     }

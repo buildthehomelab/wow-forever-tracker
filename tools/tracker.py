@@ -3,6 +3,7 @@
     python tools/tracker.py snapshot --dbc <folder with frFR/enUS DB2> --build 70425 [--date 2026-10-18]
     python tools/tracker.py analyse [--wowhead]
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
+    python tools/tracker.py client | fetch | hotfixes | history | check
     python tools/tracker.py world layers | pin [source ...]
     python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
     python tools/tracker.py world why <table> <key> [<key> ...]
@@ -12,6 +13,9 @@
     python tools/tracker.py world export [--out <data repository>] [--private-out <folder>] [--date YYYY-MM-DD] [--dry-run]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
+`fetch` stores the live build from Blizzard's CDN, `hotfixes` Blizzard's live hotfixes, `history` the builds that came
+before (back to the first beta, for the changelog); `check` does the three and analyses when one brought something
+(docs/CLIENT.md).
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
 files, hotfixes and world databases, map files), evaluates the availability of every resource, computes
 the in-game tooltips and the Forge fixes, and loads everything into the tracker database. It only reads
@@ -79,6 +83,7 @@ def snapshot(args):
                  'source': args.source or info.get('source') or args.dbc, 'date': args.date or info.get('date') or datetime.date.today().isoformat()})
     if args.note:
         info['note'] = args.note
+    info.pop('tables', None)   # every table is there now, also over a build stored for the changelog alone
     json.dump(info, open(meta, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
 
@@ -90,7 +95,9 @@ def client_check(args):
     new = client.check(
         client.noted('client', lambda: client.fetch(log=client.calm(log))),
         client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)),
-        log)
+        log,
+        # the builds before the newest snapshot, back to the first beta: once each (docs/CLIENT.md)
+        client.noted('history', lambda: client.history(log=client.calm(log))))
     if not (new or args.always):
         log(f"nothing new on Blizzard's servers: the analysis was not run (check done in {time.time() - started:.0f} s)")
         return
@@ -561,35 +568,7 @@ def analyse(args):
             log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
         else:
             log('warning: server build unknown: set [server] build in config.ini')
-    contents, changes, first_seen, changed_in = [], [], {}, {}
-    previous = None
-    by_hotfix = {}   # kind -> resources that exist by hotfix alone and were not called "added" (see below)
-    for b in build_list:
-        log(f"official content of build {b['build']}")
-        current = official_content.official(b['dir'])
-        b['counts'] = {kind: len(v) for kind, v in current.items() if not kind.startswith('_')}
-        for kind, entities in current.items():
-            if kind.startswith('_'):
-                continue
-            for entity_id in entities:
-                first_seen.setdefault((kind, entity_id), b['build'])
-        if previous is not None:
-            before = build_list[build_list.index(b) - 1]
-            # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
-            # never stored, it would read "added in this build", five thousand items at once, although nothing says
-            # when it appeared: it is not listed as a change, and it counts as known since the build before.
-            alone = official_content.hotfix_only(b['dir']) if not hotfixes.has_own(before['dir']) else set()
-            for kind, entity_id, change, fields in official_content.diff_builds(previous, current):
-                if change == 'added' and (kind, entity_id) in alone:
-                    first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], before['build'])
-                    by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
-                    continue
-                name = (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')
-                changes.append((b['build'], build_list[build_list.index(b) - 1]['build'], kind, entity_id, change, fields, name))
-                changed_in[(kind, entity_id)] = b['build']
-        previous = current
-        contents.append(current)
-    content = contents[-1]
+    content, changes, first_seen, changed_in, by_hotfix = official_content.changelog(build_list, log)
     latest = build_list[-1]
     log(f'{len(changes)} changes across {len(build_list)} builds')
     for b in build_list:
@@ -672,7 +651,11 @@ def main():
     old_game = sub.add_parser('classic', help="the original game's teachers of recipes nobody can learn yet (a classic-db pack) as evidence for the website's import card")
     old_game.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/classicdb_pack.py made')
     old_game.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
-    check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
+    past = sub.add_parser('history', help="store the builds that came before the newest snapshot (back to the first beta) from Blizzard's CDN, for the changelog")
+    past.add_argument('--again', action='store_true', help='also ask for the builds that were refused before (another table layout)')
+    past.add_argument('--limit', type=int, default=0, help='only the N newest of the builds that are missing')
+    past.add_argument('--keep-cache', action='store_true', help='keep the CDN lookup files in data/cdn')
+    check = sub.add_parser('check', help='fetch, hotfixes and history, then analyse when one of them brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
@@ -724,6 +707,14 @@ def main():
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
         result = client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url))()
         log('hotfixes: ' + result['message'])
+        sys.exit(result['code'])
+    elif args.command == 'history':
+        try:
+            result = client.noted('history', lambda: client.history(log=client.calm(log), again=args.again, limit=args.limit, keep_cache=args.keep_cache))()
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            log(client.calm(str)(f'earlier builds: the list of builds could not be read ({error}): nothing stored'))
+            sys.exit(2)
+        log('earlier builds: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'fetch':
         result = client.noted('client', lambda: client.fetch(force=args.force, keep_cache=args.keep_cache, log=log))()

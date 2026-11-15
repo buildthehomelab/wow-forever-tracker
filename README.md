@@ -64,7 +64,9 @@ passes or fails, in English and French, with a work list by priority, CSV export
 ### Changelog of every client build
 
 Each stored build of the client is compared with the previous one, field by field: what Blizzard added, changed or
-removed. Administrators can attach Blizzard's patch notes to a build.
+removed. Administrators can attach Blizzard's patch notes to a build. The builds that came before the tracker was
+installed are read from Blizzard's CDN, so the changelog goes back build by build to the first beta
+([docs/CLIENT.md](docs/CLIENT.md)).
 
 ![Changelog](docs/screenshots/changelog.png)
 

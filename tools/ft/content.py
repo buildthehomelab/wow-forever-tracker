@@ -4,7 +4,7 @@ import json
 import os
 
 from . import db2, hotfixes
-from .config import BUILDS, CONFIG
+from .config import BUILDS, CONFIG, SCHEMA
 
 # Tables compared build after build (the changelog).
 DIFF_TABLES = ['ItemSparse', 'Item', 'ItemEffect', 'ItemXItemEffect', 'SpellName', 'Spell', 'SpellMisc', 'SpellLevels', 'SpellEffect',
@@ -50,7 +50,9 @@ def builds():
             meta = os.path.join(BUILDS, name, 'build.json')
             info = json.load(open(meta, encoding='utf-8-sig')) if os.path.isfile(meta) else {}
             found.append({'build': int(name), 'version': info.get('version', f'1.60.1.{name}'), 'date': info.get('date'),
-                          'note': info.get('note', ''), 'source': info.get('source', ''), 'dir': os.path.join(BUILDS, name)})
+                          'note': info.get('note', ''), 'source': info.get('source', ''), 'dir': os.path.join(BUILDS, name),
+                          # an earlier build stored for the changelog holds the compared tables only (ft.client.history)
+                          'partial': info.get('tables') == 'changelog'})
     return sorted(found, key=lambda b: b['build'])
 
 
@@ -314,3 +316,175 @@ def diff_builds(previous, current):
                 fields = {key: [before.get(key), after.get(key)] for key in set(before) | set(after) if before.get(key) != after.get(key)}
                 changes.append((kind, entity_id, 'modified', fields))
     return changes
+
+
+# ---------------------------------------------------------------- a build's changelog, kept once it is worked out
+# Reading a build's tables takes the better part of a minute, and with the changelog going back to the first beta
+# there are thirty of them. Two stored builds never change, so neither does what one changed against the other: it is
+# kept in the newer build's folder and read back while both are as they were.
+KEPT = 'changelog.json'
+_mark = []
+
+
+def code_mark():
+    """What the kept changelogs depend on besides the builds: how a table is read and what is compared."""
+    if not _mark:
+        seen = hashlib.sha1()
+        here = os.path.dirname(os.path.abspath(__file__))
+        for path in [os.path.join(here, name) for name in ('content.py', 'db2.py', 'hotfixes.py')] + [SCHEMA]:
+            try:
+                with open(path, 'rb') as handle:
+                    seen.update(handle.read())
+            except OSError:
+                seen.update(path.encode())
+        _mark.append(seen.hexdigest()[:16])
+    return _mark[0]
+
+
+_hashed = {}
+
+
+def state(build):
+    """What a build's compared tables hold and which hotfixes stand over them. Two builds in the same state have the
+    same official content: Blizzard often ships a build that changes the program alone."""
+    seen = hashlib.sha1()
+    for locale in ('enUS', 'frFR'):
+        for name in DIFF_TABLES:
+            path = os.path.join(build['dir'], locale, name + '.db2')
+            try:
+                stat = os.stat(path)
+                key = (path, stat.st_size, stat.st_mtime_ns)
+                if key not in _hashed:
+                    with open(path, 'rb') as handle:
+                        _hashed[key] = hashlib.sha1(handle.read()).hexdigest()
+                seen.update(f'{locale}/{name}:{_hashed[key]};'.encode())
+            except OSError:
+                pass
+    _found, origin = hotfixes.cached(build['dir'])
+    over = os.path.join(build['dir'] if origin is None else os.path.join(os.path.dirname(os.path.normpath(build['dir'])), str(origin)), hotfixes.FILE)
+    try:
+        stat = os.stat(over)
+        seen.update(f'hotfixes:{origin}:{stat.st_size}:{stat.st_mtime_ns}'.encode())
+    except OSError:
+        pass
+    return seen.hexdigest()[:16]
+
+
+def signature(build):
+    """A build as it stands, for what was kept of it: its number, its state, and whether French is read."""
+    return f"{build['build']}:{int(CONFIG.french())}:{state(build)}"
+
+
+def kept(build, before):
+    """What digest() kept for this build against the one before it; None when there is nothing, or when a build, its
+    hotfixes or the way they are read is no longer what it was."""
+    try:
+        with open(os.path.join(build['dir'], KEPT), encoding='utf-8') as handle:
+            found = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    mark = [code_mark(), signature(build), signature(before) if before else '']
+    return found if isinstance(found, dict) and found.get('mark') == mark else None
+
+
+def digest(build, current, before=None, previous=None):
+    """What the analysis needs of a build besides the newest one's content: how many resources of each kind, what
+    changed against the build before ([kind, id, change, fields, name], every change: also the resources that exist by
+    hotfix alone, named in 'alone'), and for the first build the ids of everything it has. current, previous: the
+    official() of the build and of the one before. Kept in the build's folder (kept)."""
+    out = {'counts': {kind: len(entities) for kind, entities in current.items() if not kind.startswith('_')}}
+    if before is None:
+        out['ids'] = {kind: sorted(entities) for kind, entities in current.items() if not kind.startswith('_')}
+    else:
+        alone = hotfix_only(build['dir'])
+        out['changes'] = [[kind, entity_id, change, fields, (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')]
+                          for kind, entity_id, change, fields in diff_builds(previous, current)]
+        out['alone'] = sorted([kind, entity_id] for kind, entity_id, change, _fields, _name in out['changes'] if change == 'added' and (kind, entity_id) in alone)
+    return keep(build, before, out)
+
+
+def keep(build, before, out):
+    """Writes what was worked out of a build into its folder, and returns it as it will be read back."""
+    out = {'mark': [code_mark(), signature(build), signature(before) if before else ''], **out}
+    try:
+        path = os.path.join(build['dir'], KEPT)
+        with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
+            json.dump(out, handle, ensure_ascii=False, default=str)
+        os.replace(f'{path}.{os.getpid()}.tmp', path)
+        with open(path, encoding='utf-8') as handle:
+            return json.load(handle)   # the same shapes whether it was kept or just made
+    except OSError:
+        return json.loads(json.dumps(out, ensure_ascii=False, default=str))   # a folder that cannot be written: worked out again next time
+
+
+def forget(folder):
+    """Drops the rows read from a build's tables: thirty builds do not fit in memory at once."""
+    for key in [key for key in _cache if key[0] == folder]:
+        del _cache[key]
+
+
+def changelog(build_list, log=lambda text: None, read=None, own=None):
+    """Every build against the one before it, oldest first.
+
+    Returns (the newest build's official content, changes, first_seen, changed_in, by_hotfix): changes as
+    (build, build before, kind, id, change, fields, name); first_seen and changed_in {(kind, id): build}; by_hotfix
+    {kind: count} of the resources that exist by hotfix alone and were not called "added". Each build of the list
+    gets its 'counts'. read: a build's folder -> its official(); own: a folder -> its snapshot has the hotfixes of its
+    own build (both for tests)."""
+    read, own = read or official, own or hotfixes.has_own
+    changes, first_seen, changed_in, by_hotfix = [], {}, {}, {}
+    loaded = {}      # build -> its official content: the newest build's, and the two being compared
+
+    twin = {}        # build -> the earliest build before it in the same state: its content is that one's
+
+    def load(b):
+        b = twin.get(b['build'], b)
+        if b['build'] not in loaded:
+            log(f"official content of build {b['build']}")
+            loaded[b['build']] = read(b['dir'])
+        return loaded[b['build']]
+    quiet = None     # the first of the builds in a row, up to the one before, whose hotfixes were never stored
+    read_back = same = 0
+    for index, b in enumerate(build_list):
+        before = build_list[index - 1] if index else None
+        # what a build changed against the one before never changes once both are stored: it is kept
+        found = kept(b, before)
+        read_back += found is not None
+        if before is not None and state(b) == state(before):
+            # a build that changed the program alone: the same tables, byte for byte, under the same hotfixes
+            if b is not build_list[-1]:   # the newest build is always read from its own folder: the analysis works on it
+                twin[b['build']] = twin.get(before['build'], before)
+            if found is None:
+                found = keep(b, before, {'counts': before['counts'], 'changes': [], 'alone': []})
+                same += 1
+        if found is None:
+            found = digest(b, load(b), before, load(before) if before else None)
+        b['counts'] = found['counts']
+        for kind, ids in (found.get('ids') or {}).items():
+            for entity_id in ids:
+                first_seen.setdefault((kind, entity_id), b['build'])
+        if before is not None:
+            # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
+            # never stored, it would read "added in this build", five thousand items at once, although nothing says
+            # when it appeared: it is not listed as a change, and it counts as known since the first of the builds in
+            # a row without their hotfixes (with the beta's builds stored: since the first of them).
+            quiet = (quiet or before['build']) if not own(before['dir']) else None
+            alone = {(kind, entity_id) for kind, entity_id in found.get('alone') or []} if quiet else set()
+            for kind, entity_id, change, fields, name in found.get('changes') or []:
+                if change == 'added':
+                    first_seen.setdefault((kind, entity_id), b['build'])
+                    if (kind, entity_id) in alone:
+                        first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], quiet)
+                        by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
+                        continue
+                changes.append((b['build'], before['build'], kind, entity_id, change, fields, name))
+                changed_in[(kind, entity_id)] = b['build']
+        for build in [build for build in loaded if build != twin.get(b['build'], b)['build']]:
+            forget(next(x['dir'] for x in build_list if x['build'] == build))
+            del loaded[build]
+    content = load(build_list[-1])
+    if read_back:
+        log(f'{read_back} of {len(build_list)} builds: changelog read back as kept (the builds have not changed)')
+    if same:
+        log(f'{same} build(s) have the tables of the build before, byte for byte: no data change, not read')
+    return content, changes, first_seen, changed_in, by_hotfix
