@@ -21,7 +21,8 @@ step's changelog page links to it. Only administrators see the page and the file
 
 An SQL file (`data/checkout/hotfixes-<step>.sql` by default) and its manifest beside it (`.json`). Nothing is
 written to a database: you load the file into the hotfixes database of a **test realm**, then restart its
-worldserver.
+worldserver. The rows are written for your server's build: `[server] build` (or `build_file`) in config.ini, else
+the client build the realms accept (`auth.realmlist`), as the analysis takes it.
 
 For each table the tracker reads (tools/schema/db2-files.json):
 

@@ -147,5 +147,37 @@ class Steps(unittest.TestCase):
         self.assertEqual(checkout.fit('x', 0, False), 'x')
 
 
+class ServerBuild(unittest.TestCase):
+    """The build a checkout writes its rows for: config.ini first, else the realms' client build (as the analysis)."""
+
+    def setUp(self):
+        import tracker
+        self.tracker = tracker
+        self.saved = (tracker.CONFIG.server_build, tracker.sqlio.column, tracker.log)
+        tracker.log = lambda *a, **k: None
+
+    def tearDown(self):
+        self.tracker.CONFIG.server_build, self.tracker.sqlio.column, self.tracker.log = self.saved
+
+    def test_config_first(self):
+        self.tracker.CONFIG.server_build = lambda: 70938
+        self.tracker.sqlio.column = lambda *a: self.fail('the realm list is not asked when config.ini says it')
+        self.assertEqual(self.tracker.known_server_build(), 70938)
+
+    def test_realm_list_when_config_is_silent(self):
+        self.tracker.CONFIG.server_build = lambda: 0
+        self.tracker.sqlio.column = lambda sql, db: [70938] if 'realmlist' in sql and db == 'auth' else []
+        self.assertEqual(self.tracker.known_server_build(), 70938)
+
+    def test_unknown(self):
+        self.tracker.CONFIG.server_build = lambda: 0
+        def down(*a):
+            raise RuntimeError('no auth database')
+        self.tracker.sqlio.column = down
+        self.assertEqual(self.tracker.known_server_build(), 0)
+        self.tracker.sqlio.column = lambda *a: [None]
+        self.assertEqual(self.tracker.known_server_build(), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
