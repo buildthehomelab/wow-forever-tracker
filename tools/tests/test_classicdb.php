@@ -96,6 +96,20 @@ check($r2['creature_template_gossip'] === [['CreatureID' => 14338, 'MenuID' => 1
 check(!in_array('creature_template.AIName', array_map(fn($op) => $op['table'] . '.' . $op['set'], $o2), true), 'no AI change where SmartAI already runs');
 [, $o3, $l3] = classicdb_talk_rows([$gloom], ['npc:9037' => ['known' => true, 'spawned' => true, 'script' => 'boss_gloomrel', 'ai' => '']], 70938);
 check($o3 === [] && $l3 === ['classic_talk_known' => 1], "Gloom'rel with his script already: nothing to write");
+// Gloom'rel on Everlake runs SmartAI (his challenge) and no script: he gets the SmartAI line in his conversation
+[$r4, $o4, $l4] = classicdb_talk_rows([$gloom], ['npc:9037' => ['known' => true, 'spawned' => true, 'script' => '', 'ai' => 'SmartAI', 'menus' => [1945],
+    'options' => [1945 => [0 => 'Tell me more', 1 => 'Challenge me']], 'smart' => 6]], 70938);
+check(array_map(fn($r) => [$r['MenuID'], $r['OptionID']], $r4['gossip_menu_option']) === [[1945, 2]] && $r4['smart_scripts'][0]['id'] === 7
+    && $r4['smart_scripts'][0]['action_param1'] === 14894 && $l4 === [], "Gloom'rel running SmartAI gets the SmartAI line after his own, not the core's script");
+check(!in_array('creature_template.ScriptName', array_map(fn($op) => $op['table'] . '.' . $op['set'], $o4), true) && !in_array('creature_template.AIName', array_map(fn($op) => $op['table'] . '.' . $op['set'], $o4), true),
+    "his script and AI are left as they are");
+// the core's own Classic scripts: counted apart, whether they teach or need the core fixed
+foreach (['classic_mob_craftsman_omarion' => 'classic_talk_core_teaches', 'classic_npc_knot_thimblejack' => 'classic_talk_core_broken', 'npc_engineering_tele_trinket' => 'classic_talk_core_broken'] as $name => $why) {
+    [, , $l5] = classicdb_talk_rows([$knot], ['npc:14338' => ['known' => true, 'spawned' => true, 'script' => $name, 'ai' => '']], 70938);
+    check($l5 === [$why => 1], "a line of a creature run by $name: $why");
+}
+[, , $l6] = classicdb_talk_rows([$journal], ['go:180794' => ['known' => true, 'spawned' => true, 'type' => 2, 'script' => 'classic_go_field_repair_bot_74A', 'ai' => '']], 70938);
+check($l6 === ['classic_talk_core_teaches' => 1], 'an object run by a teaching core script too');
 
 check(isset(SOURCES['classicdb'], SOURCE_MARKS['classicdb']) && source_named('Classic database 2026-11-14') === 'classicdb', 'the source is known by its name in a row\'s comment');
 $trust = source_trust('');

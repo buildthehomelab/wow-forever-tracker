@@ -650,8 +650,13 @@ const CLASSICDB_MENU_BASE = ['npc' => 1000000, 'go' => 2000000];
 /** The column holding an object's conversation menu, by its type (GameObjectTemplate::GetGossipMenuId of the core). */
 const CLASSICDB_GO_MENU = [2 => 'Data3', 8 => 'Data10', 10 => 'Data19', 64 => 'Data2'];
 /** The core's own scripts that teach a spell in their conversation (tools/ft/server.py CORE_TEACHERS): a creature
- *  without a script gets the script's name instead of SmartAI, which would only repeat part of what the script does. */
+ *  with neither a script nor an AI gets the script's name instead of SmartAI, which would only repeat part of what the
+ *  script does. One that already runs SmartAI (Gloom'rel on Everlake: his challenge) gets the SmartAI line instead. */
 const CLASSICDB_CORE_TEACHERS = [14894 => 'boss_gloomrel'];
+/** The core's scripts a teacher may run, and whether each teaches on WoW: Forever (tools/ft/server.py CORE_TEACHERS):
+ *  a line of a creature or object they run is counted apart, not as some other script. */
+const CLASSICDB_CORE_SCRIPTS = ['boss_gloomrel' => true, 'classic_mob_craftsman_omarion' => true, 'classic_go_field_repair_bot_74A' => true,
+    'classic_npc_knot_thimblejack' => false, 'npc_engineering_tele_trinket' => false];
 const CLASSICDB_AI = ['npc' => 'SmartAI', 'go' => 'SmartGameObjectAI'];
 
 /** Classic's terms as rows of `conditions` for a menu option (source type 15). Returns null for a term it cannot write. */
@@ -696,14 +701,20 @@ function classicdb_talk_rows(array $talk, array $state, int $build, array $names
         $script = (string)($s['script'] ?? ''); $ai = (string)($s['ai'] ?? '');
         // one of the core's own scripts: name it on a creature that has none
         $scripted = array_values(array_filter($lines, fn($l) => $kind === 'npc' && isset(CLASSICDB_CORE_TEACHERS[$l[4]])));
-        if ($scripted) {
+        if ($scripted && !($script === '' && $ai === CLASSICDB_AI[$kind])) {
             $name = CLASSICDB_CORE_TEACHERS[$scripted[0][4]];
             if ($script === '' && $ai === '') $changes['creature_template.ScriptName'][] = [$entry, $name];
             else foreach ($scripted as $_) $count($script === $name ? 'classic_talk_known' : 'classic_talk_other_script');
             $lines = array_values(array_filter($lines, fn($l) => !isset(CLASSICDB_CORE_TEACHERS[$l[4]])));
             if (!$lines) continue;
         }
-        if ($script !== '') { foreach ($lines as $_) $count('classic_talk_other_script'); continue; }   // a script's own AI: SmartAI would not run
+        // a script's own AI: SmartAI would not run. One of the core's teaching scripts is counted apart: it teaches, or
+        // it would once the core is fixed
+        if ($script !== '') {
+            $why = !isset(CLASSICDB_CORE_SCRIPTS[$script]) ? 'classic_talk_other_script' : (CLASSICDB_CORE_SCRIPTS[$script] ? 'classic_talk_core_teaches' : 'classic_talk_core_broken');
+            foreach ($lines as $_) $count($why);
+            continue;
+        }
         if ($ai !== '' && $ai !== CLASSICDB_AI[$kind]) { foreach ($lines as $_) $count('classic_talk_other_ai'); continue; }
         if ($kind === 'go' && !isset(CLASSICDB_GO_MENU[(int)($s['type'] ?? -1)])) { foreach ($lines as $_) $count('classic_talk_object_type'); continue; }
         // the menu the lines go into

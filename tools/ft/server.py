@@ -58,17 +58,27 @@ GO_MENU_COLUMN = {2: 'Data3', 8: 'Data10', 10: 'Data19', 64: 'Data2'}
 # SmartAI: the event of a conversation choice (menu, option) and the actions that cast a spell
 SMART_GOSSIP_SELECT = 62
 SMART_CASTS = (11, 85, 86, 134)   # CAST, SELF_CAST, CROSS_CAST, INVOKER_CAST: the spell is action_param1
-# Conversations the core's own C++ scripts hold, by script name: the spells they cast on the player. Only scripts read
-# and found to work on WoW: Forever. npc_engineering_tele_trinket (Zap Farflinger, Jhordy Lapforge: the engineering
-# transporters) is left out: it checks skill line 2506, which the Forever client does not have, so it teaches nobody.
-CORE_TEACHERS = {'boss_gloomrel': {14894}}   # Gloom'rel, Blackrock Depths: Learn Smelt Dark Iron
+# The core's own C++ scripts that teach a spell in a conversation (a creature) or on use (an object), by script name:
+# (kind, the spells they cast on the player). Only scripts read in the realm's core and found to work on WoW: Forever.
+# Left out until the core fork's fix is live on the realm:
+#   classic_npc_knot_thimblejack  (Knot Thimblejack, Dire Maul: Gordok Ogre Suit) asks for quest 5518 rewarded and
+#                                 "complete" at once, which a rewarded quest never is, so the line never shows;
+#   npc_engineering_tele_trinket  (Zap Farflinger, Jhordy Lapforge: the engineering transporters) checks skill line
+#                                 2506, which the Forever client does not have.
+CORE_TEACHERS = {
+    'boss_gloomrel': ('npc', {14894}),   # Gloom'rel, Blackrock Depths: Learn Smelt Dark Iron
+    # Master Craftsman Omarion, Naxxramas: the learn spells of his 13 recipes (Argent Dawn Revered or Exalted, skill 300)
+    'classic_mob_craftsman_omarion': ('npc', {28212, 28215, 28213, 28214, 28229, 28230, 28228, 28232, 28233, 28231, 28248, 28249, 28245}),
+    # Schematic: Field Repair Bot 74A, Blackrock Depths: used at Engineering 300, Learn Field Repair Bot 74A
+    'classic_go_field_repair_bot_74A': ('go', {22864}),
+}
 
 
 def conversation_casts(creature_menus, object_menus, options, smart, scripts):
     """[(kind, entry, spell)]: the spells a conversation with a creature ('npc') or an object ('go') casts on the player.
     creature_menus / object_menus: [(entry, menu)] the menus a template opens with; options: [(menu, option, next menu)];
-    smart: [(kind, entry, menu, option, spell)] SmartAI choices of templates that run SmartAI; scripts: [(entry,
-    script name)] of creatures. A choice counts when its menu is one the template's conversation reaches and the
+    smart: [(kind, entry, menu, option, spell)] SmartAI choices of templates that run SmartAI; scripts: [(kind, entry,
+    script name)] of creatures and objects (CORE_TEACHERS of that kind teach whatever their menus). A choice counts when its menu is one the template's conversation reaches and the
     option is in that menu."""
     leads, exists = {}, set()
     for menu, option, following in options:
@@ -95,8 +105,10 @@ def conversation_casts(creature_menus, object_menus, options, smart, scripts):
     for kind, entry, menu, option, spell in smart:
         if spell and menu in reach.get((kind, entry), ()) and (menu, option) in exists:
             found.add((kind, entry, spell))
-    for entry, name in scripts:
-        found.update(('npc', entry, spell) for spell in CORE_TEACHERS.get(name, ()))
+    for kind, entry, name in scripts:
+        teaches = CORE_TEACHERS.get(name)
+        if teaches and teaches[0] == kind:
+            found.update((kind, entry, spell) for spell in teaches[1])
     return sorted(found)
 
 
@@ -134,7 +146,8 @@ def read_conversations(q, has_table):
             if (kind, entry) in smart_ai:
                 smart.append((kind, entry, whole(r['event_param1']), whole(r['event_param2']), whole(r['action_param1'])))
     names = ','.join(sqlio.escape(name) for name in CORE_TEACHERS)
-    scripts = [(whole(r['entry']), r['ScriptName']) for r in q(f'SELECT entry, ScriptName FROM creature_template WHERE ScriptName IN ({names})')]
+    scripts = [('npc', whole(r['entry']), r['ScriptName']) for r in q(f'SELECT entry, ScriptName FROM creature_template WHERE ScriptName IN ({names})')]
+    scripts += [('go', whole(r['entry']), r['ScriptName']) for r in q(f'SELECT entry, ScriptName FROM gameobject_template WHERE ScriptName IN ({names})')]
     return conversation_casts(creature_menus, object_menus, options, smart, scripts)
 
 

@@ -56,8 +56,12 @@ as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tr
   SmartAI that makes the player cast the learn spell when the line is picked and closes the conversation. The
   creature or object is switched to SmartAI where it ran nothing, and a creature gets the gossip flag. A creature run
   by a core script, one whose conversation other creatures or objects open too, one that opens several
-  conversations, or a line with a condition the server has no word for is left out and counted. Where the core has
-  its own script for that teacher (Gloom'rel's Smelt Dark Iron), the card names the script instead of writing SmartAI.
+  conversations, or a line with a condition the server has no word for is left out and counted. A creature or object
+  run by one of the core's own teaching scripts is counted apart: Omarion's and the Field Repair Bot schematic's
+  already teach (the analysis counts them as teachers too), Knot Thimblejack's and the engineering transporters' teach
+  nobody until the core fork's fix is live. Where the core has a script for a teacher that runs nothing (Gloom'rel's
+  `boss_gloomrel`), the card names the script instead of writing SmartAI; a Gloom'rel who already runs SmartAI (his
+  challenge, as on Everlake) gets the SmartAI line.
   The pack (`format` 2) carries these lines; a pack of the first format only counts them.
 
 ## ForeverChanges: names and places, from a file
