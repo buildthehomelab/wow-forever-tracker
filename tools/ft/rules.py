@@ -129,19 +129,22 @@ def evaluate_all(content, ctx):
     chain = {}
     for source, target in list(ctx['learn_chain']) + list(ctx.get('spell_teaches', ())):
         chain.setdefault(source, set()).add(target)
-    # taught in a conversation: a spawned NPC or object whose conversation casts the spell, or a spell that teaches it
-    # (ft.server.read_conversations: SmartAI on a menu choice, or one of the core's own scripts)
-    talked = {}
+    # taught in a conversation: a spawned NPC or object whose conversation casts a spell that teaches it (a learn
+    # effect, rank after rank). ft.server.read_conversations: SmartAI on a menu choice and the rows and timed lists it
+    # runs, or one of the core's own scripts. The spell cast is not learned itself: a conversation also casts buffs,
+    # teleports and the like on the player.
+    cast = {}
     for kind, entry, spell in ctx.get('conversation_casts', ()):
         if entry in (npc_placed if kind == 'npc' else go_placed):
-            talked.setdefault(spell, set()).add((kind, entry))
-    todo = list(talked)
+            cast.setdefault(spell, set()).add((kind, entry))
+    talked = {}
+    todo = [(spell, who) for spell, who in cast.items()]
     while todo:
-        spell = todo.pop()
+        spell, who = todo.pop()
         for target in chain.get(spell, set()):
-            if not talked.get(target, set()) >= talked[spell]:
-                talked.setdefault(target, set()).update(talked[spell])
-                todo.append(target)
+            if not talked.get(target, set()) >= who:
+                talked.setdefault(target, set()).update(who)
+                todo.append((target, talked[target]))
 
     available_quests = set()
     previous_state = None
