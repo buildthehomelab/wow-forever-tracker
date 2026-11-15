@@ -20,14 +20,25 @@ $behind = $client && $serverBuild && $serverBuild < (int)$client['build'];
 $addedSince = $behind ? (int)value('SELECT COUNT(*) FROM ft_entities WHERE internal = 0 AND first_build > ?', [$serverBuild]) : 0;
 $unknownToCore = $behind ? (int)value("SELECT COUNT(*) FROM ft_entities WHERE internal = 0 AND first_build > ? AND JSON_CONTAINS(checks, JSON_OBJECT('code', 'core', 'ok', false))", [$serverBuild]) : 0;
 $changeCounts = [];
-foreach (rows('SELECT build, kind, COUNT(*) n FROM ft_changes GROUP BY build, kind') as $r) $changeCounts[$r['build']][$r['kind']] = (int)$r['n'];
+// keyed "build:hotfix": a build's own changes (0) and each of its hotfix updates (1, 2, ...)
+// (before the analysis has written the hotfix column, every change is a build's own: a bare 0 in GROUP BY would be a column number)
+foreach (rows(hotfix_entries() ? 'SELECT build, hotfix, kind, COUNT(*) n FROM ft_changes GROUP BY build, hotfix, kind' : 'SELECT build, 0 hotfix, kind, COUNT(*) n FROM ft_changes GROUP BY build, kind') as $r) $changeCounts[$r['build'] . ':' . $r['hotfix']][$r['kind']] = (int)$r['n'];
+// the timeline: every build and, above it, the hotfix updates that came after it
+$timeline = [];
+foreach ($builds as $index => $b) {
+    foreach (hotfix_updates() as $u) if ((int)$u['build'] === (int)$b['build']) $timeline[] = $u + ['index' => $index];
+    $timeline[] = $b + ['hotfix' => 0, 'index' => $index];
+}
 $priorities = rows("SELECT type, id, name, sub, icon, quality, status, score, is_new, checks FROM ft_entities
     WHERE internal = 0 AND status <> 'ok' AND " . released_sql() . " AND type IN ('dungeon','boss','zone') ORDER BY FIELD(type,'dungeon','zone','boss'), is_new DESC, score ASC LIMIT 8");
-$latestBuild = (int)value('SELECT MAX(build) FROM ft_changes');
+// the newest entry with changes: a build, or a hotfix update after it
+$newest = row(hotfix_entries() ? 'SELECT build, hotfix FROM ft_changes ORDER BY build DESC, hotfix DESC LIMIT 1' : 'SELECT build, 0 hotfix FROM ft_changes ORDER BY build DESC LIMIT 1') ?? ['build' => 0, 'hotfix' => 0];
+$latestBuild = (int)$newest['build']; $latestHotfix = (int)$newest['hotfix'];
 $latestVersion = '';
 foreach ($builds as $b) if ((int)$b['build'] === $latestBuild) $latestVersion = $b['version'];
+foreach (hotfix_updates() as $u) if ((int)$u['build'] === $latestBuild && (int)$u['hotfix'] === $latestHotfix) $latestVersion .= ' · ' . hotfix_name($u);
 $latest = rows("SELECT c.type, c.id, c.kind, c.name, e.name_en, e.icon, e.quality, e.status, e.score FROM ft_changes c LEFT JOIN ft_entities e ON e.type = c.type AND e.id = c.id
-    WHERE c.build = ? AND (e.internal = 0 OR e.internal IS NULL)" . changes_shown('c.') . " ORDER BY FIELD(c.kind,'added','modified','removed'), FIELD(c.type,'dungeon','zone','quest','mount','pet','toy','item','spell','talent','achievement') LIMIT 8", [$latestBuild]);
+    WHERE c.build = ?" . hotfix_is($latestHotfix, 'c.') . " AND (e.internal = 0 OR e.internal IS NULL)" . changes_shown('c.') . " ORDER BY FIELD(c.kind,'added','modified','removed'), FIELD(c.type,'dungeon','zone','quest','mount','pet','toy','item','spell','talent','achievement') LIMIT 8", [$latestBuild]);
 $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE e.internal = 0') : 0;
 ?>
 <section class="hero">
@@ -108,7 +119,7 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
     </ul>
   </section>
   <section class="block">
-    <header class="block-head"><div><span class="eyebrow"><?= e(t('Build', 'Build')) ?> <?= e($latestVersion) ?></span><h2><?= e(t('Latest changes', 'Derniers changements')) ?></h2></div><a class="link" href="<?= e(url('changes', ['build' => $latestBuild])) ?>"><?= e(t('Changelog', 'Changelog')) ?> →</a></header>
+    <header class="block-head"><div><span class="eyebrow"><?= e(t('Build', 'Build')) ?> <?= e($latestVersion) ?></span><h2><?= e(t('Latest changes', 'Derniers changements')) ?></h2></div><a class="link" href="<?= e(url('changes', array_filter(['build' => $latestBuild, 'hotfix' => $latestHotfix]))) ?>"><?= e(t('Changelog', 'Changelog')) ?> →</a></header>
     <?php if (!$latest): ?><p class="muted"><?= e(t('No change between the two latest builds.', 'Aucun changement entre les deux derniers builds.')) ?></p><?php endif; ?>
     <ul class="list">
     <?php foreach ($latest as $r): ?>
@@ -121,7 +132,19 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
 <section class="block">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Timeline', 'Chronologie')) ?></span><h2><?= e(t('Tracked builds', 'Builds suivis')) ?></h2></div></header>
   <ol class="timeline">
-  <?php foreach ($builds as $index => $b): $c = $changeCounts[$b['build']] ?? []; ?>
+  <?php foreach ($timeline as $b): $index = $b['index']; $fix = (int)$b['hotfix']; $c = $changeCounts[$b['build'] . ':' . $fix] ?? []; ?>
+    <?php if ($fix): ?>
+    <li class="is-hotfix">
+      <a href="<?= e(url('changes', ['build' => (int)$b['build'], 'hotfix' => $fix])) ?>">
+        <span class="tl-dot"></span>
+        <strong><?= e(hotfix_name($b)) ?></strong>
+        <small><?= e(sprintf(t('After build %s', 'Après le build %s'), $b['version'])) ?></small>
+        <span class="tl-tags"><em class="tag is-hotfix"><?= e(t('Hotfix', 'Correctif')) ?></em></span>
+        <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
+        <?php else: ?><span class="tl-counts"><em><?= e(t('Nothing the tracker compares', 'Rien de ce que le tracker compare')) ?></em></span><?php endif; ?>
+      </a>
+    </li>
+    <?php continue; endif; ?>
     <li class="<?= (int)$b['is_server'] ? 'is-server' : '' ?> <?= $index === 0 ? 'is-latest' : '' ?>">
       <a href="<?= e(url('changes', ['build' => (int)$b['build']])) ?>">
         <span class="tl-dot"></span>
@@ -129,6 +152,8 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
         <small><?= $b['released'] ? e(date(t('M j, Y', 'd/m/Y'), strtotime($b['released']))) : e(t('date unknown', 'date inconnue')) ?></small>
         <span class="tl-tags"><?php if ($index === 0): ?><em class="tag is-gold"><?= e(t('Latest', 'Dernier')) ?></em><?php endif; ?><?php if ((int)$b['is_server']): ?><em class="tag"><?= e(t('Your server', 'Votre serveur')) ?></em><?php endif; ?><?php if (build_is_beta($b)): ?><em class="tag"><?= e(t('Beta', 'Bêta')) ?></em><?php endif; ?><?php if (build_is_vanilla($b)): ?><em class="tag"><?= e(t('Vanilla 1.12', 'Vanilla 1.12')) ?></em><?php endif; ?></span>
         <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
+        <?php elseif (build_is_vanilla($b)): $held = array_sum(array_map('intval', (array)(json_decode((string)$b['counts'], true) ?: []))); ?>
+        <span class="tl-counts"><?php if ($held): ?><b class="is-added">+<?= number($held) ?></b><?php endif; ?><em><?= e(t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog')) ?></em></span>
         <?php else: ?><span class="tl-counts"><em><?= e(build_is_vanilla($b) ? t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog') : ($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : t('No data change', 'Aucune donnée modifiée'))) ?></em></span><?php endif; ?>
       </a>
     </li>

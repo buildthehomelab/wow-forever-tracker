@@ -1,7 +1,11 @@
 <?php
 // One resource: in-game tooltip, every server check with its fix, Forge fixes, history across builds.
 $r = row('SELECT * FROM ft_entities WHERE type = ? AND id = ?', [$type, $id]);
-$history = rows('SELECT c.*, b.version FROM ft_changes c LEFT JOIN ft_builds b ON b.build = c.build WHERE c.type = ? AND c.id = ? ORDER BY c.build DESC', [$type, $id]);
+$history = hotfix_entries()
+    ? rows('SELECT c.*, b.version, b.released FROM ft_changes c LEFT JOIN ft_builds b ON b.build = c.build AND b.hotfix = 0 WHERE c.type = ? AND c.id = ? ORDER BY c.build DESC, c.hotfix DESC', [$type, $id])
+    : rows('SELECT c.*, b.version FROM ft_changes c LEFT JOIN ft_builds b ON b.build = c.build WHERE c.type = ? AND c.id = ? ORDER BY c.build DESC', [$type, $id]);
+$updatesOf = [];   // "build:hotfix" => the hotfix update, for its date
+foreach (hotfix_updates() as $u) $updatesOf[$u['build'] . ':' . $u['hotfix']] = $u;
 if (!$r) {
     http_response_code(404);
     page_start(t('Not found', 'Introuvable'), $type);
@@ -157,7 +161,9 @@ page_start($name, $type);
       <?php if (!$history): ?><p class="muted"><?= e(t('Unchanged in every tracked build.', 'Inchangé dans tous les builds suivis.')) ?></p><?php endif; ?>
       <?php foreach ($history as $h): $fields = json_decode($h['fields'], true) ?: []; ?>
         <article class="history">
-          <header><span class="kind is-<?= e($h['kind']) ?>"><?= e(change_label($h['kind'], (int)$h['build'])) ?></span> <strong><?= e($h['version'] ?: $h['build']) ?></strong> <small><?= e(t('compared with', 'comparé à')) ?> <?= e(build_name((int)$h['prev_build'])) ?></small></header>
+          <header><span class="kind is-<?= e($h['kind']) ?>"><?= e(change_label($h['kind'], empty($h['hotfix']) ? (int)$h['build'] : 0)) ?></span> <?php $u = !empty($h['hotfix']) ? ($updatesOf[$h['build'] . ':' . $h['hotfix']] ?? null) : null; ?>
+          <?php if ($u): ?><strong><?= e(hotfix_name($u)) ?></strong> <small><?= e(sprintf(t('to build %s, compared with its hotfixes before', 'du build %s, comparé à ses correctifs d’avant'), $h['version'] ?: $h['build'])) ?></small></header>
+          <?php else: ?><strong><?= e($h['version'] ?: $h['build']) ?></strong> <small><?= e(t('compared with', 'comparé à')) ?> <?= e(build_name((int)$h['prev_build'])) ?></small></header><?php endif; ?>
           <?php if ($fields): ?><div class="diff"><?php foreach ($fields as $field => [$before, $after]): ?><div class="diff-row"><span><?= e($fieldLabels[$field] ?? $field) ?></span><del><?= e($fmt($before)) ?></del><ins><?= e($fmt($after)) ?></ins></div><?php endforeach; ?></div><?php endif; ?>
         </article>
       <?php endforeach; ?>

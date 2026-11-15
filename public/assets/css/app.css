@@ -280,6 +280,9 @@ kbd { font: 500 11px/1 var(--font); padding: 3px 5px; border-radius: 4px; border
 .tl-dot { position: absolute; left: 14px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .is-latest .tl-dot { background: var(--accent); }
 .is-server .tl-dot { background: var(--info); }
+.is-hotfix .tl-dot { background: var(--partial, #d9a441); border-radius: 2px; }
+.timeline .is-hotfix a { border-style: dashed; }
+.tag.is-hotfix { color: var(--partial, #d9a441); border-color: color-mix(in srgb, var(--partial, #d9a441) 40%, transparent); }
 .timeline strong { font-size: 14px; font-weight: 600; }
 .timeline small { color: var(--muted); }
 .tl-tags { display: flex; gap: 6px; flex-wrap: wrap; }

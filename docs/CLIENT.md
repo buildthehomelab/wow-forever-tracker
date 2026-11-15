@@ -182,11 +182,33 @@ a day and come back. Once the new build's own cache arrives it says everything, 
 
 A cache is never used for another build than the one in its header, and never for an older build.
 
+### Every day's hotfixes, kept
+
+The mirror keeps only the newest cache, and so did the tracker: what one day's hotfixes changed was gone the next day.
+Now every cache that differs from the one before is also kept, compressed (about 1 MB each), in
+`data/builds/<build>/hotfixes/`, listed oldest first in `index.json`; a cache stored before this is taken in as the
+first one. The newest is still `hotfixes.bin`, and it is what the analysis reads.
+
+The changelog gets a step for each kept cache:
+
+- the build is compared with the build before as it stood with its **first** kept cache;
+- each later cache is an entry of its own, dated the day it was downloaded: what it added, changed or removed against
+  the cache before (`/changes?build=70938&hotfix=1`, a dashed card on the home page's timeline). A resource a later
+  cache adds is listed as added that day, also when it exists by hotfix alone;
+- a cache that changed nothing the tracker compares gets no entry (the double check still follows it);
+- the game's first build after the original game has no such steps: the original game is compared with it as its
+  newest hotfixes give it (docs/VANILLA.md). With only the original game and the live build stored, the hotfix
+  entries therefore appear once a later build is stored; the caches are kept all the same.
+
+Each step is worked out once and kept next to its cache (`<cache>.changelog.json`). The double check replays the
+hotfix steps with the builds, so the original game plus every build and every day's hotfixes must give today's game.
+Hotfixes from before the tracker kept them cannot be had again: the history starts the first day a cache is kept.
+
 ## What it does not do yet
 
-- **Hotfixes in the changelog.** A hotfix changes the newest build's content in place: the changelog compares builds,
-  so it shows a hotfix only as part of the difference between two builds. A resource that exists by hotfix alone is in
-  no build's tables, so nothing says when it appeared: compared with a build whose hotfixes were never stored it is not
-  listed as added (the changelog says how many there are), and it counts as known since that build.
+- **Hotfixes before the history.** The hotfixes of a build from before its first kept cache are part of the
+  difference between two builds. A resource that exists by hotfix alone is in no build's tables, so nothing says when
+  it appeared: compared with a build whose hotfixes were never stored it is not listed as added (the changelog says how
+  many there are), and it counts as known since that build.
 - **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
   copy.

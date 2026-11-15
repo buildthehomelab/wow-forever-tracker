@@ -260,3 +260,86 @@ class Changelog(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HotfixSteps(unittest.TestCase):
+    """A build with several hotfix caches kept: compared with the build before as it stood with the first, then one step
+    for each later cache, dated the day it was read."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        saved = content.hotfix_only
+        self.addCleanup(lambda: setattr(content, 'hotfix_only', saved))
+        content.hotfix_only = lambda folder: set()
+        self.builds, self.official, self.caches, self.pinned, self.read = [], {}, {}, {}, []
+        self.build(100, {None: {1: item('Sword')}})
+        self.build(200, {'a': {1: item('Sword', 5)}, 'b': {1: item('Sword', 5), 2: item('Spaulders')}, None: {1: item('Sword', 6), 2: item('Spaulders')}},
+                   [('a', '2026-11-14'), ('b', '2026-11-15'), ('c', '2026-11-16')])
+
+    def build(self, number, states, caches=()):
+        path = os.path.join(self.folder.name, str(number))
+        os.makedirs(os.path.join(path, 'enUS'))
+        with open(os.path.join(path, 'enUS', 'ItemSparse.db2'), 'wb') as handle:
+            handle.write(b'table of build %d' % number)
+        self.builds.append({'build': number, 'dir': path, 'version': f'1.60.1.{number}'})
+        self.official[path] = states
+        self.caches[path] = [{'file': f'{day}-{sha}.bin.gz', 'read': day, 'sha': sha, 'records': 10 * (i + 1)} for i, (sha, day) in enumerate(caches)]
+
+    def run_it(self):
+        self.read.clear()
+
+        def read(folder):
+            pin = self.pinned.get(folder)
+            self.read.append((int(os.path.basename(folder)), pin))
+            return {'item': self.official[folder][pin], '_meta': {}}
+
+        def show(folder, entry):
+            self.pinned[folder] = entry['sha'] if entry else None
+        found = content.changelog(self.builds, read=read, own=lambda folder: bool(self.caches[folder]), caches=lambda folder: self.caches[folder], show=show)
+        return found
+
+    def test_a_step_for_each_later_cache(self):
+        newest, changes, first_seen, changed_in, _hot, more = self.run_it()
+        self.assertEqual(newest['item'][1]['facts']['ilvl'], 6)   # the analysis goes on with the newest cache
+        self.assertEqual([(c[0], c[3], c[4]) for c in changes], [(200, 1, 'modified')])   # the build as it stood with its first cache
+        self.assertEqual([(h['build'], h['hotfix'], h['date'], h['records']) for h in more['hotfixes']], [(200, 1, '2026-11-15', 20), (200, 2, '2026-11-16', 30)])
+        self.assertEqual([(c[1], c[3], c[4]) for c in more['hotfix_changes']], [(1, 2, 'added'), (2, 1, 'modified')])
+        self.assertEqual(first_seen[('item', 2)], 200)
+        self.assertTrue(more['replay']['ok'], more['replay'])
+        self.assertEqual(self.pinned[self.builds[1]['dir']], None)   # nothing stays pinned
+
+    def test_kept_steps_are_not_worked_out_again(self):
+        first = self.run_it()
+        self.run_it()
+        self.assertEqual(self.read, [(200, None)])
+        again = self.run_it()
+        self.assertEqual(again[5]['hotfix_changes'], first[5]['hotfix_changes'])
+
+    def test_a_cache_that_changed_nothing_is_no_entry(self):
+        folder = self.builds[1]['dir']
+        self.caches[folder].insert(2, {'file': '2026-11-15-b2.bin.gz', 'read': '2026-11-15', 'sha': 'b2', 'records': 25})
+        self.official[folder]['b2'] = self.official[folder]['b']
+        _newest, _changes, _first, _changed, _hot, more = self.run_it()
+        self.assertEqual([(h['hotfix'], h['date']) for h in more['hotfixes']], [(1, '2026-11-15'), (3, '2026-11-16')])
+        self.assertTrue(more['replay']['ok'], more['replay'])
+
+    def test_the_first_build_after_the_original_game_has_no_steps(self):
+        # ft.vanilla.step compares the original game with the first build as its newest hotfixes give it
+        self.builds = self.builds[1:]
+        base = os.path.join(self.folder.name, '50')
+        os.makedirs(os.path.join(base, 'enUS'))
+        self.builds.insert(0, {'build': 50, 'dir': base, 'baseline': '1.13.2'})
+        found = content.changelog(self.builds, read=lambda folder: {'item': self.official[folder][self.pinned.get(folder)], '_meta': {}},
+                                  own=lambda folder: True, caches=lambda folder: self.caches.get(folder, []),
+                                  show=lambda folder, entry: self.pinned.__setitem__(folder, entry['sha'] if entry else None),
+                                  origin=lambda *args: {'compared': False, 'counts': {}})
+        self.assertEqual(found[5]['hotfixes'], [])
+        self.assertEqual(found[0]['item'][1]['facts']['ilvl'], 6)
+
+    def test_one_cache_alone_is_no_step(self):
+        self.caches[self.builds[1]['dir']] = self.caches[self.builds[1]['dir']][-1:]
+        self.official[self.builds[1]['dir']]['c'] = self.official[self.builds[1]['dir']][None]
+        _newest, changes, _first, _changed, _hot, more = self.run_it()
+        self.assertEqual(more['hotfixes'], [])
+        self.assertEqual(sorted((c[3], c[4]) for c in changes), [(1, 'modified'), (2, 'added')])

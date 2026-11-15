@@ -65,14 +65,15 @@ def unused_taxi(node_id, entity, baseline, dungeons):
     return not flags & 3 and baseline.has('TaxiNodes', node_id) is True
 
 SCHEMA_SQL = """
-CREATE TABLE ft_builds_new (build INT PRIMARY KEY, version VARCHAR(32), released DATE NULL, note TEXT, source VARCHAR(255), is_server TINYINT NOT NULL DEFAULT 0, counts JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE ft_builds_new (build INT NOT NULL, version VARCHAR(32), released DATE NULL, note TEXT, source VARCHAR(255), is_server TINYINT NOT NULL DEFAULT 0, counts JSON,
+  hotfix SMALLINT NOT NULL DEFAULT 0, PRIMARY KEY (build, hotfix)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_entities_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, name VARCHAR(255) NOT NULL, name_en VARCHAR(255) NOT NULL DEFAULT '',
   sub VARCHAR(120) NOT NULL DEFAULT '', level INT NOT NULL DEFAULT 0, quality TINYINT NOT NULL DEFAULT -1, icon VARCHAR(96) NOT NULL DEFAULT '',
   internal TINYINT NOT NULL DEFAULT 0, is_new TINYINT NOT NULL DEFAULT 0, status ENUM('ok','partial','missing') NOT NULL, score TINYINT NOT NULL, checks JSON, data JSON,
   first_build INT NOT NULL, changed_build INT NOT NULL, phase TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (type, id), KEY ix_status (type, status, internal, phase), KEY ix_name (name), KEY ix_name_en (name_en), KEY ix_changed (changed_build)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_changes_new (seq INT AUTO_INCREMENT PRIMARY KEY, build INT NOT NULL, prev_build INT NOT NULL, type VARCHAR(16) NOT NULL, id INT NOT NULL,
   kind ENUM('added','removed','modified') NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', fields JSON, internal TINYINT NOT NULL DEFAULT 0,
-  KEY ix_build (build, type, kind), KEY ix_entity (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  hotfix SMALLINT NOT NULL DEFAULT 0, KEY ix_build (build, hotfix, type, kind), KEY ix_entity (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_meta_new (k VARCHAR(64) PRIMARY KEY, v JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_tooltips_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, tip JSON NOT NULL, PRIMARY KEY (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_fixes_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, kind VARCHAR(16) NOT NULL, db VARCHAR(16) NOT NULL, rows_count INT NOT NULL DEFAULT 0,
@@ -128,7 +129,11 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         out.write('SET NAMES utf8mb4;\n')
         out.write('DROP TABLE IF EXISTS ' + ', '.join(t + '_new' for t in TABLES) + ';\n' + SCHEMA_SQL)
         for b in build_list:
-            out.write(f"INSERT INTO ft_builds_new VALUES ({b['build']},{e(b['version'])},{e(b['date'])},{e(b['note'])},{e(b['source'])},{1 if b['build'] == server_build else 0},{e(dumps(b.get('counts', {})))});\n")
+            out.write(f"INSERT INTO ft_builds_new VALUES ({b['build']},{e(b['version'])},{e(b['date'])},{e(b['note'])},{e(b['source'])},{1 if b['build'] == server_build else 0},{e(dumps(b.get('counts', {})))},0);\n")
+        # Blizzard's hotfixes after their build, one entry for each day a new cache changed something (ft.content.changelog)
+        for h in (((ctx.get('changelog') or {}).get('hotfixes') or []) if ctx else []):
+            note = f"{h.get('records', 0)} hotfix records"
+            out.write(f"INSERT INTO ft_builds_new VALUES ({h['build']},{e(h['version'])},{e(h['date'])},{e(note)},'hotfix',0,{e(dumps(h.get('counts', {})))},{int(h['hotfix'])});\n")
         baseline = Baseline()
         covered = covered_elsewhere(content)
         granted = ctx.get('granted_spells', ())
@@ -207,7 +212,11 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         minor = ((ctx.get('changelog') or {}).get('minor') or set()) if ctx else set()
         for build, previous, kind, entity_id, change, fields, name in changes:
             internal = 1 if change == 'removed' and ((build, kind, entity_id) in minor or (kind != 'quest' and bool(name) and INTERNAL_NAME.search(name))) else 0
-            batch.add(f"(NULL,{build},{previous},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))},{internal})")
+            batch.add(f"(NULL,{build},{previous},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))},{internal},0)")
+        # a hotfix entry is compared with its own build as it stood before (prev_build = the same build)
+        for build, number, kind, entity_id, change, fields, name in (((ctx.get('changelog') or {}).get('hotfix_changes') or []) if ctx else []):
+            internal = 1 if change == 'removed' and kind != 'quest' and bool(name) and INTERNAL_NAME.search(name) else 0
+            batch.add(f"(NULL,{build},{build},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))},{internal},{int(number)})")
         batch.flush()
         batch = Batch(out, 'ft_tooltips_new', 300)
         for (kind, entity_id), tip in tooltips.items():
@@ -220,7 +229,7 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         batch.flush()
         meta = {'generated_at': datetime.datetime.now().isoformat(timespec='seconds'), 'server_build': server_build,
                 'client_build': build_list[-1]['build'] if build_list else 0, 'hidden': content.get('_meta', {}).get('hidden', {}),
-                'schema': 4,   # 4: ft_changes.internal
+                'schema': 5,   # 4: ft_changes.internal; 5: ft_builds.hotfix + ft_changes.hotfix (hotfix entries)
                 # release phases in order (number = position + 1): ft_entities.phase holds the number, 0 = released
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone

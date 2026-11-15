@@ -362,9 +362,10 @@ def code_mark():
 _hashed = {}
 
 
-def state(build):
+def state(build, with_hotfixes=True):
     """What a build's compared tables hold and which hotfixes stand over them. Two builds in the same state have the
-    same official content: Blizzard often ships a build that changes the program alone."""
+    same official content: Blizzard often ships a build that changes the program alone. with_hotfixes False: the
+    tables alone (a step from one kept hotfix cache to the next names its two caches itself)."""
     seen = hashlib.sha1()
     for locale in ('enUS', 'frFR'):
         for name in DIFF_TABLES:
@@ -379,12 +380,18 @@ def state(build):
                     seen.update(f'{locale}/{name}:{_hashed[key]};'.encode())
                 except OSError:
                     pass
+    if not with_hotfixes:
+        return seen.hexdigest()[:16]
     _found, origin = hotfixes.cached(build['dir'])
-    over = os.path.join(build['dir'] if origin is None else os.path.join(os.path.dirname(os.path.normpath(build['dir'])), str(origin)), hotfixes.FILE)
+    over = hotfixes.source(build['dir'] if origin is None else os.path.join(os.path.dirname(os.path.normpath(build['dir'])), str(origin)))
     try:
         stat = os.stat(over)
-        seen.update(f'hotfixes:{origin}:{stat.st_size}:{stat.st_mtime_ns}'.encode())
-    except OSError:
+        key = (over, stat.st_size, stat.st_mtime_ns)
+        if key not in _hashed:
+            # the cache's own bytes: the newest cache and the same cache kept compressed are one state
+            _hashed[key] = hashlib.sha256(hotfixes._read(over)).hexdigest()
+        seen.update(f'hotfixes:{origin}:{_hashed[key]}'.encode())
+    except (OSError, TypeError, EOFError, ValueError):
         pass
     return seen.hexdigest()[:16]
 
@@ -400,10 +407,10 @@ def kept(build, before):
     return kept_as(build, [code_mark(), signature(build), signature(before) if before else ''])
 
 
-def kept_as(build, mark):
+def kept_as(build, mark, path=None):
     """What was kept in a build's folder under this mark; None when there is nothing, or it was kept under another."""
     try:
-        with open(os.path.join(build['dir'], KEPT), encoding='utf-8') as handle:
+        with open(path or os.path.join(build['dir'], KEPT), encoding='utf-8') as handle:
             found = json.load(handle)
     except (OSError, ValueError):
         return None
@@ -415,12 +422,18 @@ def digest(build, current, before=None, previous=None):
     changed against the build before ([kind, id, change, fields, name], every change: also the resources that exist by
     hotfix alone, named in 'alone'), and for the first build the ids of everything it has. current, previous: the
     official() of the build and of the one before. Kept in the build's folder (kept)."""
+    return keep(build, before, work_out(build, current, before, previous))
+
+
+def work_out(build, current, before=None, previous=None, alone=True):
+    """What digest() keeps, not kept yet. alone: name the resources that exist by hotfix alone (a step from one hotfix
+    cache to the next names none: what a later cache adds, it adds that day)."""
     out = {'counts': {kind: len(entities) for kind, entities in current.items() if not kind.startswith('_')}}
     if before is None:
         out['ids'] = {kind: sorted(entities) for kind, entities in current.items() if not kind.startswith('_')}
         changed = [(kind, entity_id) for kind, ids in out['ids'].items() for entity_id in ids]
     else:
-        alone = hotfix_only(build['dir'])
+        alone = hotfix_only(build['dir']) if alone else set()
         out['changes'] = [[kind, entity_id, change, fields, (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')]
                           for kind, entity_id, change, fields in diff_builds(previous, current)]
         out['alone'] = sorted([kind, entity_id] for kind, entity_id, change, _fields, _name in out['changes'] if change == 'added' and (kind, entity_id) in alone)
@@ -430,7 +443,7 @@ def digest(build, current, before=None, previous=None):
     out['prints'] = {}
     for kind, entity_id in changed:
         out['prints'].setdefault(kind, {})[str(entity_id)] = fingerprint(current[kind][entity_id].get('facts'))
-    return keep(build, before, out)
+    return out
 
 
 def keep(build, before, out):
@@ -438,11 +451,13 @@ def keep(build, before, out):
     return keep_as(build, [code_mark(), signature(build), signature(before) if before else ''], out)
 
 
-def keep_as(build, mark, out):
-    """Writes something worked out of a build into its folder under a mark, and returns it as it will be read back."""
+def keep_as(build, mark, out, path=None):
+    """Writes something worked out of a build into its folder under a mark, and returns it as it will be read back.
+    path: another file than the build's changelog.json (a step from one hotfix cache to the next)."""
     out = {'mark': mark, **out}
     try:
-        path = os.path.join(build['dir'], KEPT)
+        path = path or os.path.join(build['dir'], KEPT)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
             json.dump(out, handle, ensure_ascii=False, default=str)
         os.replace(f'{path}.{os.getpid()}.tmp', path)
@@ -458,7 +473,20 @@ def forget(folder):
         del _cache[key]
 
 
-def changelog(build_list, log=lambda text: None, read=None, own=None, origin=None):
+def view(folder, entry):
+    """Lets a kept hotfix cache stand over a build (None: the newest), forgetting the rows read under another."""
+    before = hotfixes._pinned.get(folder)
+    hotfixes.pin(folder, entry)
+    if hotfixes._pinned.get(folder) != before:
+        forget(folder)
+
+
+def step_file(build, entry):
+    """Where the step to a kept hotfix cache is kept: next to the cache, in the build's hotfix history."""
+    return os.path.join(build['dir'], hotfixes.HISTORY, entry['file'].split('.')[0] + '.changelog.json')
+
+
+def changelog(build_list, log=lambda text: None, read=None, own=None, origin=None, caches=None, show=None):
     """Every build against the one before it, oldest first.
 
     Returns (the newest build's official content, changes, first_seen, changed_in, by_hotfix, more): changes as
@@ -471,9 +499,17 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
     When the list starts with the original game (ft.vanilla), the first build of the game is compared with it
     (ft.vanilla.step) and everything the original game already had is "first seen" there.
 
+    Blizzard's hotfixes: a build with more than one hotfix cache kept (ft.hotfixes.history) is compared with the build
+    before as it stood with the first of them, and each later cache is a step of its own (dated the day it was
+    downloaded): what it changed against the cache before. They are more['hotfixes'] ({'build', 'hotfix' (1, 2, ...),
+    'version', 'date', 'records', 'counts'}) and more['hotfix_changes'] ((build, hotfix, kind, id, change, fields,
+    name)); the analysis goes on with the newest cache.
+
     read: a build's folder -> its official(); own: a folder -> its snapshot has the hotfixes of its own build;
-    origin: the step from the original game, as ft.vanilla.step (all three for tests)."""
+    origin: the step from the original game, as ft.vanilla.step; caches: a folder -> its kept hotfix caches, oldest
+    first; show: (folder, cache or None) -> lets that cache stand over the build (all five for tests)."""
     read, own = read or official, own or hotfixes.has_own
+    caches, show = caches or hotfixes.history, show or view
     chain = [b for b in build_list if not b.get('baseline')]     # a baseline is never read as a build of the game
     base = build_list[0] if chain and build_list[0].get('baseline') else None
     if not chain:
@@ -483,62 +519,117 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
 
     twin = {}        # build -> the earliest build before it in the same state: its content is that one's
 
+    newest = {}      # build -> the sha of its newest hotfix cache kept (None: none kept)
+    hotfix_steps, hotfix_changes = [], []
+
+    def key(b, entry):
+        return (b['build'], entry['sha'] if entry else newest.get(b['build']))
+
+    def load_at(b, entry):
+        """The official content of a build under one of its kept hotfix caches (None: the newest)."""
+        at = key(b, entry)
+        if at not in loaded:
+            show(b['dir'], entry)
+            log(f"official content of build {b['build']}" + (f" with the hotfixes of {entry['read']}" if entry else ''))
+            loaded[at] = read(b['dir'])
+        return loaded[at]
+
     def load(b):
-        b = twin.get(b['build'], b)
-        if b['build'] not in loaded:
-            log(f"official content of build {b['build']}")
-            loaded[b['build']] = read(b['dir'])
-        return loaded[b['build']]
+        return load_at(twin.get(b['build'], b), None)
     quiet = None     # the first of the builds in a row, up to the one before, whose hotfixes were never stored
     read_back = same = 0
     steps = []       # (build, what was kept of it), oldest first: what the replay follows
     late = {}        # build -> {(kind, id)}: there by hotfix alone, known "since" the game's first build
-    for index, b in enumerate(chain):
-        before = chain[index - 1] if index else None
-        # what a build changed against the one before never changes once both are stored: it is kept
-        found = kept(b, before)
-        read_back += found is not None
-        if before is not None and state(b) == state(before):
-            # a build that changed the program alone: the same tables, byte for byte, under the same hotfixes
-            if b is not chain[-1]:   # the newest build is always read from its own folder: the analysis works on it
-                twin[b['build']] = twin.get(before['build'], before)
+    try:
+        for index, b in enumerate(chain):
+            before = chain[index - 1] if index else None
+            kept_caches = caches(b['dir']) or []
+            if base is not None and index == 0:
+                # the game's first build is compared with the original game as it stands today (ft.vanilla.step reads it
+                # with its newest hotfixes): its caches are no steps of their own
+                kept_caches = kept_caches[-1:]
+            newest[b['build']] = kept_caches[-1]['sha'] if kept_caches else None
+            # with several hotfix caches kept, the build is compared as it stood with the first one; each later one is a
+            # step of its own (below). The newest cache is never pinned: it is the build as the analysis reads it.
+            first = kept_caches[0] if len(kept_caches) > 1 else None
+            show(b['dir'], first)
+            # what a build changed against the one before never changes once both are stored: it is kept
+            found = kept(b, before)
+            read_back += found is not None
+            if before is not None and state(b) == state(before):
+                # a build that changed the program alone: the same tables, byte for byte, under the same hotfixes
+                if b is not chain[-1]:   # the newest build is always read from its own folder: the analysis works on it
+                    twin[b['build']] = twin.get(before['build'], before)
+                if found is None:
+                    found = keep(b, before, {'counts': before['counts'], 'changes': [], 'alone': [], 'prints': {}})
+                    same += 1
             if found is None:
-                found = keep(b, before, {'counts': before['counts'], 'changes': [], 'alone': [], 'prints': {}})
-                same += 1
-        if found is None:
-            found = digest(b, load(b), before, load(before) if before else None)
-        b['counts'] = found['counts']
-        steps.append((b['build'], found))
-        for kind, ids in (found.get('ids') or {}).items():
-            for entity_id in ids:
-                first_seen.setdefault((kind, entity_id), b['build'])
-        if before is not None:
-            # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
-            # never stored, it would read "added in this build", five thousand items at once, although nothing says
-            # when it appeared: it is not listed as a change, and it counts as known since the first of the builds in
-            # a row without their hotfixes (with the beta's builds stored: since the first of them).
-            quiet = (quiet or before['build']) if not own(before['dir']) else None
-            alone = {(kind, entity_id) for kind, entity_id in found.get('alone') or []} if quiet else set()
-            for kind, entity_id, change, fields, name in found.get('changes') or []:
-                if change == 'added':
+                found = digest(b, load_at(b, first) if first else load(b), before, load(before) if before else None)
+                show(b['dir'], first)
+            b['counts'] = found['counts']
+            steps.append((b['build'], found))
+            for kind, ids in (found.get('ids') or {}).items():
+                for entity_id in ids:
                     first_seen.setdefault((kind, entity_id), b['build'])
-                    if (kind, entity_id) in alone:
-                        first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], quiet)
-                        by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
-                        if quiet == chain[0]['build']:
-                            late.setdefault(b['build'], {})[(kind, entity_id)] = ((found.get('prints') or {}).get(kind) or {}).get(str(entity_id), '')
-                        continue
-                changes.append((b['build'], before['build'], kind, entity_id, change, fields, name))
-                changed_in[(kind, entity_id)] = b['build']
-        for build in [build for build in loaded if build != twin.get(b['build'], b)['build']]:
-            forget(next(x['dir'] for x in chain if x['build'] == build))
-            del loaded[build]
+            if before is not None:
+                # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
+                # never stored, it would read "added in this build", five thousand items at once, although nothing says
+                # when it appeared: it is not listed as a change, and it counts as known since the first of the builds in
+                # a row without their hotfixes (with the beta's builds stored: since the first of them).
+                quiet = (quiet or before['build']) if not own(before['dir']) else None
+                alone = {(kind, entity_id) for kind, entity_id in found.get('alone') or []} if quiet else set()
+                for kind, entity_id, change, fields, name in found.get('changes') or []:
+                    if change == 'added':
+                        first_seen.setdefault((kind, entity_id), b['build'])
+                        if (kind, entity_id) in alone:
+                            first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], quiet)
+                            by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
+                            if quiet == chain[0]['build']:
+                                late.setdefault(b['build'], {})[(kind, entity_id)] = ((found.get('prints') or {}).get(kind) or {}).get(str(entity_id), '')
+                            continue
+                    changes.append((b['build'], before['build'], kind, entity_id, change, fields, name))
+                    changed_in[(kind, entity_id)] = b['build']
+            # each later hotfix cache: what it changed against the one before, kept next to it
+            for number in range(1, len(kept_caches)):
+                earlier, entry = kept_caches[number - 1], kept_caches[number]
+                last = number == len(kept_caches) - 1
+                # the build's tables and the two caches: nothing to read back but a few hashes
+                mark = [code_mark(), f"{b['build']}:{int(CONFIG.french())}:{state(b, False)}", earlier['sha'], entry['sha']]
+                path = step_file(b, entry)
+                step = kept_as(b, mark, path)
+                if step is None:
+                    after = load_at(b, None if last else entry)
+                    step = keep_as(b, mark, work_out(b, after, b, load_at(b, earlier), alone=False), path)
+                    # two caches of a build at most are held: the next step starts from this one
+                    for at in [at for at in loaded if at[0] == b['build'] and at != key(b, None if last else entry)]:
+                        del loaded[at]
+                    forget(b['dir'])
+                steps.append((b['build'], step))   # the replay follows every step, one that changed nothing too
+                if not step.get('changes'):
+                    continue   # a new cache that changed nothing the tracker compares: no entry of its own
+                hotfix_steps.append({'build': b['build'], 'hotfix': number, 'version': b.get('version', ''), 'date': entry.get('read'),
+                                     'records': entry.get('records', 0), 'counts': step['counts'], 'source': 'hotfix'})
+                for kind, entity_id, change, fields, name in step.get('changes') or []:
+                    if change == 'added':
+                        first_seen.setdefault((kind, entity_id), b['build'])
+                    hotfix_changes.append((b['build'], number, kind, entity_id, change, fields, name))
+                    changed_in[(kind, entity_id)] = b['build']
+            show(b['dir'], None)
+            held = key(twin.get(b['build'], b), None)
+            for at in [at for at in loaded if at != held]:
+                forget(next(x['dir'] for x in chain if x['build'] == at[0]))
+                del loaded[at]
+    finally:
+        for b in chain:   # a failure halfway leaves no build under an older cache
+            show(b['dir'], None)
     content = load(chain[-1])
     if read_back:
         log(f'{read_back} of {len(chain)} builds: changelog read back as kept (the builds have not changed)')
     if same:
         log(f'{same} build(s) have the tables of the build before, byte for byte: no data change, not read')
-    more = {'baseline': None, 'replay': None, 'minor': set(), 'builds': chain}
+    if hotfix_steps:
+        log(f'{len(hotfix_steps)} hotfix update(s) after their build: ' + ', '.join(f"{h['build']} on {h['date']}" for h in hotfix_steps))
+    more = {'baseline': None, 'replay': None, 'minor': set(), 'builds': chain, 'hotfixes': hotfix_steps, 'hotfix_changes': hotfix_changes}
     start = None
     if base is not None:
         # the game's first build against the original game. It comes last: only now is it known which resources are
@@ -549,9 +640,10 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
         start = origin(base, chain, late, load, log)
         base['counts'] = start['counts']
         # what the step read of the first build is not needed any more (the newest build's is: the analysis works on it)
-        for build in [build for build in loaded if build != twin.get(chain[-1]['build'], chain[-1])['build']]:
-            forget(next(x['dir'] for x in chain if x['build'] == build))
-            del loaded[build]
+        held = key(twin.get(chain[-1]['build'], chain[-1]), None)
+        for at in [at for at in loaded if at != held]:
+            forget(next(x['dir'] for x in chain if x['build'] == at[0]))
+            del loaded[at]
     if start is not None and not start.get('compared', True):
         # the two could not be compared (ft.vanilla.step says why in the log): the changelog starts at the first build
         start = None
@@ -562,8 +654,8 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
         held = {(kind, entity_id) for kind, ids in (steps[0][1].get('ids') or {}).items() for entity_id in ids}
         held |= {(kind, entity_id) for kind, entity_id in start.get('alone') or []}
         old = {(kind, entity_id) for kind, ids in start['ids'].items() for entity_id in ids}
-        for key in old & held & first_seen.keys():
-            first_seen[key] = base['build']
+        for found_key in old & held & first_seen.keys():
+            first_seen[found_key] = base['build']
         listed = [(first, base['build'], kind, entity_id, change, fields, name) for kind, entity_id, change, fields, name in start['changes']]
         for _build, _before, kind, entity_id, change, _fields, _name in listed:
             if change != 'removed':

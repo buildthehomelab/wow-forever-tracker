@@ -579,7 +579,7 @@ def analyse(args):
     content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
     build_list = more['builds']   # without an original game that could not be compared: the website would show it as a build
     latest = build_list[-1]
-    log(f'{len(changes)} changes across {len(build_list)} builds')
+    log(f'{len(changes)} changes across {len(build_list)} builds' + (f", {len(more['hotfix_changes'])} in {len(more['hotfixes'])} hotfix update(s)" if more.get('hotfixes') else ''))
     for line in official_content.replay_lines(more):
         log(line)
     for b in build_list:
@@ -605,6 +605,12 @@ def analyse(args):
             qid = change[3]
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             changes[index] = change[:6] + (name,)
+    hotfix_changes = more.get('hotfix_changes') or []
+    for index, change in enumerate(hotfix_changes):
+        if change[2] == 'quest' and not change[6]:
+            qid = change[3]
+            name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
+            hotfix_changes[index] = change[:6] + (name,)
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     try:
