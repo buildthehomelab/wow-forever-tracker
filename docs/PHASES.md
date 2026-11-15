@@ -110,6 +110,7 @@ and a battleground's own nodes. Unnamed recipes stay visible: no name is no reas
 
 Spells of a class or profession skill line go there too when nobody learns them: the game data marks them as never
 learned (`SkillLineAbility.AcquireMethod` 3) or another spell casts them, and no trainer or item holds them. So does a
-spell or recipe that only items teach, when each of those items is a test item, a Season of Discovery leftover or
-missing from the client. A spell new in Forever whose item is not in the client yet stays on the list: it is content
-still locked. The rules are in `tools/ft/rules.py` (`granted_spells`) and `tools/ft/output.py` (`leftover`).
+spell or recipe that only items teach, when each of those items is a test item or a Season of Discovery leftover.
+An item missing from the client counts the same way for a Season of Discovery spell only. An original recipe whose
+unused pattern is gone (the Naxxramas frost resistance sets, quest recipes) and a spell new in Forever whose item is
+not in the client yet (content still locked) stay on the list. The rules are in `tools/ft/rules.py` (`granted_spells`) and `tools/ft/output.py` (`leftover`).

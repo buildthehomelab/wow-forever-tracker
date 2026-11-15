@@ -174,6 +174,42 @@ def evaluate_all(content, ctx):
             if target in chain:
                 todo.append(target)
     granted = ctx['granted_spells'] = set()   # spells of a player's skill lines that nobody learns: the writer lists them as internal
+    # What a spell that cannot be learned yet is waiting for, by the realm's own data: the quest that rewards it (itself or
+    # the spell that teaches it) and cannot be done yet, the trainer that lists it and is not spawned.
+    reward_quests = {}
+    for quest, row in ctx['quests'].items():
+        if quest in available_quests or quest in disabled_quests:
+            continue
+        rewards = {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
+        rewards |= ctx.get('quest_display_spells', {}).get(quest, set())
+        seen, todo = set(rewards), list(rewards)
+        while todo:
+            for target in chain.get(todo.pop(), set()) - seen:
+                seen.add(target)
+                todo.append(target)
+        for spell in seen:
+            reward_quests.setdefault(spell, set()).add(quest)
+    trainer_holders = {}
+    holders = {}
+    for npc, trainer in ctx['trainers']:
+        holders.setdefault(trainer, set()).add(npc)
+    for trainer, spell in ctx['trainer_spells']:
+        trainer_holders.setdefault(spell, set()).update(holders.get(trainer, ()))
+
+    def waiting_for(spell_id, items):
+        """Why a spell nothing teaches yet is not learnable, as precisely as the realm's data says it."""
+        some = lambda ids: ', '.join(map(str, sorted(ids)[:3])) + ('…' if len(ids) > 3 else '')
+        if spell_id in trained_any:
+            npcs = trainer_holders.get(spell_id)
+            if npcs:
+                return L(f'Trainer {some(npcs)} has it but is not spawned.', f'L’entraîneur {some(npcs)} l’enseigne mais n’est pas placé.')
+            return L('A trainer list has it, but no creature uses that list.', 'Une liste d’entraîneur le contient, mais aucun PNJ ne l’utilise.')
+        if spell_id in reward_quests:
+            quests_ = reward_quests[spell_id]
+            return L(f'Reward of quest {some(quests_)}, which players cannot do yet.', f'Récompense de la quête {some(quests_)}, que les joueurs ne peuvent pas encore faire.')
+        if items:
+            return L(f'Taught by item {some(items)}, which players cannot get.', f'Appris par l’objet {some(items)}, que les joueurs ne peuvent pas obtenir.')
+        return None
     ctx['obtainable'], ctx['learnable'], ctx['item_sources'] = obtainable, learnable, sources
     results = {}
 
@@ -217,13 +253,11 @@ def evaluate_all(content, ctx):
                 how.append(L('obtainable item', 'objet obtenable'))
             if category == 'talent':
                 how.append(L('talent', 'talent'))
+            waiting = None if how else waiting_for(spell_id, items)
             if how:
                 detail = join(how)
-            elif spell_id in trained_any:
-                detail = L('A trainer has it but is not spawned.', 'Entraîneur défini mais non placé.')
-            elif items:
-                ids = ', '.join(map(str, sorted(items)[:3]))
-                detail = L(f'Taught by item {ids}, which players cannot get.', f'Appris par l’objet {ids}, que les joueurs ne peuvent pas obtenir.')
+            elif waiting:
+                detail = waiting
             else:
                 # The game data says nobody learns it: it is what another ability does, not a line of the spellbook.
                 caster = ctx.get('cast_by', {}).get(spell_id)
@@ -415,11 +449,8 @@ def evaluate_all(content, ctx):
             how.append(L('learned through another spell', 'appris via un autre sort'))
         if how:
             detail = join(how)
-        elif teach:
-            ids = ', '.join(map(str, sorted(teach)[:3]))
-            detail = L('Recipe exists but cannot be obtained: ' + ids, 'Recette existante mais non obtenable : ' + ids)
         else:
-            detail = L('No trainer and no recipe.', 'Ni entraîneur ni recette.')
+            detail = waiting_for(spell_id, teach) or L('No trainer and no recipe.', 'Ni entraîneur ni recette.')
         return [check(spell_id in known['spell'], 'core', L('', ''), 1), check(bool(how), 'learn', detail, 3)]
 
     def collection_spell(spell_id):
@@ -457,7 +488,14 @@ def evaluate_all(content, ctx):
     def achievement_result(ach_id, entity):
         checks = [check(ach_id in known['achievement'], 'core', L('Server Achievement.db2 or hotfixes.', 'Achievement.db2 du serveur ou hotfixes.'), 2)]
         if entity.get('reward') or entity.get('reward_item'):
-            checks.append(check(ach_id in ctx['achievement_rewards'], 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
+            if ach_id in ctx['achievement_rewards']:
+                checks.append(check(True, 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
+            elif ach_id in ctx.get('achievement_currency', ()) and not entity.get('reward_item'):
+                # "Earn 1 Legacy Point.": the trait system pays it once the achievement is earned
+                checks.append(check(True, 'reward', L('A talent or perk point: the core counts the achievement itself (TraitCurrencySource), no achievement_reward row.',
+                                                      'Un point de talent ou d’avantage : le cœur compte le haut fait lui-même (TraitCurrencySource), sans ligne achievement_reward.'), 2))
+            else:
+                checks.append(check(False, 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
         return checks
 
     def taxi_result(node_id, entity):
