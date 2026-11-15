@@ -63,6 +63,30 @@ SMART_CASTS = (11, 85, 86, 134)   # CAST, SELF_CAST, CROSS_CAST, INVOKER_CAST: t
 # CALL_RANDOM_RANGE_TIMED_ACTIONLIST (one from action_param1 to action_param2). Gloom'rel teaches Smelt Dark Iron so.
 SMART_CALL_LIST, SMART_CALL_RANDOM_LIST, SMART_CALL_RANGE_LIST = 80, 87, 88
 SMART_TIMED_LIST = 9
+# A row's `link` names the row (same entryorguid and source_type) that runs right after it; that row's event is LINK.
+# Gloom'rel's choice only closes the window and links to the row that calls the timed list.
+SMART_LINK = 61
+
+
+def linked_choices(rows):
+    """The conversation choices of SmartAI rows with the actions of every row they link to, as choice_spells() takes
+    them: [(source_type, entryorguid, menu, option, action_type, [action_param1..6])]. rows: dicts of smart_scripts
+    rows (source_type, entryorguid, id, link, event_type, event_param1, event_param2, action_type, action_param1..6)
+    with event GOSSIP_SELECT or LINK."""
+    by_id = {(int(r['source_type']), int(r['entryorguid']), int(r['id'])): r for r in rows}
+    out = []
+    for r in rows:
+        if int(r['event_type']) != SMART_GOSSIP_SELECT:
+            continue
+        source, guid = int(r['source_type']), int(r['entryorguid'])
+        seen, row = set(), r
+        while row is not None and int(row['id']) not in seen:
+            seen.add(int(row['id']))
+            out.append((source, guid, int(r['event_param1'] or 0), int(r['event_param2'] or 0), int(row['action_type']),
+                        [row.get(f'action_param{i}') or 0 for i in range(1, 7)]))
+            following = by_id.get((source, guid, int(row.get('link') or 0))) if int(row.get('link') or 0) else None
+            row = following if following is not None and int(following['event_type']) == SMART_LINK else None
+    return out
 # The core's own C++ scripts that teach a spell in a conversation (a creature) or on use (an object), by script name:
 # (kind, the spells they cast on the player). Only scripts read in the realm's core and found to work on WoW: Forever.
 # Left out until the core fork's fix is live on the realm:
@@ -155,12 +179,10 @@ def read_conversations(q, has_table):
     options = [(whole(r['MenuID']), whole(r['OptionID']), whole(r['ActionMenuID'])) for r in q('SELECT MenuID, OptionID, ActionMenuID FROM gossip_menu_option')]
     smart = []
     if has_table('smart_scripts'):
-        actions = ','.join(map(str, SMART_CASTS + (SMART_CALL_LIST, SMART_CALL_RANDOM_LIST, SMART_CALL_RANGE_LIST)))
-        choices = [(int(r['source_type']), int(r['entryorguid']), whole(r['event_param1']), whole(r['event_param2']), int(r['action_type']),
-                    [r[f'action_param{i}'] for i in range(1, 7)])
-                   for r in q(f"SELECT entryorguid, source_type, event_param1, event_param2, action_type, action_param1, action_param2, action_param3, "
-                              f"action_param4, action_param5, action_param6 FROM smart_scripts WHERE event_type = {SMART_GOSSIP_SELECT} "
-                              f"AND source_type IN (0, 1) AND action_type IN ({actions})")]
+        # every choice row and every LINK row (a choice's own action may only close the window and link on)
+        choices = linked_choices(q(f"SELECT entryorguid, source_type, id, link, event_type, event_param1, event_param2, action_type, action_param1, "
+                                   f"action_param2, action_param3, action_param4, action_param5, action_param6 FROM smart_scripts "
+                                   f"WHERE event_type IN ({SMART_GOSSIP_SELECT}, {SMART_LINK}) AND source_type IN (0, 1)"))
         lists = {}
         if any(c[4] not in SMART_CASTS for c in choices):
             for r in q(f"SELECT entryorguid, action_param1 FROM smart_scripts WHERE source_type = {SMART_TIMED_LIST} "

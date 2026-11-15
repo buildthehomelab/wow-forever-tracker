@@ -60,8 +60,9 @@ as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tr
   run by one of the core's own teaching scripts is counted apart: the Field Repair Bot schematic's already teaches (the
   analysis counts it as a teacher too); Knot Thimblejack's, the engineering transporters' and Master Craftsman
   Omarion's (he casts spells the Forever client lacks, all but Icebane Breastplate) teach nobody until the core fork's
-  fix is live. The analysis follows a conversation choice into the SmartAI timed action list it calls, which is how
-  Gloom'rel teaches Smelt Dark Iron on Everlake. Where the core has a script for a teacher that runs nothing (Gloom'rel's
+  fix is live. The analysis follows a conversation choice into the SmartAI rows it links to and the timed action
+  lists they call, which is how Gloom'rel teaches Smelt Dark Iron on Everlake; what those spells teach counts, not the
+  spells cast themselves. Where the core has a script for a teacher that runs nothing (Gloom'rel's
   `boss_gloomrel`), the card names the script instead of writing SmartAI; a Gloom'rel who already runs SmartAI (his
   challenge, as on Everlake) gets the SmartAI line.
   The pack (`format` 2) carries these lines; a pack of the first format only counts them.

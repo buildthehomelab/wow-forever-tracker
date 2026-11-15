@@ -354,6 +354,28 @@ class Conversations(unittest.TestCase):
         self.assertEqual(server.choice_spells(choices, lists), [(0, 1, 10, 0, 1), (0, 1, 10, 0, 2), (0, 2, 20, 0, 2), (0, 2, 20, 0, 3),
                                                                 (0, 9037, 1945, 1, 14894), (1, 180368, 6443, 0, 24267)])
 
+    def test_a_choice_that_links_on(self):
+        # Gloom'rel on Everlake: row 5 (choice 1945/1) closes the window and links to row 6 (LINK), which calls the list
+        def row(i, link, event, menu, option, action, p1=0):
+            return {'source_type': 0, 'entryorguid': 9037, 'id': i, 'link': link, 'event_type': event, 'event_param1': menu,
+                    'event_param2': option, 'action_type': action, 'action_param1': p1}
+        rows = [row(5, 6, 62, 1945, 1, 72), row(6, 0, 61, 0, 0, 80, 950000386),
+                row(7, 8, 62, 1945, 0, 72), row(8, 7, 61, 0, 0, 11, 1),          # a loop ends where it began
+                row(9, 2, 62, 1945, 2, 72)]                                      # a link to a row that is no LINK
+        choices = server.linked_choices(rows + [row(2, 0, 0, 0, 0, 11, 99)])
+        self.assertIn((0, 9037, 1945, 1, 80, [950000386, 0, 0, 0, 0, 0]), choices)
+        self.assertIn((0, 9037, 1945, 0, 11, [1, 0, 0, 0, 0, 0]), choices)
+        self.assertNotIn(99, [c[5][0] for c in choices])
+        self.assertEqual(server.choice_spells(choices, {950000386: {14894}}), [(0, 9037, 1945, 0, 1), (0, 9037, 1945, 1, 14894)])
+
+    def test_a_spell_cast_is_not_learned(self):
+        # a conversation that casts a buff does not teach the buff; one that casts a learn spell teaches its target
+        ctx = world(conversation_casts=[('npc', 9037, 14894), ('npc', 9037, 777)], spell_teaches={(14894, 14891)}, spawned_npc={9037})
+        results = evaluate({'spell': {14891: {'sub': 'profession'}, 777: {'sub': 'profession'}, 14894: {'sub': 'profession'}}}, ctx)
+        self.assertEqual(results[('spell', 14891)][0], 'ok')
+        self.assertEqual(results[('spell', 777)][0], 'partial')
+        self.assertEqual(results[('spell', 14894)][0], 'partial')
+
     def test_the_rules_count_it_where_someone_stands(self):
         ctx = world(conversation_casts=[('npc', 14338, 22814), ('go', 180368, 24267)], spell_teaches={(22814, 22813), (24267, 24266)},
                     spawned_npc={14338})
