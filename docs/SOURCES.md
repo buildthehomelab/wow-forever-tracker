@@ -12,7 +12,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [EG Link](https://github.com/JIVESCORP/eg-link-output-wowf) | what EG Link players' addons recorded on live Forever, per client build: vendor windows, loot with kill counts, trainer lists, who offers and takes quests | CC BY 4.0: credit *"Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."* | its newest commit, every Forever build |
 | [ForeverDB.net](https://foreverdb.net) | its addon data: stock of vendors its players saw on Forever, boss loot measured on Forever, quest givers and enders its players recorded | GPL-3.0 with attribution: *"Data from ForeverDB.net"* | its manifest's version, each file checked by sha256 |
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
-| [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever, one answer per item, quest and NPC | none stated: reference for your own server | asked about each gap, two requests a second, in the background |
+| [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it. Asked last, and only about profession recipes nobody can learn | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
@@ -292,10 +292,29 @@ cut short goes on from where it stopped, since what was asked since the button w
   after start and never while an analysis runs, and makes a card when a new version is out. Its last log line shows on
   the Imports page. The last three downloads stay in `data/atlasloot/`. A new analysis alone makes no new card: press
   *Import AtlasLoot* after one.
-- Icy Veins runs in the background: several hours the first time (one lookup per gap item, quest and trainer, two a
-  second). Its last log line shows on the Imports page, a new one every 20 lookups. Its
-  answers are kept in `data/icyveins/` and asked again after 14 days (7 for "not found"): it is a young project and
-  keeps growing. `[icyveins] max` (`FT_ICYVEINS_MAX`) caps the lookups of one run; the next run goes on.
+- Icy Veins runs in the background and keeps a **mirror of its whole WoW Forever database**: every NPC, object,
+  quest, item, zone, flight path and map it lists (about 67,000 answers, read from its list pages 200 at a time),
+  each kept whole (the entity, its children and every relation) in `data/icyveins/<kind>/<id>.json.gz`. The gaps are
+  asked first (items players cannot get, quests without giver, ender or turn-in words, the server's trainers), then
+  the rest. Two lookups a second: about nine hours the first time. Its last log line shows on the Imports page. Answers
+  are asked again after 14 days (7 for "not found"): it is a young project and keeps growing. `[icyveins] max`
+  (`FT_ICYVEINS_MAX`, 100,000) caps the lookups of one run; the next run goes on.
+  - **What the card takes from the mirror:** NPC drops (`creature_loot_template`), what Skinning gives
+    (`skinning_loot_template`) and Pick Pocket (`pickpocketing_loot_template`) — each recorded drop names the spell that
+    looted it (Mining and Herb Gathering on a creature go to the skinning table too, as the core loots them), and
+    before 2026-11-15 skinned leather went to the corpse table: such rows an earlier card applied stay where they are
+    until removed by hand —, what chests, ore veins and herbs hold
+    (`gameobject_loot_template`), quest-only drops (`QuestRequired = 1`), vendor stock, trainer lists (only from NPCs
+    whose services say trainer: the recording gives bankers and innkeepers stray lists), quest givers and enders (from
+    the quest's page, the NPC's and the object's), the turn-in words (`quest_offer_reward`, `quest_request_items`, for
+    quests that have no row there), and the NPC services as `npcflag` bits the creature lacks (innkeeper, banker,
+    flight master, spirit healer). Applying a skinning or pick-pocket row fills the creature's `SkinLootID` /
+    `PickPocketLootID` where it is 0, as `LootID` already was.
+  - **The locator** reads the positions players recorded (`addon_points`) for creatures and objects Wowhead cannot
+    place: "seen by players (Icy Veins)".
+  - **Kept, counted on the card, not written yet:** levels, the money a creature drops, what an NPC says (gossip),
+    container contents (clams, lockboxes: no chance is recorded), flight routes, the zones' NPC lists, quest chains.
+    They are in the mirror for the next feature to use. [ICYVEINS.md](ICYVEINS.md) lists everything the API holds.
   - **A restart** stops the run. The container goes on with it at its next start, from the cache, once MySQL answers
     and no analysis runs (`FT_ICYVEINS_RESUME=0`: only the button does). Without Docker, press the button again.
   - **When Icy Veins does not answer** (an outage, a block, no network), nothing is cached for that lookup and the run

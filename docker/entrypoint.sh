@@ -94,7 +94,7 @@ trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
 trainer_guess = ${FT_FORGE_TRAINER_GUESS:-1}
 
 [icyveins]
-max = ${FT_ICYVEINS_MAX:-20000}
+max = ${FT_ICYVEINS_MAX:-100000}
 
 [atlasloot]
 guess = ${FT_ATLASLOOT_GUESS:-1}

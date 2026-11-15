@@ -60,7 +60,7 @@ if ($tab === 'vendor') {
     if ($hasImports && $list) {
         $found = rows('SELECT DISTINCT item, kind, source FROM ft_import_items WHERE item IN (' . implode(',', array_map(fn($x) => (int)$x['id'], $list)) . ') ORDER BY kind LIMIT 2000');
         $names = [];
-        $npcs = array_unique(array_map(fn($f) => (int)$f['source'], array_filter($found, fn($f) => in_array($f['kind'], ['loot', 'vendor'], true))));
+        $npcs = array_unique(array_map(fn($f) => (int)$f['source'], array_filter($found, fn($f) => in_array($f['kind'], ['loot', 'vendor', 'skin', 'pick'], true))));
         if ($npcs) foreach (rows('SELECT entry, name FROM creature_template WHERE entry IN (' . implode(',', $npcs) . ')', [], 'world') as $n) $names['npc' . $n['entry']] = $n['name'];
         $objects = array_unique(array_map(fn($f) => (int)$f['source'], array_filter($found, fn($f) => $f['kind'] === 'object')));
         if ($objects) foreach (rows('SELECT entry, name FROM gameobject_template WHERE entry IN (' . implode(',', $objects) . ')', [], 'world') as $n) $names['object' . $n['entry']] = $n['name'];
@@ -175,7 +175,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
         <small><?= e(type_label($x['type'])) ?> · ID <?= (int)$x['id'] ?><?= (int)$x['level'] ? ' · ' . e(t('level', 'niveau')) . ' ' . (int)$x['level'] : '' ?></small></div></td>
       <td class="fix-cell"><?php if ($x['kind'] === 'vendor'): $why = ''; foreach (json_decode((string)$x['checks'], true) ?: [] as $check) if ($check['code'] === 'source' && !$check['ok']) $why = tr($check['detail']); ?>
         <span><?= e($why) ?></span>
-        <?php foreach (array_slice($importSources[(int)$x['id']] ?? [], 0, 4) as [$sk, $sid, $sname]): ?><span class="reason"><em class="tag is-plain"><?= e(['loot' => t('Drop', 'Butin'), 'object' => t('Chest', 'Coffre'), 'vendor' => t('Sold by', 'Vendu par'), 'quest' => t('Quest reward', 'Récompense')][$sk] ?? $sk) ?></em> <?php if ($sk === 'quest'): ?><a href="<?= e(entry_url('quest', $sid)) ?>" data-tt="quest:<?= $sid ?>"><?= e($sname) ?></a><?php else: ?><?= e($sname) ?> <small class="muted">#<?= $sid ?></small><?php endif; ?></span><?php endforeach; ?>
+        <?php foreach (array_slice($importSources[(int)$x['id']] ?? [], 0, 4) as [$sk, $sid, $sname]): ?><span class="reason"><em class="tag is-plain"><?= e(['loot' => t('Drop', 'Butin'), 'object' => t('Chest', 'Coffre'), 'skin' => t('Skinned from', 'Dépecé sur'), 'pick' => t('Pick-pocketed from', 'Volé sur'), 'vendor' => t('Sold by', 'Vendu par'), 'quest' => t('Quest reward', 'Récompense')][$sk] ?? $sk) ?></em> <?php if ($sk === 'quest'): ?><a href="<?= e(entry_url('quest', $sid)) ?>" data-tt="quest:<?= $sid ?>"><?= e($sname) ?></a><?php else: ?><?= e($sname) ?> <small class="muted">#<?= $sid ?></small><?php endif; ?></span><?php endforeach; ?>
         <?php else: ?><span><?= e($summary) ?></span><?php endif; ?>
         <?php if (!empty($x['needs'])): ?><small class="warn-text"><i class="fas fa-link"></i> <?= e(t('needs the hotfix fix first', 'nécessite d’abord la correction hotfix')) ?></small><?php endif; ?>
         <?php if ($done): ?><small class="ok-text"><i class="fas fa-circle-check"></i> <?= e(t('applied, waiting for the next analysis', 'appliquée, en attente de la prochaine analyse')) ?></small><?php endif; ?></td>

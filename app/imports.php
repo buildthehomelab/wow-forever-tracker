@@ -15,6 +15,8 @@ const IMPORT_GUID_TABLES = ['creature_addon' => ['guid'], 'gameobject_addon' => 
     'game_event_creature' => ['guid'], 'game_event_gameobject' => ['guid'], 'linked_respawn' => ['guid', 'linkedGuid'], 'spawn_group' => ['spawnId'],
     'pool_members' => ['spawnId'], 'creature_movement_override' => ['SpawnId']];
 // the spawn kind behind the guid columns of those tables
+/** The loot tables a creature's template points to, and the creature_template_difficulty column that does it. */
+const IMPORT_LOOT_COLUMN = ['creature_loot_template' => 'LootID', 'skinning_loot_template' => 'SkinLootID', 'pickpocketing_loot_template' => 'PickPocketLootID'];
 const IMPORT_GUID_KIND = ['creature_addon' => 'npc', 'gameobject_addon' => 'go', 'creature_formations' => 'npc', 'game_event_creature' => 'npc',
     'game_event_gameobject' => 'go', 'creature_movement_override' => 'npc'];
 
@@ -165,14 +167,14 @@ function import_file(string $path, string $name): array
     return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $ignored, 'bad' => $bad, 'statements' => $statements];
 }
 
-/** Which items each import makes obtainable: loot (creature / gameobject), vendor, quest reward. */
+/** Which items each import makes obtainable: loot (creature / gameobject / skinning / pick pocketing), vendor, quest reward. */
 function import_index(int $id, array $tables): void
 {
     $found = [];
     $each = function (string $table, callable $fn) use ($tables) {
         foreach ($tables[$table]['groups'] ?? [] as $group) foreach ($group['rows'] as $row) $fn(array_combine($group['columns'], $row));
     };
-    foreach (['creature_loot_template' => 'loot', 'gameobject_loot_template' => 'object'] as $table => $kind) {
+    foreach (['creature_loot_template' => 'loot', 'gameobject_loot_template' => 'object', 'skinning_loot_template' => 'skin', 'pickpocketing_loot_template' => 'pick'] as $table => $kind) {
         $each($table, function ($r) use (&$found, $kind) { if ((int)($r['ItemType'] ?? 0) === 0 && is_int($r['Item'] ?? null) && is_int($r['Entry'] ?? null)) $found[] = [$r['Item'], $kind, $r['Entry']]; });
     }
     $each('npc_vendor', function ($r) use (&$found) { if (is_int($r['item'] ?? null) && is_int($r['entry'] ?? null) && (int)($r['type'] ?? 1) === 1) $found[] = [$r['item'], 'vendor', $r['entry']]; });
@@ -235,7 +237,7 @@ function import_build(int $id, array $only = [], array $items = []): array
     $itemSet = $items ? array_flip(array_map('intval', $items)) : null;
     if ($itemSet !== null) {
         // only what makes these items obtainable: their loot rows, vendor rows and the quests that reward them
-        $tables = array_intersect_key($tables, array_flip(['creature_loot_template', 'gameobject_loot_template', 'npc_vendor', 'quest_template']));
+        $tables = array_intersect_key($tables, array_flip(['creature_loot_template', 'gameobject_loot_template', 'skinning_loot_template', 'pickpocketing_loot_template', 'npc_vendor', 'quest_template']));
     }
 
     // new guids for spawns, and the spawns that already exist close by
@@ -297,7 +299,7 @@ function import_build(int $id, array $only = [], array $items = []): array
                     if ($lost) continue;
                 }
                 if ($itemSet !== null) {
-                    if (in_array($table, ['creature_loot_template', 'gameobject_loot_template'], true) && !isset($itemSet[(int)($r['Item'] ?? 0)])) continue;
+                    if (in_array($table, ['creature_loot_template', 'gameobject_loot_template', 'skinning_loot_template', 'pickpocketing_loot_template'], true) && !isset($itemSet[(int)($r['Item'] ?? 0)])) continue;
                     if ($table === 'npc_vendor' && !isset($itemSet[(int)($r['item'] ?? 0)])) continue;
                     if ($table === 'quest_template') {
                         $rewards = array_intersect_key($r, array_flip(['RewardItem1', 'RewardItem2', 'RewardItem3', 'RewardItem4', 'RewardChoiceItemID1', 'RewardChoiceItemID2', 'RewardChoiceItemID3', 'RewardChoiceItemID4', 'RewardChoiceItemID5', 'RewardChoiceItemID6']));
@@ -306,7 +308,7 @@ function import_build(int $id, array $only = [], array $items = []): array
                 }
                 // a value the importer could not read (an unknown @variable or expression): the row is left out
                 if (array_filter($r, 'is_array')) { $unknown++; continue; }
-                if ($table === 'creature_loot_template' && is_int($r['Entry'] ?? null)) $lootIds[$r['Entry']] = true;
+                if (isset(IMPORT_LOOT_COLUMN[$table]) && is_int($r['Entry'] ?? null)) $lootIds[$table][$r['Entry']] = true;
                 if ($table === 'npc_vendor' && is_int($r['entry'] ?? null)) $vendors[$r['entry']] = true;
                 if ($table === 'creature_trainer' && is_int($r['CreatureID'] ?? null)) $trainers[$r['CreatureID']] = true;
                 $rows[] = array_values($r);
@@ -324,14 +326,18 @@ function import_build(int $id, array $only = [], array $items = []): array
     foreach (array_keys($trainers) as $entry) $flags[$entry] = ($flags[$entry] ?? 0) | 16 | 64;
     if ($flags) forge_merge($ops, ['db' => 'world', 'table' => 'creature_template', 'columns' => ['entry', 'npcflag'], 'match' => ['entry'], 'bits' => 'npcflag',
         'rows' => array_map(fn($entry, $bits) => [$entry, $bits], array_keys($flags), $flags)]);
-    // (a loot table some creature already points to needs nothing: the rows were added to that creature's own table)
-    foreach (array_chunk(array_keys($lootIds), 1000) as $chunk) {
-        foreach (rows('SELECT DISTINCT LootID FROM creature_template_difficulty WHERE LootID IN (' . implode(',', $chunk) . ')', [], 'world') as $r) unset($lootIds[(int)$r['LootID']]);
-    }
-    if ($lootIds) {
+    // a creature drops, is skinned or pick-pocketed for a loot table only when its template points to it: the column
+    // (LootID, SkinLootID, PickPocketLootID) is filled where it is still 0. A table some creature already points to
+    // needs nothing: the rows were added to that creature's own table
+    foreach ($lootIds as $table => $entries) {
+        $column = IMPORT_LOOT_COLUMN[$table];
+        foreach (array_chunk(array_keys($entries), 1000) as $chunk) {
+            foreach (rows("SELECT DISTINCT `$column` id FROM creature_template_difficulty WHERE `$column` IN (" . implode(',', $chunk) . ')', [], 'world') as $r) unset($entries[(int)$r['id']]);
+        }
+        if (!$entries) continue;
         $fill = [];
-        foreach (array_keys($lootIds) as $entry) $fill[] = [$entry, 0, $entry];
-        forge_merge($ops, ['db' => 'world', 'table' => 'creature_template_difficulty', 'columns' => ['Entry', 'DifficultyID', 'LootID'], 'match' => ['Entry', 'DifficultyID'], 'fill' => 'LootID', 'rows' => $fill]);
+        foreach (array_keys($entries) as $entry) $fill[] = [$entry, 0, $entry];
+        forge_merge($ops, ['db' => 'world', 'table' => 'creature_template_difficulty', 'columns' => ['Entry', 'DifficultyID', $column], 'match' => ['Entry', 'DifficultyID'], 'fill' => $column, 'rows' => $fill]);
     }
     // only the whole card changes values: "the sources of these items" (the Items page) adds what is missing, no more
     if ($itemSet === null) foreach ($changes as $op) forge_merge($ops, $op);
