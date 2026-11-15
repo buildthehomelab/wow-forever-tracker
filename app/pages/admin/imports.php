@@ -20,7 +20,7 @@ $tableLabels = [
     'creature' => t('Creature spawns', 'Placements de PNJ'), 'gameobject' => t('Object spawns', 'Placements d’objets'), 'creature_template' => t('New creatures', 'Nouveaux PNJ'),
     'gameobject_template' => t('New objects', 'Nouveaux objets du monde'), 'creature_loot_template' => t('Creature loot', 'Butin des PNJ'), 'gameobject_loot_template' => t('Chest loot', 'Butin des coffres'),
     'npc_vendor' => t('Vendors', 'Marchands'), 'quest_template' => t('Quests', 'Quêtes'), 'creature_queststarter' => t('Quest givers', 'Donneurs de quête'),
-    'creature_questender' => t('Quest enders', 'Valideurs de quête'), 'trainer_spell' => t('Trainers', 'Entraîneurs'), 'gossip_menu_option' => t('Gossip options', 'Options de dialogue'),
+    'creature_questender' => t('Quest enders', 'Valideurs de quête'), 'trainer_spell' => t('Trainers', 'Entraîneurs'), 'trainer' => t('New trainer lists', 'Nouvelles listes d’entraîneur'), 'creature_trainer' => t('Creatures that become trainers', 'PNJ qui deviennent entraîneurs'), 'gossip_menu_option' => t('Gossip options', 'Options de dialogue'),
     'gameobject_queststarter' => t('Quest givers (objects)', 'Donneurs de quête (objets)'), 'gameobject_questender' => t('Quest enders (objects)', 'Valideurs de quête (objets)'),
     'quest_offer_reward' => t('What the NPC says at the turn-in', 'Ce que dit le PNJ au rendu'), 'quest_request_items' => t('What the NPC says while the quest is not done', 'Ce que dit le PNJ tant que la quête n’est pas finie'),
     // rows the server already has, whose value the source measured again (docs/SOURCES.md)
@@ -49,6 +49,8 @@ $leftLabels = [
     'classic_quest_unknown' => t('quests of the original game that taught a recipe and that this server does not have', 'quêtes du jeu d’origine qui enseignaient une recette et que ce serveur n’a pas'),
     'classic_quest_casts_already' => t('quests that already cast a spell at the turn-in (left as they are)', 'quêtes qui lancent déjà un sort au rendu (laissées telles quelles)'),
     'classic_gone_from_forever' => t('recipes WoW: Forever took away (the spell is gone from the server’s data, or marked never learned): not asked', 'recettes que WoW: Forever a retirées (le sort a disparu des données du serveur, ou est marqué « jamais appris ») : non demandées'),
+    'classic_trainer_not_spawned' => t('recipes of the original game’s trainers that nobody spawned here', 'recettes d’entraîneurs du jeu d’origine que personne n’a placés ici'),
+    'classic_trainer_number_taken' => t('recipes of creatures whose own trainer list number is already used by another list', 'recettes de PNJ dont le numéro de liste propre est déjà pris par une autre liste'),
     'classic_silent' => t('recipes the original game’s database names no teacher for', 'recettes pour lesquelles la base du jeu d’origine ne nomme personne'),
     'report_name_unknown' => t('NPC names no creature or object of this server has', 'noms de PNJ qu’aucune créature ni objet de ce serveur ne porte'),
     'report_not_spawned' => t('names that two or more templates share, none of them spawned (nothing tells which one players met), and drops of creatures nobody spawned', 'noms que deux modèles ou plus partagent, aucun n’étant placé (rien ne dit lequel les joueurs ont rencontré), et butins de créatures que personne n’a placées'),

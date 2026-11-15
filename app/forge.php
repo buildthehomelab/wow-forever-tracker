@@ -221,7 +221,11 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
                 foreach (rows('SELECT ' . implode(',', array_map('forge_ident', $match)) . ', ' . forge_ident($flag) . ' v FROM ' . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $found) {
                     $current = (int)$found['v']; unset($found['v']);
                     $key = forge_key(array_values($found));
-                    if (isset($wanted[$key]) && ($current & (int)$wanted[$key][$at]) !== (int)$wanted[$key][$at]) $todo[] = $wanted[$key];
+                    if (!isset($wanted[$key])) continue;
+                    // only the bits the row lacks: the rollback then leaves the ones it already had (a trainer that
+                    // was a vendor keeps its vendor flag; a creature with one of two wanted bits keeps that one)
+                    $missing = (int)$wanted[$key][$at] & ~$current;
+                    if ($missing) { $row = $wanted[$key]; $row[$at] = $missing; $todo[] = $row; }
                 }
             }
             $tables[$database . '.' . $table . '.' . $flag] = [count($todo), count($op['rows']) - count($todo)];

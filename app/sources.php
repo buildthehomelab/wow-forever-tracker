@@ -619,6 +619,69 @@ function classicdb_changes(array $result): array
     return $changes;
 }
 
+/** A trainer list of its own for a creature takes this number plus the creature's: the convention the world data follows. */
+const CLASSICDB_TRAINER_BASE = 1000000;
+const CLASSICDB_TRADESKILL = 2;   // trainer.Type
+
+/**
+ * The trainer lines whose creature is no trainer on this server. Where the creature exists and stands in the world,
+ * it becomes one: a trainer list of its own, the link to it and its spells (applying the card adds the trainer flag,
+ * as it adds the vendor flag). Returns [rows by table, left out, the lines of creatures that are trainers already].
+ * $state: sets keyed by number: 'trainer' (creatures that have a list), 'known' (templates), 'spawned', 'taken'
+ * (trainer lists that exist), 'later' (spells of a release phase that is not open).
+ */
+function classicdb_trainer_rows(array $train, array $state, int $build): array
+{
+    $rows = []; $left = []; $rest = [];
+    $byNpc = [];
+    foreach ($train as $line) $byNpc[$line[0]][] = $line;
+    foreach ($byNpc as $npc => $lines) {
+        if (isset($state['trainer'][$npc])) { array_push($rest, ...$lines); continue; }
+        $lines = array_values(array_filter($lines, fn($line) => !isset($state['later'][$line[1]])));
+        if (!$lines) continue;
+        $n = count($lines);
+        if (!isset($state['known'][$npc])) { $left['trainer_not_on_server'] = ($left['trainer_not_on_server'] ?? 0) + $n; continue; }
+        if (!isset($state['spawned'][$npc])) { $left['classic_trainer_not_spawned'] = ($left['classic_trainer_not_spawned'] ?? 0) + $n; continue; }
+        $id = CLASSICDB_TRAINER_BASE + $npc;
+        if (isset($state['taken'][$id])) { $left['classic_trainer_number_taken'] = ($left['classic_trainer_number_taken'] ?? 0) + $n; continue; }
+        $rows['trainer'][] = ['Id' => $id, 'Type' => CLASSICDB_TRADESKILL, 'Greeting' => '', 'VerifiedBuild' => $build];
+        $rows['creature_trainer'][] = ['CreatureID' => $npc, 'TrainerID' => $id, 'MenuID' => 0, 'OptionID' => 0];
+        foreach ($lines as [, $spell, $cost, $level, $line, $rank]) {
+            $rows['trainer_spell'][] = ['TrainerId' => $id, 'SpellId' => $spell, 'MoneyCost' => $cost, 'ReqSkillLine' => $line, 'ReqSkillRank' => $rank,
+                'ReqAbility1' => 0, 'ReqAbility2' => 0, 'ReqAbility3' => 0, 'ReqLevel' => $level, 'VerifiedBuild' => $build];
+        }
+    }
+    return [$rows, $left, $rest];
+}
+
+/** What classicdb_trainer_rows() needs to know about the creatures of these trainer lines, read from the world. */
+function classicdb_trainer_state(array $train, array $gaps): array
+{
+    $npcs = array_values(array_unique(array_map(fn($line) => (int)$line[0], $train)));
+    $state = ['trainer' => [], 'known' => [], 'spawned' => [], 'taken' => [], 'later' => $gaps['later']['spells'] ?? []];
+    $set = function (string $sql): array { $out = []; foreach (rows($sql, [], 'world') as $r) $out[(int)reset($r)] = true; return $out; };
+    foreach (array_chunk($npcs, 1000) as $chunk) {
+        $in = implode(',', $chunk);
+        $state['trainer'] += $set("SELECT DISTINCT CreatureID FROM creature_trainer WHERE CreatureID IN ($in)");
+        $state['known'] += $set("SELECT entry FROM creature_template WHERE entry IN ($in)");
+        $state['spawned'] += $set("SELECT DISTINCT id FROM creature WHERE id IN ($in)");
+        $state['taken'] += $set('SELECT Id FROM trainer WHERE Id IN (' . implode(',', array_map(fn($npc) => CLASSICDB_TRAINER_BASE + $npc, $chunk)) . ')');
+    }
+    return $state;
+}
+
+/** Rows by table in the shape of an import's tables, with the columns this server's tables have. */
+function classicdb_tables(array $rows): array
+{
+    $tables = [];
+    foreach ($rows as $table => $records) {
+        if (!$records || !table_exists($table, 'world')) continue;
+        $use = array_values(array_intersect(array_keys($records[0]), import_columns('world', $table)));
+        $tables[$table] = ['db' => 'world', 'columns' => $use, 'groups' => [['columns' => $use, 'rows' => array_map(fn($r) => array_map(fn($c) => $r[$c], $use), $records)]]];
+    }
+    return $tables;
+}
+
 function classicdb_import(): array
 {
     if ($e = source_check()) return $e;
@@ -639,7 +702,16 @@ function classicdb_import(): array
     $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['made'] ?? '')) ? (string)$result['made'] : date('Y-m-d', (int)filemtime($pack));
     $label = 'Classic database ' . $made;
     $ev = classicdb_evidence($result);
-    [$tables, $left] = source_tables($ev, $label, source_gaps());
+    $gaps = source_gaps();
+    // a creature Classic trains at that is no trainer here gets a list of its own; the others' lines go the usual way
+    [$own, $ownLeft, $ev['train']] = classicdb_trainer_rows($ev['train'], classicdb_trainer_state($ev['train'], $gaps), (int)(meta()['client_build'] ?? 0));
+    [$tables, $left] = source_tables($ev, $label, $gaps);
+    foreach (classicdb_tables($own) as $table => $entry) {
+        if (!isset($tables[$table])) { $tables[$table] = $entry; continue; }
+        // trainer_spell of both kinds: the same columns in the same order, one list
+        if ($tables[$table]['columns'] === $entry['columns']) $tables[$table]['groups'][0]['rows'] = array_merge($tables[$table]['groups'][0]['rows'], $entry['groups'][0]['rows']);
+    }
+    foreach ($ownLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
     return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, classicdb_changes($result));
 }
 
