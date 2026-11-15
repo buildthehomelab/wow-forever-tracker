@@ -173,7 +173,25 @@ function ready(): bool { return meta() !== [] && table_exists('ft_entities'); }
 function builds(): array
 {
     static $builds = null;
-    return $builds ??= ready() ? rows('SELECT build, version, released, note, source, is_server, counts FROM ft_builds ORDER BY build DESC') : [];
+    return $builds ??= ready() ? rows('SELECT build, version, released, note, source, is_server, counts FROM ft_builds' . (hotfix_entries() ? ' WHERE hotfix = 0' : '') . ' ORDER BY build DESC') : [];
+}
+/** The analysis keeps Blizzard's hotfixes as entries of their own (ft_builds.hotfix, ft_changes.hotfix: schema 5). */
+function hotfix_entries(): bool { return (int)(meta()['schema'] ?? 0) >= 5; }
+/**
+ * The hotfix updates after their build, newest first: one for each day a new hotfix cache changed something
+ * (tools/ft/hotfixes.py, docs/CLIENT.md). Rows of ft_builds with hotfix 1, 2, ...; released = the day it was read.
+ */
+function hotfix_updates(): array
+{
+    static $found = null;
+    return $found ??= ready() && hotfix_entries() ? rows('SELECT build, hotfix, version, released, note, source, is_server, counts FROM ft_builds WHERE hotfix > 0 ORDER BY build DESC, hotfix DESC') : [];
+}
+/** SQL on ft_changes (alias like "c."): the changes of a build itself (0) or of one of its hotfix updates. */
+function hotfix_is(int $hotfix, string $alias = ''): string { return hotfix_entries() ? " AND {$alias}hotfix = " . $hotfix : ''; }
+/** "Hotfixes of Nov 15" for a hotfix update. */
+function hotfix_name(array $update): string
+{
+    return sprintf(t('Hotfixes of %s', 'Correctifs du %s'), $update['released'] ? date(t('M j', 'd/m'), strtotime((string)$update['released'])) : '#' . (int)$update['hotfix']);
 }
 /** A build of the beta: stored from a product of that name (tools/ft/client.py, history). */
 function build_is_beta(array $build): bool

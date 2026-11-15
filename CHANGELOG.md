@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Hotfixes as entries of their own.** Every hotfix cache that differs from the one before is kept, compressed,
+  with its build (`data/builds/<build>/hotfixes/`). A build is compared as it stood with its first cache, and each
+  later day's hotfixes are an entry of their own on the timeline and in the changelog: what they added, changed or
+  removed (`/changes?build=…&hotfix=…`). The double check follows them too (docs/CLIENT.md). Database: `ft_builds.hotfix`
+  and `ft_changes.hotfix` (schema 5); the site reads an older analysis as before until the next one runs.
 - **The changelog starts at the original game.** Patch 1.12, as Blizzard published it again in 2019 (the client WoW
   Classic launched with), is stored as the build before the first beta, and the first beta build has a page of what it
   added, changed and does not have against it. An item's stats and a spell's effects are compared in a form both
