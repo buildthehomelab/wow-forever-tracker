@@ -1,5 +1,5 @@
 """The locator: finds the creatures and world objects the server knows but never spawned although its quests,
-vendors, trainers, loot or dungeons need them, looks up on Wowhead's public maps where they stand and turns
+vendors, trainers, loot or dungeons need them, looks up on Wowhead's public maps where they stand (else where players saw them, from the Icy Veins mirror) and turns
 those map percentages into world positions ready to spawn (table ft_spawns of the tracker database).
 
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
@@ -18,7 +18,7 @@ import math
 import os
 import re
 
-from . import phases, sqlio, summons
+from . import icyveins, phases, sqlio, summons
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
@@ -284,6 +284,21 @@ def run(args):
                     state, note = 'unknown', 'no position on Wowhead'
         elif 'boss' in roles and map_id is not None:
             state, note = 'manual', 'inside an instance'
+        if state not in ('ready', 'manual'):
+            # where Wowhead has no position: where players' addons saw it, from the Icy Veins mirror (Import Icy Veins).
+            # Inside an instance it stays for a hand to place, as with ForeverScribe's sightings
+            world = [w for w in (geo.to_world(ui, u, v) for ui, u, v in icyveins.points(kind, entry)) if w]
+            if world and all(m in instance_maps for m, _x, _y in world):
+                map_id, state, note, world = world[0][0], 'manual', 'seen by players inside an instance (Icy Veins)', []
+            world = [w for w in world if w[0] not in instance_maps]
+            if world:
+                by_map = {}
+                for m, x, y in world:
+                    by_map.setdefault(m, []).append((x, y))
+                map_id = max(by_map, key=lambda m: len(by_map[m]))
+                spots = cluster(by_map[map_id], 6.0 if pack else 60.0)[:MAX_POINTS]
+                points = [neighbours.place(map_id, x, y) for x, y in spots]
+                state, note, zone = 'ready', 'seen by players (Icy Veins)', None
         counts[state] = counts.get(state, 0) + 1
         wander = 0.0 if service else 5.0
         rows.append(f"({sqlio.escape(kind)},{entry},{sqlio.escape(info['name'][:250])},{priority},{sqlio.escape(state)},{'NULL' if map_id is None else int(map_id)},"

@@ -95,7 +95,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_WOWHEAD_REFRESH_DAYS` | `30` | An answer Wowhead gave is asked again after about this many days (spread by id so they do not all come due together); `0`: kept for good |
 | `FT_WOWHEAD_BRANCH`, `FT_WOWHEAD_PAUSE` | `forever`, `0.4` | Locator |
 | `FT_FORGE_TRAINER_GUESS` | `1` | `0`: no trainer fixes guessed from the client's skill lines; trainer spells come from imports (NorgannonDB) only. A change re-analyses once |
-| `FT_ICYVEINS_MAX` | `20000` | Most Icy Veins lookups in one import run (two a second); the next run goes on from the cache |
+| `FT_ICYVEINS_MAX` | `100000` | Most Icy Veins lookups in one import run (two a second; a full mirror is about 67,000); the next run goes on from the mirror |
 | `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
 | `FT_CLIENT_EVERY_HOURS` | `6` | Hours between checks of Blizzard's version server for a new client build, read from the CDN when there is one (docs/CLIENT.md); `0`: never. The first check follows the start's own analysis; **Check the client now** in the Forge does one at once |

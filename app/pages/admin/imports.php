@@ -121,6 +121,18 @@ $leftLabels = [
     'no_ender_named' => t('quests whose Wowhead summary names nobody to return to', 'quêtes dont le résumé Wowhead ne nomme personne chez qui revenir'),
     'name_not_on_server' => t('enders Wowhead names that no spawned creature of this server is called', 'valideurs nommés par Wowhead dont aucun PNJ placé de ce serveur ne porte le nom'),
     'name_not_unique' => t('enders Wowhead names that several spawned creatures are called', 'valideurs nommés par Wowhead dont plusieurs PNJ placés portent le nom'),
+    'icyveins_vendor_other_cost' => t('vendor stock paid with items or a currency (no cost to give it)', 'articles de marchand payés avec des objets ou une monnaie (pas de coût à leur donner)'),
+    'icyveins_loot_spell_unknown' => t('loot taken with a spell other than Skinning or Pick Pocket (no table for it)', 'butins pris avec un autre sort que Dépeçage ou Vol à la tire (pas de table pour eux)'),
+    'icyveins_service_unknown' => t('NPC services Icy Veins numbers in a way this tracker does not know yet', 'services de PNJ numérotés par Icy Veins d’une façon que ce tracker ne connaît pas encore'),
+    'icyveins_service_npc_unknown' => t('NPCs with recorded services that this server has no template for', 'PNJ aux services enregistrés dont ce serveur n’a pas le modèle'),
+    'icyveins_trainer_list_not_a_trainer' => t('trainer entries recorded on NPCs that offer no training (bankers, innkeepers: a stray list in the recording)', 'entrées d’entraîneur enregistrées sur des PNJ qui n’entraînent pas (banquiers, aubergistes : une liste égarée dans l’enregistrement)'),
+    'icyveins_container_no_chance' => t('items opened from another item (clams, lockboxes): Icy Veins records no chance for them, kept in the mirror', 'objets tirés d’un autre objet (palourdes, coffrets) : Icy Veins n’enregistre pas de chance, gardés dans le miroir'),
+    'icyveins_kept_levels' => t('NPCs with levels players recorded (kept in the mirror, not compared yet)', 'PNJ aux niveaux enregistrés par les joueurs (gardés dans le miroir, pas encore comparés)'),
+    'icyveins_kept_coin' => t('NPCs with the money players looted from them (kept in the mirror, not compared yet)', 'PNJ avec l’argent que les joueurs y ont ramassé (gardés dans le miroir, pas encore comparés)'),
+    'icyveins_kept_gossip' => t('NPCs with what they say when spoken to (kept in the mirror, not compared yet)', 'PNJ avec ce qu’ils disent quand on leur parle (gardés dans le miroir, pas encore comparés)'),
+    'icyveins_kept_positions' => t('NPCs and objects with positions players recorded (the locator reads them)', 'PNJ et objets aux positions enregistrées par les joueurs (le localisateur les lit)'),
+    'icyveins_kept_flight_paths' => t('flight paths with their routes (kept in the mirror)', 'trajets aériens avec leurs routes (gardés dans le miroir)'),
+    'icyveins_kept_zones' => t('zones with the NPCs and objects seen in them (kept in the mirror)', 'zones avec les PNJ et objets qu’on y a vus (gardées dans le miroir)'),
     'icyveins_lookup_limit_reached_run_again' => t('Icy Veins lookup limit of one run reached: run it again for the rest', 'limite de consultations Icy Veins d’un passage atteinte : relancez pour la suite'),
 ];
 $megabytes = fn(int $bytes) => number($bytes / 1048576, 1) . ' MB';

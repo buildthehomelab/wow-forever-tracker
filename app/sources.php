@@ -86,6 +86,34 @@ function source_trainer_npcs(): array
     return array_map('intval', array_column(rows('SELECT DISTINCT CreatureID FROM creature_trainer', [], 'world'), 'CreatureID'));
 }
 
+/** The loot table each kind of drop goes to. */
+const SOURCE_LOOT_TABLES = ['npc' => 'creature_loot_template', 'skin' => 'skinning_loot_template', 'pick' => 'pickpocketing_loot_template', 'go' => 'gameobject_loot_template'];
+/** The creature_template_difficulty column that points a creature to each of its tables. */
+const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' => 'PickPocketLootID'];
+
+/**
+ * The loot entries of these creatures and objects: [[kind => [id => entry, 0 when the creature has no table of that
+ * kind yet]], [known => ['npc' => [id => true], 'go' => [id => true]]]]. An object has an entry only as a chest or a
+ * gathering node (types 3 and 25, Data1).
+ */
+function source_loot_entries(array $npcs, array $objects): array
+{
+    $entryOf = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []]; $known = ['npc' => [], 'go' => []];
+    foreach (array_chunk(array_values(array_unique(array_map('intval', $npcs))), 1000) as $chunk) {
+        foreach (rows('SELECT Entry, LootID, SkinLootID, PickPocketLootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
+            $known['npc'][(int)$r['Entry']] = true;
+            foreach (SOURCE_LOOT_COLUMNS as $kind => $column) $entryOf[$kind][(int)$r['Entry']] = (int)$r[$column];
+        }
+    }
+    foreach (array_chunk(array_values(array_unique(array_map('intval', $objects))), 1000) as $chunk) {
+        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
+            $known['go'][(int)$r['entry']] = true;
+            $entryOf['go'][(int)$r['entry']] = in_array((int)$r['type'], [3, 25], true) ? (int)$r['Data1'] : 0;
+        }
+    }
+    return [$entryOf, $known];
+}
+
 /** The evidence as import tables, with the server's rules (see the top of this file). Returns [tables, left out]. */
 function source_tables(array $ev, string $label, array $gaps): array
 {
@@ -113,37 +141,31 @@ function source_tables(array $ev, string $label, array $gaps): array
         }
     }
 
-    // ---- loot
-    $drops = ['npc' => [], 'go' => []];
+    // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go')
+    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []];
     foreach ($ev['drop'] ?? [] as [$kind, $id, $item, $chance]) {
-        if (!isset($gaps['items'][(int)$item])) continue;
+        if (!isset($gaps['items'][(int)$item]) || !isset($drops[$kind])) continue;
         $old = $drops[$kind][(int)$id][(int)$item] ?? 0;
         $drops[$kind][(int)$id][(int)$item] = max($old, (float)$chance);   // a source seen in several builds: its best measure
     }
-    $lootIds = [];
-    foreach (array_chunk(array_keys($drops['npc']), 1000) as $chunk) {
-        foreach (rows('SELECT Entry, LootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $lootIds[(int)$r['Entry']] = (int)$r['LootID'];
-    }
-    $chests = [];
-    foreach (array_chunk(array_keys($drops['go']), 1000) as $chunk) {
-        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $chests[(int)$r['entry']] = in_array((int)$r['type'], [3, 25], true) ? (int)$r['Data1'] : 0;
-    }
+    [$entryOf, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']));
     $questItems = $ids('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1');
-    $gives = ['creature_loot_template' => collector_loot_items('creature_loot_template', array_map(fn($e, $l) => $l ?: $e, array_keys($lootIds), $lootIds)),
-              'gameobject_loot_template' => collector_loot_items('gameobject_loot_template', array_values(array_filter($chests)))];
+    $gives = [];
+    // a creature without a table of that kind is checked under its own entry (where its rows go); an object only as a chest or node
+    foreach (SOURCE_LOOT_TABLES as $kind => $table) $gives[$table] = collector_loot_items($table, $kind === 'go' ? array_values(array_filter($entryOf[$kind]))
+        : array_values(array_map(fn($id, $e) => $e ?: $id, array_keys($entryOf[$kind]), $entryOf[$kind])));
     foreach ($drops as $kind => $sources) {
+        $table = SOURCE_LOOT_TABLES[$kind];
         foreach ($sources as $id => $list) {
-            if ($kind === 'npc') {
-                if (!array_key_exists($id, $lootIds)) { $left['loot_unknown_creature'] += count($list); continue; }
-                [$table, $entry] = ['creature_loot_template', $lootIds[$id] ?: $id];
-            } else {
-                if (empty($chests[$id])) { $left['object_no_loot'] += count($list); continue; }
-                [$table, $entry] = ['gameobject_loot_template', $chests[$id]];
-            }
+            if (!isset($known[$kind === 'go' ? 'go' : 'npc'][$id])) { $left[$kind === 'go' ? 'object_no_loot' : 'loot_unknown_creature'] += count($list); continue; }
+            if ($kind === 'go' && empty($entryOf['go'][$id])) { $left['object_no_loot'] += count($list); continue; }
+            // a creature without a table of its own gets one under its entry: applying the card points the template to it
+            $entry = $entryOf[$kind][$id] ?: $id;
             foreach ($list as $item => $chance) {
                 if ($chance <= 0) { $left['loot_chance_unknown']++; continue; }
                 if (isset($gives[$table][$entry][$item])) { $left['loot_known']++; continue; }
-                $rows[$table][] = ['Entry' => $entry, 'ItemType' => 0, 'Item' => $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => isset($questItems[$item]) ? 1 : 0,
+                $questOnly = isset($questItems[$item]) || isset($ev['quest_drop']["$kind:$id:$item"]);
+                $rows[$table][] = ['Entry' => $entry, 'ItemType' => 0, 'Item' => $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => $questOnly ? 1 : 0,
                     'LootMode' => 1, 'GroupId' => 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
             }
         }
@@ -308,27 +330,24 @@ function source_drop_changes(string $source, array $measured, array $current, fl
 /** The server's drop rows for the creatures and chests of the evidence, and the evidence keyed like them: [measured, current]. */
 function source_drops_now(array $ev): array
 {
-    $drops = ['npc' => [], 'go' => []];
+    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []];
     foreach ($ev['drop'] ?? [] as $d) {
         [$kind, $id, $item, $chance] = $d;
-        if (!empty($d[4])) continue;   // an even share AtlasLoot guessed is no measure
+        if (!empty($d[4]) || !isset($drops[$kind])) continue;   // an even share AtlasLoot guessed is no measure
         $drops[$kind][(int)$id][(int)$item] = max($drops[$kind][(int)$id][(int)$item] ?? 0, (float)$chance);
     }
-    $entryOf = ['creature_loot_template' => [], 'gameobject_loot_template' => []];
-    foreach (array_chunk(array_keys($drops['npc']), 1000) as $chunk) {
-        foreach (rows('SELECT Entry, LootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $entryOf['creature_loot_template'][(int)$r['Entry']] = (int)$r['LootID'] ?: (int)$r['Entry'];
-    }
-    foreach (array_chunk(array_keys($drops['go']), 1000) as $chunk) {
-        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) if (in_array((int)$r['type'], [3, 25], true) && (int)$r['Data1']) $entryOf['gameobject_loot_template'][(int)$r['entry']] = (int)$r['Data1'];
-    }
+    [$found, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']));
     $measured = []; $current = [];
-    foreach (['creature_loot_template' => 'npc', 'gameobject_loot_template' => 'go'] as $table => $kind) {
+    foreach (SOURCE_LOOT_TABLES as $kind => $table) {
+        // a creature's table under its own entry when its template names none (an import made it so); an object only as a chest or node
+        $entryOf = [];
+        foreach ($found[$kind] as $id => $entry) if ($entry || $kind !== 'go') $entryOf[$id] = $entry ?: $id;
         foreach ($drops[$kind] as $id => $list) {
-            if (!isset($entryOf[$table][$id])) continue;
-            foreach ($list as $item => $chance) $measured["$table:{$entryOf[$table][$id]}:$item"] = max($measured["$table:{$entryOf[$table][$id]}:$item"] ?? 0, $chance);
+            if (!isset($entryOf[$id])) continue;
+            foreach ($list as $item => $chance) $measured["$table:{$entryOf[$id]}:$item"] = max($measured["$table:{$entryOf[$id]}:$item"] ?? 0, $chance);
         }
-        $entries = array_values(array_unique($entryOf[$table]));
-        foreach (array_chunk($entries, 500) as $chunk) {
+        if (!table_exists($table, 'world')) continue;
+        foreach (array_chunk(array_values(array_unique($entryOf)), 500) as $chunk) {
             foreach (rows("SELECT Entry, Item, Chance, Comment FROM `$table` WHERE ItemType = 0 AND Entry IN (" . implode(',', $chunk) . ')', [], 'world') as $r) {
                 $key = "$table:" . (int)$r['Entry'] . ':' . (int)$r['Item'];
                 if (isset($measured[$key])) $current[$key] = ['Chance' => (float)$r['Chance'], 'Comment' => (string)$r['Comment']];
@@ -414,7 +433,8 @@ function source_refresh_items(string $source): array
     $trust = source_trust(); $items = [];
     foreach (SOURCE_MARKS as $origin => $mark) {
         if (source_may_change($source, $origin, $trust) !== 'yes') continue;
-        foreach (['creature_loot_template', 'gameobject_loot_template'] as $table) {
+        foreach (SOURCE_LOOT_TABLES as $table) {
+            if (!table_exists($table, 'world')) continue;
             foreach (rows("SELECT DISTINCT Item FROM `$table` WHERE ItemType = 0 AND Comment LIKE ?", ['%' . addcslashes($mark, '%_\\') . '%'], 'world') as $r) $items[(int)$r['Item']] = true;
         }
     }
@@ -1158,157 +1178,6 @@ function foreverdb_evidence(): array
     return ['ev' => $ev, 'version' => $version];
 }
 
-// ------------------------------------------------------------------ Icy Veins (reference only)
-// db.icy-veins.com/wow-forever: one answer per item, quest and NPC, with what players' addons recorded on live Forever.
-// Asked only about the gaps: items players cannot get, quests without giver / ender, the server's trainers. Polite (two
-// requests a second), cached in data/icyveins/, asked again after 14 days (7 for "not found"): it keeps growing.
-const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
-const ICYVEINS_MAX_FAILURES = 20;   // lookups failing in a row before a run stops (an outage, a block, no network)
-
-/** The run stops itself: Icy Veins did not answer ICYVEINS_MAX_FAILURES lookups in a row. */
-final class IcyVeinsStopped extends Exception {}
-
-/** Seconds to wait before the lookup that follows $failures failed ones in a row: 1, 2, 4 … up to a minute. A short
- *  outage then costs a handful of requests, and the 20 failures that stop a run take about a quarter of an hour. */
-function icyveins_backoff(int $failures): int
-{
-    return $failures < 1 ? 0 : (int)min(60, 2 ** min($failures - 1, 6));
-}
-
-/** One answer, from the cache or asked. $failures counts the lookups that got no answer in a row (neither 200 nor
- *  404; nothing is cached for them, so the next run asks again) and $lastFailure says what the last one was. */
-function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, string &$lastFailure = ''): ?array
-{
-    static $last = 0.0;
-    $path = FT_ROOT . "/data/icyveins/$kind/$id.json";
-    if (is_file($path)) {
-        $data = json_decode((string)file_get_contents($path), true) ?: [];
-        $age = time() - (int)($data['fetched'] ?? 0);
-        // kept two weeks (one for "not known"), and asked again whatever its age after "ask every source again"
-        if ($age < (empty($data['missing']) ? 14 : 7) * 86400 && (int)($data['fetched'] ?? 0) >= source_refresh_epoch()) return $data;
-    }
-    if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) return is_file($path) ? $data : null;
-    $wait = max(0.5, icyveins_backoff($failures)) - (microtime(true) - $last);
-    if ($wait > 0) usleep((int)($wait * 1e6));
-    $last = microtime(true); $asked++;
-    [$status, $body] = source_http(ICYVEINS . "$kind/$id", 30);
-    if ($status === 404) $data = ['missing' => true];
-    elseif ($status !== 200) {
-        $failures++;
-        $lastFailure = "$kind $id: " . ($status ? "HTTP $status" : 'no answer');
-        return is_file($path) ? $data : null;
-    } else {
-        $full = json_decode($body, true);
-        $data = is_array($full) && !empty($full['entity']) ? ['relations' => $full['relations'] ?? []] : ['missing' => true];
-    }
-    $failures = 0;
-    $data['fetched'] = time();
-    @mkdir(dirname($path), 0775, true);
-    file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    return $data;
-}
-
-/** Drops and vendors of the gap items Icy Veins already answered (its cache only: no lookup). */
-function icyveins_cached_items(array $items): array
-{
-    $ev = ['sell' => [], 'drop' => []];
-    foreach (array_keys($items) as $item) {
-        $path = FT_ROOT . "/data/icyveins/item/$item.json";
-        if (!is_file($path)) continue;
-        icyveins_item_evidence($ev, $item, (array)((json_decode((string)file_get_contents($path), true) ?: [])['relations'] ?? []));
-    }
-    return $ev;
-}
-
-/** Givers and enders of the gap quests Icy Veins already answered (its cache only). */
-function icyveins_cached_quests(array $quests): array
-{
-    $ev = ['start' => [], 'end' => []];
-    foreach (array_keys($quests) as $quest) {
-        $path = FT_ROOT . "/data/icyveins/quest/$quest.json";
-        if (is_file($path)) icyveins_quest_evidence($ev, $quest, (array)((json_decode((string)file_get_contents($path), true) ?: [])['relations'] ?? []));
-    }
-    return $ev;
-}
-
-function icyveins_quest_evidence(array &$ev, int $quest, array $r): void
-{
-    foreach ((array)($r['addon_givers'] ?? []) as $g) {
-        [$kind, $id] = !empty($g['npc_id']) ? ['npc', (int)$g['npc_id']] : ['go', (int)($g['gameobject_id'] ?? 0)];
-        if (!$id) continue;
-        if (!empty($g['starts'])) $ev['start'][] = [$kind, $id, $quest];
-        if (!empty($g['ends'])) $ev['end'][] = [$kind, $id, $quest];
-    }
-}
-
-function icyveins_item_evidence(array &$ev, int $item, array $r): void
-{
-    foreach ((array)($r['addon_dropped_by'] ?? []) as $d) {
-        $chance = 100 * (float)($d['chance'] ?? 0);
-        if (!empty($d['npc_id'])) $ev['drop'][] = ['npc', (int)$d['npc_id'], $item, $chance];
-        elseif (!empty($d['gameobject_id'])) $ev['drop'][] = ['go', (int)$d['gameobject_id'], $item, $chance];
-    }
-    foreach ((array)($r['addon_sold_by'] ?? []) as $s) {
-        if (empty($s['npc_id']) || (isset($s['current']) && !$s['current']) || !empty($s['cost_item_ids']) || !empty($s['cost_currency_ids'])) continue;
-        $ev['sell'][] = [(int)$s['npc_id'], $item, (int)($s['remaining'] ?? 0) > 0 ? (int)$s['remaining'] : 0];
-    }
-}
-
-function icyveins_import(?callable $progress = null): array
-{
-    if ($e = source_check()) return $e;
-    $gaps = source_gaps();
-    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => []];
-    $asked = 0; $done = 0;
-    // besides the gaps: the items of the drops an import brought, to see whether their chance moved (source_refresh)
-    $again = array_diff_key(source_refresh_items('icyveins'), $gaps['items']);
-    $todo = count($gaps['items']) + count($again) + count($gaps['noGiver'] + $gaps['noEnder']);
-    $trainers = source_trainer_npcs();
-    $todo += count($trainers);
-    // a line (and a sign of life on the Imports page) every 20 lookups: ten seconds while Icy Veins is asked
-    $tick = function () use (&$done, $todo, $progress, &$asked) { if ($progress && ++$done % 20 === 0) $progress("$done/$todo looked at, $asked asked"); };
-    // lookups that get no answer are not cached and used to be skipped one after the other: an outage fired thousands
-    // of failing requests. They now slow the run down (icyveins_backoff) and, 20 in a row, stop it.
-    $failures = 0; $lastFailure = '';
-    $get = function (string $kind, int $id) use (&$asked, &$failures, &$lastFailure): array {
-        $data = icyveins_get($kind, $id, $asked, $failures, $lastFailure);
-        if ($failures >= ICYVEINS_MAX_FAILURES) throw new IcyVeinsStopped($lastFailure);
-        return (array)($data['relations'] ?? []);
-    };
-    try {
-        foreach (array_keys($gaps['items'] + $again) as $item) {
-            icyveins_item_evidence($ev, $item, $get('item', $item)); $tick();
-        }
-        foreach (array_keys($gaps['noGiver'] + $gaps['noEnder']) as $quest) {
-            icyveins_quest_evidence($ev, $quest, $get('quest', $quest)); $tick();
-        }
-        foreach ($trainers as $npc) {
-            $r = $get('npc', $npc); $tick();
-            foreach ((array)($r['addon_trains'] ?? []) as $s) {
-                if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
-                if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) {
-                    $ev['left']['trainer_profession_skill_unknown'] = ($ev['left']['trainer_profession_skill_unknown'] ?? 0) + 1;   // no skill rank given
-                    continue;
-                }
-                $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
-                $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
-                $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
-            }
-        }
-    } catch (IcyVeinsStopped $stop) {
-        // no card from half the answers: it would replace a fuller one made earlier
-        return ['ok' => false, 'stopped' => true, 'id' => 0, 'counts' => [], 'ignored' => [],
-            'message' => sprintf(t('Icy Veins stopped: %d lookups in a row got no answer (the last one, %s), after %d of %d were looked at. What it answered is kept: start Import Icy Veins again once it answers, and the run goes on from there.',
-                'Icy Veins arrêté : %d requêtes de suite sont restées sans réponse (la dernière, %s), après %d consultations sur %d. Ses réponses sont conservées : relancez Importer Icy Veins quand il répondra, l’import reprendra où il en était.'),
-                ICYVEINS_MAX_FAILURES, $stop->getMessage(), $done, $todo)];
-    }
-    $label = 'Icy Veins ' . date('Y-m-d');
-    [$tables, $left] = source_tables($ev, $label, $gaps);
-    if ($asked >= (int)(config('icyveins', 'max', 20000) ?: 20000)) $left['icyveins_lookup_limit_reached_run_again'] = 1;
-    [$changes, $moved] = source_refresh($ev, 'icyveins');
-    return source_card('icyveins', $label, 'icyveins@' . date('Y-m-d'), $tables, $left + $moved, $changes);
-}
-
 // ------------------------------------------------------------------ background runs (long imports)
 function source_log(string $source): string { return FT_ROOT . "/data/source-$source.log"; }
 function source_lock_file(string $source): string { return FT_ROOT . "/data/source-$source.running"; }
@@ -1378,3 +1247,6 @@ function source_start(string $source): array
     }
     return ['ok' => true, 'message' => sprintf(t('%s started in the background; its import card appears below when it is done (reload the page).', '%s a démarré en arrière-plan ; sa carte d’import apparaît ci-dessous une fois terminé (rechargez la page).'), SOURCES[$source][0] ?? $source)];
 }
+
+// Icy Veins: a mirror of its whole WoW Forever database, and the cards made from it
+require_once __DIR__ . '/icyveins.php';
