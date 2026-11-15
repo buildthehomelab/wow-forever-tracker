@@ -7,7 +7,8 @@ if (!$r) {
     page_start(t('Not found', 'Introuvable'), $type);
     ?>
     <section class="empty-state"><div class="empty-icon"><i class="fas fa-circle-question"></i></div><h1><?= e(t('This resource is not in the latest official build.', 'Cette ressource n’est pas dans le dernier build officiel.')) ?></h1>
-    <?php if ($history): ?><p><?= e(t('It was removed in', 'Elle a été supprimée en')) ?> <?= e($history[0]['version']) ?>.</p><?php endif; ?>
+    <?php if ($history && $history[0]['kind'] === 'removed' && from_vanilla((int)$history[0]['build'])): ?><p><?= e(t('The original game (patch 1.12) had it. WoW: Forever’s data does not: Blizzard took it out, or it is not released yet.', 'Le jeu d’origine (patch 1.12) l’avait. Les données de WoW: Forever ne l’ont pas : Blizzard l’a retirée, ou elle n’est pas encore sortie.')) ?></p>
+    <?php elseif ($history): ?><p><?= e(t('It was removed in', 'Elle a été supprimée en')) ?> <?= e($history[0]['version']) ?>.</p><?php endif; ?>
     <a class="btn is-primary" href="<?= e(url()) ?>"><?= e(t('Back to the overview', 'Retour au tableau de bord')) ?></a></section>
     <?php page_end(); return;
 }
@@ -53,7 +54,7 @@ page_start($name, $type);
       <?php if ($r['is_new']): ?><em class="tag is-new"><i class="fas fa-star"></i> <?= e(t('New in Forever', 'Nouveau dans Forever')) ?></em><?php endif; ?>
       <?php if ((int)$r['internal']): ?><em class="tag"><?= e(t('Internal / test content', 'Contenu interne / de test')) ?></em><?php endif; ?>
       <?php if ((int)($r['phase'] ?? 0) && isset(phases()[(int)$r['phase']])): ?><em class="tag <?= $later ? 'is-later' : 'is-plain' ?>" title="<?= e((string)(phases()[(int)$r['phase']]['source'] ?? '')) ?>"><i class="fas fa-hourglass-half"></i> <?= e(phase_title((int)$r['phase'])) ?></em><?php endif; ?>
-      <span class="tag is-plain"><i class="fas fa-code-branch"></i> <?= e(t('since build', 'depuis le build')) ?> <?= (int)$r['first_build'] ?></span>
+      <span class="tag is-plain"><i class="fas fa-code-branch"></i> <?= e(t('since', 'depuis')) ?> <?= e(build_name((int)$r['first_build'])) ?></span>
     </div>
     <div class="entry-links">
       <?php if ($wh): ?><a class="btn is-small" href="<?= e($wh) ?>" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Wowhead Forever</a><?php endif; ?>
@@ -82,7 +83,7 @@ page_start($name, $type);
         <?php if (!empty($data['min'])): ?><div><dt><?= e(t('Minimum level', 'Niveau minimum')) ?></dt><dd><?= (int)$data['min'] ?></dd></div><?php endif; ?>
         <?php if (isset($data['pos'])): ?><div><dt><?= e(t('Position', 'Position')) ?></dt><dd><?= e(implode(' / ', $data['pos'])) ?> · <?= e(t('map', 'carte')) ?> <?= (int)($data['map'] ?? 0) ?></dd></div><?php endif; ?>
         <?php if ($r['sub'] !== '' && !in_array($type, ['quest', 'item'], true)): ?><div><dt><?= e(t('Category', 'Catégorie')) ?></dt><dd><?= e(sub_label($r['sub'])) ?></dd></div><?php endif; ?>
-        <div><dt><?= e(t('First seen', 'Vu depuis')) ?></dt><dd><?= e(t('build', 'build')) ?> <?= (int)$r['first_build'] ?></dd></div>
+        <div><dt><?= e(t('First seen', 'Vu depuis')) ?></dt><dd><?= e(build_name((int)$r['first_build'])) ?></dd></div>
         <?php if ($zoneQuests): ?><div><dt><?= e(t('Quests of the zone', 'Quêtes de la zone')) ?></dt><dd class="badges"><?php foreach ($zoneQuests as $zq): ?><?= $zq['status'] === 'later' ? '<span class="badge is-later"><i></i>' . e(t('Later', 'Plus tard')) . '</span>' : status_badge($zq['status']) ?> <b><?= (int)$zq['n'] ?></b> <?php endforeach; ?></dd></div><?php endif; ?>
       </dl>
       <?php if (!empty($data['text'])): ?><blockquote class="quote"><?= e($data['text']) ?><cite>Wowhead Forever</cite></blockquote><?php endif; ?>
@@ -156,7 +157,7 @@ page_start($name, $type);
       <?php if (!$history): ?><p class="muted"><?= e(t('Unchanged in every tracked build.', 'Inchangé dans tous les builds suivis.')) ?></p><?php endif; ?>
       <?php foreach ($history as $h): $fields = json_decode($h['fields'], true) ?: []; ?>
         <article class="history">
-          <header><span class="kind is-<?= e($h['kind']) ?>"><?= e(kind_label($h['kind'])) ?></span> <strong><?= e($h['version'] ?: $h['build']) ?></strong> <small><?= e(t('compared with', 'comparé à')) ?> <?= (int)$h['prev_build'] ?></small></header>
+          <header><span class="kind is-<?= e($h['kind']) ?>"><?= e(change_label($h['kind'], (int)$h['build'])) ?></span> <strong><?= e($h['version'] ?: $h['build']) ?></strong> <small><?= e(t('compared with', 'comparé à')) ?> <?= e(build_name((int)$h['prev_build'])) ?></small></header>
           <?php if ($fields): ?><div class="diff"><?php foreach ($fields as $field => [$before, $after]): ?><div class="diff-row"><span><?= e($fieldLabels[$field] ?? $field) ?></span><del><?= e($fmt($before)) ?></del><ins><?= e($fmt($after)) ?></ins></div><?php endforeach; ?></div><?php endif; ?>
         </article>
       <?php endforeach; ?>

@@ -77,6 +77,10 @@ the one before.
 | Their files | Blizzard's CDN, as for the live build, and checked the same way: each table against its content key |
 | Which products count | The live product, and those `[client] history` names with the versions that count: `wow_classic_beta:1.60.` by default, because WoW: Forever's beta was shipped under the Classic beta's name. `off`: no earlier builds |
 
+**And before the first beta.** The first beta build is compared with the original game, patch 1.12, which `history`
+stores once with the earlier builds: [docs/VANILLA.md](VANILLA.md). With it the whole chain is checked at every
+analysis: the original game and every build's changes must give the newest build.
+
 **Light on purpose.** The live build is indexed whole, a few hundred MB. For thirty earlier builds that would be
 gigabytes, so an earlier build is read for its tables alone (`ft.cdn.Earlier`): the list of pages of its encoding
 file and the few pages that hold the tables' keys (ranged requests), its root file, and the archive indexes, which

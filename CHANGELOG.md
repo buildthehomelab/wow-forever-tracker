@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **The changelog starts at the original game.** Patch 1.12, as Blizzard published it again in 2019 (the client WoW
+  Classic launched with), is stored as the build before the first beta, and the first beta build has a page of what it
+  added, changed and does not have against it. An item's stats and a spell's effects are compared in a form both
+  games have; what a hotfix alone carries is compared as its hotfix stands and never called absent; what the original
+  game had and WoW: Forever does not is *Not in Forever* (taken out, or not released yet), not *removed*
+  (docs/VANILLA.md). `tracker.py vanilla`, `[client] vanilla`, `FT_CLIENT_VANILLA`; the client check stores it by
+  itself.
+- **The double check.** At every analysis the chain is replayed: the first thing stored and every build's changes must
+  give the newest build, resource for resource (ids from the start, content from the first build on). One line in the
+  analysis log, a table on the first build's page.
+- **A build's page reads every kind.** The first build against the original game is tens of thousands of lines: each
+  kind is read on its own, a filtered kind has pages, and *Every line as CSV* gives the whole build.
+- **Tooltips: ranged weapons.** Bows, guns, thrown weapons and wands take their stats from the ranged column of the
+  item level's budget, as the game does. They showed too much before (a wand's +3 Intellect as +4).
+
 ## 1.3.3 — 2026-10-20
 
 - **Run again no longer stays disabled.** A background analysis or locator run now always ends with a marker, even when

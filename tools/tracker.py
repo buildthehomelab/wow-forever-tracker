@@ -56,7 +56,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -555,7 +555,7 @@ def npc_checks(ask):
 def analyse(args):
     started = time.time()
     build_list = official_content.builds()
-    if not build_list:
+    if not [b for b in build_list if not b.get('baseline')]:
         sys.exit('No snapshot in data/builds. Run the snapshot command first.')
     server_build = CONFIG.server_build()
     if not server_build:
@@ -568,9 +568,11 @@ def analyse(args):
             log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
         else:
             log('warning: server build unknown: set [server] build in config.ini')
-    content, changes, first_seen, changed_in, by_hotfix = official_content.changelog(build_list, log)
+    content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
     latest = build_list[-1]
     log(f'{len(changes)} changes across {len(build_list)} builds')
+    for line in official_content.replay_lines(more):
+        log(line)
     for b in build_list:
         if hotfixes.summary(b['dir']):
             log(f"hotfixes over build {b['build']}: " + hotfixes.summary(b['dir']))
@@ -578,6 +580,7 @@ def analyse(args):
         log('known by hotfix alone, not listed as added: ' + ', '.join(f'{kind}={n}' for kind, n in sorted(by_hotfix.items())))
     ctx = server.server_state()
     ctx['hotfix_only'] = by_hotfix
+    ctx['changelog'] = more
     # Only the quests new in Forever: the Classic Era ones are known, and asking Wowhead about thousands more takes long.
     baseline = Baseline()
     unknown_quests = [q for q in content['quest'] if q not in ctx['quests'] and baseline.is_new('quest', q, {})]
@@ -651,6 +654,8 @@ def main():
     old_game = sub.add_parser('classic', help="the original game's teachers of recipes nobody can learn yet (a classic-db pack) as evidence for the website's import card")
     old_game.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/classicdb_pack.py made')
     old_game.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
+    old = sub.add_parser('vanilla', help="store the original game's tables (patch 1.12, as the client WoW Classic launched with) as the build before the first beta: the changelog then starts there (docs/VANILLA.md)")
+    old.add_argument('--again', action='store_true', help='read them again although they are stored')
     past = sub.add_parser('history', help="store the builds that came before the newest snapshot (back to the first beta) from Blizzard's CDN, for the changelog")
     past.add_argument('--again', action='store_true', help='also ask for the builds that were refused before (another table layout)')
     past.add_argument('--limit', type=int, default=0, help='only the N newest of the builds that are missing')
@@ -715,6 +720,14 @@ def main():
             log(client.calm(str)(f'earlier builds: the list of builds could not be read ({error}): nothing stored'))
             sys.exit(2)
         log('earlier builds: ' + result['message'])
+        sys.exit(result['code'])
+    elif args.command == 'vanilla':
+        try:
+            result = vanilla.fetch(log=client.calm(log), again=args.again)
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            log(client.calm(str)(f'vanilla: the original game could not be read ({error}): nothing stored'))
+            sys.exit(2)
+        log('vanilla: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'fetch':
         result = client.noted('client', lambda: client.fetch(force=args.force, keep_cache=args.keep_cache, log=log))()
