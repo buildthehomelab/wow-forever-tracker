@@ -42,6 +42,57 @@ check($ev['left'] === ['wowhead_item_unknown' => 1, 'wowhead_no_source' => 1, 'w
     'wowhead_drop_not_counted' => 1, 'wowhead_vendor_other_cost' => 3, 'wowhead_quest_unknown' => 1, 'wowhead_quest_started_by_item' => 1], 'what was left out is counted for the gap items only: ' . json_encode($ev['left']));
 check(!array_filter($ev['drop'], fn($d) => $d[3] > 100), 'no chance above 100 (more drops than loots, several in one corpse, is capped)');
 
+// ---- npc and object pages: whole loot tables, vendors, quests
+$npcPages = [
+    // a creature's own page: its drops counted on each row, what it sells (one way to pay a list), the quests it gives and takes
+    ['id' => 250484, 'fetched' => 4000, 'status' => 'ok', 'tabs' => [
+        'drops' => ['template' => 'item', 'total' => 995, 'rows' => [['id' => 900, 'count' => 27, 'outof' => 995], ['id' => 901, 'count' => 1, 'outof' => 995], ['id' => 999, 'count' => 50, 'outof' => 995]]],
+        'sells' => ['template' => 'item', 'rows' => [['id' => 902, 'avail' => -1, 'cost' => [[23157, [], []]]], ['id' => 903, 'avail' => -1, 'cost' => [[0, [], [[22484, 15]]]]], ['id' => 999, 'avail' => 3, 'cost' => [[5, [], []]]]]],
+        'starts' => ['template' => 'quest', 'rows' => [['id' => 5504], ['id' => 5524]]],
+        'ends' => ['template' => 'quest', 'rows' => [['id' => 5504]]],
+        'skinning' => ['template' => 'item', 'rows' => [['id' => 904, 'count' => 5, 'outof' => 20]]],
+    ]],
+    // the same drop the item page counted on fewer kills: the page that counted more wins
+    ['id' => 939, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 100, 'count' => 120, 'outof' => 1000]]]]],
+    ['id' => 1, 'fetched' => 9000, 'status' => 'missing'],
+];
+// 15 creatures' pages list item 905: a world drop, though no item page was read for it
+foreach (range(1, 15) as $i) $npcPages[] = ['id' => 6000 + $i, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 905, 'count' => 30, 'outof' => 100]]]]];
+$objectPages = [
+    // a chest counts its openings once, as the tab's total; a mining node on each row
+    ['id' => 2843, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['contains' => ['template' => 'item', 'total' => 3722, 'rows' => [['id' => 906, 'count' => 607]]],
+        'starts' => ['template' => 'quest', 'rows' => [['id' => 7000]]], 'same-model-as' => ['template' => 'object', 'rows' => [['id' => 2849]]]]],
+    ['id' => 1731, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['mining' => ['template' => 'item', 'total' => 129848, 'rows' => [['id' => 907, 'count' => 1356, 'outof' => 129848]]]]],
+];
+$gapsPlus = array_fill_keys([100, 200, 300, 301, 400, 500, 600, 900, 901, 902, 903, 904, 905, 906, 907], true);
+$keepItems = $gapsPlus;   // 999: neither a gap nor an import's drop
+[$ev2, $newest2] = wowhead_pages_evidence($items, $quests, $gapsPlus, (fn() => yield from $npcPages)(), $objectPages, $keepItems);
+check($newest2 === 4000, 'npc and object pages date the card too (a page Wowhead does not have does not)');
+$drop2 = array_map(fn($d) => implode(':', $d), $ev2['drop']);
+sort($drop2);
+check($drop2 === ['go:1731:907:1.0443', 'go:2843:906:16.3084', 'go:7001:100:75', 'npc:12:700:10', 'npc:939:100:12', 'npc:981:100:100'], 'drops of npc and object pages, the better counted of two pages: ' . json_encode($drop2));
+check(in_array([250484, 902, 0], $ev2['sell'], true) && !array_filter($ev2['sell'], fn($s) => in_array($s[1], [903, 999], true)), 'an npc page\'s stock: money as the first way to pay; a currency left out, an item worth no row not kept');
+check(in_array(['npc', 250484, 5504], $ev2['start'], true) && in_array(['npc', 250484, 5524], $ev2['start'], true) && in_array(['npc', 250484, 5504], $ev2['end'], true) && in_array(['go', 2843, 7000], $ev2['start'], true), 'quests an npc or object page starts and ends');
+check(($ev2['left']['wowhead_drop_world'] ?? 0) === 18 + 15 && ($ev2['left']['wowhead_other_loot'] ?? 0) === 1 && ($ev2['left']['wowhead_drop_few'] ?? 0) === 2 && ($ev2['left']['wowhead_vendor_other_cost'] ?? 0) === 4
+    && ($ev2['left']['wowhead_drop_item_page_not_read'] ?? 0) === 2, 'left out: 15 creatures\' world drop, skinning, too few, another cost, a gap item whose own page is not read: ' . json_encode($ev2['left']));
+// once the item's page is read, the creature's page gives the drop
+$withPage = $items + [900 => ['id' => 900, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 250484, 'count' => 20, 'outof' => 900]])]]];
+[$ev3] = wowhead_pages_evidence($withPage, [], $gapsPlus, $npcPages, [], $keepItems);
+check(in_array(['npc', 250484, 900, 2.7136], $ev3['drop'], true), 'the item page read: the npc page\'s better count is taken');
+// a drop that is no gap (an import's row, measured again) needs no item page
+[$ev4] = wowhead_pages_evidence([], [], [], [$npcPages[0]], [], [900 => true]);
+check($ev4['drop'] === [['npc', 250484, 900, 2.7136]], 'a drop measured again needs no item page');
+
+$slim = wowhead_pages_clean(['kind' => 'npc', 'id' => 5, 'fetched' => 100, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 818, 'count' => 27, 'outof' => 995, 'modes' => ['0' => ['count' => 27]], 'flags2' => -5, 'envChange' => ['labels' => []]]]]]]);
+check($slim['tabs']['drops']['rows'] === [['id' => 818, 'count' => 27, 'outof' => 995]], 'what a row repeats for display is not kept');
+
+// the cache read a line at a time: the newest answer of each page, once
+$a = ft_test_dir(); $b = ft_test_dir();
+file_put_contents("$a/npc.jsonl", '{"id":1,"fetched":100,"status":"ok","tabs":{}}' . "\n" . '{"id":2,"fetched":500,"status":"missing"}' . "\n{cut\n");
+file_put_contents("$b/npc.jsonl", '{"id":1,"fetched":900,"status":"missing"}' . "\n" . '{"id":2,"fetched":500,"status":"missing"}' . "\n" . '{"status":"ok","id":3,"fetched":7}' . "\n");
+$streamed = iterator_to_array(wowhead_pages_each('npc', [$a, $b, "$b/none"]), false);
+check(array_map(fn($r) => [$r['id'], $r['fetched']], $streamed) === [[2, 500], [1, 900], [3, 7]], 'streamed: the newer answer wins, the same answer twice is read once: ' . json_encode($streamed));
+
 check(wowhead_pages_money_only([1500]) && wowhead_pages_money_only([0, 0, 0]) && wowhead_pages_money_only([5, [], null]), 'money only');
 check(!wowhead_pages_money_only([0, [[1, 2]]]) && !wowhead_pages_money_only([0, 0, 0, 5]) && !wowhead_pages_money_only(null), 'a currency, items, or no cost at all: not money only');
 check(wowhead_pages_links(['Start: [url=/forever/npc=5/x] and [url=/forever/object=6]', 'Start level: [url=/forever/npc=9]', 'End: [url=/forever/npc=7]'], 'Start') === [['npc', 5], ['object', 6]], 'links of one label only');

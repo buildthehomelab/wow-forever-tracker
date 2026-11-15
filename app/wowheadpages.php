@@ -13,6 +13,9 @@
 //   an item page   tabs dropped-by, contained-in-object, mined-from-object, gathered-from-object: rows {id, count,
 //                  outof}; tab sold-by: rows {id, stock, cost: [money, ...]}
 //   a quest page   Quick Facts lines "Start: [url=/forever/npc=123]", "End: [url=/forever/object=456]"
+//   an npc page    tab drops: rows {id (the item), count, outof}; sells: rows {id, avail, cost: [[money, ...], ...]};
+//                  starts, ends: rows {id (the quest)}
+//   an object page tabs contains (the openings as the tab's total), mining, herbalism; starts, ends
 require_once FT_APP . '/sources.php';
 
 const WOWHEAD_PAGES_MIN_LOOTS = 10;    // a drop counts from this many looted corpses (or opened chests) ...
@@ -28,6 +31,8 @@ function wowhead_pages_dirs(): array { return [FT_ROOT . '/tools/wowhead-pages/c
 function wowhead_pages_dir(): string { return FT_ROOT . '/data/wowhead-pages'; }
 const WOWHEAD_PAGES_KINDS = ['item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset'];
 const WOWHEAD_PAGES_BRANCHES = ['forever', 'classic'];
+/** What a tab row repeats for the page's own display (crawlers before 2026-11-15 kept it): not kept. */
+const WOWHEAD_PAGES_DISPLAY_ONLY = ['envChange', 'modes', 'itemSeasonPhaseData', 'appearances', 'bonustrees', 'flags2', 'displayid', 'npcmodel', 'popularity'];
 
 /** Where a crawler line is kept (tools/wowhead_pages.py shelf_of): 'item' for Forever's item pages, as before there
  *  were branches; 'classic-npc'; 'forever-list' for the list pages that named every id of a branch. */
@@ -84,50 +89,124 @@ function wowhead_pages_links(array $quick, string $label): array
     return $out;
 }
 
+/** The tabs of an npc or object page that are its loot, and whose; the npc's other loot (own tables no source fills). */
+const WOWHEAD_PAGES_PAGE_LOOT_TABS = ['npc' => ['drops' => 'npc'], 'object' => ['contains' => 'go', 'mining' => 'go', 'herbalism' => 'go']];
+const WOWHEAD_PAGES_PAGE_OTHER_LOOT = ['skinning', 'pickpocketing', 'salvaging', 'fishing'];
+
+/** A vendor row's cost, as an item page's sold-by tab writes it ([money, currencies, items]) or an npc page's sells
+ *  tab ([[money, currencies, items], ...], one list a way to pay): the first way to pay. */
+function wowhead_pages_first_cost($cost)
+{
+    return is_array($cost) && isset($cost[0]) && is_array($cost[0]) && array_is_list($cost) && count($cost) >= 1 && (is_int($cost[0][0] ?? null) || is_float($cost[0][0] ?? null)) ? $cost[0] : $cost;
+}
+
 /**
- * The evidence in pages, as source_tables() takes it: [evidence, the newest page's time]. $items and $quests are
- * [id => record] (wowhead_pages); the drops and vendors of every item page are given (the server's rules keep the
- * gaps, and the rest is compared with the drops the server already has), and what was left out is counted for the
- * items of $gapItems only ([id => true]), since the others are no question the card answers.
+ * The evidence in pages, as source_tables() takes it: [evidence, the newest page's time].
+ *
+ * $items and $quests are [id => record] (wowhead_pages); $npcs and $objects any iterable of page records (the cache is
+ * read a line at a time: a whole crawl holds tens of thousands of npc pages, see wowhead_pages_each). Drops come from
+ * an item page's tabs (dropped-by, contained-in-object ...) and from an npc's or object's own page (drops, contains,
+ * mining ...), whichever counted more loots; vendors from sold-by and an npc's sells tab; quest givers and enders from a
+ * quest's Quick Facts and an npc's or object's starts and ends tabs.
+ *
+ * $keep ([item => true], null: all) limits the drops and vendors kept from npc and object pages to the items worth a
+ * row: the gaps and the items of drops an import brought, which are measured again. What was left out is counted for
+ * the items of $gapItems only ([id => true]), since the others are no question the card answers.
  */
-function wowhead_pages_evidence(array $items, array $quests, array $gapItems = []): array
+function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null): array
 {
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => []];
     $left = ['wowhead_item_unknown' => 0, 'wowhead_no_source' => 0, 'wowhead_only_other_source' => 0, 'wowhead_drop_world' => 0,
-             'wowhead_drop_few' => 0, 'wowhead_drop_not_counted' => 0, 'wowhead_vendor_other_cost' => 0, 'wowhead_quest_unknown' => 0, 'wowhead_quest_started_by_item' => 0];
+             'wowhead_drop_few' => 0, 'wowhead_drop_not_counted' => 0, 'wowhead_vendor_other_cost' => 0, 'wowhead_quest_unknown' => 0,
+             'wowhead_quest_started_by_item' => 0, 'wowhead_other_loot' => 0, 'wowhead_drop_item_page_not_read' => 0];
     $newest = 0;
+    $drops = [];        // "kind:id:item" => [kind, id, item, count, outof]: the best counted of what the pages say
+    $droppers = [];     // item => how many creatures drop it, the most any page says
+    $npcDroppers = [];  // item => how many npc pages list it
+    $sells = [];        // "npc:item" => [npc, item, stock, money only]
+    $roles = ['start' => [], 'end' => []];
+    $noSource = [];     // gap item => the counter it goes to when no other page gives it a source
+    $itemRead = [];     // items whose own page was read: its Dropped by tab says how many creatures drop it
+    $put = function (string $kind, int $id, int $item, $count, $outof) use (&$drops) {
+        $key = "$kind:$id:$item";
+        $counted = is_numeric($count) && is_numeric($outof) && $outof > 0;
+        $have = $drops[$key] ?? null;
+        if ($have !== null && (!$counted || (is_numeric($have[4]) && $have[4] >= $outof))) return;
+        $drops[$key] = [$kind, $id, $item, $counted ? (float)$count : null, $counted ? (float)$outof : null];
+    };
+    $sell = function (int $npc, int $item, array $row) use (&$sells) {
+        $sells["$npc:$item"] ??= [$npc, $item, max(0, (int)($row['stock'] ?? $row['avail'] ?? 0)), wowhead_pages_money_only(wowhead_pages_first_cost($row['cost'] ?? null))];
+    };
+    $ids = fn($rows) => array_values(array_filter((array)$rows, fn($r) => is_array($r) && (int)($r['id'] ?? 0) > 0));
+
     foreach ($items as $item => $page) {
-        $gap = isset($gapItems[$item]);
         $newest = max($newest, (int)($page['fetched'] ?? 0));
-        if (($page['status'] ?? '') !== 'ok') { if ($gap) $left['wowhead_item_unknown']++; continue; }
+        if (($page['status'] ?? '') !== 'ok') { if (isset($gapItems[$item])) $left['wowhead_item_unknown']++; continue; }
+        $itemRead[$item] = true;
         $tabs = is_array($page['tabs'] ?? null) ? $page['tabs'] : [];
         $found = 0;
         foreach (WOWHEAD_PAGES_DROP_TABS as $tab => $kind) {
-            $rows = array_values(array_filter((array)($tabs[$tab]['rows'] ?? []), fn($r) => is_array($r) && (int)($r['id'] ?? 0) > 0));
-            if (!$rows) continue;
+            $rows = $ids($tabs[$tab]['rows'] ?? []);
             $found += count($rows);
-            // many creatures drop it: a world drop, which belongs to the shared tables no page describes
-            if ($kind === 'npc' && max(count($rows), (int)($tabs[$tab]['total'] ?? 0)) >= WOWHEAD_PAGES_WORLD_DROP) { if ($gap) $left['wowhead_drop_world'] += count($rows); continue; }
-            foreach ($rows as $row) {
-                $count = $row['count'] ?? null; $outof = $row['outof'] ?? null;
-                if (!is_numeric($count) || !is_numeric($outof) || $outof <= 0) { if ($gap) $left['wowhead_drop_not_counted']++; continue; }
-                if ($outof < WOWHEAD_PAGES_MIN_LOOTS || $count < WOWHEAD_PAGES_MIN_DROPS) { if ($gap) $left['wowhead_drop_few']++; continue; }
-                $ev['drop'][] = [$kind, (int)$row['id'], (int)$item, round(min(100, 100 * $count / $outof), 4)];
-            }
+            if ($kind === 'npc') $droppers[$item] = max($droppers[$item] ?? 0, count($rows), (int)($tabs[$tab]['total'] ?? 0));
+            foreach ($rows as $row) $put($kind, (int)$row['id'], (int)$item, $row['count'] ?? null, $row['outof'] ?? null);
         }
-        foreach ((array)($tabs['sold-by']['rows'] ?? []) as $row) {
-            if (!is_array($row) || (int)($row['id'] ?? 0) <= 0) continue;
-            $found++;
-            // paid with a currency or with items: the server's rules have no cost to give it
-            if (!wowhead_pages_money_only($row['cost'] ?? null)) { if ($gap) $left['wowhead_vendor_other_cost']++; continue; }
-            $ev['sell'][] = [(int)$row['id'], (int)$item, max(0, (int)($row['stock'] ?? 0))];
-        }
-        if (!$found && $gap) {
+        foreach ($ids($tabs['sold-by']['rows'] ?? []) as $row) { $found++; $sell((int)$row['id'], (int)$item, $row); }
+        if (!$found && isset($gapItems[$item])) {
             $other = false;
             foreach (WOWHEAD_PAGES_OTHER_TABS as $tab) if (!empty($tabs[$tab]['rows'])) $other = true;
-            $left[$other ? 'wowhead_only_other_source' : 'wowhead_no_source']++;
+            $noSource[$item] = $other ? 'wowhead_only_other_source' : 'wowhead_no_source';
         }
     }
+
+    foreach (['npc' => $npcs, 'object' => $objects] as $type => $pages) {
+        foreach ($pages as $page) {
+            $id = (int)($page['id'] ?? 0);
+            if ($id <= 0 || ($page['status'] ?? '') !== 'ok') continue;
+            $newest = max($newest, (int)($page['fetched'] ?? 0));
+            $tabs = is_array($page['tabs'] ?? null) ? $page['tabs'] : [];
+            foreach (WOWHEAD_PAGES_PAGE_LOOT_TABS[$type] as $tab => $kind) {
+                // a chest's page counts its openings once, as the tab's total; a creature's page on each row
+                $opened = $tabs[$tab]['total'] ?? null;
+                foreach ($ids($tabs[$tab]['rows'] ?? []) as $row) {
+                    $item = (int)$row['id'];
+                    if ($kind === 'npc') $npcDroppers[$item] = ($npcDroppers[$item] ?? 0) + 1;
+                    if ($keep !== null && !isset($keep[$item])) continue;
+                    $put($kind, $id, $item, $row['count'] ?? null, $row['outof'] ?? $opened);
+                }
+            }
+            if ($type === 'npc') {
+                foreach ($ids($tabs['sells']['rows'] ?? []) as $row) if ($keep === null || isset($keep[(int)$row['id']])) $sell($id, (int)$row['id'], $row);
+                foreach (WOWHEAD_PAGES_PAGE_OTHER_LOOT as $tab) foreach ($ids($tabs[$tab]['rows'] ?? []) as $row) if (isset($gapItems[(int)$row['id']])) $left['wowhead_other_loot']++;
+            }
+            foreach (['start' => 'starts', 'end' => 'ends'] as $role => $tab) {
+                foreach ($ids($tabs[$tab]['rows'] ?? []) as $row) $roles[$role][($type === 'npc' ? 'npc' : 'go') . ':' . $id . ':' . (int)$row['id']] = [$type === 'npc' ? 'npc' : 'go', $id, (int)$row['id']];
+            }
+        }
+    }
+
+    // the drops, now that every page told how many creatures drop each item
+    $given = [];
+    foreach ($drops as [$kind, $id, $item, $count, $outof]) {
+        $gap = isset($gapItems[$item]);
+        // many creatures drop it: a world drop, which belongs to the shared tables no page describes
+        if ($kind === 'npc' && max($droppers[$item] ?? 0, $npcDroppers[$item] ?? 0) >= WOWHEAD_PAGES_WORLD_DROP) { if ($gap) $left['wowhead_drop_world']++; continue; }
+        // a creature's drop of a gap item, from the creature's page only: until every npc page is read, only the item's
+        // own page tells a world drop from a creature's own loot
+        if ($kind === 'npc' && $gap && !isset($itemRead[$item])) { $left['wowhead_drop_item_page_not_read']++; continue; }
+        $given[$item] = true;
+        if ($count === null) { if ($gap) $left['wowhead_drop_not_counted']++; continue; }
+        if ($outof < WOWHEAD_PAGES_MIN_LOOTS || $count < WOWHEAD_PAGES_MIN_DROPS) { if ($gap) $left['wowhead_drop_few']++; continue; }
+        $ev['drop'][] = [$kind, $id, $item, round(min(100, 100 * $count / $outof), 4)];
+    }
+    foreach ($sells as [$npc, $item, $stock, $money]) {
+        $given[$item] = true;
+        // paid with a currency or with items: the server's rules have no cost to give it
+        if (!$money) { if (isset($gapItems[$item])) $left['wowhead_vendor_other_cost']++; continue; }
+        $ev['sell'][] = [$npc, $item, $stock];
+    }
+    foreach ($noSource as $item => $why) if (!isset($given[$item])) $left[$why]++;
+
     foreach ($quests as $quest => $page) {
         $newest = max($newest, (int)($page['fetched'] ?? 0));
         if (($page['status'] ?? '') !== 'ok') { $left['wowhead_quest_unknown']++; continue; }
@@ -135,12 +214,59 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
         foreach (['start' => 'Start', 'end' => 'End'] as $role => $label) {
             foreach (wowhead_pages_links($quick, $label) as [$kind, $id]) {
                 if ($kind === 'item') { if ($role === 'start') $left['wowhead_quest_started_by_item']++; continue; }
-                $ev[$role][] = [$kind === 'npc' ? 'npc' : 'go', $id, (int)$quest];
+                $kind = $kind === 'npc' ? 'npc' : 'go';
+                $roles[$role]["$kind:$id:$quest"] ??= [$kind, $id, (int)$quest];
             }
         }
     }
+    $ev['start'] = array_values($roles['start']);
+    $ev['end'] = array_values($roles['end']);
     $ev['left'] = array_filter($left);
     return [$ev, $newest];
+}
+
+/** Every page of one shelf, the newest answer of each, read a line at a time (a whole crawl's npc pages do not fit
+ *  in memory at once): a generator of records. */
+function wowhead_pages_each(string $shelf, ?array $dirs = null): Generator
+{
+    $dirs ??= wowhead_pages_dirs();
+    $key = function (string $line): array {
+        // the cache writes each line's id and time first
+        if (preg_match('/^\{"id":(\d+),"fetched":(\d+)/', $line, $m)) return [(int)$m[1], (int)$m[2]];
+        $r = json_decode($line, true);
+        return is_array($r) ? [(int)($r['id'] ?? 0), (int)($r['fetched'] ?? 0)] : [0, 0];
+    };
+    $best = [];
+    foreach ($dirs as $d => $dir) {
+        $handle = @fopen("$dir/$shelf.jsonl", 'r');
+        if (!$handle) continue;
+        while (($line = fgets($handle)) !== false) { [$id, $at] = $key($line); if ($id > 0 && (!isset($best[$id]) || $best[$id][1] < $at)) $best[$id] = [$d, $at]; }
+        fclose($handle);
+    }
+    foreach ($dirs as $d => $dir) {
+        $handle = @fopen("$dir/$shelf.jsonl", 'r');
+        if (!$handle) continue;
+        while (($line = fgets($handle)) !== false) {
+            [$id, $at] = $key($line);
+            if ($id <= 0 || ($best[$id] ?? null) !== [$d, $at]) continue;
+            unset($best[$id]);   // the same answer in two folders: once
+            $record = json_decode($line, true);
+            if (is_array($record)) yield $record;
+        }
+        fclose($handle);
+    }
+}
+
+/** The items whose drops an npc or object page may give: the gaps, and the items of drop rows an import brought (a
+ *  source named in the row's comment), which the card measures again. */
+function wowhead_pages_keep(array $gapItems): array
+{
+    $keep = $gapItems;
+    $marks = implode(' OR ', array_map(fn($m) => "Comment LIKE '%" . db('world')->real_escape_string($m) . "%'", array_values(SOURCE_MARKS)));
+    foreach (['creature_loot_template', 'gameobject_loot_template'] as $table) {
+        foreach (rows("SELECT DISTINCT Item FROM `$table` WHERE ItemType = 0 AND ($marks)", [], 'world') as $r) $keep[(int)$r['Item']] = true;
+    }
+    return $keep;
 }
 
 /** The pages in the cache as an import card aimed at the last analysis' gaps, with the drops the server already has
@@ -149,19 +275,30 @@ function wowhead_pages_import(): array
 {
     if ($e = source_check()) return $e;
     $items = wowhead_pages('item'); $quests = wowhead_pages('quest');
-    if (!$items && !$quests) return ['ok' => false, 'message' => t('No Wowhead page has been read yet: see docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js reads them from a browser tab).', 'Aucune page Wowhead n’a encore été lue : voir docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js les lit depuis un onglet de navigateur).')];
+    $hasPages = $items || $quests || array_filter(array_map(fn($s) => is_file(wowhead_pages_dir() . "/$s.jsonl") || is_file(FT_ROOT . "/tools/wowhead-pages/cache/$s.jsonl"), ['npc', 'object']));
+    if (!$hasPages) return ['ok' => false, 'message' => t('No Wowhead page has been read yet: see docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js reads them from a browser tab).', 'Aucune page Wowhead n’a encore été lue : voir docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js les lit depuis un onglet de navigateur).')];
     $gaps = source_gaps();
-    [$ev, $newest] = wowhead_pages_evidence($items, $quests, $gaps['items']);
-    // the gaps no page was read for yet: `python tools/wowhead_pages.py todo` lists them for the crawler
-    $unread = count(array_diff_key($gaps['items'], $items));
-    $unreadQuests = count(array_diff_key($gaps['noGiver'] + $gaps['noEnder'], $quests));
+    [$ev, $newest] = wowhead_pages_evidence($items, $quests, $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), wowhead_pages_keep($gaps['items']));
+    // the gaps no page told about yet: the crawler's queue (Download the crawler) holds their pages
+    $told = [];
+    foreach ($ev['drop'] as $d) $told[$d[2]] = true;
+    foreach ($ev['sell'] as $s) $told[$s[1]] = true;
+    $unread = count(array_diff_key($gaps['items'], $items, $told));
+    $roles = ['start' => [], 'end' => []];
+    foreach (['start', 'end'] as $role) foreach ($ev[$role] as $r) $roles[$role][$r[2]] = true;
+    // a quest is told about by its own page, or by npc and object pages naming what it lacks
+    $unreadQuests = 0;
+    foreach ($gaps['noGiver'] + $gaps['noEnder'] as $quest => $_) {
+        if (isset($quests[$quest]) || ((!isset($gaps['noGiver'][$quest]) || isset($roles['start'][$quest])) && (!isset($gaps['noEnder'][$quest]) || isset($roles['end'][$quest])))) continue;
+        $unreadQuests++;
+    }
     if ($unread) $ev['left']['wowhead_item_not_read'] = $unread;
     if ($unreadQuests) $ev['left']['wowhead_quest_not_read'] = $unreadQuests;
     $date = date('Y-m-d', $newest ?: time());
     $label = 'Wowhead ' . $date;
     [$tables, $left] = source_tables($ev, $label, $gaps);
     [$changes, $moved] = source_refresh($ev, 'wowhead');
-    return source_card('wowhead', $label, 'wowhead@' . $date . '-' . (count($items) + count($quests)), $tables, $left + $moved, $changes);
+    return source_card('wowhead', $label, 'wowhead@' . $date . '-' . $newest, $tables, $left + $moved, $changes);
 }
 
 // ------------------------------------------------------------------ the round trip with the browser crawler
@@ -206,7 +343,8 @@ function wowhead_pages_clean($record): ?array
     ksort($tabs);
     foreach ($tabs as $name => $tab) {
         if (!preg_match('/^[\w-]{1,60}$/', (string)$name) || !is_array($tab) || !is_array($tab['rows'] ?? null)) continue;
-        $rows = array_values(array_filter($tab['rows'], fn($r) => is_array($r) && (!$r || !array_is_list($r)) && wowhead_pages_numbers_only($r)));
+        $rows = array_map(fn($r) => is_array($r) && $r && !array_is_list($r) ? array_diff_key($r, array_flip(WOWHEAD_PAGES_DISPLAY_ONLY)) : $r, $tab['rows']);
+        $rows = array_values(array_filter($rows, fn($r) => is_array($r) && (!$r || !array_is_list($r)) && wowhead_pages_numbers_only($r)));
         $kept = ['template' => substr((string)($tab['template'] ?? ''), 0, 40), 'rows' => $rows];
         if (is_int($tab['total'] ?? null) && $tab['total'] > count($rows)) $kept['total'] = $tab['total'];
         $out['tabs'][(string)$name] = $kept;

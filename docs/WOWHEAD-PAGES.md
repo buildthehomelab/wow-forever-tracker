@@ -70,8 +70,8 @@ seconds the whole database is days of crawling. The queue and what was read live
 crawl is more than localStorage holds); `WHC.status()` gives what is queued and read by kind. The tab must stay open
 and, ideally, visible: a hidden tab's timers are slowed.
 
-**What the import does with it today**: the import card still reads Forever's item and quest pages only (below). The
-lists, the npc and object pages and the Classic pages are kept in the cache for the imports that will read them.
+**What the import reads of it**: Forever's item, quest, npc and object pages (below). The lists and the Classic pages
+are kept in the cache for the imports that will read them.
 
 ## The pace
 
@@ -102,12 +102,17 @@ repository. From the pages it takes:
 
 | Rows | From | When |
 |---|---|---|
-| `creature_loot_template` | an item page's *Dropped by* tab | the item is a gap; players looted that creature at least 10 times and saw the item at least twice (the chance is drops over loots). An item 15 or more creatures drop is a world drop and is left out |
-| `gameobject_loot_template` | *Contained in (object)*, *Mined from*, *Gathered from* | the same counts; the object is a chest on the server |
-| `npc_vendor` | *Sold by* | the price is money only. Stock paid with a currency or with items is left out, unless another vendor of the server already sells the item for that cost |
-| `creature_queststarter`, `gameobject_queststarter`, `..._questender` | a quest page's Quick Facts *Start* and *End* | the quest has no giver (or no ender); the creature or object is on the server. By id, not by name |
+| `creature_loot_template` | an item page's *Dropped by* tab, an npc page's *Drops* | the item is a gap; players looted that creature at least 10 times and saw the item at least twice (the chance is drops over loots). Where both pages count the same drop, the one that counted more loots wins. An item 15 or more creatures drop, by its own page or by the npc pages read, is a world drop and is left out. A new row from an npc page alone waits for the item's own page (until every npc page is read, only it tells a world drop from a creature's own loot); a row an import brought is measured again without it |
+| `gameobject_loot_template` | *Contained in (object)*, *Mined from*, *Gathered from*; an object page's *Contains*, *Mining*, *Herbalism* | the same counts (a chest's page gives its openings once, as the tab's total); the object is a chest on the server |
+| `npc_vendor` | *Sold by*, an npc page's *Sells* | the price is money only (on an npc page: the first way to pay). Stock paid with a currency or with items is left out, unless another vendor of the server already sells the item for that cost |
+| `creature_queststarter`, `gameobject_queststarter`, `..._questender` | a quest page's Quick Facts *Start* and *End*; an npc or object page's *Starts* and *Ends* | the quest has no giver (or no ender); the creature or object is on the server. By id, not by name |
 
-Not written, and counted on the card: items Wowhead only knows as a quest reward, a craft, the content of another
+The npc and object pages are read a line at a time (a whole crawl is tens of thousands of pages), and of their drops
+and stock only the items worth a row are kept: the gaps, and the items of drop rows an import brought, which are
+measured again. A tab row is kept without what it repeats for the page's own display (models, per-season copies of
+its counts).
+
+Not written, and counted on the card: an npc's skinning and pick pocketing loot (tables of their own); items Wowhead only knows as a quest reward, a craft, the content of another
 item, or from skinning, pick pocketing and fishing; drops without counts.
 
 **Rows the server already has** are measured again, as for the other sources: where a drop an import brought has
