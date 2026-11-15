@@ -213,6 +213,16 @@ class Plan(unittest.TestCase):
         self.assertNotIn(('2026_10_14_00_world_c.sql', 'data'), self.names({'2026_10_14_00_world_c.sql': as_windows_read_it}))
         self.assertIn(('2026_10_14_00_world_c.sql', 'data'), self.names({'2026_10_14_00_world_c.sql': 'C' * 40}))
 
+    def test_the_world_as_of_a_day(self):
+        found = [name for name, _path, _label in replay.plan(self.folders, until='2026-10-15')]
+        self.assertEqual(found, ['2026_10_01_00_world.sql', '2026_10_14_00_world_c.sql', '2026_10_15_100_world_b.sql', '2026_10_15_50_world_a.sql'])
+        self.assertEqual([name for name, _path, _label in replay.plan(self.folders, until='2026-10-13')], ['2026_10_01_00_world.sql'])
+
+    def test_a_file_without_a_day_in_its_name_runs_all_the_same(self):
+        open(os.path.join(self.folder.name, 'custom', 'everlake_spawns.sql'), 'w').close()
+        self.assertIn('everlake_spawns.sql', [name for name, _path, _label in replay.plan(self.folders, until='2026-10-01')])
+        self.assertEqual((replay.file_day('2026_10_14_00_world.sql'), replay.file_day('everlake_spawns.sql')), ('2026-10-14', None))
+
     def test_one_name_in_two_folders_is_an_error(self):
         open(os.path.join(self.folder.name, 'data', '2026_10_15_50_world_a.sql'), 'w').close()
         with self.assertRaises(replay.ReplayError):

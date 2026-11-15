@@ -180,6 +180,20 @@ class Fetch(unittest.TestCase):
         self.assertEqual(client.SECTION.unpack_from(data, client.SECTIONS_AT + client.SECTION.size)[0], client.DECRYPTED)
         self.assertEqual(self.fetch(70938, published=lambda: {'0DA4670DB36FB2A9': b''})['code'], client.UP_TO_DATE)   # nothing left to wait for
 
+    def test_a_build_read_again_keeps_its_hotfix_history(self):
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, bytes(8))])
+        self.absent = {20: ['0DA4670DB36FB2A9']}
+        self.fetch(70938)
+        kept = os.path.join(self.folder.name, '70938', hotfixes.HISTORY)
+        os.makedirs(kept)
+        for name in ('index.json', '2026-11-14-aa.bin.gz', '2026-11-15-bb.changelog.json'):
+            with open(os.path.join(kept, name), 'w') as handle:
+                handle.write(name)
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, b'unlocked')])
+        self.absent = {}
+        self.assertEqual(self.fetch(70938, published=lambda: {'0da4670db36fb2a9': b''})['code'], client.FETCHED)
+        self.assertEqual(sorted(os.listdir(kept)), ['2026-11-14-aa.bin.gz', '2026-11-15-bb.changelog.json', 'index.json'])
+
     def hotfix_cache(self, build, keys):
         """Stores a hotfix cache with the snapshot: TactKey records {key number: (status, bytes)}."""
         blob = b'XFTH' + struct.pack('<II', 9, build) + bytes(32)
@@ -539,6 +553,29 @@ class History(unittest.TestCase):
         result = self.history(self.LIST, origin=unreachable)
         self.assertEqual(result['code'], client.UP_TO_DATE)
         self.assertIn('the original game could not be read (timed out): asked again at the next check', result['message'])
+
+    def test_a_build_stored_for_the_changelog_is_completed(self):
+        # a checkout needs every table of a step (ft.client.complete)
+        self.history(self.LIST)
+        refused = client.complete(70790, {'Map', 'Item', 'ItemSet'}, listed=listed(*self.LIST), opener=self.opener, log=self.log.append)
+        self.assertEqual(refused, {})
+        self.assertEqual(sorted(os.listdir(os.path.join(self.folder.name, '70790', 'enUS'))), ['Item.db2', 'ItemSet.db2', 'Map.db2'])
+        self.assertEqual(self.info(70790)['tables'], 'changelog')   # still stored for the changelog: the changelog reads the same
+        self.opened.clear()
+        self.assertEqual(client.complete(70790, {'Map', 'Item', 'ItemSet'}, listed=listed(*self.LIST), opener=self.opener), {})
+        self.assertEqual(self.opened, [])   # nothing left to read
+
+    def test_a_table_of_another_layout_is_not_stored_by_completing(self):
+        self.history(self.LIST)
+        self.by_build[70790] = {**self.files, 30: table(0xEE)}
+        refused = client.complete(70790, {'ItemSet'}, listed=listed(*self.LIST), opener=self.opener, log=self.log.append)
+        self.assertIn('ItemSet', refused)
+        self.assertNotIn('ItemSet.db2', os.listdir(os.path.join(self.folder.name, '70790', 'enUS')))
+
+    def test_a_build_not_on_the_list_cannot_be_completed(self):
+        self.history(self.LIST)
+        refused = client.complete(70790, {'ItemSet'}, listed=listed(*self.LIST[:1]), opener=self.opener)
+        self.assertIn('not on the list', refused['ItemSet'])
 
     def test_each_is_read_once(self):
         self.history(self.LIST)

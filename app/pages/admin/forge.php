@@ -127,6 +127,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
   <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><?php if (table_exists('ft_imports')): ?><em><?= number((int)value('SELECT COUNT(*) FROM ft_imports')) ?></em><?php endif; ?></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
+  <a href="<?= e(url('admin/checkout')) ?>"><i class="fas fa-code-branch"></i><?= e(t('Checkout', 'Checkout')) ?></a>
   <a href="<?= e(url('admin/notes')) ?>"><i class="fas fa-pen-to-square"></i><?= e(t('Patch notes', 'Notes de patch')) ?></a>
 </nav>
 <p class="tab-desc"><i class="fas fa-circle-info"></i> <?= e($tabs[$tab][2]) ?></p>

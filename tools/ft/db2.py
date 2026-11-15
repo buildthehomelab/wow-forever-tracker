@@ -32,9 +32,14 @@ EXTRA_NAMES = {
 }
 
 
+# Floats are rounded to 4 decimals for comparing and showing; None: exact, as a checkout writes them (ft.checkout)
+FLOAT_DIGITS = 4
+
+
 def _convert(raw, kind, signed, size):
     if kind == 'float':
-        return round(struct.unpack('<f', struct.pack('<I', raw & 0xFFFFFFFF))[0], 4)
+        value = struct.unpack('<f', struct.pack('<I', raw & 0xFFFFFFFF))[0]
+        return value if FLOAT_DIGITS is None else round(value, FLOAT_DIGITS)
     if size < 8:
         raw &= (1 << (size * 8)) - 1  # bit-packed and pallet values can carry bits beyond the field's own size
     if signed and size < 8 and raw >= 1 << (size * 8 - 1):

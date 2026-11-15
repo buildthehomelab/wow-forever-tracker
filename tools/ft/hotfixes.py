@@ -34,6 +34,8 @@ import urllib.error
 import urllib.request
 from collections import namedtuple
 
+from . import db2
+
 MAGIC = b'XFTH'
 VERSION = 9
 HEADER_SIZE = 44
@@ -121,7 +123,8 @@ def decode(data, meta, record_id, names=None):
         if at + size > len(data):
             return None
         if kind == 'float':
-            row[name] = round(struct.unpack_from('<f', data, at)[0], 4)
+            value = struct.unpack_from('<f', data, at)[0]
+            row[name] = value if db2.FLOAT_DIGITS is None else round(value, db2.FLOAT_DIGITS)
         else:
             # as ft.db2 reads the same field from the table (a 64-bit value is never taken as negative there)
             row[name] = int.from_bytes(data[at:at + size], 'little', signed=bool(signed) and size < 8)
