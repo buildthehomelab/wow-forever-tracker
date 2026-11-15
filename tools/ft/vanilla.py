@@ -17,7 +17,7 @@ Three things are written differently in the 2019 tables. They are brought to tod
 compared in a form both sides have where it is not:
 
 - a spell effect's points: then "base" and "die sides" (13 and 9: 14 to 22), today the middle of the range (18) with
-  a variance. The middle is worked out (points()).
+  a variance. The middle is worked out, rounded down as today's tables do (points()).
 - an item's primary stats: then the amount itself (+18 Strength), today a share of the item level's budget. Both are
   compared as amounts: today's worked out as the tooltip does (amounts()).
 - an item's class restriction: then a mask of the nine classes, today -1 for "everyone". Compared over the classes
@@ -25,6 +25,9 @@ compared in a form both sides have where it is not:
 """
 import csv
 import datetime
+import hashlib
+import http.client
+import io
 import json
 import math
 import os
@@ -151,8 +154,10 @@ def rows(folder, name):
 
 def points(base, sides):
     """A spell effect's points as today's tables write them: the middle of the range the original game rolled
-    (base + 1 to base + sides)."""
-    return round(float(base) + (sides + 1) / 2, 4) if sides >= 1 else round(float(base), 4)
+    (base + 1 to base + sides), rounded down when the range has an even number of values. Checked on the game's first
+    build: every effect it left alone is written that way (95 of the even ranges, 1,182 of the odd ones, none as a
+    half)."""
+    return round(float(base) + int(sides + 1) // 2, 4) if sides >= 1 else round(float(base), 4)
 
 
 def official(folder):
@@ -247,8 +252,8 @@ def step(base, chain, late, load, log=lambda text: None, read=None):
     'compared'}.
 
     base: the original game's entry of ft.content.builds(); chain: the game's builds, oldest first; late: {build:
-    {(kind, id)}} of the resources that exist by hotfix alone and count as known since the first build (thousands of
-    the original game's items are in no table of WoW: Forever and reach the client by hotfix); load: a build -> its
+    {(kind, id): fingerprint}} of the resources that exist by hotfix alone and count as known since the first build
+    (thousands of the original game's items are in no table of WoW: Forever and reach the client by hotfix); load: a build -> its
     official content; read: a folder -> the original game's official content (for tests).
 
     Such a resource is compared as its hotfix stands, and never called removed: the first build's tables do not have
@@ -262,12 +267,17 @@ def step(base, chain, late, load, log=lambda text: None, read=None):
     where = budget_folder(chain)
     sources = sorted(late)
     by_build = {build['build']: build for build in chain}
-    budget_mark = ''
-    if where:
-        with open(os.path.join(where, 'enUS', 'RandPropPoints.db2'), 'rb') as handle:
-            budget_mark = content.hashlib.sha1(handle.read()).hexdigest()[:12]
-    mark = [content.code_mark(), content.signature(base), content.signature(first), budget_mark,
-            [[build, content.signature(by_build[build]), len(late[build])] for build in sources]]
+    # what the step rests on: how tables are read and compared, the two builds, the stat budget, and each of the
+    # resources taken from a hotfix as it stands (not that build's whole state: its hotfixes change every day)
+    seen = hashlib.sha1()
+    with open(os.path.abspath(__file__), 'rb') as handle:
+        seen.update(handle.read())
+    if where:   # as amounts() reads it: with the hotfixes that stand over it
+        seen.update(json.dumps(content.table(where, 'RandPropPoints', 'enUS'), sort_keys=True, default=str).encode())
+    for build in sources:
+        for (kind, entity_id), print_ in sorted(late[build].items()):
+            seen.update(f'{build}:{kind}:{entity_id}:{print_};'.encode())
+    mark = [content.code_mark(), content.signature(base), content.signature(first), seen.hexdigest()[:16]]
     found = content.kept_as(base, mark)
     if found is not None:
         return found
@@ -308,11 +318,35 @@ def step(base, chain, late, load, log=lambda text: None, read=None):
 
 # ---------------------------------------------------------------- storing it
 def download(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=600) as response:
-        return response.read()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=600) as response:
+            return response.read()
+    except http.client.HTTPException as error:      # a download cut short is no OSError
+        raise RuntimeError(f'{url}: {error!r}') from error
+
+
+def check_table(name, data):
+    """Raises RuntimeError unless the bytes are a whole table: a header with an ID column, every row as wide as the
+    header, and rows at all. A file cut short ends inside a row."""
+    text = data.decode('utf-8-sig', 'replace')
+    try:
+        reader = csv.reader(io.StringIO(text, newline=''), strict=True)   # strict: a quote left open is an error
+        header = next(reader, [])
+        if 'ID' not in header:
+            raise RuntimeError(f'{name}: not a table ({text[:80]!r})')
+        count = 0
+        for row in reader:
+            if len(row) != len(header):
+                raise RuntimeError(f'{name}: row {count + 2} has {len(row)} columns, the table has {len(header)} (cut short?)')
+            count += 1
+    except csv.Error as error:
+        raise RuntimeError(f'{name}: {error}') from error
+    if not count or not text.endswith('\n'):
+        raise RuntimeError(f'{name}: ' + ('no rows' if not count else 'the last line is not whole (cut short?)'))
 
 
 CONFIGURED = object()
+csv.field_size_limit(16 * 1024 * 1024)   # the default (128 kB) is close to a long text; a table is a few MB
 
 
 def fetch(log=print, get=None, again=False, choice=CONFIGURED, builds=None):
@@ -325,18 +359,30 @@ def fetch(log=print, get=None, again=False, choice=CONFIGURED, builds=None):
     product, version, build = choice
     builds = builds or BUILDS
     target = os.path.join(builds, str(build))
-    if os.path.isfile(os.path.join(target, 'build.json')) and not again:
-        return {'code': UP_TO_DATE, 'build': build, 'message': f'the original game ({version}) is stored'}
+    if os.path.isdir(target):
+        # only ever a folder this made: a version whose number is a stored client build's would replace that build
+        whole = False
+        try:
+            with open(os.path.join(target, 'build.json'), encoding='utf-8-sig') as handle:
+                info = json.load(handle)
+            ours = whole = isinstance(info, dict) and info.get('baseline') == 'vanilla'
+        except (OSError, ValueError):
+            # no build.json: nothing at all, or only tables as this stores them (a run stopped while replacing them)
+            ours = all(name.endswith('.csv') for _root, _dirs, names in os.walk(target) for name in names)
+        if not ours:
+            raise RuntimeError(f'{target} holds something else than the original game: it is left alone')
+        if whole and not again:
+            return {'code': UP_TO_DATE, 'build': build, 'message': f'the original game ({version}) is stored'}
     log(f'vanilla: reading the original game\'s tables ({version}, {len(TABLES)} tables, once)')
-    scratch = os.path.join(builds, f'.{build}.part')
-    shutil.rmtree(scratch, ignore_errors=True)
+    for name in os.listdir(builds) if os.path.isdir(builds) else []:
+        if name.startswith(f'.{build}.vanilla.'):      # what a run that was stopped left behind (one run at a time: the caller's lock)
+            shutil.rmtree(os.path.join(builds, name), ignore_errors=True)
+    scratch = os.path.join(builds, f'.{build}.vanilla.{os.getpid()}.part')
     os.makedirs(os.path.join(scratch, 'enUS'))
     try:
         for name in TABLES:
             data = (get or download)(EXPORT.format(table=name, version=version))
-            head = data[:4096].decode('utf-8-sig', 'replace').split('\n', 1)[0]
-            if 'ID' not in [column.strip() for column in head.split(',')]:
-                raise RuntimeError(f'{name}: not a table ({head[:80]!r})')
+            check_table(name, data)
             with open(os.path.join(scratch, 'enUS', name + '.csv'), 'wb') as handle:
                 handle.write(data)
         today = datetime.date.today().isoformat()
@@ -344,8 +390,11 @@ def fetch(log=print, get=None, again=False, choice=CONFIGURED, builds=None):
                 'source': f'wago.tools ({product} {version})', 'tables': 'changelog', 'baseline': 'vanilla', 'dated': 'list'}
         with open(os.path.join(scratch, 'build.json'), 'w', encoding='utf-8') as handle:
             json.dump(info, handle, ensure_ascii=False, indent=1)
-        shutil.rmtree(target, ignore_errors=True)
+        aside = os.path.join(builds, f'.{build}.vanilla.{os.getpid()}.old')
+        if os.path.isdir(target):                      # never a moment with half a folder under the build's name
+            os.replace(target, aside)
         os.replace(scratch, target)
+        shutil.rmtree(aside, ignore_errors=True)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     return {'code': STORED, 'build': build, 'message': f'the original game ({version}): {len(TABLES)} tables stored (run the analysis)'}

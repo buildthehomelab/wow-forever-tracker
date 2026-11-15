@@ -206,7 +206,7 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         # a removed resource has no line of its own any more to say it was a test or an unused one: the change says it
         minor = ((ctx.get('changelog') or {}).get('minor') or set()) if ctx else set()
         for build, previous, kind, entity_id, change, fields, name in changes:
-            internal = 1 if change == 'removed' and ((build, kind, entity_id) in minor or (kind != 'quest' and (not name or INTERNAL_NAME.search(name)))) else 0
+            internal = 1 if change == 'removed' and ((build, kind, entity_id) in minor or (kind != 'quest' and bool(name) and INTERNAL_NAME.search(name))) else 0
             batch.add(f"(NULL,{build},{previous},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))},{internal})")
         batch.flush()
         batch = Batch(out, 'ft_tooltips_new', 300)

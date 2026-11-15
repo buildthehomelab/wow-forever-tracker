@@ -56,8 +56,8 @@ class Reading(unittest.TestCase):
         self.assertIsInstance(helm['DmgVariance'], float)
 
     def test_a_spell_effects_points_are_the_middle_of_the_range(self):
-        self.assertEqual((vanilla.points(13, 9), vanilla.points(17, 3), vanilla.points(-41, 1), vanilla.points(25, 0), vanilla.points(9, 4)),
-                         (18.0, 19.0, -40.0, 25.0, 11.5))   # Fireball 14 to 22, Frostbolt 18 to 20, a slow, no die, an even die
+        self.assertEqual((vanilla.points(13, 9), vanilla.points(17, 3), vanilla.points(-41, 1), vanilla.points(25, 0), vanilla.points(9, 4), vanilla.points(0, 6)),
+                         (18.0, 19.0, -40.0, 25.0, 11.0, 3.0))   # Fireball 14 to 22, Frostbolt 18 to 20, a slow, no die; an even range is rounded down
         self.table('SpellEffect', EFFECT)
         rows = vanilla.rows(self.folder.name, 'SpellEffect')
         self.assertEqual([(row['SpellID'], row['EffectIndex'], row['EffectBasePoints']) for row in rows], [(133, 0, 18.0), (133, 1, 1.0), (116, 0, -40.0), (7, 0, 25.0)])
@@ -149,7 +149,7 @@ class Step(unittest.TestCase):
 
     def test_what_a_hotfix_alone_carries_is_compared_as_the_hotfix_stands(self):
         # the Boots and the Cloak are in no table: build 300's hotfixes carry them, and they count as known since build 100
-        found = self.step({300: {('item', 2), ('item', 6)}})
+        found = self.step({300: {('item', 2): 'aa', ('item', 6): 'bb'}})
         self.assertIn(['item', 2, 'modified', {'ilvl': [9, 7]}, 'Boots'], found['changes'])        # the original game's: compared, not removed
         self.assertEqual([change for change in found['changes'] if change[1] == 6], [])          # not the original game's: not called added
         self.assertEqual(found['alone'], [['item', 2]])
@@ -160,8 +160,39 @@ class Step(unittest.TestCase):
         self.read.clear(), self.loaded.clear()
         self.assertEqual(self.step({}), first)
         self.assertEqual((self.read, self.loaded), ([], []))
-        self.step({300: {('item', 2)}})                          # until what it rests on changes
+        self.step({300: {('item', 2): 'aa'}})                    # until what it rests on changes: a resource a hotfix carries
         self.assertEqual(len(self.read), 1)
+        self.read.clear()
+        self.step({300: {('item', 2): 'aa'}})
+        self.step({300: {('item', 2): 'changed by a later hotfix'}})
+        self.assertEqual(len(self.read), 1)                      # the same resources as they stood: kept; one of them changed: again
+
+    def test_a_first_build_stored_in_french_is_not_compared(self):
+        os.makedirs(os.path.join(self.builds[1]['dir'], 'frFR'))
+        said = []
+        found = vanilla.step(self.builds[0], self.builds[1:], {}, lambda build: self.official[build['build']], said.append, read=lambda folder: self.original)
+        self.assertEqual((found['compared'], found['changes'], found['counts']), (False, [], {'item': 3, 'spell': 3}))
+        self.assertIn('stored in French', said[-1])
+
+    def test_an_items_amounts_are_worked_out_from_the_budget(self):
+        sparse = lambda item, slot, quality, level, *stats: {
+            'ID': item, 'InventoryType': slot, 'OverallQualityID': quality, 'ItemLevel': level,
+            **{f'StatModifierBonusStat{i}': (stats[i - 1][0] if i <= len(stats) else -1) for i in range(1, 11)},
+            **{f'StatPercentEditor{i}': (stats[i - 1][1] if i <= len(stats) else 0) for i in range(1, 11)}}
+        tables = {'RandPropPoints': [{'ID': 61, **{f'{q}{n}': 45.0 for q in ('GoodF', 'SuperiorF', 'EpicF') for n in range(1, 6)}},
+                                     {'ID': 40, **{f'{q}{n}': n * 10.0 for q in ('GoodF', 'SuperiorF', 'EpicF') for n in range(1, 6)}}],
+                  'ItemSparse': [sparse(1, 1, 4, 61, (4, 4000), (32, 6222)),      # +18 Strength, and a rating that is no stat of the original game
+                                 sparse(2, 26, 3, 40, (5, 600)),                  # a wand: the ranged column (50), +3 Intellect
+                                 sparse(3, 1, 1, 61, (7, 5000)),                  # a white item has no budget
+                                 sparse(4, 1, 4, 99, (7, 5000))]}                 # a level the budget table does not have
+        saved = content.table
+        self.addCleanup(lambda: setattr(content, 'table', saved))
+        content.table = lambda folder, name, locale='frFR': tables.get(name, [])
+        self.assertEqual(vanilla.amounts('first', 'budget'), {1: {4: 18}, 2: {5: 3}, 3: {}, 4: {}})
+        self.assertIsNone(vanilla.budget_folder(self.builds[1:]))
+        with open(os.path.join(self.builds[2]['dir'], 'enUS', 'RandPropPoints.db2'), 'wb') as handle:
+            handle.write(b'x')
+        self.assertEqual(vanilla.budget_folder(self.builds[1:]), self.builds[2]['dir'])   # the oldest build that has the table
 
 
 class Storing(unittest.TestCase):
@@ -192,21 +223,63 @@ class Storing(unittest.TestCase):
         saved = content.BUILDS
         self.addCleanup(lambda: setattr(content, 'BUILDS', saved))
         content.BUILDS = self.folder.name
+        self.assertEqual((content.builds(), client.newest_snapshot()), ([], 0))   # alone it is nothing: no build of the client's
+        os.makedirs(os.path.join(self.folder.name, '69876', 'enUS'))
         build = content.builds()[0]
         self.assertTrue(vanilla.is_baseline(build) and build['partial'])
-        self.assertEqual(client.newest_snapshot(), 0)                # it is no build of the client's
+        self.assertEqual(client.newest_snapshot(), 69876)
 
     def test_once(self):
         self.fetch()
         self.asked.clear()
         self.assertEqual((self.fetch()['code'], self.asked), (vanilla.UP_TO_DATE, []))
+        os.makedirs(os.path.join(self.folder.name, '.31650.vanilla.999.part', 'enUS'))   # left by a run that was stopped
         self.assertEqual(self.fetch(again=True)['code'], vanilla.STORED)
+        self.assertEqual(os.listdir(self.folder.name), ['31650'])      # replaced whole, nothing left beside it
+        os.remove(os.path.join(self.folder.name, '31650', 'build.json'))   # stopped while replacing: tables without their note
+        self.assertEqual(self.fetch()['code'], vanilla.STORED)
+        with open(os.path.join(self.folder.name, '31650', 'build.json'), 'w') as handle:
+            handle.write('[]')                                         # not what this writes: left alone
+        with self.assertRaises(RuntimeError):
+            self.fetch()
 
     def test_an_answer_that_is_no_table_stores_nothing(self):
         answers = iter([b'ID,Name_lang\n1,x\n', b'{"errors":"Table not found."}'])
         with self.assertRaises(RuntimeError):
             self.fetch(get=lambda url: next(answers))
         self.assertEqual(os.listdir(self.folder.name), [])
+
+    def test_a_table_cut_short_is_no_table(self):
+        vanilla.check_table('Map', b'ID,Name_lang\n1,"a, b"\n2,"two\nlines"\n')
+        for cut in (b'ID,Name_lang\n1,x\n2', b'ID,Name_lang\n1,x\n2,y', b'ID,Name_lang\n', b'Name_lang\nx\n', b'ID,Name_lang\n1,"x\n'):
+            with self.assertRaises(RuntimeError, msg=cut):
+                vanilla.check_table('Map', cut)
+
+    def test_a_folder_that_is_a_build_of_the_game_is_never_replaced(self):
+        folder = os.path.join(self.folder.name, '31650', 'enUS')
+        os.makedirs(folder)
+        with open(os.path.join(folder, 'Map.db2'), 'wb') as handle:
+            handle.write(b'a client build')
+        for again in (False, True):
+            with self.assertRaises(RuntimeError):
+                self.fetch(again=again)
+        self.assertEqual((os.listdir(folder), self.asked), (['Map.db2'], []))
+
+    def test_only_the_build_the_setting_names_is_the_original_game(self):
+        self.fetch()
+        os.makedirs(os.path.join(self.folder.name, '69876', 'enUS'))
+        saved = (content.BUILDS, vanilla.setting)
+        self.addCleanup(lambda: (setattr(content, 'BUILDS', saved[0]), setattr(vanilla, 'setting', saved[1])))
+        content.BUILDS = self.folder.name
+        listed = lambda: [(b['build'], b['baseline']) for b in content.builds()]
+        self.assertEqual(listed(), [(31650, 'vanilla'), (69876, '')])
+        vanilla.setting = lambda value=None: None                                  # [client] vanilla = off: the folder stays, the changelog does not use it
+        self.assertEqual(listed(), [(69876, '')])
+        vanilla.setting = lambda value=None: ('wow_classic', '1.13.2.31727', 31727)   # another build chosen: the old folder is not it
+        self.assertEqual(listed(), [(69876, '')])
+        vanilla.setting = saved[1]
+        os.makedirs(os.path.join(self.folder.name, '30000', 'enUS'))               # a build of the game older than it: it cannot be the start
+        self.assertEqual(listed(), [(30000, ''), (69876, '')])
 
     def test_the_setting(self):
         self.assertEqual(vanilla.setting('wow_classic:1.13.2.31650'), ('wow_classic', '1.13.2.31650', 31650))

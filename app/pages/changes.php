@@ -19,8 +19,9 @@ uksort($summary, fn($a, $b) => array_search($a, $order, true) <=> array_search($
 // A kind's changes are read on their own, a page at a time: the first build against the original game is tens of
 // thousands of lines, and one list cut at a fixed length would never reach the kinds that come last.
 $perPage = 500; $limit = $filterType !== '' ? $perPage : 40;
-$page = max(1, (int)($_GET['p'] ?? 1));
 $counted = fn(string $ty) => $kind !== '' ? ($summary[$ty][$kind] ?? 0) : array_sum($summary[$ty] ?? []);
+$pages = $filterType !== '' ? max(1, (int)ceil($counted($filterType) / $perPage)) : 1;
+$page = max(1, min($pages, (int)($_GET['p'] ?? 1)));   // never past the last page: the offset stays a small whole number
 $grouped = [];
 foreach (array_keys($summary) as $ty) {
     if (($filterType !== '' && $ty !== $filterType) || !$counted($ty)) continue;
@@ -36,7 +37,7 @@ $note = table_exists('ft_notes') ? row('SELECT * FROM ft_notes WHERE build = ?',
 // resources that exist by hotfix alone (in no build's tables): the analysis does not call them "added" (docs/CLIENT.md)
 $byHotfix = $withChanges && $build === $withChanges[0] ? array_sum(array_map('intval', (array)(meta()['hotfix_only'] ?? []))) : 0;
 if (($_GET['format'] ?? '') === 'csv' && $build) {
-    // every change of the build, whatever the page shows: the first build against the original game is too long to read here
+    // every line the filters show, not only the page: the first build against the original game is too long to read here
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="changes-' . $build . '.csv"');
     $out = fopen('php://output', 'w');
@@ -67,7 +68,7 @@ $fieldLabels = ['name' => t('name', 'nom'), 'quality' => t('quality', 'qualité'
     'rank' => t('rank', 'rang'), 'trivial' => t('skill-up range', 'plage de progression'), 'players' => t('players', 'joueurs'), 'acquire' => t('how it is learned', 'mode d’apprentissage')];
 /** A stat list of the step from the original game ([["strength", 18], ...]) as "+18 strength, +5 stamina". */
 $shown = function ($value) {
-    if (is_array($value) && $value !== [] && array_is_list($value) && count(array_filter($value, fn($x) => is_array($x) && count($x) === 2 && is_string($x[0]) && is_int($x[1]))) === count($value))
+    if (is_array($value) && $value !== [] && array_keys($value) === range(0, count($value) - 1) && count(array_filter($value, fn($x) => is_array($x) && count($x) === 2 && is_string($x[0] ?? null) && is_int($x[1] ?? null))) === count($value))
         return implode(', ', array_map(fn($x) => sprintf('%+d %s', $x[1], $x[0]), $value));
     return $value === [] ? '' : $value;
 };
@@ -97,17 +98,19 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
 <section class="page-head">
   <div class="page-title">
     <span class="page-icon"><i class="fas fa-code-compare"></i></span>
-    <div><span class="eyebrow"><?= e(t('Official changelog', 'Changelog officiel')) ?></span><h1><?= e(t('Build', 'Build')) ?> <?= e($current['version'] ?? '—') ?></h1>
-    <p><?= e($vanillaStep
+    <div><span class="eyebrow"><?= e(t('Official changelog', 'Changelog officiel')) ?></span><h1><?= e($vanillaBuild ? t('The original game', 'Le jeu d’origine') : t('Build', 'Build')) ?> <?= e($current['version'] ?? '—') ?></h1>
+    <p><?= e($vanillaBuild
+        ? t('Where the changelog starts. The first build of WoW: Forever is compared with it, and every build after that with the one before.', 'Le début du changelog. Le premier build de WoW: Forever lui est comparé, et chaque build suivant au précédent.')
+        : ($vanillaStep
         ? t('The first build of WoW: Forever, compared with the original game (patch 1.12): what it added, what it changed, and what the original game had that it does not have. Hover a name for its tooltip.', 'Le premier build de WoW: Forever, comparé au jeu d’origine (patch 1.12) : ce qu’il a ajouté, ce qu’il a modifié, et ce que le jeu d’origine avait et qu’il n’a pas. Survolez un nom pour son infobulle.')
-        : t('Every resource added, changed or removed in the client files of this build, compared with the previous tracked build. Hover a name for its tooltip.', 'Chaque ressource ajoutée, modifiée ou supprimée dans les fichiers du client de ce build, par rapport au build suivi précédent. Survolez un nom pour son infobulle.')) ?></p></div>
+        : t('Every resource added, changed or removed in the client files of this build, compared with the previous tracked build. Hover a name for its tooltip.', 'Chaque ressource ajoutée, modifiée ou supprimée dans les fichiers du client de ce build, par rapport au build suivi précédent. Survolez un nom pour son infobulle.'))) ?></p></div>
     <?php if ($byHotfix): ?><p class="muted small"><?= e(sprintf(t('%s resources exist by hotfix alone: they are in no build’s files, so nothing says when they appeared, and they are not listed as added here.', '%s ressources n’existent que par correctif : elles ne sont dans les fichiers d’aucun build, rien ne dit donc quand elles sont apparues, et elles ne figurent pas ici comme ajoutées.'), number($byHotfix))) ?></p><?php endif; ?>
   </div>
-  <div class="stat-tiles is-compact">
+  <?php if (!$vanillaBuild): ?><div class="stat-tiles is-compact">
     <span class="stat-tile is-ok"><strong>+<?= number($totals['added']) ?></strong><span><?= e(kind_label('added')) ?></span></span>
     <span class="stat-tile is-partial"><strong>~<?= number($totals['modified']) ?></strong><span><?= e(kind_label('modified')) ?></span></span>
     <span class="stat-tile is-missing"><strong>−<?= number($totals['removed']) ?></strong><span><?= e(change_label('removed', $build)) ?></span></span>
-  </div>
+  </div><?php endif; ?>
 </section>
 
 <div class="build-switch">
@@ -123,7 +126,6 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
   <?php if ($hidden): ?><?= e(sprintf(t('%s records of this build are still encrypted: an original resource among them also reads as absent until its key is out.', '%s enregistrements de ce build sont encore chiffrés : une ressource d’origine parmi eux apparaît aussi comme absente tant que sa clé n’est pas publiée.'), number($hidden))) ?><?php endif; ?>
   <?php if (!empty(baseline()['alone'])): ?><?= e(sprintf(t('%s original resources are in no table of WoW: Forever and reach the client by hotfix: they are compared as their hotfix stands today.', '%s ressources d’origine ne sont dans aucune table de WoW: Forever et arrivent au client par correctif : elles sont comparées telles que leur correctif les donne aujourd’hui.'), number((int)baseline()['alone']))) ?><?php endif; ?>
   <?= e(t('An item’s stats are compared as amounts, a spell’s effects as the middle of the range the original game rolled.', 'Les caractéristiques d’un objet sont comparées en valeurs, les effets d’un sort au milieu de la plage que tirait le jeu d’origine.')) ?>
-  <a href="<?= e($query(['format' => 'csv', 'p' => ''])) ?>"><i class="fas fa-file-csv"></i> <?= e(t('Every line as CSV', 'Toutes les lignes en CSV')) ?></a>
 </div></div><?php endif; ?>
 
 <?php if ($note): ?>
@@ -171,6 +173,7 @@ if ($firstHeld && !empty($replay['kinds'])): $allOk = !empty($replay['ok']); ?>
 <div class="chips is-small">
   <?php foreach (['' => t('Every change', 'Tous les changements'), 'added' => kind_label('added'), 'modified' => kind_label('modified'), 'removed' => change_label('removed', $build)] as $k => $label): ?><a class="<?= $kind === $k ? 'is-active' : '' ?>" href="<?= e($query(['kind' => $k, 'p' => ''])) ?>"><?= e($label) ?></a><?php endforeach; ?>
   <a class="<?= $showInternal ? 'is-active' : '' ?>" href="<?= e($query(['internal' => $showInternal ? '' : 1])) ?>"><i class="fas fa-flask"></i> <?= e(t('Internal / test', 'Interne / test')) ?></a>
+  <a href="<?= e($query(['format' => 'csv'])) ?>" title="<?= e(t('Every line these filters show, as a file', 'Toutes les lignes que montrent ces filtres, en fichier')) ?>"><i class="fas fa-file-csv"></i> CSV</a>
 </div>
 
 <?php foreach ($grouped as $ty => $items): ?>
@@ -191,7 +194,7 @@ if ($firstHeld && !empty($replay['kinds'])): $allOk = !empty($replay['ok']); ?>
   </ul>
 </section>
 <?php endforeach; ?>
-<?php $pages = $filterType !== '' ? (int)ceil($counted($filterType) / $perPage) : 1; if ($pages > 1): ?>
+<?php if ($pages > 1): ?>
 <nav class="pager" aria-label="<?= e(t('Pages', 'Pages')) ?>">
   <?php if ($page > 1): ?><a class="btn is-small" href="<?= e($query(['p' => $page - 1])) ?>"><i class="fas fa-arrow-left"></i> <?= e(t('Previous', 'Précédent')) ?></a><?php else: ?><span></span><?php endif; ?>
   <span class="pager-info"><?= e(sprintf(t('Page %d of %s', 'Page %d sur %s'), $page, number($pages))) ?></span>

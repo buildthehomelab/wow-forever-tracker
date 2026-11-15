@@ -569,6 +569,7 @@ def analyse(args):
         else:
             log('warning: server build unknown: set [server] build in config.ini')
     content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
+    build_list = more['builds']   # without an original game that could not be compared: the website would show it as a build
     latest = build_list[-1]
     log(f'{len(changes)} changes across {len(build_list)} builds')
     for line in official_content.replay_lines(more):
@@ -722,11 +723,18 @@ def main():
         log('earlier builds: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'vanilla':
+        if not client.newest_snapshot():
+            sys.exit('vanilla: no snapshot of the game yet: store one first (fetch, or snapshot), the original game is what it is compared with')
+        gate = client.alone_here('history.lock')   # the client check stores it too: one at a time
+        if gate is None:
+            sys.exit('vanilla: a client check is reading the earlier builds: it stores the original game itself')
         try:
             result = vanilla.fetch(log=client.calm(log), again=args.again)
         except (RuntimeError, OSError, LookupError, ValueError) as error:
             log(client.calm(str)(f'vanilla: the original game could not be read ({error}): nothing stored'))
             sys.exit(2)
+        finally:
+            gate.close()
         log('vanilla: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'fetch':

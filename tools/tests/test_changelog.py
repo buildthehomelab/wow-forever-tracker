@@ -205,7 +205,8 @@ class Changelog(unittest.TestCase):
         self.assertEqual((changed_in[('item', 1)], changed_in[('item', 2)]), (200, 200))   # the last build that touched it
         self.assertEqual(self.builds[0]['counts'], {'item': 2})
         self.assertEqual(self.more['minor'], {(100, 'item', 9)})
-        self.assertEqual(self.more['baseline'], {'build': 50, 'version': '1.13.2.50', 'first': 100, 'hidden': {'ItemSparse': 3}, 'alone': 0, 'compared': True})
+        self.assertEqual(self.more['baseline'], {'build': 50, 'version': '1.13.2.50', 'first': 100, 'hidden': {'ItemSparse': 3}, 'alone': 0})
+        self.assertEqual([b['build'] for b in self.more['builds']], [50, 100, 200, 300])
         found = self.more['replay']
         self.assertEqual((found['from'], found['steps'], found['ok']), (50, 3, True))
         self.assertEqual(found['kinds']['item'], {'start': 2, 'added': 3, 'alone': 0, 'removed': 2, 'end': 3, 'now': 3})
@@ -217,7 +218,8 @@ class Changelog(unittest.TestCase):
         self.with_the_original_game({'counts': {'item': 2}, 'ids': {'item': [1, 4]}, 'alone': [['item', 4]],
                                      'changes': [['item', 2, 'added', {}, 'Shield'], ['item', 4, 'modified', {'ilvl': [9, 1]}, 'Boots']]})
         _newest, changes, first_seen, _changed, by_hotfix = self.run_it()
-        self.assertEqual(self.asked[0][2], {300: {('item', 4)}})   # the step is told which resources to take from their hotfix
+        # the step is told which resources to take from their hotfix, each as it stands
+        self.assertEqual(self.asked[0][2], {300: {('item', 4): content.fingerprint(item('Boots')['facts'])}})
         self.assertEqual([(build, change) for build, _b, _k, entity, change, _f, _n in changes if entity == 4], [(100, 'modified')])
         self.assertEqual((first_seen[('item', 4)], by_hotfix), (50, {'item': 1}))
         self.assertTrue(self.more['replay']['ok'], self.more['replay']['problems'])
@@ -229,11 +231,31 @@ class Changelog(unittest.TestCase):
         self.assertFalse(self.more['replay']['ok'])
         self.assertIn('item 2: build 100 has it and the step from the original game does not give it', self.more['replay']['problems'])
 
-    def test_the_original_game_alone_is_no_changelog(self):
-        self.builds = [{'build': 50, 'dir': self.builds[0]['dir'], 'baseline': 'vanilla'}]
-        self.official[self.builds[0]['dir']] = {'item': {1: item('Sword')}, '_meta': {}}
+    def test_what_the_first_build_lacked_is_first_seen_when_it_arrives(self):
+        # the Boots: the original game's, not in the first builds (not released yet), brought by build 300
+        self.with_the_original_game({'counts': {'item': 2}, 'ids': {'item': [1, 4]}, 'alone': [],
+                                     'changes': [['item', 2, 'added', {}, 'Shield'], ['item', 4, 'removed', {}, 'Boots']]})
+        _newest, changes, first_seen, _changed, _hot = self.run_it()
+        self.assertEqual((first_seen[('item', 1)], first_seen[('item', 4)]), (50, 300))
+        self.assertIn((300, 200, 'item', 4, 'added', {}, 'Boots'), changes)
+        self.assertTrue(self.more['replay']['ok'], self.more['replay']['problems'])
+
+    def test_a_step_that_could_not_be_compared_leaves_the_changelog_as_it_was(self):
+        # the first build stored in French (ft.vanilla.step): nothing is said against the original game
+        self.with_the_original_game({'counts': {'item': 9}, 'ids': {'item': [1, 9]}, 'alone': [], 'changes': [], 'compared': False})
+        _newest, changes, first_seen, _changed, _hot = self.run_it()
+        self.assertEqual((len(changes), first_seen[('item', 1)], self.more['baseline']), (4, 100, None))
+        self.assertEqual((self.more['replay']['from'], self.more['replay']['ok']), (100, True))
+        self.assertEqual([b['build'] for b in self.more['builds']], [100, 200, 300])   # the website is not told of a build nothing is compared with
+
+    def test_the_original_game_is_never_read_as_a_build_of_the_game(self):
+        with self.assertRaises(ValueError):
+            content.changelog([{'build': 50, 'dir': self.builds[0]['dir'], 'baseline': 'vanilla'}], read=lambda folder: {})
+        # a second folder marked as the original game (left from another setting) is no build either
+        self.with_the_original_game({'counts': {}, 'ids': {}, 'alone': [], 'changes': []})
+        self.builds.insert(1, {'build': 60, 'dir': self.builds[0]['dir'], 'baseline': 'vanilla'})
         self.run_it()
-        self.assertIsNone(self.more['baseline'])
+        self.assertEqual((self.asked[0][1], sorted(set(self.read))), ([100, 200, 300], [100, 200, 300]))
 
 
 if __name__ == '__main__':

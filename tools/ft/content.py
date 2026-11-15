@@ -61,7 +61,16 @@ def builds():
                           'partial': info.get('tables') == 'changelog',
                           # the original game, stored as the build before the first beta (ft.vanilla)
                           'baseline': info.get('baseline', '')})
-    return sorted(found, key=lambda b: b['build'])
+    found.sort(key=lambda b: b['build'])
+    # The original game counts only as [client] vanilla names it, and only before a build of the game (alone it is
+    # nothing to compare): a folder left from another setting (or the setting switched off) is no part of the changelog.
+    from . import vanilla
+    try:
+        choice = vanilla.setting()
+    except ValueError:
+        choice = None
+    real = [b for b in found if not b['baseline']]
+    return [b for b in found if not b['baseline'] or (choice and real and b['build'] == choice[2] and b['build'] < real[0]['build'])]
 
 
 _cache = {}
@@ -340,7 +349,7 @@ def code_mark():
     if not _mark:
         seen = hashlib.sha1()
         here = os.path.dirname(os.path.abspath(__file__))
-        for path in [os.path.join(here, name) for name in ('content.py', 'db2.py', 'hotfixes.py', 'vanilla.py')] + [SCHEMA]:
+        for path in [os.path.join(here, name) for name in ('content.py', 'db2.py', 'hotfixes.py')] + [SCHEMA]:
             try:
                 with open(path, 'rb') as handle:
                     seen.update(handle.read())
@@ -456,7 +465,8 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
     (build, build before, kind, id, change, fields, name); first_seen and changed_in {(kind, id): build}; by_hotfix
     {kind: count} of the resources that exist by hotfix alone and were not called "added"; more: {'baseline': what is
     known of the original game's step or None, 'replay': replay(), 'minor': {(build, kind, id)} of the removals that
-    are of no interest to players}. Each build of the list gets its 'counts'.
+    are of no interest to players, 'builds': the builds the changelog is about (the list without an original game
+    that could not be compared)}. Each build of the list gets its 'counts'.
 
     When the list starts with the original game (ft.vanilla), the first build of the game is compared with it
     (ft.vanilla.step) and everything the original game already had is "first seen" there.
@@ -464,8 +474,10 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
     read: a build's folder -> its official(); own: a folder -> its snapshot has the hotfixes of its own build;
     origin: the step from the original game, as ft.vanilla.step (all three for tests)."""
     read, own = read or official, own or hotfixes.has_own
-    base = build_list[0] if len(build_list) > 1 and build_list[0].get('baseline') else None
-    chain = build_list[1:] if base else build_list
+    chain = [b for b in build_list if not b.get('baseline')]     # a baseline is never read as a build of the game
+    base = build_list[0] if chain and build_list[0].get('baseline') else None
+    if not chain:
+        raise ValueError('no build of the game is stored')
     changes, first_seen, changed_in, by_hotfix = [], {}, {}, {}
     loaded = {}      # build -> its official content: the newest build's, and the two being compared
 
@@ -514,7 +526,7 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
                         first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], quiet)
                         by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
                         if quiet == chain[0]['build']:
-                            late.setdefault(b['build'], set()).add((kind, entity_id))
+                            late.setdefault(b['build'], {})[(kind, entity_id)] = ((found.get('prints') or {}).get(kind) or {}).get(str(entity_id), '')
                         continue
                 changes.append((b['build'], before['build'], kind, entity_id, change, fields, name))
                 changed_in[(kind, entity_id)] = b['build']
@@ -526,7 +538,7 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
         log(f'{read_back} of {len(chain)} builds: changelog read back as kept (the builds have not changed)')
     if same:
         log(f'{same} build(s) have the tables of the build before, byte for byte: no data change, not read')
-    more = {'baseline': None, 'replay': None, 'minor': set()}
+    more = {'baseline': None, 'replay': None, 'minor': set(), 'builds': chain}
     start = None
     if base is not None:
         # the game's first build against the original game. It comes last: only now is it known which resources are
@@ -536,9 +548,21 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
             origin = vanilla.step
         start = origin(base, chain, late, load, log)
         base['counts'] = start['counts']
+        # what the step read of the first build is not needed any more (the newest build's is: the analysis works on it)
+        for build in [build for build in loaded if build != twin.get(chain[-1]['build'], chain[-1])['build']]:
+            forget(next(x['dir'] for x in chain if x['build'] == build))
+            del loaded[build]
+    if start is not None and not start.get('compared', True):
+        # the two could not be compared (ft.vanilla.step says why in the log): the changelog starts at the first build
+        start = None
+    if start is not None:
         first = chain[0]['build']
+        # "first seen in the original game": what it had and the game's first build has too (in its tables, or by a
+        # hotfix alone). What the first build lacked and a later one brought is first seen in that later build.
+        held = {(kind, entity_id) for kind, ids in (steps[0][1].get('ids') or {}).items() for entity_id in ids}
+        held |= {(kind, entity_id) for kind, entity_id in start.get('alone') or []}
         old = {(kind, entity_id) for kind, ids in start['ids'].items() for entity_id in ids}
-        for key in old & first_seen.keys():
+        for key in old & held & first_seen.keys():
             first_seen[key] = base['build']
         listed = [(first, base['build'], kind, entity_id, change, fields, name) for kind, entity_id, change, fields, name in start['changes']]
         for _build, _before, kind, entity_id, change, _fields, _name in listed:
@@ -547,7 +571,8 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
         changes = listed + changes
         more['minor'] = {(first, kind, entity_id) for kind, entity_id in start.get('minor') or []}
         more['baseline'] = {'build': base['build'], 'version': base.get('version', ''), 'first': first, 'hidden': start.get('hidden') or {},
-                            'alone': len(start.get('alone') or []), 'compared': start.get('compared', True)}
+                            'alone': len(start.get('alone') or [])}
+        more['builds'] = [base] + chain
     more['replay'] = replay((base['build'], start) if start else None, steps, content)
     return content, changes, first_seen, changed_in, by_hotfix, more
 

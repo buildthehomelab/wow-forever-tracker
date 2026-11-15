@@ -13,7 +13,7 @@
   give the newest build, resource for resource (ids from the start, content from the first build on). One line in the
   analysis log, a table on the first build's page.
 - **A build's page reads every kind.** The first build against the original game is tens of thousands of lines: each
-  kind is read on its own, a filtered kind has pages, and *Every line as CSV* gives the whole build.
+  kind is read on its own, a filtered kind has pages, and *CSV* gives every line the filters show as a file.
 - **Tooltips: ranged weapons.** Bows, guns, thrown weapons and wands take their stats from the ranged column of the
   item level's budget, as the game does. They showed too much before (a wand's +3 Intellect as +4).
 

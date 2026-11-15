@@ -32,9 +32,14 @@ Forever's, so a field means the same thing on both sides.
 The tables are read as CSV from wago.tools' public exports (the source `tools/make_baseline.py` already reads) and
 kept as they came in `data/builds/31650/enUS`. `build.json` says where they are from and marks the folder as the
 original game (`"baseline": "vanilla"`). `[client] vanilla` names the build (`wow_classic:1.13.2.31650`); `off` leaves
-the changelog starting at the first beta build, as before.
+the changelog starting at the first beta build, as before, also when the folder is still there. Only the build the
+setting names counts, and only when it is older than every build of the game.
 
 The original game has no mounts, pets, toys or achievements as tables: every one of them is an addition.
+
+When the site also reads French and the first build is stored in French, the two are not compared (names and texts
+would be French on one side and English on the other): the log says so and the changelog starts at the first build.
+`tracker.py vanilla` waits its turn: while a client check is reading the earlier builds it stores nothing and says so.
 
 This is not the list behind the *New in Forever* tag. That one is the Classic Era client of today, Season of
 Discovery included (`tools/baseline/classic-era.json`), because the question there is "what is new in Forever",
@@ -49,7 +54,7 @@ have:
 
 | What | Then | Today | Compared as |
 |---|---|---|---|
-| A spell effect's points | a base and a die: 13 and 9 sides, for 14 to 22 | the middle of the range, 18, and a variance | the middle of the range |
+| A spell effect's points | a base and a die: 13 and 9 sides, for 14 to 22 | the middle of the range, 18, and a variance | the middle of the range, rounded down as today's tables do |
 | An item's primary stats | the amount: +18 Strength | a share of the item level's stat budget | the amount, today's worked out as the tooltip does |
 | An item's classes | a mask of the nine classes | -1 for everyone, and bits for classes the original game did not have | over the nine original classes |
 
@@ -75,15 +80,15 @@ data does not have is three different things, and the data cannot tell them apar
 - content Blizzard took out (unused spells, test items);
 - content that is **not released yet**: the loot of the later raids is not in the client and not in its hotfixes.
   Most of the absent items are these (Pauldrons of Might, Ashkandi, Perdition's Blade);
-- content the client carries **encrypted**: `build.json` of the first build knows how many records are still locked,
-  and the page says so. An original resource among them reads as absent until its key is out.
+- content the client carries **encrypted**: the analysis counts the records of the first build that are still
+  locked, and the page says how many. An original resource among them reads as absent until its key is out.
 
 So the page says *Not in Forever*, and a resource's own page says "the original game had it; WoW: Forever's data does
 not: Blizzard took it out, or it is not released yet". When such a resource arrives later, the build that brings it
 lists it as added.
 
-Removed spells that nothing taught or used (no class, no profession, no talent, no item: creatures' spells and
-leftovers) are kept off the page unless *Internal / test* is switched on, like every other internal resource.
+Absent spells that players never learned or used themselves (what an item or a creature cast, a trigger, a
+leftover) are kept off the page unless *Internal / test* is switched on: such a spell is internal in every build.
 
 ## What exists by hotfix alone
 
