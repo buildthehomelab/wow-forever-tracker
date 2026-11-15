@@ -332,7 +332,17 @@ class Conversations(unittest.TestCase):
         self.assertEqual(self.casts(smart, menus=[(16365, 7213)]), [('npc', 16365, 28261)])
 
     def test_the_cores_own_script(self):
-        self.assertEqual(self.casts([], scripts=[(9037, 'boss_gloomrel'), (14742, 'npc_engineering_tele_trinket')]), [('npc', 9037, 14894)])
+        scripts = [('npc', 9037, 'boss_gloomrel'), ('npc', 14742, 'npc_engineering_tele_trinket'), ('npc', 14338, 'classic_npc_knot_thimblejack')]
+        self.assertEqual(self.casts([], scripts=scripts), [('npc', 9037, 14894)])   # the transporters and Knot are broken
+
+    def test_the_cores_classic_scripts(self):
+        # Omarion's script teaches his 13 recipes; the Field Repair Bot schematic, an object, teaches on use
+        found = self.casts([], scripts=[('npc', 16365, 'classic_mob_craftsman_omarion'), ('go', 179552, 'classic_go_field_repair_bot_74A')])
+        self.assertIn(('go', 179552, 22864), found)
+        self.assertIn(('npc', 16365, 28212), found)
+        self.assertEqual(len(found), 14)
+        # a script name on the wrong kind of template teaches nothing
+        self.assertEqual(self.casts([], scripts=[('npc', 179552, 'classic_go_field_repair_bot_74A')]), [])
 
     def test_the_rules_count_it_where_someone_stands(self):
         ctx = world(conversation_casts=[('npc', 14338, 22814), ('go', 180368, 24267)], spell_teaches={(22814, 22813), (24267, 24266)},
