@@ -249,6 +249,11 @@ def server_state():
                           ints('SELECT Spell FROM creature_template_spell')
     ctx['scripted_spells'] = {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
     ctx['achievement_rewards'] = ints('SELECT ID FROM achievement_reward')
+    # Achievements that pay a talent or perk currency (a Legacy Point): the core counts the achievement itself as the
+    # source (TraitCurrencySource), no achievement_reward row is involved.
+    ctx['achievement_currency'] = {r['AchievementID'] for r in srv('TraitCurrencySource') if r['AchievementID'] and r['Amount'] > 0}
+    if sqlio.has_table('trait_currency_source', 'hotfixes'):
+        ctx['achievement_currency'] |= ints('SELECT AchievementID FROM trait_currency_source WHERE AchievementID > 0 AND Amount > 0', 'hotfixes')
     ctx['graveyards'] = ints('SELECT GhostZone FROM graveyard_zone')
 
     ctx['instance_template'] = {int(r['map']): r['script'] for r in q('SELECT map, script FROM instance_template')}

@@ -55,7 +55,7 @@ passes or fails, in English and French, with a work list by priority, CSV export
 | Zone | creatures spawned in its area; most of its quests doable; graveyard |
 | Spell, talent, recipe | known to the core; learnable (trainer, quest reward, automatic, item, a talent or perk tree, or learning another spell); script advice for dummy effects. A spell the game data marks as never learned, or that another spell casts, is not asked for a trainer |
 | Mount, pet, toy | the item or spell that teaches it can be obtained |
-| Achievement | known to the core; `achievement_reward` when it has a reward |
+| Achievement | known to the core; `achievement_reward` when it rewards a title or an item. A talent or perk point ("Earn 1 Legacy Point.") needs no row: the core counts the achievement itself (`TraitCurrencySource`) |
 | Flight point | a flight master spawned next to the node |
 
 | ![Work list](docs/screenshots/todo.png) | ![Search](docs/screenshots/search.png) |
