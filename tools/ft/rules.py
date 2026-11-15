@@ -457,7 +457,14 @@ def evaluate_all(content, ctx):
     def achievement_result(ach_id, entity):
         checks = [check(ach_id in known['achievement'], 'core', L('Server Achievement.db2 or hotfixes.', 'Achievement.db2 du serveur ou hotfixes.'), 2)]
         if entity.get('reward') or entity.get('reward_item'):
-            checks.append(check(ach_id in ctx['achievement_rewards'], 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
+            if ach_id in ctx['achievement_rewards']:
+                checks.append(check(True, 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
+            elif ach_id in ctx.get('achievement_currency', ()) and not entity.get('reward_item'):
+                # "Earn 1 Legacy Point.": the trait system pays it once the achievement is earned
+                checks.append(check(True, 'reward', L('A talent or perk point: the core counts the achievement itself (TraitCurrencySource), no achievement_reward row.',
+                                                      'Un point de talent ou d’avantage : le cœur compte le haut fait lui-même (TraitCurrencySource), sans ligne achievement_reward.'), 2))
+            else:
+                checks.append(check(False, 'reward', L('achievement_reward (title / item by mail).', 'achievement_reward (titre / objet par courrier).'), 2))
         return checks
 
     def taxi_result(node_id, entity):
