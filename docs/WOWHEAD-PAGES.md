@@ -11,9 +11,9 @@ crawler as something else.
 
 | Piece | What it does |
 |---|---|
-| The Forge › Imports › *Wowhead pages* | *Download the crawler* (crawler.js with the pages this tracker wants next queued), *Send wowhead-pages.jsonl* (into the cache, then an import card), *Import Wowhead pages* (a card from the cache as it is) |
+| The Forge › Imports › *Wowhead pages* | *Download the crawler* (crawler.js with the pages this tracker wants next queued), *Download the full crawl* (the same, then the whole database: [below](#the-whole-database)), *Send wowhead-pages.jsonl* (into the cache, then an import card), *Import Wowhead pages* (a card from the cache as it is) |
 | `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: learns how fast it may go, keeps what it read in the tab's storage, saves it as a file |
-| `data/wowhead-pages/<kind>.jsonl` | the pages read so far, one line a page, sorted by id. Outside the repository: a copy of Wowhead's data is kept for your server, not republished with the code |
+| `data/wowhead-pages/<shelf>.jsonl` | the pages read so far, one line a page, sorted by id: `item.jsonl` holds Forever's item pages, `classic-npc.jsonl` Classic's npc pages, `forever-list.jsonl` the list pages (one line a list query). Outside the repository: a copy of Wowhead's data is kept for your server, not republished with the code |
 | `app/wowheadpages.php` | the queue, the merge, and the cache as an import card (also `php tools/source-import.php wowhead`) |
 | `tools/wowhead_pages.py` | the same queue and merge from the command line (`todo`, `merge`, `stats`) |
 
@@ -37,12 +37,41 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 3. `await WHC.status()` says how far it is, the pace it found and the hours left; `WHC.log()` lists its last pace
    changes, blocks and network errors. Closing or reloading the tab loses nothing: paste the file again and it goes
    on where it stopped (pages already read are not queued twice).
-4. `await WHC.save()` downloads `wowhead-pages.jsonl`, at any time, also while it runs.
+4. `await WHC.save()` downloads `wowhead-pages.jsonl`, at any time, also while it runs. `await WHC.saveNew()` downloads
+   only the pages read since the last `saveNew()`: a long crawl sent in parts.
 5. **Send wowhead-pages.jsonl** on the Imports page: the pages go into the cache (the newer answer of a page wins)
    and an import card is made from the whole cache. Download the crawler again later for the pages still wanted.
 
 Without the website: `python tools/wowhead_pages.py todo <the To add list as CSV>` prints the queue as
 `WHC.add(...)` lines and `python tools/wowhead_pages.py merge wowhead-pages.jsonl` fills the same cache.
+
+## The whole database
+
+*Download the full crawl* (or `await WHC.full()` in the tab) reads everything Wowhead holds that a server needs and
+no client file carries, for WoW Forever and for WoW Classic:
+
+1. **The lists.** `/forever/npcs`, `/objects`, `/quests`, `/items`, then the same of `/classic`. A list page shows at
+   most 1,000 rows and says how many it found; filtered by an id range (`npcs?filter=37:37;2:4;1:20000`, ID ≥ 1 and
+   ≤ 20000) it is whole when it found no more than it shows. A cut list is split into ranges of about 800 found ids and
+   those are read first, until every list is whole: a few hundred pages name every id of both branches. Of a row only
+   what a thing is and where it comes from is kept (level, quality, zones, `source` codes), not its stats or its name.
+   The lists go ahead of whatever was queued.
+2. **The pages they name**, after whatever was queued: every npc (drops with counts, sold items, quests it starts and
+   ends, where it stands), every object (contents, quests), every quest, and of the items only those whose page says
+   more than the npc, object and quest pages do (a `source` other than crafted, drop, quest and vendor: fishing,
+   gathering, containers ...).
+3. **Classic only where it helps Forever.** Of Classic, only the pages of ids Forever has too (Season of Discovery's
+   ids Forever reused among them), and of those only when Forever's own page has no loot counts from at least 50
+   looted corpses or opened chests: Classic's players saw the same creature drop far more often. A Classic page is
+   kept on its own shelf, never mixed with Forever's.
+
+Forever alone is about 15,600 npcs and 5,100 objects (Wowhead's counts, November 2026), so at one page every 10 to 20
+seconds the whole database is days of crawling. The queue and what was read live in the tab's IndexedDB (a whole
+crawl is more than localStorage holds); `WHC.status()` gives what is queued and read by kind. The tab must stay open
+and, ideally, visible: a hidden tab's timers are slowed.
+
+**What the import does with it today**: the import card still reads Forever's item and quest pages only (below). The
+lists, the npc and object pages and the Classic pages are kept in the cache for the imports that will read them.
 
 ## The pace
 
@@ -90,6 +119,8 @@ Each loot row's `Comment` is `Wowhead <date of the newest page>`, which is how a
 ## Tests
 
 - `node tools/tests/test_wowhead_crawl.mjs`: what the crawler keeps of a page, on a made-up page.
-- `node tools/tests/test_wowhead_crawl.mjs` also covers the pace: speeding up, blocks, the fading memory, network errors.
+- `node tools/tests/test_wowhead_crawl.mjs` also covers the pace (speeding up, blocks, the fading memory, network
+  errors) and the whole database: the three ways a list page is written, the splitting of a cut list, the pages a list
+  names, when a Classic page is read, the queue keys.
 - `python -m unittest tools/tests/test_wowhead_pages.py`: the cache and the to-do list.
 - `php tools/tests/test_wowhead_pages.php`: the evidence and what is left out, the queue order, the merge and the crawler download.

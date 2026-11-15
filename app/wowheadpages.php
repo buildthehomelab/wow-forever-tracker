@@ -27,8 +27,26 @@ const WOWHEAD_PAGES_OTHER_TABS = ['reward-from-q', 'contained-in-item', 'created
 function wowhead_pages_dirs(): array { return [FT_ROOT . '/tools/wowhead-pages/cache', wowhead_pages_dir()]; }
 function wowhead_pages_dir(): string { return FT_ROOT . '/data/wowhead-pages'; }
 const WOWHEAD_PAGES_KINDS = ['item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset'];
+const WOWHEAD_PAGES_BRANCHES = ['forever', 'classic'];
 
-/** The pages of one kind: [id => record], the newest answer of each. A line that does not read is skipped. */
+/** Where a crawler line is kept (tools/wowhead_pages.py shelf_of): 'item' for Forever's item pages, as before there
+ *  were branches; 'classic-npc'; 'forever-list' for the list pages that named every id of a branch. */
+function wowhead_pages_shelf(array $raw): string
+{
+    $branch = (string)($raw['branch'] ?? 'forever');
+    if (($raw['kind'] ?? '') === 'list') return "$branch-list";
+    return $branch === 'forever' ? (string)$raw['kind'] : $branch . '-' . $raw['kind'];
+}
+
+/** What a record is one of on its shelf: a page's id, a list's query. */
+function wowhead_pages_entity(array $record): int|string|null
+{
+    if (($record['kind'] ?? '') === 'list') return is_string($record['query'] ?? null) ? $record['query'] : null;
+    return is_int($record['id'] ?? null) && $record['id'] > 0 ? $record['id'] : null;
+}
+
+/** The pages of one shelf ('item', 'classic-npc', 'forever-list'): [id or query => record], the newest answer of
+ *  each. A line that does not read is skipped. */
 function wowhead_pages(string $kind, ?array $dirs = null): array
 {
     $pages = [];
@@ -37,9 +55,10 @@ function wowhead_pages(string $kind, ?array $dirs = null): array
         if (!$handle) continue;
         while (($line = fgets($handle)) !== false) {
             $record = json_decode($line, true);
-            if (!is_array($record) || !is_int($record['id'] ?? null) || $record['id'] <= 0) continue;
-            if (isset($pages[$record['id']]) && (int)($pages[$record['id']]['fetched'] ?? 0) >= (int)($record['fetched'] ?? 0)) continue;
-            $pages[$record['id']] = $record;
+            $key = is_array($record) ? wowhead_pages_entity($record) : null;
+            if ($key === null) continue;
+            if (isset($pages[$key]) && (int)($pages[$key]['fetched'] ?? 0) >= (int)($record['fetched'] ?? 0)) continue;
+            $pages[$key] = $record;
         }
         fclose($handle);
     }
@@ -159,10 +178,24 @@ function wowhead_pages_numbers_only($value): bool
 /** A crawler line as the cache keeps it, or null when it is not one (tools/wowhead_pages.py clean() does the same). */
 function wowhead_pages_clean($record): ?array
 {
-    if (!is_array($record) || !in_array($record['kind'] ?? null, WOWHEAD_PAGES_KINDS, true) || !in_array($record['status'] ?? null, ['ok', 'missing'], true)) return null;
-    $id = $record['id'] ?? null; $fetched = $record['fetched'] ?? null;
-    if (!is_int($id) || $id <= 0 || $id > 2147483647 || !is_int($fetched) || $fetched <= 0 || $fetched > time() + 86400) return null;
-    $out = ['id' => $id, 'fetched' => $fetched, 'v' => (int)($record['v'] ?? 0), 'status' => $record['status']];
+    if (!is_array($record) || !in_array($record['status'] ?? null, ['ok', 'missing'], true) || !in_array($record['branch'] ?? 'forever', WOWHEAD_PAGES_BRANCHES, true)) return null;
+    $fetched = $record['fetched'] ?? null;
+    if (!is_int($fetched) || $fetched <= 0 || $fetched > time() + 86400) return null;
+    $branch = ($record['branch'] ?? 'forever') === 'forever' ? [] : ['branch' => $record['branch']];
+    if (($record['kind'] ?? null) === 'list') {
+        // a list page: its query, its rows (numbers only, each with an id), how many it found, whether it was cut
+        $query = $record['query'] ?? null;
+        if (!is_string($query) || !preg_match('/^[a-z-]{1,30}(\?filter=[\d:;]{1,80})?$/', $query) || !is_array($record['rows'] ?? null) || $record['status'] !== 'ok') return null;
+        $rows = array_values(array_filter($record['rows'], fn($r) => is_array($r) && is_int($r['id'] ?? null) && wowhead_pages_numbers_only($r)));
+        $out = ['kind' => 'list', 'query' => $query, 'fetched' => $fetched, 'v' => (int)($record['v'] ?? 0), 'status' => 'ok'] + $branch;
+        $out += ['rows' => $rows, 'found' => is_int($record['found'] ?? null) ? $record['found'] : count($rows), 'truncated' => !empty($record['truncated'])];
+        if (is_int($record['cr'] ?? null)) $out['cr'] = $record['cr'];
+        return $out;
+    }
+    if (!in_array($record['kind'] ?? null, WOWHEAD_PAGES_KINDS, true)) return null;
+    $id = $record['id'] ?? null;
+    if (!is_int($id) || $id <= 0 || $id > 2147483647) return null;
+    $out = ['id' => $id, 'fetched' => $fetched, 'v' => (int)($record['v'] ?? 0), 'status' => $record['status']] + $branch;
     if ($record['status'] === 'missing') return $out;
     $quick = $record['quick'] ?? []; $tabs = $record['tabs'] ?? [];
     if (!is_array($quick) || !is_array($tabs) || ($tabs && array_is_list($tabs))) return null;
@@ -195,22 +228,23 @@ function wowhead_pages_merge(string $text, ?string $dir = null): array
         $raw = json_decode($line, true);
         $record = wowhead_pages_clean($raw);
         if ($record === null) { $counts['not_a_page']++; continue; }
-        $incoming[$raw['kind']][] = $record;
+        $incoming[wowhead_pages_shelf($raw)][] = $record;
     }
     foreach ($incoming as $kind => $records) {
         $pages = wowhead_pages($kind, [$dir]);
         foreach ($records as $r) {
-            $have = $pages[$r['id']] ?? null;
+            $key = wowhead_pages_entity($r);
+            $have = $pages[$key] ?? null;
             if ($have !== null && (int)($have['fetched'] ?? 0) >= $r['fetched']) { $counts['older']++; continue; }
             $counts[$have === null ? 'new' : 'newer']++;
-            $pages[$r['id']] = $r;
+            $pages[$key] = $r;
         }
-        ksort($pages);
+        ksort($pages, SORT_STRING | SORT_NATURAL);
         @mkdir($dir, 0775, true);
         $scratch = "$dir/$kind.jsonl." . getmypid() . '.tmp';
         $out = '';
         foreach ($pages as $page) {
-            if (($page['tabs'] ?? null) === []) $page['tabs'] = new stdClass();   // read back as a list, written as the object it is
+            if (array_key_exists('tabs', $page) && $page['tabs'] === []) $page['tabs'] = new stdClass();   // read back as a list, written as the object it is
             $out .= json_encode($page, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) . "\n";
         }
         if (file_put_contents($scratch, $out) === false || !rename($scratch, "$dir/$kind.jsonl")) { @unlink($scratch); throw new RuntimeException("cannot write $dir/$kind.jsonl"); }
@@ -258,13 +292,15 @@ function wowhead_pages_queue(): array
     return wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
 }
 
-/** crawler.js with the queue added and started: what the browser tab runs. */
-function wowhead_pages_crawler(array $queue): string
+/** crawler.js with the queue added and started: what the browser tab runs. $full: the whole database too
+ *  (WHC.full(): every list of Forever and Classic first, then the pages they name, after the queue). */
+function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($queue[$k]) . " $k pages", array_keys($queue)))];
     $lines[] = '(async () => {';
     foreach ($queue as $kind => $ids) if ($ids) $lines[] = '  await WHC.add(' . json_encode($kind) . ', ' . json_encode(array_values($ids)) . ');';
+    if ($full) $lines[] = '  await WHC.full();';
     $lines[] = '  WHC.start();';
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";
     $lines[] = '})();';
