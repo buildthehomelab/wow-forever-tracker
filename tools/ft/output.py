@@ -4,7 +4,7 @@ import json
 import re
 
 from . import sqlio
-from .baseline import Baseline
+from .baseline import NEW_FROM, Baseline
 
 # Names of things players never see. Words that real names share are pinned to the shape a test name has: "Monster -
 # Sword2H" is a weapon model, "Monster Omelet" is dinner; "Test Dungeon" and "QA Test" are tests, "Test of Faith" and
@@ -38,16 +38,18 @@ def item_internal(item_id, items, wowhead):
 
 
 def leftover(kind, entity_id, entity, status, items, wowhead, baseline, trained=()):
-    """A spell or recipe that only items teach, none of them part of the game: each is a test item, a Season of
-    Discovery leftover, or an item the client does not have at all. A spell new in Forever whose item is not there yet
-    is something else: content still locked, which stays on the list."""
+    """A spell or recipe that only items teach, none of them part of the game: each is a test item or a Season of
+    Discovery leftover. An item the client does not have at all counts the same way for a spell the Classic Era client
+    gained after the original game (a Season of Discovery addition), and only for those: an original recipe whose
+    unused pattern is gone is still taught some other way (the Naxxramas frost resistance sets, quest recipes), and a
+    spell new in Forever whose item is not there yet is content still locked. Both stay on the list."""
     teach = entity.get('teach') or []
     if status == 'ok' or not teach or entity_id in trained:
         return False
-    new = baseline.is_new(kind, entity_id, entity)
+    season = entity_id >= NEW_FROM.get(kind, 10 ** 9) and not baseline.is_new(kind, entity_id, entity)
     for item in teach:
         state = item_internal(int(item), items, wowhead)
-        if state is False or (state is None and new):
+        if state is False or (state is None and not season):
             return False
     return True
 

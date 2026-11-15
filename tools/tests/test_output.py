@@ -131,11 +131,17 @@ class Leftovers(unittest.TestCase):
         self.assertTrue(self.left(424760, [213117]))        # the rune Wowhead marks as not in Forever
         self.assertTrue(self.left(471, [902]))              # "Deprecated ..."
         self.assertTrue(self.left(430409, [211849]))        # an item the client does not have at all
-        self.assertTrue(self.left(1, [213117, 902, 211849]))
+        self.assertTrue(self.left(430410, [213117, 902, 211849]))
 
     def test_one_real_item_keeps_it_on_the_list(self):
         self.assertFalse(self.left(17632, [13517]))
         self.assertFalse(self.left(17632, [213117, 13517]))
+
+    def test_an_original_recipe_whose_unused_pattern_is_gone_stays(self):
+        # Glacial Wrists: taught in Naxxramas, its pattern item was never used and is not in the client
+        self.assertFalse(self.left(28209, [22687]))
+        self.assertFalse(self.left(28209, [22687, 902]))
+        self.assertTrue(self.left(471, [902]))             # a test item still decides, whatever the spell's age
 
     def test_no_item_no_verdict(self):
         self.assertFalse(self.left(5, []))
