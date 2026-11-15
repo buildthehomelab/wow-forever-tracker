@@ -10,7 +10,7 @@ a page.**
 
 | Piece | What it does |
 |---|---|
-| `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: reads one page every 11 to 14 seconds, keeps what it read in the tab's storage, saves it as a file |
+| `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: reads one page every 20 seconds or so, keeps what it read in the tab's storage, saves it as a file |
 | `tools/wowhead_pages.py` | lists the pages worth reading (`todo`), puts what the crawler saved into the cache (`merge`), says what the cache holds (`stats`) |
 | `tools/wowhead-pages/cache/<kind>.jsonl` | the pages read so far, one line a page, sorted by id |
 | `app/wowheadpages.php` | turns the cache into an import card: The Forge › Imports › *Import Wowhead pages*, or `php tools/source-import.php wowhead` |
@@ -50,18 +50,17 @@ import reads both folders and takes the newer answer of each page.
 
 ## The pace
 
-Wowhead blocks an address that asks too fast: every page then answers 405 for about eight minutes. About 35 pages in
-a minute and a half does it, and so does one page every 7 seconds kept up for five minutes. One every 10 seconds ran
-without a block. The crawler asks for one page every 11 to 14 seconds (`WHC.pace(seconds)` changes the 11), a little
-under 5 pages a minute: 1,000 pages take three and a half hours. When a block comes anyway it waits eight and a half
-minutes, twice as long when the next answer is a block again (34 minutes at most), and goes on with the same page.
-Ten requests in a row without any answer stop it.
+Wowhead blocks an address that asks too fast: every page then answers 405 for about eight minutes. The limit looks
+like about 35 pages in ten minutes: crawls at 4 pages a minute were blocked after nine minutes whatever the spacing
+between two pages, and one at 2.4 a minute was not. That is a reading of a handful of blocks, not a published limit,
+and a block costs eight minutes, so the crawler errs on the slow side: one page every 20 to 23 seconds
+(`WHC.pace(seconds)` changes the 20), a little under 3 pages a minute. 1,000 pages take six hours. When a block comes
+anyway it waits eight and a half minutes, twice as long when the next answer is a block again (34 minutes at most),
+and goes on with the same page. Ten requests in a row without any answer stop it.
 
-Wowhead's own page keeps asking for things in the background, and those requests count too. So the crawler puts
-every `fetch` of its tab to Wowhead in the same line as its own pages (`pageRequests` in `WHC.status()` counts them).
-What the page loads another way (images, scripts) is not in that line.
-Other tabs on Wowhead from the same address share the limit: do not run two crawls at once, and do not browse
-Wowhead while one runs.
+Every `fetch` of the crawler's tab to Wowhead itself waits in the same line as the crawler's pages (`pageRequests`
+in `WHC.status()` counts them). Requests of the page to other hosts pass untouched. Other tabs on Wowhead from the
+same address share the limit: do not run two crawls at once, and do not browse Wowhead while one runs.
 
 ## The import
 

@@ -1,7 +1,7 @@
 // Wowhead page crawler: reads the pages of Wowhead's WoW Forever database slowly, from a browser tab.
 //
 // Wowhead answers page requests from scripts with 403, and a browser that asks too fast with a block of several
-// minutes. So this runs inside a tab that is already on a Wowhead page (same-origin fetch), one page every few
+// minutes. So this runs inside a tab that is already on a Wowhead page (same-origin fetch), one page every 20 or so
 // seconds, and keeps only facts: the Quick Facts lines and the rows of each tab (who drops, who sells, ...) with their
 // numbers. No name, no description, no comment is kept. What it read stays in the tab's IndexedDB, so a reload, a
 // block or a closed tab loses nothing: load this file again and call WHC.start().
@@ -234,7 +234,7 @@
   };
   const state = {
     queue: store.get('queue', []),        // 'item:123', in order
-    gap: store.get('gap', 11000),         // ms between two requests, plus up to `jitter`
+    gap: store.get('gap', 20000),         // ms between two requests, plus up to `jitter`: about 3 pages a minute
     jitter: 3000,
     nextSlot: 0,                          // when the next request to Wowhead may leave, the page's own ones included
     blockWait: 8.5 * 60000,               // after a block; doubled while blocks follow each other, 34 min at most
@@ -243,8 +243,9 @@
   };
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Wowhead counts every request from this address, and its own page keeps asking for things in the background. So
-  // every fetch of this tab to Wowhead waits its turn in one line: the crawler's pages and the page's own requests.
+  // Wowhead counts the requests from this address, whoever in the tab makes them. So every fetch of this tab to
+  // Wowhead itself waits its turn in one line: the crawler's pages and anything the page asks its own host for.
+  // Requests to other hosts (the page's bot-check service among them) pass untouched.
   const pageFetch = root.__whcFetch || (root.__whcFetch = root.fetch.bind(root));
   async function turn() {
     const now = Date.now();
@@ -377,7 +378,7 @@
     add, status, lines, save, state, extract,
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },
-    pace: seconds => { state.gap = Math.max(4, Number(seconds)) * 1000; store.set('gap', state.gap); return state.gap; },   // under 10 gets blocked
+    pace: seconds => { state.gap = Math.max(4, Number(seconds)) * 1000; store.set('gap', state.gap); return state.gap; },   // under 17 gets blocked
     clearQueue: () => { state.queue = []; store.set('queue', []); },
     forget: key => pages('readwrite', s => s.delete(key)),
   };
