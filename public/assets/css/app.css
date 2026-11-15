@@ -483,7 +483,9 @@ a.id-link:hover { color: var(--accent-text); }
 @media (min-width: 700px) { .form-row { grid-template-columns: 220px 1fr; } }
 
 /* ------------------------------------------------------------------ Forge */
-.page-head.is-forge { align-items: start; }
+/* The title above the analysis card, never beside it: the card's lines (what Blizzard's servers last answered, the
+   log) are as wide as the page, and in a column of its own it took the whole row and left the title none. */
+.page-head.is-forge { align-items: start; grid-template-columns: minmax(0, 1fr); }
 .analysis-card { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 12px 14px; min-width: min(100%, 340px); }
 .analysis-card strong { display: block; font-size: 13.5px; font-weight: 600; }
 .analysis-card small { color: var(--muted); }
