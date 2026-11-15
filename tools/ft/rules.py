@@ -125,6 +125,24 @@ def evaluate_all(content, ctx):
         objectives.setdefault(quest, []).append((kind, obj, amount))
     disabled_quests = ctx['disabled'].get(1, set())
 
+    # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
+    chain = {}
+    for source, target in list(ctx['learn_chain']) + list(ctx.get('spell_teaches', ())):
+        chain.setdefault(source, set()).add(target)
+    # taught in a conversation: a spawned NPC or object whose conversation casts the spell, or a spell that teaches it
+    # (ft.server.read_conversations: SmartAI on a menu choice, or one of the core's own scripts)
+    talked = {}
+    for kind, entry, spell in ctx.get('conversation_casts', ()):
+        if entry in (npc_placed if kind == 'npc' else go_placed):
+            talked.setdefault(spell, set()).add((kind, entry))
+    todo = list(talked)
+    while todo:
+        spell = todo.pop()
+        for target in chain.get(spell, set()):
+            if not talked.get(target, set()) >= talked[spell]:
+                talked.setdefault(target, set()).update(talked[spell])
+                todo.append(target)
+
     available_quests = set()
     previous_state = None
     for _round in range(40):  # long quest chains (reward -> item -> next quest) need several passes
@@ -141,7 +159,7 @@ def evaluate_all(content, ctx):
             add({int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} - {0}, 'quest')
             add({int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)} - {0}, 'quest')
             add({int(row.get('StartItem') or 0)} - {0}, 'questgive')   # the package the giver hands over on accept
-        learnable = trained | ctx['auto_learn'] | {spell for spell, items in ctx['teaches'].items() if items & set(sources)}
+        learnable = trained | ctx['auto_learn'] | set(talked) | {spell for spell, items in ctx['teaches'].items() if items & set(sources)}
         for item, spells in ctx['creates'].items():
             if spells & learnable:
                 add([item], 'craft')
@@ -162,11 +180,7 @@ def evaluate_all(content, ctx):
         quest_spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
         quest_spells |= ctx.get('quest_display_spells', {}).get(quest, set())
     tree_spells = ctx.get('tree_spells', set())
-    learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | tree_spells | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
-    # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
-    chain = {}
-    for source, target in list(ctx['learn_chain']) + list(ctx.get('spell_teaches', ())):
-        chain.setdefault(source, set()).add(target)
+    learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | tree_spells | set(talked) | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
     todo = [spell for spell in learnable if spell in chain]
     while todo:
         for target in chain[todo.pop()] - learnable:
@@ -195,6 +209,15 @@ def evaluate_all(content, ctx):
         holders.setdefault(trainer, set()).add(npc)
     for trainer, spell in ctx['trainer_spells']:
         trainer_holders.setdefault(spell, set()).update(holders.get(trainer, ()))
+
+    def in_conversation(spell_id):
+        """'taught in a conversation (NPC 14338)' when a spawned NPC or object teaches it by talking, else None."""
+        who = sorted(talked.get(spell_id, ()))
+        if not who:
+            return None
+        names = ', '.join(('NPC ' if kind == 'npc' else 'object ') + str(entry) for kind, entry in who[:3]) + ('…' if len(who) > 3 else '')
+        names_fr = ', '.join(('PNJ ' if kind == 'npc' else 'objet ') + str(entry) for kind, entry in who[:3]) + ('…' if len(who) > 3 else '')
+        return L(f'taught in a conversation ({names})', f'enseigné dans une conversation ({names_fr})')
 
     def waiting_for(spell_id, items):
         """Why a spell nothing teaches yet is not learnable, as precisely as the realm's data says it."""
@@ -246,6 +269,8 @@ def evaluate_all(content, ctx):
                 how.append(L('pet (training or creature spell)', 'familier (entraînement ou sort de PNJ)'))
             if spell_id in tree_spells and category != 'talent':
                 how.append(L('talent or perk tree', 'arbre de talents ou d’avantages'))
+            if in_conversation(spell_id):
+                how.append(in_conversation(spell_id))
             if spell_id in learnable and not how:
                 how.append(L('learned through another spell', 'appris via un autre sort'))
             items = ctx['teaches'].get(spell_id, set())
@@ -445,6 +470,8 @@ def evaluate_all(content, ctx):
         teach = ctx['teaches'].get(spell_id, set())
         if teach & obtainable:
             how.append(L('obtainable recipe', 'recette obtenable'))
+        if in_conversation(spell_id):
+            how.append(in_conversation(spell_id))
         if spell_id in learnable and not how:
             how.append(L('learned through another spell', 'appris via un autre sort'))
         if how:
