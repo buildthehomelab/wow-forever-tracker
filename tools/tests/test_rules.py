@@ -28,6 +28,7 @@ def world(**over):
         'quest_display_spells': {}, 'q_start_npc': [], 'q_start_go': [], 'q_end_npc': [], 'q_end_go': [], 'objectives': [], 'disabled': {},
         'start_quest_item': {}, 'auto_learn': set(), 'teaches': {}, 'creates': {}, 'create_spells': set(), 'learn_chain': [], 'pet_training': set(),
         'never_learned': set(), 'cast_by': {}, 'tree_spells': set(), 'spell_teaches': set(), 'achievement_currency': set(),
+        'conversation_casts': [],
         'scripted_spells': set(), 'spell_ids': set(), 'achievement_rewards': set(), 'graveyards': set(), 'instance_template': {}, 'entrances': set(),
         'battlegrounds': set(), 'map_tiles': {}, 'mmaps': set(), 'vmaps': set(), 'ui_maps': [],
     }
@@ -301,6 +302,53 @@ class AchievementRewards(unittest.TestCase):
 
     def test_no_reward_no_check(self):
         self.assertEqual(self.reward({'reward': '', 'reward_item': 0}), ('ok', []))
+
+
+class Conversations(unittest.TestCase):
+    """A recipe taught in a conversation: an NPC's or an object's menu choice casts a spell that teaches it."""
+
+    # Knot Thimblejack (14338) opens menu 5667; its option 2 runs SmartAI that casts 22814, which teaches 22813.
+    # The Tablet of Madness (object 180368) opens menu 6443, option 0 casts 24267 (teaches 24266).
+    MENUS = [(14338, 5667)]
+    OBJECTS = [(180368, 6443)]
+    OPTIONS = [(5667, 0, 0), (5667, 2, 0), (6443, 0, 0), (7213, 0, 24401), (24401, 2, 0), (24401, 0, 7213)]
+
+    def casts(self, smart, scripts=(), menus=None, options=None):
+        return server.conversation_casts(self.MENUS if menus is None else menus, self.OBJECTS, self.OPTIONS if options is None else options, smart, scripts)
+
+    def test_a_menu_choice_that_casts(self):
+        smart = [('npc', 14338, 5667, 2, 22814), ('go', 180368, 6443, 0, 24267)]
+        self.assertEqual(self.casts(smart), [('go', 180368, 24267), ('npc', 14338, 22814)])
+
+    def test_a_choice_the_conversation_does_not_reach(self):
+        self.assertEqual(self.casts([('npc', 14338, 9999, 2, 22814)]), [])            # another menu
+        self.assertEqual(self.casts([('npc', 14338, 5667, 7, 22814)]), [])            # no such option
+        self.assertEqual(self.casts([('npc', 1, 5667, 2, 22814)]), [])                # a creature that does not open it
+        self.assertEqual(self.casts([('npc', 14338, 5667, 2, 0)]), [])                # no spell
+
+    def test_a_menu_reached_through_another(self):
+        # Omarion opens 7213, whose first option leads to 24401 (and back): the recipes sit in the second menu
+        smart = [('npc', 16365, 24401, 2, 28261)]
+        self.assertEqual(self.casts(smart, menus=[(16365, 7213)]), [('npc', 16365, 28261)])
+
+    def test_the_cores_own_script(self):
+        self.assertEqual(self.casts([], scripts=[(9037, 'boss_gloomrel'), (14742, 'npc_engineering_tele_trinket')]), [('npc', 9037, 14894)])
+
+    def test_the_rules_count_it_where_someone_stands(self):
+        ctx = world(conversation_casts=[('npc', 14338, 22814), ('go', 180368, 24267)], spell_teaches={(22814, 22813), (24267, 24266)},
+                    spawned_npc={14338})
+        results = evaluate({'spell': {22813: {'sub': 'profession'}, 24266: {'sub': 'profession'}}, 'recipe': {22813: {}}}, ctx)
+        self.assertEqual(results[('spell', 22813)][0], 'ok')
+        learn = next(c for c in results[('spell', 22813)][2] if c['code'] == 'learn')
+        self.assertEqual(learn['detail']['en'], 'taught in a conversation (NPC 14338)')
+        self.assertEqual(results[('recipe', 22813)][0], 'ok')
+        self.assertEqual(results[('spell', 24266)][0], 'partial')              # the tablet is not spawned
+        ctx = world(conversation_casts=[('go', 180368, 24267)], spell_teaches={(24267, 24266)}, spawned_go={180368})
+        self.assertEqual(evaluate({'spell': {24266: {'sub': 'profession'}}}, ctx)[('spell', 24266)][0], 'ok')
+
+    def test_what_a_crafted_recipe_makes_becomes_obtainable(self):
+        ctx = world(conversation_casts=[('npc', 14338, 22814)], spell_teaches={(22814, 22813)}, spawned_npc={14338}, creates={18258: {22813}})
+        self.assertEqual(evaluate({'item': {18258: {}}}, ctx)[('item', 18258)][0], 'ok')
 
 
 class TreeSpells(unittest.TestCase):
