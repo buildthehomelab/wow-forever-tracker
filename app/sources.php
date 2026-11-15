@@ -38,6 +38,7 @@ const SOURCES = [
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
     'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14)'],
+    'wowheadclassic' => ['Wowhead Classic', 'drop counts from the pages of wowhead.com/classic, for creatures and chests Forever kept whose Forever pages count too few (no text; no licence stated: credited)'],
     'classicdb' => ['Classic database', 'cmangos classic-db, GPL-3.0: the original game, asked last'],
 ];
 
@@ -256,12 +257,13 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
- *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,classicdb';
+ *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
+ *  (Wowhead Classic, the original game's database) comes after everything recorded on Forever. */
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,wowheadclassic,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -284,7 +286,8 @@ function source_named(?string $text): ?string
     $found = null; $at = PHP_INT_MAX;
     foreach (SOURCE_MARKS as $source => $mark) {
         $i = stripos((string)$text, $mark);
-        if ($i !== false && $i < $at) { $found = $source; $at = $i; }
+        // at the same place, the longer name: "Wowhead Classic" is not "Wowhead"
+        if ($i !== false && ($i < $at || ($i === $at && strlen($mark) > strlen(SOURCE_MARKS[$found])))) { $found = $source; $at = $i; }
     }
     return $found;
 }

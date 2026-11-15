@@ -86,6 +86,34 @@ check($ev4['drop'] === [['npc', 250484, 900, 2.7136]], 'a drop measured again ne
 $slim = wowhead_pages_clean(['kind' => 'npc', 'id' => 5, 'fetched' => 100, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 818, 'count' => 27, 'outof' => 995, 'modes' => ['0' => ['count' => 27]], 'flags2' => -5, 'envChange' => ['labels' => []]]]]]]);
 check($slim['tabs']['drops']['rows'] === [['id' => 818, 'count' => 27, 'outof' => 995]], 'what a row repeats for display is not kept');
 
+// ---- Classic's pages: drops only, where Forever's pages count too few
+$foreverItems = [
+    910 => ['id' => 910, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 70, 'count' => 1, 'outof' => 4]])]],   // Forever saw it once
+    911 => ['id' => 911, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 71, 'count' => 40, 'outof' => 400]])]], // counted on Forever
+    912 => ['id' => 912, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab($many)]],                                       // a world drop by Forever's page
+];
+$classicNpcs = [
+    ['id' => 70, 'fetched' => 5000, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 910, 'count' => 120, 'outof' => 3000], ['id' => 913, 'count' => 9, 'outof' => 3000]]],
+        'sells' => ['template' => 'item', 'rows' => [['id' => 910, 'avail' => -1, 'cost' => [[100, [], []]]]]], 'starts' => ['template' => 'quest', 'rows' => [['id' => 50]]]]],
+    ['id' => 71, 'fetched' => 5000, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 911, 'count' => 300, 'outof' => 3000], ['id' => 912, 'count' => 90, 'outof' => 3000]]]]],
+];
+$classicObjects = [['id' => 2843, 'fetched' => 5000, 'status' => 'ok', 'tabs' => ['contains' => ['template' => 'item', 'total' => 900, 'rows' => [['id' => 914, 'count' => 90]]]]]];
+$classicGaps = array_fill_keys([910, 911, 912, 913, 914], true);
+[$foreverEv] = wowhead_pages_evidence($foreverItems, [], $classicGaps);
+[$cev, $cnewest] = wowhead_pages_classic_evidence($foreverEv, $foreverItems, $classicGaps, $classicNpcs, $classicObjects, $classicGaps);
+check($cnewest === 5000, 'Classic pages date their card');
+check($cev['drop'] === [['npc', 70, 910, 4.0], ['go', 2843, 914, 10.0]], 'Classic gives the drops Forever counts too few of, and a chest\'s: ' . json_encode($cev['drop']));
+check($cev['sell'] === [] && $cev['start'] === [] && $cev['end'] === [], 'no vendor and no quest from Classic: Forever moved them');
+check(($cev['left']['wowhead_classic_forever_counted'] ?? 0) === 1 && ($cev['left']['wowhead_drop_world'] ?? 0) === 1 && ($cev['left']['wowhead_drop_item_page_not_read'] ?? 0) === 1 && !isset($cev['left']['wowhead_vendor_other_cost']),
+    'left out: counted on Forever, a world drop by Forever\'s item page, an item whose Forever page is not read: ' . json_encode($cev['left']));
+check(source_named('Wowhead Classic 2026-11-15') === 'wowheadclassic' && source_named('Wowhead 2026-11-15') === 'wowhead' && source_named('wowhead: 27 of 995 kills') === 'wowhead', 'Wowhead Classic is not Wowhead in a row\'s comment');
+$trust = source_trust('');
+check(array_search('wowheadclassic', $trust, true) > array_search('atlasloot', $trust, true) && array_search('wowheadclassic', $trust, true) < array_search('classicdb', $trust, true)
+    && source_may_change('wowheadclassic', 'wowhead', $trust) === 'trusted' && source_may_change('wowheadclassic', 'classicdb', $trust) === 'yes', 'Classic\'s counts rank after every Forever recording, before the original game\'s database');
+$cnt = ft_test_dir();
+file_put_contents("$cnt/npc.jsonl", "{\"id\":1}\n{\"id\":2}\n");
+check(wowhead_pages_count('npc', [$cnt]) === 2 && wowhead_pages_count('classic-npc', [$cnt]) === 0, 'a shelf counted by its lines');
+
 // the cache read a line at a time: the newest answer of each page, once
 $a = ft_test_dir(); $b = ft_test_dir();
 file_put_contents("$a/npc.jsonl", '{"id":1,"fetched":100,"status":"ok","tabs":{}}' . "\n" . '{"id":2,"fetched":500,"status":"missing"}' . "\n{cut\n");

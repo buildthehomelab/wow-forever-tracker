@@ -111,9 +111,11 @@ function wowhead_pages_first_cost($cost)
  *
  * $keep ([item => true], null: all) limits the drops and vendors kept from npc and object pages to the items worth a
  * row: the gaps and the items of drops an import brought, which are measured again. What was left out is counted for
- * the items of $gapItems only ([id => true]), since the others are no question the card answers.
+ * the items of $gapItems only ([id => true]), since the others are no question the card answers. $itemFacts
+ * ([item => how many creatures drop it]) are item pages read elsewhere (Forever's, for Classic's pages): they tell a
+ * world drop as the item's own page would.
  */
-function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null): array
+function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null, array $itemFacts = []): array
 {
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => []];
     $left = ['wowhead_item_unknown' => 0, 'wowhead_no_source' => 0, 'wowhead_only_other_source' => 0, 'wowhead_drop_world' => 0,
@@ -127,6 +129,7 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
     $roles = ['start' => [], 'end' => []];
     $noSource = [];     // gap item => the counter it goes to when no other page gives it a source
     $itemRead = [];     // items whose own page was read: its Dropped by tab says how many creatures drop it
+    foreach ($itemFacts as $item => $n) { $itemRead[(int)$item] = true; $droppers[(int)$item] = (int)$n; }
     $put = function (string $kind, int $id, int $item, $count, $outof) use (&$drops) {
         $key = "$kind:$id:$item";
         $counted = is_numeric($count) && is_numeric($outof) && $outof > 0;
@@ -255,6 +258,72 @@ function wowhead_pages_each(string $shelf, ?array $dirs = null): Generator
         }
         fclose($handle);
     }
+}
+
+/** How many pages a shelf holds, by its lines (a whole crawl's npc pages are not read for a count). */
+function wowhead_pages_count(string $shelf, ?array $dirs = null): int
+{
+    $n = 0;
+    foreach ($dirs ?? wowhead_pages_dirs() as $dir) {
+        $handle = @fopen("$dir/$shelf.jsonl", 'r');
+        if (!$handle) continue;
+        while (fgets($handle) !== false) $n++;
+        fclose($handle);
+    }
+    return $n;
+}
+
+/** What Forever's item pages say of each item for another branch's pages: [item => how many creatures drop it]. */
+function wowhead_pages_item_facts(array $items): array
+{
+    $out = [];
+    foreach ($items as $item => $page) {
+        if (($page['status'] ?? '') !== 'ok') continue;
+        $tab = $page['tabs']['dropped-by'] ?? [];
+        $out[(int)$item] = max(count((array)($tab['rows'] ?? [])), (int)($tab['total'] ?? 0));
+    }
+    return $out;
+}
+
+/**
+ * Classic's pages as evidence for Forever: [evidence, the newest page's time]. Only drops: Classic's players looted
+ * the same creatures and chests far more often, but Forever moved vendors and quests, so those are not taken. A drop
+ * is taken only where Forever's pages ($forever, its evidence) give no counted chance of their own, and Forever's item
+ * pages ($foreverItems) tell a world drop. The crawler reads a Classic page only for an id Forever has too, whose
+ * Forever page lacks counts (crawler.js richEnough).
+ */
+function wowhead_pages_classic_evidence(array $forever, array $foreverItems, array $gapItems, iterable $npcs, iterable $objects, ?array $keep = null): array
+{
+    [$ev, $newest] = wowhead_pages_evidence([], [], $gapItems, $npcs, $objects, $keep, wowhead_pages_item_facts($foreverItems));
+    $counted = [];
+    foreach ($forever['drop'] ?? [] as $d) $counted["{$d[0]}:{$d[1]}:{$d[2]}"] = true;
+    $drops = []; $known = 0;
+    foreach ($ev['drop'] as $d) {
+        if (isset($counted["{$d[0]}:{$d[1]}:{$d[2]}"])) { if (isset($gapItems[$d[2]])) $known++; continue; }
+        $drops[] = $d;
+    }
+    $left = array_intersect_key($ev['left'], array_flip(['wowhead_drop_world', 'wowhead_drop_few', 'wowhead_drop_not_counted', 'wowhead_drop_item_page_not_read', 'wowhead_other_loot']));
+    if ($known) $left['wowhead_classic_forever_counted'] = $known;
+    return [['sell' => [], 'drop' => $drops, 'start' => [], 'end' => [], 'train' => [], 'left' => $left], $newest];
+}
+
+/** Classic's pages in the cache as an import card: drops of the last analysis' gaps that Forever's pages count too
+ *  few of, and the drops a less trusted import brought measured again. */
+function wowhead_pages_classic_import(): array
+{
+    if ($e = source_check()) return $e;
+    $has = fn(string $shelf) => is_file(wowhead_pages_dir() . "/$shelf.jsonl") || is_file(FT_ROOT . "/tools/wowhead-pages/cache/$shelf.jsonl");
+    if (!$has('classic-npc') && !$has('classic-object')) return ['ok' => false, 'message' => t('No Classic page has been read yet: the full crawl reads them after Forever\'s (docs/WOWHEAD-PAGES.md).', 'Aucune page Classic n’a encore été lue : le crawl complet les lit après celles de Forever (docs/WOWHEAD-PAGES.md).')];
+    $gaps = source_gaps();
+    $keep = wowhead_pages_keep($gaps['items']);
+    $foreverItems = wowhead_pages('item');
+    [$forever] = wowhead_pages_evidence($foreverItems, [], $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), $keep);
+    [$ev, $newest] = wowhead_pages_classic_evidence($forever, $foreverItems, $gaps['items'], wowhead_pages_each('classic-npc'), wowhead_pages_each('classic-object'), $keep);
+    $date = date('Y-m-d', $newest ?: time());
+    $label = 'Wowhead Classic ' . $date;
+    [$tables, $left] = source_tables($ev, $label, $gaps);
+    [$changes, $moved] = source_refresh($ev, 'wowheadclassic');
+    return source_card('wowheadclassic', $label, 'wowheadclassic@' . $date . '-' . $newest, $tables, $left + $moved, $changes);
 }
 
 /** The items whose drops an npc or object page may give: the gaps, and the items of drop rows an import brought (a
