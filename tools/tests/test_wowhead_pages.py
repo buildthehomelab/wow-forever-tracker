@@ -80,6 +80,7 @@ ROWS = [
     {'type': 'quest', 'id': '903', 'missing': 'Quest giver: item 250001 (not obtainable)', 'phase': ''},
     {'type': 'quest', 'id': '904', 'missing': 'Quest text: no turn-in text', 'phase': ''},
     {'type': 'recipe', 'id': '400100', 'missing': 'Learnable: Recipe exists but cannot be obtained: 260001, 260002', 'phase': ''},
+    {'type': 'recipe', 'id': '400101', 'missing': 'Learnable: Taught by item 260003, which players cannot get.', 'phase': ''},
     {'type': 'mount', 'id': '77', 'missing': 'Obtainable: Item exists but cannot be obtained: 8633', 'phase': ''},
     {'type': 'toy', 'id': '78', 'missing': 'Obtainable: Item 255000 has no source.', 'phase': ''},
     {'type': 'spell', 'id': '79', 'missing': 'Learnable: Taught by item 9126, 0, which players cannot get.', 'phase': ''},
@@ -90,7 +91,7 @@ ROWS = [
 class Todo(unittest.TestCase):
     def test_what_other_content_waits_for_comes_first(self):
         want = wp.wanted(ROWS, min_item=190000)
-        self.assertEqual(want['item'], [3000, 8633, 9126, 250001, 255000, 260001, 260002, 270001])
+        self.assertEqual(want['item'], [3000, 8633, 9126, 250001, 255000, 260001, 260002, 260003, 270001])
         self.assertEqual(want['quest'], [901, 902, 903])
         # 5559 is an original-game item that only lacks a source: left out by the cut-off, in without it
         self.assertEqual(wp.wanted(ROWS, min_item=0)['item'][-1], 5559)
@@ -106,8 +107,8 @@ class Todo(unittest.TestCase):
             cache = os.path.join(folder, 'cache')
             wp.save('item', {3000: {'id': 3000, 'fetched': 1000, 'status': 'ok'}, 250001: {'id': 250001, 'fetched': 86400 * 20, 'status': 'missing'}}, cache)
             now = 86400 * 21
-            self.assertEqual(wp.todo(listing, ['item'], 190000, 0, cache, now), {'item': [8633, 9126, 255000, 260001, 260002, 270001]})
-            self.assertEqual(wp.todo(listing, None, 190000, 7, cache, now), {'item': [3000, 8633, 9126, 255000, 260001, 260002, 270001], 'quest': [901, 902, 903]})
+            self.assertEqual(wp.todo(listing, ['item'], 190000, 0, cache, now), {'item': [8633, 9126, 255000, 260001, 260002, 260003, 270001]})
+            self.assertEqual(wp.todo(listing, None, 190000, 7, cache, now), {'item': [3000, 8633, 9126, 255000, 260001, 260002, 260003, 270001], 'quest': [901, 902, 903]})
 
 
 if __name__ == '__main__':

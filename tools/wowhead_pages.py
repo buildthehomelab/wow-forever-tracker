@@ -140,7 +140,7 @@ ITEM_IN_REASON = (
     ('toy', re.compile(r'Item (\d+) has no source')),
 )
 ITEMS_IN_REASON = (
-    ('recipe', re.compile(r'cannot be obtained: ([\d, ]+)')),
+    ('recipe', re.compile(r'(?:cannot be obtained: |Taught by item )([\d, ]+)')),
     ('mount', re.compile(r'cannot be obtained: ([\d, ]+)')),
     ('spell', re.compile(r'Taught by item ([\d, ]+)')),
 )
