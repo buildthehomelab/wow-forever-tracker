@@ -52,6 +52,92 @@ def tree_spells(read):
     return {definitions.get(entries.get(link['TraitNodeEntryID']), 0) for link in read('TraitNodeXTraitNodeEntry') if link['TraitNodeID'] in nodes} - {0}
 
 
+# Where an object keeps its conversation menu, by object type (GameObjectTemplate::GetGossipMenuId of the core): a
+# quest giver in Data3, a spell focus in Data10, a goober in Data19, an assist action in Data2.
+GO_MENU_COLUMN = {2: 'Data3', 8: 'Data10', 10: 'Data19', 64: 'Data2'}
+# SmartAI: the event of a conversation choice (menu, option) and the actions that cast a spell
+SMART_GOSSIP_SELECT = 62
+SMART_CASTS = (11, 85, 86, 134)   # CAST, SELF_CAST, CROSS_CAST, INVOKER_CAST: the spell is action_param1
+# Conversations the core's own C++ scripts hold, by script name: the spells they cast on the player. Only scripts read
+# and found to work on WoW: Forever. npc_engineering_tele_trinket (Zap Farflinger, Jhordy Lapforge: the engineering
+# transporters) is left out: it checks skill line 2506, which the Forever client does not have, so it teaches nobody.
+CORE_TEACHERS = {'boss_gloomrel': {14894}}   # Gloom'rel, Blackrock Depths: Learn Smelt Dark Iron
+
+
+def conversation_casts(creature_menus, object_menus, options, smart, scripts):
+    """[(kind, entry, spell)]: the spells a conversation with a creature ('npc') or an object ('go') casts on the player.
+    creature_menus / object_menus: [(entry, menu)] the menus a template opens with; options: [(menu, option, next menu)];
+    smart: [(kind, entry, menu, option, spell)] SmartAI choices of templates that run SmartAI; scripts: [(entry,
+    script name)] of creatures. A choice counts when its menu is one the template's conversation reaches and the
+    option is in that menu."""
+    leads, exists = {}, set()
+    for menu, option, following in options:
+        exists.add((menu, option))
+        if following:
+            leads.setdefault(menu, set()).add(following)
+    reach = {}
+
+    def reached(roots):
+        seen, todo = set(), list(roots)
+        while todo:
+            menu = todo.pop()
+            if menu and menu not in seen:
+                seen.add(menu)
+                todo.extend(leads.get(menu, ()))
+        return seen
+    for kind, rows in (('npc', creature_menus), ('go', object_menus)):
+        roots = {}
+        for entry, menu in rows:
+            roots.setdefault(entry, set()).add(menu)
+        for entry, menus in roots.items():
+            reach[(kind, entry)] = reached(menus)
+    found = set()
+    for kind, entry, menu, option, spell in smart:
+        if spell and menu in reach.get((kind, entry), ()) and (menu, option) in exists:
+            found.add((kind, entry, spell))
+    for entry, name in scripts:
+        found.update(('npc', entry, spell) for spell in CORE_TEACHERS.get(name, ()))
+    return sorted(found)
+
+
+def read_conversations(q, has_table):
+    """conversation_casts() from the world database."""
+    whole = lambda v: int(v or 0)
+    if has_table('creature_template_gossip'):
+        creature_menus = [(whole(r['CreatureID']), whole(r['MenuID'])) for r in q('SELECT CreatureID, MenuID FROM creature_template_gossip')]
+    elif sqlio.has_column('creature_template', 'gossip_menu_id'):
+        creature_menus = [(whole(r['entry']), whole(r['gossip_menu_id'])) for r in q('SELECT entry, gossip_menu_id FROM creature_template WHERE gossip_menu_id > 0')]
+    else:
+        creature_menus = []
+    object_menus = []
+    for kind, column in GO_MENU_COLUMN.items():
+        object_menus += [(whole(r['entry']), whole(r['menu'])) for r in q(f'SELECT entry, {column} menu FROM gameobject_template WHERE type = {kind} AND {column} > 0')]
+    options = [(whole(r['MenuID']), whole(r['OptionID']), whole(r['ActionMenuID'])) for r in q('SELECT MenuID, OptionID, ActionMenuID FROM gossip_menu_option')]
+    smart = []
+    if has_table('smart_scripts'):
+        rows = q(f"SELECT entryorguid, source_type, event_param1, event_param2, action_param1 FROM smart_scripts WHERE event_type = {SMART_GOSSIP_SELECT} "
+                 f"AND source_type IN (0, 1) AND action_type IN ({','.join(map(str, SMART_CASTS))})")
+        # a negative entryorguid is one spawn's script: its template's entry
+        spawns = {('npc', -int(r['entryorguid'])) if int(r['source_type']) == 0 else ('go', -int(r['entryorguid'])) for r in rows if int(r['entryorguid']) < 0}
+        entry_of = {}
+        for kind, table in (('npc', 'creature'), ('go', 'gameobject')):
+            guids = sorted(guid for k, guid in spawns if k == kind)
+            for start in range(0, len(guids), 1000):
+                for r in q(f"SELECT guid, id FROM {table} WHERE guid IN ({','.join(map(str, guids[start:start + 1000]))})"):
+                    entry_of[(kind, int(r['guid']))] = int(r['id'])
+        smart_ai = {('npc', int(v)) for v in sqlio.column("SELECT entry FROM creature_template WHERE AIName = 'SmartAI'")} | \
+                   {('go', int(v)) for v in sqlio.column("SELECT entry FROM gameobject_template WHERE AIName = 'SmartGameObjectAI'")}
+        for r in rows:
+            kind = 'npc' if int(r['source_type']) == 0 else 'go'
+            raw = int(r['entryorguid'])
+            entry = raw if raw > 0 else entry_of.get((kind, -raw), 0)
+            if (kind, entry) in smart_ai:
+                smart.append((kind, entry, whole(r['event_param1']), whole(r['event_param2']), whole(r['action_param1'])))
+    names = ','.join(sqlio.escape(name) for name in CORE_TEACHERS)
+    scripts = [(whole(r['entry']), r['ScriptName']) for r in q(f'SELECT entry, ScriptName FROM creature_template WHERE ScriptName IN ({names})')]
+    return conversation_casts(creature_menus, object_menus, options, smart, scripts)
+
+
 def vendor_items(rows):
     """[(vendor, item)] with the borrowed lists written out: a negative item in npc_vendor is another vendor's entry,
     whose whole stock this vendor sells too (the core follows it the same way, a list inside a list included)."""
@@ -245,6 +331,7 @@ def server_state():
     ctx['create_spells'] = (ints('SELECT Spell FROM playercreateinfo_spell_custom') if sqlio.has_table('playercreateinfo_spell_custom') else set()) | \
                            (ints('SELECT spell FROM playercreateinfo_cast_spell') if sqlio.has_table('playercreateinfo_cast_spell') else set())
     ctx['learn_chain'] = pairs('SELECT entry, SpellID FROM spell_learn_spell')
+    ctx['conversation_casts'] = read_conversations(q, sqlio.has_table)
     ctx['pet_training'] = (ints('SELECT SpellId FROM classic_pet_spell_training_points') if sqlio.has_table('classic_pet_spell_training_points') else set()) | \
                           ints('SELECT Spell FROM creature_template_spell')
     ctx['scripted_spells'] = {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}

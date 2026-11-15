@@ -12,9 +12,8 @@ import re
 from .config import CONFIG
 from .content import table
 from .spelltext import Renderer, SpellData
+from .vanilla import budget
 
-INVTYPE_PROP_INDEX = {1: 0, 4: 0, 5: 0, 7: 0, 15: 0, 17: 0, 20: 0, 25: 0, 13: 3, 21: 3, 22: 3, 3: 1, 6: 1, 8: 1, 10: 1, 12: 1,
-                      2: 2, 9: 2, 11: 2, 14: 2, 16: 2, 23: 2, 28: 4}
 ITEM_FLAG2_CASTER_WEAPON = 0x200
 SPELL_ATTR0_PASSIVE = 0x40
 SPELL_ATTR0_ON_NEXT_SWING = 0x4 | 0x400
@@ -130,16 +129,7 @@ class Builder:
         return out if out['fr'] or out.get('en') else None
 
     def _points(self, row):
-        quality = row['OverallQualityID']
-        index = INVTYPE_PROP_INDEX.get(row['InventoryType'])
-        if row['InventoryType'] == 26:
-            base = self.items.get(row['ID'], {})
-            index = 3 if base.get('SubclassID') == 19 else 0
-        points = self.rand_points.get(row['ItemLevel'])
-        if index is None or not points:
-            return 0
-        prefix = {2: 'GoodF', 3: 'SuperiorF', 7: 'SuperiorF', 4: 'EpicF', 5: 'EpicF', 6: 'EpicF'}.get(quality)
-        return points[f'{prefix}{index + 1}'] if prefix else 0
+        return budget(row, self.rand_points)
 
     def _armor(self, row, base):
         quality = 3 if row['OverallQualityID'] == 7 else row['OverallQualityID']

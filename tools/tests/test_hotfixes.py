@@ -211,5 +211,49 @@ class Fetch(unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(self.folder.name, '70938', hotfixes.FILE)))
 
 
+class History(unittest.TestCase):
+    """Every cache of a build is kept, so each day's hotfixes can be a step of the changelog."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.build = os.path.join(self.folder.name, '70938')
+        os.makedirs(self.build)
+        hotfixes._loaded.clear()
+        self.addCleanup(hotfixes._pinned.clear)
+        self.first = cache(70938, [(5, ITEM, 1, 1, item('x'))])
+        self.second = cache(70938, [(5, ITEM, 1, 1, item('x')), (6, ITEM, 2, 1, item('y'))])
+
+    def fetch(self, blob):
+        return hotfixes.fetch(self.folder.name, {70938}, get=lambda url: blob)
+
+    def test_each_new_cache_is_kept_oldest_first(self):
+        self.fetch(self.first)
+        self.fetch(self.first)       # the same again: not kept twice
+        self.fetch(self.second)
+        kept = hotfixes.history(self.build)
+        self.assertEqual([entry['records'] for entry in kept], [1, 2])
+        self.assertTrue(all(os.path.isfile(os.path.join(self.build, hotfixes.HISTORY, entry['file'])) for entry in kept))
+
+    def test_a_cache_stored_before_the_history_is_taken_in(self):
+        with open(os.path.join(self.build, hotfixes.FILE), 'wb') as handle:
+            handle.write(self.first)
+        self.assertEqual([entry['records'] for entry in hotfixes.history(self.build)], [1])
+        self.fetch(self.second)
+        self.assertEqual([entry['records'] for entry in hotfixes.history(self.build)], [1, 2])
+
+    def test_a_kept_cache_can_stand_over_the_build(self):
+        self.fetch(self.first)
+        self.fetch(self.second)
+        first, _second = hotfixes.history(self.build)
+        hotfixes.pin(self.build, first)
+        self.assertEqual(set(hotfixes.cached(self.build)[0][ITEM]), {1})
+        hotfixes.pin(self.build, None)
+        self.assertEqual(set(hotfixes.cached(self.build)[0][ITEM]), {1, 2})
+
+    def test_no_cache_no_history(self):
+        self.assertEqual(hotfixes.history(self.build), [])
+
+
 if __name__ == '__main__':
     unittest.main()

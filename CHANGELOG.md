@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- **A checkout finds the server's build as the analysis does.** Without `[server] build` (or `build_file`) in
+  config.ini, it takes the client build the realms accept (`auth.realmlist`), as the analysis already did, instead of
+  stopping.
+- **Checkout: the client's data at any step.** `tracker.py checkout <step>` writes the tables of a build or of a
+  day's hotfixes (`70938+1`) as an SQL file for a test realm's hotfixes database: every record that differs from the
+  server's DB2 files, removals as `hotfix_data` status 2, one push, exact floats, a manifest of what it holds and what
+  it left out (docs/CHECKOUT.md). `--fetch` reads the tables an earlier build was stored without from Blizzard's CDN.
+  On the website: The Forge → Checkout makes a step's file in the background and hands it out.
+- **The world as of a day.** `world replay --until YYYY-MM-DD` (or `--at <step>`, the day of a step of the timeline)
+  leaves out the update files named for a later day, to pair the world with a checkout of the same step.
+- **A build read again keeps its hotfix history.** When a key comes out and a build is read again, its kept hotfix
+  caches and their steps go over to the new copy (they were only kept for the newest cache).
+- **Hotfixes as entries of their own.** Every hotfix cache that differs from the one before is kept, compressed,
+  with its build (`data/builds/<build>/hotfixes/`). A build is compared as it stood with its first cache, and each
+  later day's hotfixes are an entry of their own on the timeline and in the changelog: what they added, changed or
+  removed (`/changes?build=…&hotfix=…`). The double check follows them too (docs/CLIENT.md). Database: `ft_builds.hotfix`
+  and `ft_changes.hotfix` (schema 5); the site reads an older analysis as before until the next one runs.
+- **The changelog starts at the original game.** Patch 1.12, as Blizzard published it again in 2019 (the client WoW
+  Classic launched with), is stored as the build before the first beta, and the first beta build has a page of what it
+  added, changed and does not have against it. An item's stats and a spell's effects are compared in a form both
+  games have; what a hotfix alone carries is compared as its hotfix stands and never called absent; what the original
+  game had and WoW: Forever does not is *Not in Forever* (taken out, or not released yet), not *removed*
+  (docs/VANILLA.md). `tracker.py vanilla`, `[client] vanilla`, `FT_CLIENT_VANILLA`; the client check stores it by
+  itself.
+- **The double check.** At every analysis the chain is replayed: the first thing stored and every build's changes must
+  give the newest build, resource for resource (ids from the start, content from the first build on). One line in the
+  analysis log, a table on the first build's page.
+- **A build's page reads every kind.** The first build against the original game is tens of thousands of lines: each
+  kind is read on its own, a filtered kind has pages, and *CSV* gives every line the filters show as a file.
+- **Tooltips: ranged weapons.** Bows, guns, thrown weapons and wands take their stats from the ranged column of the
+  item level's budget, as the game does. They showed too much before (a wand's +3 Intellect as +4).
+
 ## 1.3.3 — 2026-10-20
 
 - **Run again no longer stays disabled.** A background analysis or locator run now always ends with a marker, even when

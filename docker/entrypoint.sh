@@ -15,7 +15,7 @@ say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
 for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_SITE_NAME \
-           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_CLIENT_PRODUCT FT_CLIENT_HOTFIX_CACHE FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
+           FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_CLIENT_PRODUCT FT_CLIENT_HOTFIX_CACHE FT_CLIENT_HISTORY FT_CLIENT_BUILD_LIST FT_CLIENT_VANILLA FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
     eval "value=\${$var:-}"
     case "$value" in
         *\"*|*'
@@ -85,6 +85,9 @@ password = "${FT_RA_PASSWORD:-}"
 path = ""
 product = "${FT_CLIENT_PRODUCT:-wowf}"
 hotfix_cache = "${FT_CLIENT_HOTFIX_CACHE:-}"
+history = "${FT_CLIENT_HISTORY:-wow_classic_beta:1.60.}"
+build_list = "${FT_CLIENT_BUILD_LIST:-}"
+vanilla = "${FT_CLIENT_VANILLA:-wow_classic:1.13.2.31650}"
 
 [forge]
 trainer_skip_ids = "${FT_FORGE_TRAINER_SKIP_IDS:-}"
@@ -204,7 +207,7 @@ first_run() {
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=16 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=17 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"
@@ -330,6 +333,11 @@ client_watch() {
                 # new hotfixes may hand out a key the stored build waits for: it is read again at once when they do
                 as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" fetch >> "$clog" 2>&1 || true
             fi
+            # the builds that came before the newest snapshot, back to the first beta: each is read once, for the
+            # changelog (the first time that is every one of them: a few minutes). And once, the original game the
+            # first beta build is compared with (docs/VANILLA.md)
+            if as_www python3 -X utf8 -u "$ROOT/tools/tracker.py" history >> "$clog" 2>&1; then rc=0; fi
+            tail -n 1 "$clog" 2>/dev/null | sed 's/^/[forever-tracker] /'
             if [ "$rc" -eq 0 ] && ! analysis_running; then
                 alog="$DATA/analysis.log"
                 steps="analyse"; [ "${FT_LOCATE:-1}" = "1" ] && steps="$steps locate"

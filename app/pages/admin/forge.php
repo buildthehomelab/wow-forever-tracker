@@ -105,11 +105,11 @@ page_start(t('The Forge', 'La Forge'), 'admin');
       <small data-analysis-text><?= $status['running'] ? e(t('Running…', 'En cours…')) : e(sprintf(t('Last run: %s', 'Dernière : %s'), isset(meta()['generated_at']) ? date(t('M j, H:i', 'd/m H:i'), strtotime((string)meta()['generated_at'])) : '—')) ?></small></div>
     <div class="analysis-actions">
     <button class="btn is-small" type="button" data-analysis-start <?= $status['running'] ? 'disabled' : '' ?>><i class="fas fa-play"></i> <?= e(t('Run again', 'Relancer')) ?></button>
-    <button class="btn is-small" type="button" data-analysis-check <?= $status['running'] ? 'disabled' : '' ?> title="<?= e(t('Asks Blizzard’s servers for a newer client build and for new hotfixes now, and runs the analysis when there is something new. The tracker does this by itself every few hours.', 'Demande maintenant aux serveurs de Blizzard un build client plus récent et de nouveaux correctifs, et lance l’analyse s’il y a du nouveau. Le tracker le fait de lui-même toutes les quelques heures.')) ?>"><i class="fas fa-cloud-arrow-down"></i> <?= e(t('Check the client now', 'Vérifier le client maintenant')) ?></button>
+    <button class="btn is-small" type="button" data-analysis-check <?= $status['running'] ? 'disabled' : '' ?> title="<?= e(t('Asks Blizzard’s servers for a newer client build and for new hotfixes now, fills in the earlier builds the changelog lacks, and runs the analysis when there is something new. The tracker does this by itself every few hours.', 'Demande maintenant aux serveurs de Blizzard un build client plus récent et de nouveaux correctifs, complète les builds précédents qui manquent au changelog, et lance l’analyse s’il y a du nouveau. Le tracker le fait de lui-même toutes les quelques heures.')) ?>"><i class="fas fa-cloud-arrow-down"></i> <?= e(t('Check the client now', 'Vérifier le client maintenant')) ?></button>
     </div>
     <?php $asked = client_check_notes(); if ($asked): ?>
     <p class="analysis-asked"><i class="fas fa-satellite-dish"></i>
-      <?php foreach (['client' => t('Client build', 'Build du client'), 'hotfixes' => t('Hotfixes', 'Correctifs')] as $kind => $label): if (isset($asked[$kind])): ?>
+      <?php foreach (['client' => t('Client build', 'Build du client'), 'hotfixes' => t('Hotfixes', 'Correctifs'), 'history' => t('Earlier builds', 'Builds précédents')] as $kind => $label): if (isset($asked[$kind])): ?>
         <span class="<?= $asked[$kind]['code'] === null ? 'is-bad' : '' ?>" title="<?= e($asked[$kind]['message']) ?>"><b><?= e($label) ?></b> <?= e(sprintf(t('asked %s', 'demandé %s'), date(t('M j, H:i', 'd/m H:i'), $asked[$kind]['at']))) ?>:
           <?= e(mb_strimwidth($asked[$kind]['message'], 0, 110, '…')) ?></span>
       <?php endif; endforeach; ?>
@@ -127,6 +127,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
   <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><?php if (table_exists('ft_imports')): ?><em><?= number((int)value('SELECT COUNT(*) FROM ft_imports')) ?></em><?php endif; ?></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
+  <a href="<?= e(url('admin/checkout')) ?>"><i class="fas fa-code-branch"></i><?= e(t('Checkout', 'Checkout')) ?></a>
   <a href="<?= e(url('admin/notes')) ?>"><i class="fas fa-pen-to-square"></i><?= e(t('Patch notes', 'Notes de patch')) ?></a>
 </nav>
 <p class="tab-desc"><i class="fas fa-circle-info"></i> <?= e($tabs[$tab][2]) ?></p>

@@ -58,6 +58,62 @@ A key is out when either says so:
 New hotfixes are followed at once by one more look at the build, so a key that came with them opens it in the same
 check. A build read again keeps its own hotfix cache.
 
+## The builds before: the changelog back to the first beta
+
+The changelog compares each stored build with the one before it. With only the builds the tracker happened to see,
+it starts the day the tracker was installed. `history` fills in everything before:
+
+```bash
+python tools/tracker.py history
+```
+
+It stores every build that came before the newest snapshot and has none, oldest first, and the changelog then goes
+back build by build to the first beta: each build has its own page, with what it added, changed and removed against
+the one before.
+
+| Step | From |
+|---|---|
+| Which builds there were | The version server names the live build only. The list of the earlier ones, with the two config files that name each on the CDN, is wago.tools' (`[client] build_list`) |
+| Their files | Blizzard's CDN, as for the live build, and checked the same way: each table against its content key |
+| Which products count | The live product, and those `[client] history` names with the versions that count: `wow_classic_beta:1.60.` by default, because WoW: Forever's beta was shipped under the Classic beta's name. `off`: no earlier builds |
+
+**And before the first beta.** The first beta build is compared with the original game, patch 1.12, which `history`
+stores once with the earlier builds: [docs/VANILLA.md](VANILLA.md). With it the whole chain is checked at every
+analysis: the original game and every build's changes must give the newest build.
+
+**Light on purpose.** The live build is indexed whole, a few hundred MB. For thirty earlier builds that would be
+gigabytes, so an earlier build is read for its tables alone (`ft.cdn.Earlier`): the list of pages of its encoding
+file and the few pages that hold the tables' keys (ranged requests), its root file, and the archive indexes, which
+the builds share (about 125 MB, once). A build is then some 50 MB to download, most of it its root file, and a
+quarter of a minute; thirty builds are six minutes or so. Only the 25 tables the changelog compares are stored, about
+15 MB a build (`build.json`: `"tables": "changelog"`): the tooltips, the Forge and the map read the newest build
+alone.
+
+**What can keep a build out.**
+
+- A table with another layout than the tracker reads: the build is not stored, the reason is kept in
+  `data/builds/history.json`, and it is asked again when the schema changes or with `--again`.
+- Blizzard takes old builds off its CDN with time, host by host. Each host is asked; a build no host has whole any
+  more is said in the log and asked again at the next check.
+
+**Read with today's keys.** Content that was encrypted when a beta build shipped and has opened since is read as it
+is now: a beta build shows what it carried, not what players could see that day. What is still locked stays hidden
+in every build, and shows as added in the newest build the day its key comes out.
+
+**Hotfixes.** No earlier build has its hotfix cache (the mirror keeps the live one only). A resource that exists by
+hotfix alone therefore counts as known since the first of the builds in a row without their hotfixes, the first
+beta build once the history is stored, and is never listed as added (see *What it does not do yet*).
+
+**Kept once worked out.** Reading a build's tables takes a quarter of a minute or more. Two stored builds do not
+change, so what one changed against the other is kept in the newer one's folder (`changelog.json`) and read back at
+the next analysis; only the newest build is read each time. It is worked out again when a build is read again, its
+hotfixes change, or the tracker reads tables another way.
+
+**A build that changed nothing.** Blizzard often ships a build that changes the program alone: of the thirty builds
+from the first beta to 1.60.1.70938, sixteen have the tables of the build before, byte for byte. Such a build is not
+read at all; its page says there was no data change. The first analysis after `history` works out the others once:
+a few minutes more than usual.
+
 ## When a build is refused
 
 A table is read with the layout the tracker's schema describes (`tools/schema/db2-schema.json`, generated from the
@@ -69,8 +125,9 @@ there was nothing new and 2 when it refused one.
 
 ## In the container
 
-Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch` and `hotfixes` (below), and the analysis after
-them when either stored something. The Forge says when each was last asked and what it answered, under the analysis
+Every `FT_CLIENT_EVERY_HOURS` (6; 0: never) the container runs `fetch`, `hotfixes` (below) and `history` (above), and
+the analysis after them when one of them stored something. The first check after this is installed stores every
+earlier build, and the analysis that follows works them out: a quarter of an hour or so more than usual, once. The Forge says when each was last asked and what it answered, under the analysis
 (`data/client-check.json`; a server that could not be read is shown as such). The first check comes a minute after the start's own analysis is over, the next
 ones every `FT_CLIENT_EVERY_HOURS`. The check itself is a few small requests. The log is `data/client.log`. The
 container needs to reach `us.patch.battle.net:1119` and Blizzard's CDN hosts.
@@ -83,7 +140,8 @@ container needs to reach `us.patch.battle.net:1119` and Blizzard's CDN hosts.
 python tools/tracker.py check
 ```
 
-It asks for the live build, then for the hotfixes, and runs the analysis only when one of them brought something new
+It asks for the live build, then for the hotfixes, then for the earlier builds that are missing, and runs the analysis
+only when one of them brought something new
 (`--always`: whatever they brought; `--wowhead`: as for `analyse`). With nothing new it says so and ends in a few
 seconds. A server that does not answer is said in the log and passed over: what is stored stays. Started from the
 Forge, its lines are in the analysis log on that page, and nothing else can be started until it is over.
@@ -124,12 +182,35 @@ a day and come back. Once the new build's own cache arrives it says everything, 
 
 A cache is never used for another build than the one in its header, and never for an older build.
 
+### Every day's hotfixes, kept
+
+The mirror keeps only the newest cache, and so did the tracker: what one day's hotfixes changed was gone the next day.
+Now every cache that differs from the one before is also kept, compressed (about 1 MB each), in
+`data/builds/<build>/hotfixes/`, listed oldest first in `index.json`; a cache stored before this is taken in as the
+first one. The newest is still `hotfixes.bin`, and it is what the analysis reads.
+
+The changelog gets a step for each kept cache:
+
+- the build is compared with the build before as it stood with its **first** kept cache;
+- each later cache is an entry of its own, dated the day it was downloaded: what it added, changed or removed against
+  the cache before (`/changes?build=70938&hotfix=1`, a dashed card on the home page's timeline). A resource a later
+  cache adds is listed as added that day, also when it exists by hotfix alone;
+- a cache that changed nothing the tracker compares gets no entry (the double check still follows it);
+- the game's first build after the original game has no such steps: the original game is compared with it as its
+  newest hotfixes give it (docs/VANILLA.md). With only the original game and the live build stored, the hotfix
+  entries therefore appear once a later build is stored; the caches are kept all the same.
+
+Each step is worked out once and kept next to its cache (`<cache>.changelog.json`). The double check replays the
+hotfix steps with the builds, so the original game plus every build and every day's hotfixes must give today's game.
+Hotfixes from before the tracker kept them cannot be had again: the history starts the first day a cache is kept.
+
+A step can be turned back into data a test realm loads: [CHECKOUT.md](CHECKOUT.md).
+
 ## What it does not do yet
 
-- **Hotfixes in the changelog.** A hotfix changes the newest build's content in place: the changelog compares builds,
-  so it shows a hotfix only as part of the difference between two builds. A resource that exists by hotfix alone is in
-  no build's tables, so nothing says when it appeared: compared with a build whose hotfixes were never stored it is not
-  listed as added (the changelog says how many there are), and it counts as known since that build.
+- **Hotfixes before the history.** The hotfixes of a build from before its first kept cache are part of the
+  difference between two builds. A resource that exists by hotfix alone is in no build's tables, so nothing says when
+  it appeared: compared with a build whose hotfixes were never stored it is not listed as added (the changelog says how
+  many there are), and it counts as known since that build.
 - **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
   copy.
-- **An older build.** The version server names the live build only.

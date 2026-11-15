@@ -97,6 +97,12 @@ python tools/tracker.py world why creature_loot_template 3 0 2589
 - Each file runs in one transaction, as under the updater: when a statement fails, the row changes the file made so
   far are taken back (table changes such as `CREATE` or `ALTER` are not, there as here). A failing file stops the
   replay, as it would stop the worldserver. `--keep-going` records it and goes on.
+- `--until YYYY-MM-DD` replays the world as it stood that day: a file named for a later day is left out (a file whose
+  name carries no day runs all the same: nothing says when it was written). `--at <step>` takes the day of a step of
+  the timeline (`70707`, `70938+1`), to pair the world with the client's data of that step (docs/CHECKOUT.md). The
+  release dump is where it starts: the world cannot go back further than the dump's own day. It is your server's
+  world as its files stood that day, not the live game's: a file written later about older content (a spawn fixed
+  today for a build of last month) is left out of that day.
 - `world why <table> <key ...>` answers where a row comes from: the release, or the file that created it, then every
   file that changed or removed it. The key is the table's primary key (a unique index when it has none). Tables with
   neither, such as the loot tables, are followed by their main index and say so: rows that share those values are

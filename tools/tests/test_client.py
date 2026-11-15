@@ -3,6 +3,7 @@
 The official client from Blizzard's CDN (ft.client, ft.cdn): which build is stored and when, what happens to the parts
 of a table nobody can read yet, and when a stored build is read again. No network: the reader is a dictionary.
 """
+import hashlib
 import json
 import os
 import struct
@@ -179,6 +180,20 @@ class Fetch(unittest.TestCase):
         self.assertEqual(client.SECTION.unpack_from(data, client.SECTIONS_AT + client.SECTION.size)[0], client.DECRYPTED)
         self.assertEqual(self.fetch(70938, published=lambda: {'0DA4670DB36FB2A9': b''})['code'], client.UP_TO_DATE)   # nothing left to wait for
 
+    def test_a_build_read_again_keeps_its_hotfix_history(self):
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, bytes(8))])
+        self.absent = {20: ['0DA4670DB36FB2A9']}
+        self.fetch(70938)
+        kept = os.path.join(self.folder.name, '70938', hotfixes.HISTORY)
+        os.makedirs(kept)
+        for name in ('index.json', '2026-11-14-aa.bin.gz', '2026-11-15-bb.changelog.json'):
+            with open(os.path.join(kept, name), 'w') as handle:
+                handle.write(name)
+        self.files[20] = table(0xBB, [(0, b'open'), (KEY_A, b'unlocked')])
+        self.absent = {}
+        self.assertEqual(self.fetch(70938, published=lambda: {'0da4670db36fb2a9': b''})['code'], client.FETCHED)
+        self.assertEqual(sorted(os.listdir(kept)), ['2026-11-14-aa.bin.gz', '2026-11-15-bb.changelog.json', 'index.json'])
+
     def hotfix_cache(self, build, keys):
         """Stores a hotfix cache with the snapshot: TactKey records {key number: (status, bytes)}."""
         blob = b'XFTH' + struct.pack('<II', 9, build) + bytes(32)
@@ -325,6 +340,326 @@ class Notes(unittest.TestCase):
             with open(path, encoding='utf-8') as handle:
                 self.assertEqual(json.load(handle)['client']['code'], None)
             client.note('client', 'x', 0, os.path.join(folder, 'no', 'such', 'folder.json'))   # cannot be written: no error
+
+
+def listed(*entries):
+    """The public list as cdn.builds() returns it: (build, product, day)."""
+    return lambda: [{'build': build, 'version': f'1.60.1.{build}', 'config': f'{build:032x}', 'cdn': f'{build + 1:032x}', 'date': day, 'product': product}
+                    for build, product, day in entries]
+
+
+class BuildList(unittest.TestCase):
+    """Which builds came before: the public list, taken only in the shape it must have."""
+
+    def rows(self):
+        row = lambda version, day, config='a' * 32, **more: {'version': version, 'created_at': day + ' 01:02:03', 'build_config': config, 'cdn_config': 'c' * 32, 'is_bgdl': False, **more}
+        return json.dumps({
+            'wowf': [row('1.60.1.70938', '2026-11-13'), row('1.60.1.70245', '2026-10-13'), row('1.60.1.70900', '2026-11-11', is_bgdl=True)],
+            'wow_classic_beta': [row('5.5.0.62071', '2025-07-18'), row('1.60.1.70245', '2026-10-06', 'b' * 32), row('1.60.1.69876', '2026-09-16'),
+                                 row('1.60.1.69900', '2026-09-17', '../../etc/passwd'), row('1.60.1.x', '2026-09-17')],
+            'wow': [row('12.0.0.70000', '2026-09-01')]}).encode()
+
+    def test_the_products_builds_oldest_first(self):
+        found = cdn.builds({'wowf': '', 'wow_classic_beta': '1.60.'}, fetch=lambda url: self.rows())
+        self.assertEqual([b['build'] for b in found], [69876, 70245, 70938])   # no other game's beta, no background download
+        self.assertEqual(found[0], {'build': 69876, 'version': '1.60.1.69876', 'config': 'a' * 32, 'cdn': 'c' * 32, 'date': '2026-09-16', 'product': 'wow_classic_beta'})
+
+    def test_a_build_two_products_had_is_the_first_ones(self):
+        found = {b['build']: b for b in cdn.builds({'wowf': '', 'wow_classic_beta': '1.60.'}, fetch=lambda url: self.rows())}
+        self.assertEqual((found[70245]['product'], found[70245]['date'], found[70245]['config']), ('wow_classic_beta', '2026-10-06', 'b' * 32))
+
+    def test_a_name_that_is_no_name_is_left_out(self):
+        found = cdn.builds({'wow_classic_beta': ''}, fetch=lambda url: self.rows())
+        self.assertNotIn(69900, [b['build'] for b in found])   # what goes into an address is 32 hex digits or nothing
+
+    def test_what_the_setting_names(self):
+        self.assertEqual(client.history_products('wowf', 'wow_classic_beta:1.60.'), {'wowf': '', 'wow_classic_beta': '1.60.'})
+        self.assertEqual(client.history_products('wowf', ''), {'wowf': ''})
+        self.assertIsNone(client.history_products('wowf', 'off'))
+
+
+def stored_file(data):
+    return blte_file([(b'N' + data, len(data))])
+
+
+class FakeCdn:
+    """A build on two hosts: its two config files, an encoding file in four chunks, a root file and an archive."""
+
+    def __init__(self, tables, split=False):
+        self.files, self.asked = {}, []
+        ckeys = {fdid: hashlib.md5(data).digest() for fdid, data in tables.items()}
+        ids = sorted(tables)
+        root = b'TSFM' + struct.pack('<II', 100, 100) + struct.pack('<III', len(ids), 0, cdn.ENUS)
+        root += b''.join(struct.pack('<i', fdid - (ids[i - 1] if i else -1) - 1) for i, fdid in enumerate(ids))
+        root += b''.join(ckeys[fdid] for fdid in ids) + bytes(8 * len(ids))
+        self.root = hashlib.md5(root).digest()
+        plain = {self.root: root, **{ckeys[fdid]: tables[fdid] for fdid in ids}}
+        archive, entries, pages = b'', [], []
+        for ckey in sorted(plain):
+            stored = stored_file(plain[ckey])
+            ekey = hashlib.md5(stored).digest()
+            entries.append((ekey, len(stored), len(archive)))
+            archive += stored
+            # one content key a page: the page is found by its first key
+            pages.append((ckey, (bytes([1]) + len(plain[ckey]).to_bytes(5, 'big') + ckey + ekey).ljust(1024, b'\0')))
+        block = b''.join(ekey + struct.pack('>II', size, offset) for ekey, size, offset in sorted(entries)).ljust(4096, b'\0')
+        index = block + bytes(24) + bytes(8) + struct.pack('<8BI', 1, 0, 0, 4, 4, 4, 16, 8, len(entries)) + bytes(8)
+        espec = b'z\0' * 40
+        head = b'EN' + struct.pack('>BBBHHIIBI', 1, 16, 16, 1, 1, len(pages), 0, 0, len(espec))
+        listing = b''.join(first + hashlib.md5(page).digest() for first, page in pages)
+        body = b''.join(page for _first, page in pages)
+        self.encoding = blte_file([(b'N' + head, len(head)), (b'Z' + zlib.compress(espec), len(espec)), (b'N' + listing, len(listing)), (b'N' + body, len(body))])
+        self.pages_at = len(self.encoding) - len(body)
+        first, second = ('old.example', 'new.example') if split else ('old.example', 'old.example')
+        self.files[(second, 'config/' + 'b' * 32)] = ('root = %s\nencoding = %s %s\n' % (self.root.hex(), '0' * 32, 'e' * 32)).encode()
+        self.files[(first, 'config/' + 'c' * 32)] = b'archives = ' + b'a' * 32 + b'\n'
+        self.files[(first, 'data/' + 'e' * 32)] = self.encoding
+        self.files[(first, 'data/' + 'a' * 32)] = archive
+        self.files[(first, 'data/' + 'a' * 32 + '.index')] = index
+
+    def get(self, url, headers=None, tries=5):
+        if url.endswith('/cdns'):
+            return b'Name!STRING:0|Path!STRING:0|Hosts!STRING:0\nus|tpr/wow|old.example new.example\n'
+        host, _slash, rest = url[len('http://'):].partition('/')
+        parts = rest.split('/')
+        data = self.files.get((host, parts[2] + '/' + parts[5]))
+        if data is None:
+            raise cdn.Gone(url)
+        if headers and 'Range' in headers:
+            first, last = map(int, headers['Range'][len('bytes='):].split('-'))
+            data = data[first:last + 1]
+        self.asked.append((parts[2] + '/' + parts[5], len(data)))
+        return data
+
+
+class EarlierBuild(unittest.TestCase):
+    """A build that is no longer live, read for a few files (ft.cdn.Earlier). No network: the CDN is a dictionary."""
+
+    PIN = {'config': 'b' * 32, 'cdn': 'c' * 32, 'version': '1.60.1.69876'}
+    TABLES = {10: b'the map table', 20: b'the item table' * 40, 45: b'a third'}
+
+    def open(self, fake):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        saved = cdn.get, cdn.PAUSE
+        self.addCleanup(lambda: (setattr(cdn, 'get', saved[0]), setattr(cdn, 'PAUSE', saved[1])))
+        cdn.get, cdn.PAUSE = fake.get, 0
+        return cdn.Earlier(self.folder.name, self.PIN, log=lambda text: None)
+
+    def test_the_files_asked_for_are_read_and_checked(self):
+        fake = FakeCdn(self.TABLES)
+        build = self.open(fake)
+        build.prepare([10, 20, 99])
+        self.assertEqual(build.read(10), self.TABLES[10])
+        self.assertEqual(build.read(20), self.TABLES[20])
+        with self.assertRaises(KeyError):
+            build.read(99)       # not in this build
+        with self.assertRaises(KeyError):
+            build.read(45)       # in the build, never asked for
+
+    def test_the_encoding_file_is_never_read_whole(self):
+        fake = FakeCdn(self.TABLES)
+        build = self.open(fake)
+        build.prepare([10])
+        parts = [size for name, size in fake.asked if name == 'data/' + 'e' * 32]
+        # its start, its list of pages, and of its four pages the two that hold the root file's key and the table's
+        self.assertEqual(parts.count(1024), 2)
+        self.assertEqual(max(parts[1:]), 1024)
+
+    def test_a_page_that_is_not_what_its_checksum_says_stops_the_build(self):
+        fake = FakeCdn(self.TABLES)
+        name = ('old.example', 'data/' + 'e' * 32)
+        fake.files[name] = fake.files[name][:fake.pages_at + 30] + b'\xff' + fake.files[name][fake.pages_at + 31:]
+        with self.assertRaises(RuntimeError):
+            self.open(fake).prepare([10, 20, 45])
+
+    def test_a_file_one_host_no_longer_has_is_asked_of_the_next(self):
+        build = self.open(FakeCdn(self.TABLES, split=True))   # the build config is on the second host only
+        build.prepare([10])
+        self.assertEqual(build.read(10), self.TABLES[10])
+
+    def test_a_file_no_host_has_is_gone(self):
+        fake = FakeCdn(self.TABLES)
+        del fake.files[('old.example', 'config/' + 'c' * 32)]
+        with self.assertRaises(cdn.Gone):
+            self.open(fake)
+
+    def test_an_index_names_only_the_keys_it_has(self):
+        fake = FakeCdn(self.TABLES)
+        index = fake.files[('old.example', 'data/' + 'a' * 32 + '.index')]
+        every = {ekey: (size, offset) for ekey, size, offset in cdn.index_entries(index)}
+        self.assertEqual(len(every), 4)
+        self.assertEqual(cdn.index_find(index, set(every) | {bytes(16), b'\xff' * 16}), every)
+
+
+class History(unittest.TestCase):
+    """The builds before the newest snapshot, for the changelog (ft.client.history). Two compared tables and one the
+    tooltips read stand for the 74."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.saved = (client.BUILDS, content.BUILDS, client.files, client.db2.SCHEMA)
+        client.BUILDS = content.BUILDS = self.folder.name
+        client.files = lambda: {'Map': 10, 'Item': 20, 'ItemSet': 30}
+        client.db2.SCHEMA = {'Map': {'layoutHash': '000000AA'}, 'Item': {'layoutHash': '000000BB'}, 'ItemSet': {'layoutHash': '000000DD'}}
+        self.files = {10: table(0xAA), 20: table(0xBB), 30: table(0xDD)}
+        self.by_build, self.opened, self.log = {}, [], []
+        self.refusals = os.path.join(self.folder.name, 'history.json')
+        live = {'build': 70938, 'version': '1.60.1.70938', 'config': 'abcdef0123456789'}
+        client.fetch(live=live, reader=lambda file_id: self.files[file_id], waiting=dict, log=self.log.append)
+
+    def tearDown(self):
+        client.BUILDS, content.BUILDS, client.files, client.db2.SCHEMA = self.saved
+        self.folder.cleanup()
+
+    def opener(self, entry):
+        self.opened.append(entry['build'])
+        files = self.by_build.get(entry['build'], self.files)
+        if isinstance(files, Exception):
+            raise files
+        return (lambda file_id: files[file_id]), dict, None
+
+    def history(self, entries, **more):
+        return client.history(product='wowf', listed=listed(*entries), opener=self.opener, log=self.log.append, path=self.refusals, **more)
+
+    def info(self, build):
+        with open(os.path.join(self.folder.name, str(build), 'build.json'), encoding='utf-8') as handle:
+            return json.load(handle)
+
+    LIST = [(69876, 'wow_classic_beta', '2026-09-16'), (70790, 'wowf', '2026-11-04'), (70938, 'wowf', '2026-11-13'), (71000, 'wowf', '2026-11-20')]
+
+    def test_the_builds_before_the_newest_snapshot_are_stored(self):
+        result = self.history(self.LIST)
+        self.assertEqual((result['code'], result['stored']), (client.FETCHED, [69876, 70790]))   # not the one after: that is fetch's
+        self.assertEqual(self.opened, [69876, 70790])
+        self.assertEqual([b['build'] for b in content.builds()], [69876, 70790, 70938])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.folder.name, '69876', 'enUS'))), ['Item.db2', 'Map.db2'])   # the compared tables only
+        beta, live = self.info(69876), self.info(70790)
+        self.assertEqual((beta['date'], beta['tables'], beta['note']), ('2026-09-16', 'changelog', 'Beta build.'))
+        self.assertEqual((live['date'], live.get('note')), ('2026-11-04', None))
+        self.assertIn('wow_classic_beta', beta['source'])
+
+    def test_the_original_game_is_stored_with_them(self):
+        # ft.vanilla.fetch, once the earlier builds are in; with a made-up list of builds it is not asked for by itself
+        self.assertNotIn('original game', self.history(self.LIST)['message'])
+        asked = []
+        stored = lambda: asked.append(1) or {'code': client.vanilla.STORED, 'build': 31650, 'message': 'the original game (1.13.2.31650): 19 tables stored (run the analysis)'}
+        result = self.history(self.LIST, origin=stored)
+        self.assertEqual((result['code'], asked), (client.FETCHED, [1]))   # nothing else was new: the analysis runs for it
+        self.assertIn('the original game (1.13.2.31650): 19 tables stored', result['message'])
+
+        def unreachable():
+            raise RuntimeError('timed out')
+        result = self.history(self.LIST, origin=unreachable)
+        self.assertEqual(result['code'], client.UP_TO_DATE)
+        self.assertIn('the original game could not be read (timed out): asked again at the next check', result['message'])
+
+    def test_a_build_stored_for_the_changelog_is_completed(self):
+        # a checkout needs every table of a step (ft.client.complete)
+        self.history(self.LIST)
+        refused = client.complete(70790, {'Map', 'Item', 'ItemSet'}, listed=listed(*self.LIST), opener=self.opener, log=self.log.append)
+        self.assertEqual(refused, {})
+        self.assertEqual(sorted(os.listdir(os.path.join(self.folder.name, '70790', 'enUS'))), ['Item.db2', 'ItemSet.db2', 'Map.db2'])
+        self.assertEqual(self.info(70790)['tables'], 'changelog')   # still stored for the changelog: the changelog reads the same
+        self.opened.clear()
+        self.assertEqual(client.complete(70790, {'Map', 'Item', 'ItemSet'}, listed=listed(*self.LIST), opener=self.opener), {})
+        self.assertEqual(self.opened, [])   # nothing left to read
+
+    def test_a_table_of_another_layout_is_not_stored_by_completing(self):
+        self.history(self.LIST)
+        self.by_build[70790] = {**self.files, 30: table(0xEE)}
+        refused = client.complete(70790, {'ItemSet'}, listed=listed(*self.LIST), opener=self.opener, log=self.log.append)
+        self.assertIn('ItemSet', refused)
+        self.assertNotIn('ItemSet.db2', os.listdir(os.path.join(self.folder.name, '70790', 'enUS')))
+
+    def test_a_build_not_on_the_list_cannot_be_completed(self):
+        self.history(self.LIST)
+        refused = client.complete(70790, {'ItemSet'}, listed=listed(*self.LIST[:1]), opener=self.opener)
+        self.assertIn('not on the list', refused['ItemSet'])
+
+    def test_each_is_read_once(self):
+        self.history(self.LIST)
+        self.opened.clear()
+        result = self.history(self.LIST)
+        self.assertEqual((result['code'], result['stored'], self.opened), (client.UP_TO_DATE, [], []))
+
+    def test_a_build_with_another_table_layout_is_not_stored_and_not_asked_again(self):
+        self.by_build[70790] = {10: table(0xCC), 20: table(0xBB)}
+        result = self.history(self.LIST)
+        self.assertEqual((result['stored'], list(result['refused'])), ([69876], [70790]))
+        self.assertIn('Map', result['refused'][70790])
+        self.assertFalse(os.path.isdir(os.path.join(self.folder.name, '70790')))
+        self.opened.clear()
+        self.assertEqual(self.history(self.LIST)['code'], client.UP_TO_DATE)
+        self.assertEqual(self.opened, [])
+        del self.by_build[70790]                       # ... until it is asked for again
+        self.assertEqual(self.history(self.LIST, again=True)['stored'], [70790])
+        self.assertEqual(self.history(self.LIST)['refused'], {})
+
+    def test_a_build_that_could_not_be_reached_is_tried_at_the_next_call(self):
+        self.by_build[69876] = RuntimeError('timed out')
+        result = self.history(self.LIST)
+        self.assertEqual((result['stored'], list(result['failed'])), ([70790], [69876]))
+        del self.by_build[69876]
+        self.assertEqual(self.history(self.LIST)['stored'], [69876])
+
+    def test_a_server_in_trouble_is_left_alone_after_three_builds(self):
+        entries = [(build, 'wowf', '2026-10-01') for build in (70001, 70002, 70003, 70004)] + [(70938, 'wowf', '2026-11-13')]
+        for build in (70001, 70002, 70003, 70004):
+            self.by_build[build] = OSError('unreachable')
+        self.history(entries)
+        self.assertEqual(self.opened, [70001, 70002, 70003])
+        self.opened.clear()
+        for build in (70001, 70002, 70003):
+            self.by_build[build] = cdn.Gone('403')   # a build taken off the CDN is an answer: the next one is still asked
+        del self.by_build[70004]
+        self.assertEqual(self.history(entries)['stored'], [70004])
+
+    def test_a_stored_build_takes_the_day_the_list_says(self):
+        self.assertNotEqual(self.info(70938)['date'], '2026-11-13')   # stored today
+        result = self.history([(70938, 'wowf', '2026-11-13')])
+        self.assertEqual((self.info(70938)['date'], result['code']), ('2026-11-13', client.FETCHED))
+        self.assertEqual(self.history([(70938, 'wowf', '2026-11-13')])['code'], client.UP_TO_DATE)
+
+    def test_the_live_build_is_still_checked_against_a_whole_snapshot(self):
+        self.history(self.LIST)
+        self.assertTrue(content.builds()[1]['partial'])
+        self.assertEqual(client.snapshot_layouts(), {'Map': '000000AA', 'Item': '000000BB', 'ItemSet': '000000DD'})
+        # the newest build read again: the witness for its layouts is not the changelog-only build before it
+        files = dict(self.files)
+        files[30] = table(0xEE)
+        again = client.fetch(live={'build': 71000, 'version': '1.60.1.71000', 'config': 'ab'}, reader=lambda file_id: files[file_id], waiting=dict, log=self.log.append)
+        self.assertEqual(again['code'], client.REFUSED)
+
+    def test_one_run_at_a_time(self):
+        held = client.alone_here('history.lock')
+        try:
+            result = self.history(self.LIST)
+        finally:
+            held.close()
+        self.assertEqual((result['code'], result['stored'], self.opened), (client.UP_TO_DATE, [], []))
+        self.assertEqual(self.history(self.LIST)['stored'], [69876, 70790])
+
+    def test_switched_off(self):
+        saved = client.history_products
+        client.history_products = lambda product=None, setting=None: None
+        try:
+            self.assertEqual(self.history(self.LIST)['code'], client.UP_TO_DATE)
+        finally:
+            client.history_products = saved
+        self.assertEqual(self.opened, [])
+
+    def test_the_check_asks_for_them_last(self):
+        asked = []
+        one = lambda name, code: lambda: asked.append(name) or {'code': code, 'message': name}
+        self.assertTrue(client.check(one('build', client.UP_TO_DATE), one('hotfixes', 3), self.log.append, one('history', client.FETCHED)))
+        self.assertEqual(asked, ['build', 'hotfixes', 'history'])
+
+        def down():
+            raise RuntimeError('HTTP Error 503')
+        lines = []
+        self.assertFalse(client.check(one('build', client.UP_TO_DATE), one('hotfixes', 3), lines.append, down))
+        self.assertFalse(any('Error' in line for line in lines), lines)
 
 
 class Shipped(unittest.TestCase):

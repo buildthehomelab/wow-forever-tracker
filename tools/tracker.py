@@ -3,6 +3,7 @@
     python tools/tracker.py snapshot --dbc <folder with frFR/enUS DB2> --build 70425 [--date 2026-10-18]
     python tools/tracker.py analyse [--wowhead]
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
+    python tools/tracker.py client | fetch | hotfixes | history | check
     python tools/tracker.py world layers | pin [source ...]
     python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
     python tools/tracker.py world why <table> <key> [<key> ...]
@@ -12,6 +13,9 @@
     python tools/tracker.py world export [--out <data repository>] [--private-out <folder>] [--date YYYY-MM-DD] [--dry-run]
 
 `snapshot` copies the client DB2 tables the tracker needs for one official build into data/builds/<build>.
+`fetch` stores the live build from Blizzard's CDN, `hotfixes` Blizzard's live hotfixes, `history` the builds that came
+before (back to the first beta, for the changelog); `check` does the three and analyses when one brought something
+(docs/CLIENT.md).
 `analyse` reads every snapshot (official content and build-to-build changelog), the live server (its DB2
 files, hotfixes and world databases, map files), evaluates the availability of every resource, computes
 the in-game tooltips and the Forge fixes, and loads everything into the tracker database. It only reads
@@ -52,7 +56,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, world  # noqa: E402
+from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -79,6 +83,7 @@ def snapshot(args):
                  'source': args.source or info.get('source') or args.dbc, 'date': args.date or info.get('date') or datetime.date.today().isoformat()})
     if args.note:
         info['note'] = args.note
+    info.pop('tables', None)   # every table is there now, also over a build stored for the changelog alone
     json.dump(info, open(meta, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
 
@@ -90,7 +95,9 @@ def client_check(args):
     new = client.check(
         client.noted('client', lambda: client.fetch(log=client.calm(log))),
         client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)),
-        log)
+        log,
+        # the builds before the newest snapshot, back to the first beta: once each (docs/CLIENT.md)
+        client.noted('history', lambda: client.history(log=client.calm(log))))
     if not (new or args.always):
         log(f"nothing new on Blizzard's servers: the analysis was not run (check done in {time.time() - started:.0f} s)")
         return
@@ -236,6 +243,61 @@ def wowhead_verdicts(content, results, baseline, ask):
 
 
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
+
+
+def classic_teachers(args):
+    """What a pack of the original game's database says about the profession recipes nobody can learn on the realm
+    (ft.classic, docs/SOURCES.md): trainer lines, quests whose turn-in should cast a spell. Called by the website."""
+    from ft import classic, phases as phase_rules
+    from ft.content import EFFECT_LEARN_SPELL, PROFESSION_CATEGORIES
+    try:
+        pack = classic.load(args.pack)
+    except (OSError, ValueError, EOFError) as error:
+        sys.exit(f'classic: {args.pack} cannot be read ({error})')
+    if not sqlio.has_table('ft_entities', 'tracker'):
+        sys.exit('classic: no analysis yet (run it first)')
+    lines = {r['ID'] for r in server.server_db2('SkillLine') if r['CategoryID'] in PROFESSION_CATEGORIES}
+    line_of, acquire = {}, {}
+    for ability in server.server_db2('SkillLineAbility'):
+        acquire.setdefault(ability['Spell'], set()).add(ability['AcquireMethod'])
+        if ability['SkillLine'] in lines:
+            line_of.setdefault(ability['Spell'], ability['SkillLine'])
+    known = {r['ID'] for r in server.server_db2('SpellName')}
+    if sqlio.has_table('spell_name', 'hotfixes'):
+        known |= {int(v) for v in sqlio.column('SELECT ID FROM spell_name', 'hotfixes')}
+    waiting = phase_rules.closed(phase_rules.load(), CONFIG.get('phases', 'current'))
+    later = ' AND phase NOT IN (' + ','.join(str(int(p)) for p in waiting) + ')' if waiting and sqlio.has_column('ft_entities', 'phase', 'tracker') else ''
+    wanted = {}
+    for row in sqlio.query("SELECT id, checks FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('spell', 'recipe')" + later, 'tracker'):
+        spell = int(row['id'])
+        if spell in line_of and any(c.get('code') == 'learn' and not c.get('ok') for c in json.loads(row['checks'] or '[]')):
+            wanted[spell] = line_of[spell]
+    gaps = len(wanted)
+    wanted = classic.askable(wanted, known, acquire)   # not what Forever took away
+    teachers = {}
+    for effect in server.server_db2('SpellEffect'):
+        if effect['Effect'] == EFFECT_LEARN_SPELL and effect['EffectTriggerSpell'] in wanted:
+            teachers.setdefault(effect['EffectTriggerSpell'], set()).add(effect['SpellID'])
+    for row in server.server_db2('SpellLearnSpell'):
+        if row['LearnSpellID'] in wanted and row['SpellID']:
+            teachers.setdefault(row['LearnSpellID'], set()).add(row['SpellID'])
+    named = sorted({quest for quest, _shown, _cast in pack['quests']})
+    quests = {}
+    for start in range(0, len(named), 1000):
+        for row in sqlio.query('SELECT ID, RewardSpell FROM quest_template WHERE ID IN (' + ','.join(map(str, named[start:start + 1000])) + ')'):
+            quests[int(row['ID'])] = int(row['RewardSpell'] or 0)
+    found = classic.evidence(pack, wanted, teachers, quests)
+    if gaps > len(wanted):
+        found['left']['classic_gone_from_forever'] = gaps - len(wanted)
+    result = {'version': str(pack.get('version') or '')[:120], 'made': str(pack.get('made') or '')[:10], 'asked': len(wanted),
+              'ev': {'train': found['train'], 'talk': found['talk']}, 'changes': found['changes'], 'gossip': found['gossip'],
+              'names': {'npc': {k: str(v)[:100] for k, v in (pack.get('npc_names') or {}).items()},
+                        'go': {k: str(v)[:100] for k, v in (pack.get('object_names') or {}).items()}},
+              'left': found['left']}
+    with open(args.out, 'w', encoding='utf-8') as out:
+        json.dump(result, out, ensure_ascii=False)
+    log(f"classic: {len(wanted)} recipes asked, {len(found['train'])} trainer lines, {sum(len(c['rows']) for c in found['changes'])} quests, "
+        f"{len(found['talk'])} conversation lines, {len(found['gossip'])} taught in a conversation of an older pack")
 
 
 def player_reports(args):
@@ -501,53 +563,35 @@ def npc_checks(ask):
     sqlio.execute_file(path, 'tracker')
 
 
+def known_server_build():
+    """The build of the server's client data: [server] build_file or build in config.ini, else the client build the
+    realms accept (auth.realmlist), the next best guess; 0 when neither is known."""
+    server_build = CONFIG.server_build()
+    if server_build:
+        return server_build
+    try:
+        server_build = int(sqlio.column('SELECT MAX(gamebuild) FROM realmlist', 'auth')[0] or 0)
+    except (RuntimeError, OSError, IndexError, ValueError, TypeError):
+        return 0
+    if server_build:
+        log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
+    return server_build
+
+
 def analyse(args):
     started = time.time()
     build_list = official_content.builds()
-    if not build_list:
+    if not [b for b in build_list if not b.get('baseline')]:
         sys.exit('No snapshot in data/builds. Run the snapshot command first.')
-    server_build = CONFIG.server_build()
+    server_build = known_server_build()
     if not server_build:
-        # no build_file / build in config.ini: the client build the realms accept is the next best guess
-        try:
-            server_build = int(sqlio.column('SELECT MAX(gamebuild) FROM realmlist', 'auth')[0] or 0)
-        except (RuntimeError, IndexError, ValueError, TypeError):
-            server_build = 0
-        if server_build:
-            log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
-        else:
-            log('warning: server build unknown: set [server] build in config.ini')
-    contents, changes, first_seen, changed_in = [], [], {}, {}
-    previous = None
-    by_hotfix = {}   # kind -> resources that exist by hotfix alone and were not called "added" (see below)
-    for b in build_list:
-        log(f"official content of build {b['build']}")
-        current = official_content.official(b['dir'])
-        b['counts'] = {kind: len(v) for kind, v in current.items() if not kind.startswith('_')}
-        for kind, entities in current.items():
-            if kind.startswith('_'):
-                continue
-            for entity_id in entities:
-                first_seen.setdefault((kind, entity_id), b['build'])
-        if previous is not None:
-            before = build_list[build_list.index(b) - 1]
-            # A resource that exists by hotfix alone is in no build's tables. Compared with a build whose hotfixes were
-            # never stored, it would read "added in this build", five thousand items at once, although nothing says
-            # when it appeared: it is not listed as a change, and it counts as known since the build before.
-            alone = official_content.hotfix_only(b['dir']) if not hotfixes.has_own(before['dir']) else set()
-            for kind, entity_id, change, fields in official_content.diff_builds(previous, current):
-                if change == 'added' and (kind, entity_id) in alone:
-                    first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], before['build'])
-                    by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
-                    continue
-                name = (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')
-                changes.append((b['build'], build_list[build_list.index(b) - 1]['build'], kind, entity_id, change, fields, name))
-                changed_in[(kind, entity_id)] = b['build']
-        previous = current
-        contents.append(current)
-    content = contents[-1]
+        log('warning: server build unknown: set [server] build in config.ini')
+    content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
+    build_list = more['builds']   # without an original game that could not be compared: the website would show it as a build
     latest = build_list[-1]
-    log(f'{len(changes)} changes across {len(build_list)} builds')
+    log(f'{len(changes)} changes across {len(build_list)} builds' + (f", {len(more['hotfix_changes'])} in {len(more['hotfixes'])} hotfix update(s)" if more.get('hotfixes') else ''))
+    for line in official_content.replay_lines(more):
+        log(line)
     for b in build_list:
         if hotfixes.summary(b['dir']):
             log(f"hotfixes over build {b['build']}: " + hotfixes.summary(b['dir']))
@@ -555,6 +599,7 @@ def analyse(args):
         log('known by hotfix alone, not listed as added: ' + ', '.join(f'{kind}={n}' for kind, n in sorted(by_hotfix.items())))
     ctx = server.server_state()
     ctx['hotfix_only'] = by_hotfix
+    ctx['changelog'] = more
     # Only the quests new in Forever: the Classic Era ones are known, and asking Wowhead about thousands more takes long.
     baseline = Baseline()
     unknown_quests = [q for q in content['quest'] if q not in ctx['quests'] and baseline.is_new('quest', q, {})]
@@ -570,6 +615,12 @@ def analyse(args):
             qid = change[3]
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             changes[index] = change[:6] + (name,)
+    hotfix_changes = more.get('hotfix_changes') or []
+    for index, change in enumerate(hotfix_changes):
+        if change[2] == 'quest' and not change[6]:
+            qid = change[3]
+            name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
+            hotfix_changes[index] = change[:6] + (name,)
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     try:
@@ -594,6 +645,50 @@ def analyse(args):
     for kind, counts in sorted(summary.items()):
         log(f'{kind:12} ' + '  '.join(f'{k}={v}' for k, v in sorted(counts.items())))
     log(f'done in {time.time() - started:.0f} s')
+
+
+def checkout_cmd(args):
+    """The client's data at a step of the timeline, as an SQL file for a hotfixes database (docs/CHECKOUT.md)."""
+    from ft import checkout
+    if args.step == 'list':
+        for step in checkout.steps():
+            print(f"{step['id']:>12}  {step['version']:<16} {step['date'] or '':<10}  " + (f"hotfixes of {step['cache_day']}" if step.get('cache_day') else 'no hotfixes kept')
+                  + ('  (tables missing: --fetch reads them from the CDN)' if step['partial'] else ''))
+        return
+    try:
+        step = checkout.find(args.step)
+    except ValueError as error:
+        sys.exit(str(error))
+    server_build = known_server_build()
+    if not server_build:
+        sys.exit('server build unknown: set [server] build in config.ini, or let the tracker read auth.realmlist (the checkout writes rows for that build)')
+    if args.fetch and step['partial']:
+        # the client check reads builds into the same CDN folder: one at a time
+        gate = client.alone_here('history.lock')
+        if gate is None:
+            sys.exit('checkout: a client check is reading builds from the CDN right now: try again when it is done')
+        try:
+            refused = client.complete(step['build'], set(checkout.tracked()), log=log)
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            sys.exit(f'checkout: the other tables of build {step["build"]} could not be read from the CDN ({error}): nothing written')
+        finally:
+            gate.close()
+        for name, why in sorted(refused.items()):
+            log(f'checkout: {name} of build {step["build"]} could not be read: {why}')
+        step = checkout.find(step['id'])   # stored now: no longer partial
+    try:
+        made = checkout.plan(step, carry=not args.no_carry, log=log)
+    except (RuntimeError, OSError) as error:
+        sys.exit(f'checkout: the hotfixes database could not be read ({error})')
+    made['carry'] = not args.no_carry
+    path = args.out or os.path.join(checkout.OUT, f"hotfixes-{step['id']}.sql")
+    manifest = checkout.write(step, made, path, server_build)
+    rows = sum(t['rows'] for t in manifest['tables'].values())
+    removed = sum(t['removed'] for t in manifest['tables'].values())
+    log(f"checkout {step['id']}: {len(manifest['tables'])} tables, {rows} records over your server's files, {removed} removed, "
+        f"{len(manifest['skipped'])} tables left out -> {path}")
+    for name, why in sorted(manifest['skipped'].items()):
+        log(f'  left out: {name}: {why}')
 
 
 def main():
@@ -625,9 +720,23 @@ def main():
     told = sub.add_parser('reports', help="players' reports (a ForeverChanges pack) as evidence for the website's import card")
     told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pack.py made')
     told.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
-    check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
+    old_game = sub.add_parser('classic', help="the original game's teachers of recipes nobody can learn yet (a classic-db pack) as evidence for the website's import card")
+    old_game.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/classicdb_pack.py made')
+    old_game.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
+    old = sub.add_parser('vanilla', help="store the original game's tables (patch 1.12, as the client WoW Classic launched with) as the build before the first beta: the changelog then starts there (docs/VANILLA.md)")
+    old.add_argument('--again', action='store_true', help='read them again although they are stored')
+    past = sub.add_parser('history', help="store the builds that came before the newest snapshot (back to the first beta) from Blizzard's CDN, for the changelog")
+    past.add_argument('--again', action='store_true', help='also ask for the builds that were refused before (another table layout)')
+    past.add_argument('--limit', type=int, default=0, help='only the N newest of the builds that are missing')
+    past.add_argument('--keep-cache', action='store_true', help='keep the CDN lookup files in data/cdn')
+    check = sub.add_parser('check', help='fetch, hotfixes and history, then analyse when one of them brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
+    out = sub.add_parser('checkout', help="the client's data at a step of the timeline (a build, or a build's hotfix update: 70938+1) as an SQL file for a test realm's hotfixes database; 'list' names the steps (docs/CHECKOUT.md)")
+    out.add_argument('step', help="'list', 'latest', a build (70450) or a hotfix update (70938+1)")
+    out.add_argument('--out', help='the SQL file to write (data/checkout/hotfixes-<step>.sql); its manifest is written beside it (.json)')
+    out.add_argument('--fetch', action='store_true', help="first read the tables a build stored for the changelog alone lacks from Blizzard's CDN")
+    out.add_argument('--no-carry', action='store_true', help='leave out the records that exist by hotfix alone when the step has no hotfixes kept')
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -639,6 +748,9 @@ def main():
     rep.add_argument('--data', help="a folder of update files from your data repository (its sql/world)")
     rep.add_argument('--folder', action='append', help='another folder of update files, as label=folder (repeatable)')
     rep.add_argument('--keep-going', action='store_true', help='record a failing file and go on (default: stop, as the updater does)')
+    when = rep.add_mutually_exclusive_group()
+    when.add_argument('--until', help="the world as it stood that day (YYYY-MM-DD): update files named for a later day are left out")
+    when.add_argument('--at', help="the world as of a step of the timeline (70707, 70938+1: its day), to pair with `tracker.py checkout` of that step")
     rep.add_argument('--trust-account', action='store_true',
                      help='run although the MySQL account can write to other databases: only on a throwaway server that holds nothing else')
     fact = world_sub.add_parser('facts', help='read what a source says into the tracker database, or list what is stored')
@@ -661,6 +773,8 @@ def main():
         world.run(args)
     elif args.command == 'snapshot':
         snapshot(args)
+    elif args.command == 'checkout':
+        checkout_cmd(args)
     elif args.command == 'locate':
         locator.run(args)
     elif args.command == 'client':
@@ -671,10 +785,35 @@ def main():
         refresh_quests(args)
     elif args.command == 'reports':
         player_reports(args)
+    elif args.command == 'classic':
+        classic_teachers(args)
     elif args.command == 'hotfixes':
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
         result = client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url))()
         log('hotfixes: ' + result['message'])
+        sys.exit(result['code'])
+    elif args.command == 'history':
+        try:
+            result = client.noted('history', lambda: client.history(log=client.calm(log), again=args.again, limit=args.limit, keep_cache=args.keep_cache))()
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            log(client.calm(str)(f'earlier builds: the list of builds could not be read ({error}): nothing stored'))
+            sys.exit(2)
+        log('earlier builds: ' + result['message'])
+        sys.exit(result['code'])
+    elif args.command == 'vanilla':
+        if not client.newest_snapshot():
+            sys.exit('vanilla: no snapshot of the game yet: store one first (fetch, or snapshot), the original game is what it is compared with')
+        gate = client.alone_here('history.lock')   # the client check stores it too: one at a time
+        if gate is None:
+            sys.exit('vanilla: a client check is reading the earlier builds: it stores the original game itself')
+        try:
+            result = vanilla.fetch(log=client.calm(log), again=args.again)
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            log(client.calm(str)(f'vanilla: the original game could not be read ({error}): nothing stored'))
+            sys.exit(2)
+        finally:
+            gate.close()
+        log('vanilla: ' + result['message'])
         sys.exit(result['code'])
     elif args.command == 'fetch':
         result = client.noted('client', lambda: client.fetch(force=args.force, keep_cache=args.keep_cache, log=log))()

@@ -158,9 +158,11 @@ function table_exists(string $table, string $database = 'tracker'): bool
     return $cache[$key];
 }
 
-function meta(): array
+/** What the last analysis says of itself (ft_meta). $use: a made-up one, for the tests. */
+function meta(?array $use = null): array
 {
     static $meta = null;
+    if ($use !== null) $meta = $use;
     if ($meta !== null) return $meta;
     $meta = [];
     if (!table_exists('ft_meta')) return $meta;
@@ -171,8 +173,58 @@ function ready(): bool { return meta() !== [] && table_exists('ft_entities'); }
 function builds(): array
 {
     static $builds = null;
-    return $builds ??= ready() ? rows('SELECT build, version, released, note, source, is_server, counts FROM ft_builds ORDER BY build DESC') : [];
+    return $builds ??= ready() ? rows('SELECT build, version, released, note, source, is_server, counts FROM ft_builds' . (hotfix_entries() ? ' WHERE hotfix = 0' : '') . ' ORDER BY build DESC') : [];
 }
+/** The analysis keeps Blizzard's hotfixes as entries of their own (ft_builds.hotfix, ft_changes.hotfix: schema 5). */
+function hotfix_entries(): bool { return (int)(meta()['schema'] ?? 0) >= 5; }
+/**
+ * The hotfix updates after their build, newest first: one for each day a new hotfix cache changed something
+ * (tools/ft/hotfixes.py, docs/CLIENT.md). Rows of ft_builds with hotfix 1, 2, ...; released = the day it was read.
+ */
+function hotfix_updates(): array
+{
+    static $found = null;
+    return $found ??= ready() && hotfix_entries() ? rows('SELECT build, hotfix, version, released, note, source, is_server, counts FROM ft_builds WHERE hotfix > 0 ORDER BY build DESC, hotfix DESC') : [];
+}
+/** SQL on ft_changes (alias like "c."): the changes of a build itself (0) or of one of its hotfix updates. */
+function hotfix_is(int $hotfix, string $alias = ''): string { return hotfix_entries() ? " AND {$alias}hotfix = " . $hotfix : ''; }
+/** "Hotfixes of Nov 15" for a hotfix update. */
+function hotfix_name(array $update): string
+{
+    return sprintf(t('Hotfixes of %s', 'Correctifs du %s'), $update['released'] ? date(t('M j', 'd/m'), strtotime((string)$update['released'])) : '#' . (int)$update['hotfix']);
+}
+/** A build of the beta: stored from a product of that name (tools/ft/client.py, history). */
+function build_is_beta(array $build): bool
+{
+    return stripos((string)($build['source'] ?? ''), 'beta') !== false;
+}
+/**
+ * The original game as the changelog's start (tools/ft/vanilla.py, docs/VANILLA.md): ['build', 'version', 'first' (the
+ * game's first build, compared with it), 'hidden', 'alone'], [] when it is not stored.
+ */
+function baseline(): array
+{
+    $found = meta()['baseline'] ?? [];
+    return is_array($found) && !empty($found['build']) ? $found : [];
+}
+function build_is_vanilla(array $build): bool { return baseline() && (int)($build['build'] ?? 0) === (int)baseline()['build']; }
+/** A build compared with the original game: the game's first build, when the original game is stored. */
+function from_vanilla(int $build): bool { return baseline() && $build === (int)baseline()['first']; }
+/** "build 70938", or "the original game" for what patch 1.12 already had. */
+function build_name(int $build): string
+{
+    return baseline() && $build === (int)baseline()['build'] ? t('the original game (1.12)', 'le jeu d’origine (1.12)') : t('build', 'build') . ' ' . $build;
+}
+/**
+ * A change's word on the page of a build. Against the original game "removed" cannot be said: what the original game
+ * had and WoW: Forever's data does not is what Blizzard took out, and also what is not released yet.
+ */
+function change_label(string $kind, int $build): string
+{
+    return $kind === 'removed' && from_vanilla($build) ? t('Not in Forever', 'Absent de Forever') : kind_label($kind);
+}
+/** SQL on ft_changes (alias like "c."): the removals worth showing, once the analysis marks the others. */
+function changes_shown(string $alias = ''): string { return (int)(meta()['schema'] ?? 0) >= 4 ? " AND {$alias}internal = 0" : ''; }
 
 // ------------------------------------------------------------------ resource types
 /** type => [path, icon, English, French, English description, French description, Wowhead kind] */

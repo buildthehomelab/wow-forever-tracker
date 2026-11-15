@@ -87,7 +87,9 @@ function datarepo_changes(array $log): array
             } elseif (preg_match('/^UPDATE `([A-Za-z0-9_]+)` SET `([A-Za-z0-9_]+)` = `\2` \| (\d+) WHERE (.+?);?$/s', $statement, $m)) {
                 $out['updates'][] = "UPDATE `$m[1]` SET `$m[2]` = `$m[2]` | $m[3] WHERE $m[4] AND (`$m[2]` & $m[3]) <> $m[3];";
             } elseif (preg_match('/^UPDATE `([A-Za-z0-9_]+)` SET `([A-Za-z0-9_]+)` = (.+?) WHERE (.+?);?$/s', $statement, $m)) {
-                $out['updates'][] = "UPDATE `$m[1]` SET `$m[2]` = $m[3] WHERE $m[4] AND (`$m[2]` IS NULL OR `$m[2]` = 0 OR `$m[2]` = '');";
+                // a text value only where the column is empty: MySQL reads any word as 0, so "= 0" would match a script's name too
+                $empty = str_starts_with($m[3], "'") ? "(`$m[2]` IS NULL OR `$m[2]` = '')" : "(`$m[2]` IS NULL OR `$m[2]` = 0 OR `$m[2]` = '')";
+                $out['updates'][] = "UPDATE `$m[1]` SET `$m[2]` = $m[3] WHERE $m[4] AND $empty;";
             }
         }
     }

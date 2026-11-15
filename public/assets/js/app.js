@@ -403,7 +403,7 @@
         return;
       }
       toast(esc(data.message || ''));
-      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_atlasloot' || action === 'source_wowhead') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
+      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   $$('[data-import-upload] input[type=file]').forEach((upload) => upload.addEventListener('change', () => {
@@ -482,5 +482,27 @@
       api({ action: 'client_check' }).then((data) => { if (!data.ok) toast(esc(data.message || ''), 'error'); poll(); }).catch((e) => { toast(esc(e.message), 'error'); start.disabled = false; check.disabled = false; });
     });
     if (analysis.dataset.running === '1') poll();
+  }
+
+  // checkout: the client's data at a step, written in the background (app/checkout.php)
+  const checkoutBox = $('[data-checkout]');
+  if (checkoutBox) {
+    const buttons = $$('[data-checkout-start]'), log = $('[data-checkout-log]', checkoutBox), label = $('[data-checkout-text]', checkoutBox);
+    const free = () => buttons.forEach((b) => { b.disabled = false; });
+    const poll = () => api({ action: 'checkout_status' }).then((data) => {
+      if (data.log) { log.hidden = false; log.textContent = data.log; log.scrollTop = log.scrollHeight; }
+      if (data.running) { label.textContent = fmt(L('Writing step %s…', 'Écriture de l’étape %s…'), data.step); setTimeout(poll, 2500); return; }
+      if (data.failed) { label.textContent = fmt(L('Failed: step %s, see the log.', 'Échec : étape %s, voir le journal.'), data.step); free(); }
+      else location.reload();   // the new file and its numbers are in the table
+    }).catch(() => setTimeout(poll, 5000));
+    buttons.forEach((button) => button.addEventListener('click', () => {
+      buttons.forEach((b) => { b.disabled = true; });
+      api({ action: 'checkout', step: button.dataset.checkoutStart }).then((data) => {
+        if (!data.ok) { toast(esc(data.message || ''), 'error'); free(); return; }
+        label.textContent = fmt(L('Writing step %s…', 'Écriture de l’étape %s…'), button.dataset.checkoutStart);
+        poll();
+      }).catch((e) => { toast(esc(e.message), 'error'); free(); });
+    }));
+    if (checkoutBox.dataset.running === '1') poll();
   }
 })();

@@ -69,6 +69,10 @@ The worldserver needs the ForeverTracker core module (`core/forge_commands.cpp`)
 | Key | Default | |
 |---|---|---|
 | `path` | | Game client folder (with `_classic_beta_` or `Wow.exe`): *Install into the game* puts the ForeverForge and ForeverScribe addons in its `Interface/AddOns`, and the ForeverScribe notes are read from its `WTF/Account/*/SavedVariables` |
+| `product` | `wowf` | The game on Blizzard's servers whose live build `tracker.py fetch` reads ([CLIENT.md](CLIENT.md)) |
+| `hotfix_cache` | | The address of a hotfix cache of the live game; empty: the public mirror of live WoW: Forever |
+| `history` | `wow_classic_beta:1.60.` | The other products whose builds count as earlier builds, as `product:version prefix`, comma-separated. `tracker.py history` stores every earlier build for the changelog. `off`: none |
+| `build_list` | | The address of the list of earlier builds; empty: wago.tools' |
 
 ## `[collector]`
 

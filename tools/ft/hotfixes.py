@@ -24,6 +24,8 @@ Layout of the cache (XFTH version 9, https://wowdev.wiki/DBCache.bin), little-en
             u8 status, 3 bytes padding, then <size> bytes: the record                             32 bytes + record
 Status: 1 valid, 2 removed, 3 invalid, 4 not public (the record exists; its content is withheld).
 """
+import datetime
+import gzip
 import hashlib
 import json
 import os
@@ -31,6 +33,8 @@ import struct
 import urllib.error
 import urllib.request
 from collections import namedtuple
+
+from . import db2
 
 MAGIC = b'XFTH'
 VERSION = 9
@@ -119,7 +123,8 @@ def decode(data, meta, record_id, names=None):
         if at + size > len(data):
             return None
         if kind == 'float':
-            row[name] = round(struct.unpack_from('<f', data, at)[0], 4)
+            value = struct.unpack_from('<f', data, at)[0]
+            row[name] = value if db2.FLOAT_DIGITS is None else round(value, db2.FLOAT_DIGITS)
         else:
             # as ft.db2 reads the same field from the table (a 64-bit value is never taken as negative there)
             row[name] = int.from_bytes(data[at:at + size], 'little', signed=bool(signed) and size < 8)
@@ -135,18 +140,24 @@ ORIGIN = {}                           # build folder -> the earlier build its ho
 ADDED = {}                            # build folder -> {table: {ids of the rows that exist by hotfix alone}}
 OWN = {}                              # build folder -> the snapshot has a cache of its own build
 _loaded = {}
+_pinned = {}                          # build folder -> the stored cache (an entry of history()) that stands instead of the newest
+
+
+def _read(path):
+    with open(path, 'rb') as handle:
+        blob = handle.read()
+    return gzip.decompress(blob) if path.endswith('.gz') else blob
 
 
 def _own(folder):
-    """{table hash: {record id: Record}} of the cache stored in this snapshot's folder, None when there is none, when
-    it cannot be read, or when it was written for another build than the folder's."""
-    path = os.path.join(folder, FILE)
-    if not os.path.isfile(path):
+    """{table hash: {record id: Record}} of the cache stored in this snapshot's folder (the newest, or the one pin()
+    chose), None when there is none, when it cannot be read, or when it was written for another build than the folder's."""
+    path = source(folder)
+    if path is None:
         return None
     try:
-        with open(path, 'rb') as handle:
-            build, records = parse(handle.read())
-    except (OSError, CacheError):
+        build, records = parse(_read(path))
+    except (OSError, CacheError, EOFError, gzip.BadGzipFile):
         return None
     return newest(records) if str(build) == os.path.basename(os.path.normpath(folder)) else None
 
@@ -206,6 +217,107 @@ def overlay(folder, table, rows):
     return list(by_id.values())
 
 
+# ------------------------------------------------------------------ every cache of a build, each a step of the changelog
+# The mirror is refreshed every day and the tracker keeps only the newest cache over a build: what a day's hotfixes
+# changed would be lost the next day. Each cache that differs from the one before is also kept, compressed (about 1 MB
+# a day), in data/builds/<build>/hotfixes/, listed oldest first in index.json. The changelog then has a step for each:
+# the build as it shipped with the first cache seen, then what each later cache changed (ft.content.changelog).
+HISTORY = 'hotfixes'
+INDEX = 'index.json'
+
+
+def _index_path(folder):
+    return os.path.join(folder, HISTORY, INDEX)
+
+
+def history(folder):
+    """The caches kept of a build, oldest first: [{'file', 'read' (day), 'sha', 'records'}]. The newest cache
+    (hotfixes.bin) is always the last one: a cache stored before the history was kept is taken in here first."""
+    path = _index_path(folder)
+    try:
+        with open(path, encoding='utf-8') as handle:
+            entries = [e for e in json.load(handle) if isinstance(e, dict) and os.path.isfile(os.path.join(folder, HISTORY, str(e.get('file'))))]
+    except (OSError, ValueError, TypeError):
+        entries = []
+    newest = os.path.join(folder, FILE)
+    if not os.path.isfile(newest):
+        return []   # no cache of its own any more (taken away by hand): no steps either
+    try:
+        with open(newest, 'rb') as handle:
+            blob = handle.read()
+        digest = hashlib.sha256(blob).hexdigest()
+        if not entries or entries[-1].get('sha') != digest:
+            build, records = parse(blob)
+            if str(build) == os.path.basename(os.path.normpath(folder)):
+                entries = keep(folder, blob, _read_day(folder, newest), len(records), entries)
+    except (OSError, CacheError):
+        pass
+    return entries
+
+
+def _read_day(folder, path):
+    """The day a stored cache was downloaded: build.json says it; the file's own date when it does not."""
+    try:
+        with open(os.path.join(folder, 'build.json'), encoding='utf-8-sig') as handle:
+            day = (json.load(handle).get('hotfixes') or {}).get('read')
+        if day:
+            return str(day)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return datetime.date.fromtimestamp(os.path.getmtime(path)).isoformat()
+
+
+def keep(folder, blob, day, records, entries=None):
+    """Adds a cache to a build's history (nothing when it is the last one kept already); returns the history."""
+    entries = list(entries if entries is not None else history_kept(folder))
+    digest = hashlib.sha256(blob).hexdigest()
+    if entries and entries[-1].get('sha') == digest:
+        return entries
+    os.makedirs(os.path.join(folder, HISTORY), exist_ok=True)
+    name = f'{day}-{digest[:12]}.bin.gz'
+    target = os.path.join(folder, HISTORY, name)
+    scratch = f'{target}.{os.getpid()}.tmp'
+    with open(scratch, 'wb') as handle:
+        handle.write(gzip.compress(blob, 6))
+    os.replace(scratch, target)
+    entries.append({'file': name, 'read': day, 'sha': digest, 'records': records})
+    path = _index_path(folder)
+    with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
+        json.dump(entries, handle, indent=1)
+    os.replace(f'{path}.{os.getpid()}.tmp', path)
+    return entries
+
+
+def history_kept(folder):
+    """The history as index.json lists it, without taking hotfixes.bin in (keep() adds to it)."""
+    try:
+        with open(_index_path(folder), encoding='utf-8') as handle:
+            return [e for e in json.load(handle) if isinstance(e, dict)]
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def pin(folder, entry):
+    """Lets a kept cache (an entry of history()) stand over a build instead of the newest one; None: the newest again.
+    Everything read of the build's hotfixes so far is forgotten (the rows of its tables too: ft.content.forget)."""
+    path = os.path.join(folder, HISTORY, entry['file']) if entry else None
+    if _pinned.get(folder) == path:
+        return
+    if path:
+        _pinned[folder] = path
+    else:
+        _pinned.pop(folder, None)
+    _loaded.clear()
+    for kept in (STATS, ORIGIN, ADDED, OWN):
+        kept.pop(folder, None)
+
+
+def source(folder):
+    """The file of the cache that stands over a build as its own: the pinned one, or hotfixes.bin; None when none."""
+    path = _pinned.get(folder) or os.path.join(folder, FILE)
+    return path if os.path.isfile(path) else None
+
+
 TACT_KEY = 0xDF2F53CF   # the table TactKey: a record's id is the key's number, its 16 bytes the key
 
 
@@ -261,6 +373,7 @@ def fetch(builds_folder, known_builds, url=None, get=None):
     scratch = f'{path}.{os.getpid()}.tmp'
     with open(scratch, 'wb') as handle:
         handle.write(blob)
+    history(folder)   # the cache it replaces is kept first, when the history does not have it yet
     os.replace(scratch, path)
     _loaded.clear()   # this build's cache, and any later build that was carrying an older one over
     meta = os.path.join(folder, 'build.json')
@@ -269,10 +382,11 @@ def fetch(builds_folder, known_builds, url=None, get=None):
             info = json.load(handle)
     except (OSError, ValueError):
         info = {}
-    import datetime
-    info['hotfixes'] = {'read': datetime.date.today().isoformat(), 'records': len(records), 'source': url}
+    today = datetime.date.today().isoformat()
+    info['hotfixes'] = {'read': today, 'records': len(records), 'source': url}
     with open(meta, 'w', encoding='utf-8') as handle:
         json.dump(info, handle, ensure_ascii=False, indent=1)
+    keep(folder, blob, today, len(records))
     return {'code': 0, 'build': build, 'records': len(records), 'message': f'build {build}: {len(records)} hotfix records stored (run the analysis)'}
 
 

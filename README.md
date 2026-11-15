@@ -53,7 +53,7 @@ passes or fails, in English and French, with a work list by priority, CSV export
 | Dungeon / raid | terrain extracted; `instance_template`; entrance teleporter; creatures spawned; every boss spawned; navigation mesh |
 | Boss | a creature of that name spawned in the instance; scripted (ScriptName or SmartAI) |
 | Zone | creatures spawned in its area; most of its quests doable; graveyard |
-| Spell, talent, recipe | known to the core; learnable (trainer, quest reward, automatic, item, a talent or perk tree, or learning another spell); script advice for dummy effects. A spell the game data marks as never learned, or that another spell casts, is not asked for a trainer |
+| Spell, talent, recipe | known to the core; learnable (trainer, quest reward, automatic, item, a talent or perk tree, learning another spell, or a conversation: a menu choice of a spawned NPC or object whose SmartAI casts it, or one of the core's own scripts); script advice for dummy effects. A spell the game data marks as never learned, or that another spell casts, is not asked for a trainer |
 | Mount, pet, toy | the item or spell that teaches it can be obtained |
 | Achievement | known to the core; `achievement_reward` when it rewards a title or an item. A talent or perk point ("Earn 1 Legacy Point.") needs no row: the core counts the achievement itself (`TraitCurrencySource`) |
 | Flight point | a flight master spawned next to the node |
@@ -64,7 +64,9 @@ passes or fails, in English and French, with a work list by priority, CSV export
 ### Changelog of every client build
 
 Each stored build of the client is compared with the previous one, field by field: what Blizzard added, changed or
-removed. Administrators can attach Blizzard's patch notes to a build.
+removed. Administrators can attach Blizzard's patch notes to a build. The builds that came before the tracker was
+installed are read from Blizzard's CDN, so the changelog goes back build by build to the first beta
+([docs/CLIENT.md](docs/CLIENT.md)).
 
 ![Changelog](docs/screenshots/changelog.png)
 
@@ -188,6 +190,7 @@ loot table linked when it had none, and columns or tables your core does not hav
 | [Docker](docs/DOCKER.md) | One container, configured from its environment |
 | [The Forge](docs/FORGE.md) | Every fix, how it is applied and rolled back |
 | [Spawns and imports](docs/SPAWNS.md) | The locator, the four ways to spawn, the core module, the ForeverForge and ForeverScribe addons, importing WowPacketParser SQL files |
+| [Checkout](docs/CHECKOUT.md) | The client's data at any build or day of hotfixes, as an SQL file for a test realm's hotfixes database |
 | [The world build](docs/WORLD-BUILD.md) | Building the world data from layers of sources: licences, witnesses, pinned versions |
 | [Configuration](docs/CONFIGURATION.md) | Every setting of `config.ini` |
 | [Architecture](docs/ARCHITECTURE.md) | The code: analysis, tables, website, Forge engine |

@@ -207,7 +207,8 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
             foreach ($todo as $row) {
                 $condition = implode(' AND ', array_map(fn($i) => forge_ident($columns[$i]) . ' = ' . forge_literal($row[$i], $database), $where));
                 $plans[$database]['apply'][] = 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ' WHERE ' . $condition . ';';
-                array_unshift($plans[$database]['rollback'], 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = 0 WHERE ' . $condition . ' AND ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ';');
+                // a text column (a script or AI name) is emptied again, a number set back to 0
+                array_unshift($plans[$database]['rollback'], 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = ' . (is_string($row[$at]) ? "''" : '0') . ' WHERE ' . $condition . ' AND ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ';');
             }
             continue;
         }
@@ -221,7 +222,11 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
                 foreach (rows('SELECT ' . implode(',', array_map('forge_ident', $match)) . ', ' . forge_ident($flag) . ' v FROM ' . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $found) {
                     $current = (int)$found['v']; unset($found['v']);
                     $key = forge_key(array_values($found));
-                    if (isset($wanted[$key]) && ($current & (int)$wanted[$key][$at]) !== (int)$wanted[$key][$at]) $todo[] = $wanted[$key];
+                    if (!isset($wanted[$key])) continue;
+                    // only the bits the row lacks: the rollback then leaves the ones it already had (a trainer that
+                    // was a vendor keeps its vendor flag; a creature with one of two wanted bits keeps that one)
+                    $missing = (int)$wanted[$key][$at] & ~$current;
+                    if ($missing) { $row = $wanted[$key]; $row[$at] = $missing; $todo[] = $row; }
                 }
             }
             $tables[$database . '.' . $table . '.' . $flag] = [count($todo), count($op['rows']) - count($todo)];
@@ -446,15 +451,15 @@ function analysis_status(): array
     return ['running' => $started && !$finished && $alive, 'started' => $started, 'failed' => $failed, 'log' => implode("\n", array_slice($lines, -14))];
 }
 /**
- * The last time Blizzard's servers were asked, by tools/tracker.py (fetch, hotfixes, check; data/client-check.json):
- * ['client' => ['at' => time, 'code' => int|null, 'message' => text], 'hotfixes' => the same], what was never asked
+ * The last time Blizzard's servers were asked, by tools/tracker.py (fetch, hotfixes, history, check; data/client-check.json):
+ * ['client' => ['at' => time, 'code' => int|null, 'message' => text], 'hotfixes' and 'history' => the same], what was never asked
  * left out. code null: the server could not be read.
  */
 function client_check_notes(?string $path = null): array
 {
     $state = json_decode((string)@file_get_contents($path ?? FT_ROOT . '/data/client-check.json'), true);
     $out = [];
-    foreach (['client', 'hotfixes'] as $kind) {
+    foreach (['client', 'hotfixes', 'history'] as $kind) {
         $note = is_array($state) ? ($state[$kind] ?? null) : null;
         if (is_array($note) && (int)($note['at'] ?? 0) > 0) $out[$kind] = ['at' => (int)$note['at'], 'code' => isset($note['code']) ? (int)$note['code'] : null, 'message' => (string)($note['message'] ?? '')];
     }
