@@ -46,9 +46,18 @@ as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tr
   A creature nobody spawned, or whose number is already another list's, is counted and left alone.
 - **Quests.** A quest of the server that casts nothing at its turn-in gets the spell Classic cast
   (`quest_template.RewardSpell`). The operation fills: a quest that already casts a spell is left as it is and counted.
-- **Conversations.** A recipe Classic teaches through a line of a creature's conversation (Knot Thimblejack's Gordok
-  Ogre Suit, Omarion's frost resistance sets, the transporter gnomes) needs a script on the server, not a row: it is
-  counted on the card, never written.
+- **Conversations.** A recipe Classic teaches through a line of a creature's or an object's conversation (Knot
+  Thimblejack's Gordok Ogre Suit, Omarion's frost resistance recipes, the Journal of Jandice Barov) becomes that line
+  on the server, written as data: the line in the conversation the creature or object already opens (a menu of its
+  own, numbered 1,000,000 plus a creature's number or 2,000,000 plus an object's, where it opens none), Classic's
+  conditions on it (`conditions`, source type 15: skill, a quest done, a reputation rank or higher, a level or higher,
+  a spell known or not; the lines on the way to it count too, so Omarion's "Revered" stays on every recipe), and
+  SmartAI that makes the player cast the learn spell when the line is picked and closes the conversation. The
+  creature or object is switched to SmartAI where it ran nothing, and a creature gets the gossip flag. A creature run
+  by a core script, one whose conversation other creatures or objects open too, one that opens several
+  conversations, or a line with a condition the server has no word for is left out and counted. Where the core has
+  its own script for that teacher (Gloom'rel's Smelt Dark Iron), the card names the script instead of writing SmartAI.
+  The pack (`format` 2) carries these lines; a pack of the first format only counts them.
 
 ## ForeverChanges: names and places, from a file
 

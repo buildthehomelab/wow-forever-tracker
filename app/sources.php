@@ -602,8 +602,199 @@ function classicdb_evidence(array $result): array
             || !is_int($r[4]) || $r[4] <= 0 || !$count($r[5]) || $r[6] !== [] || $r[7] !== 1) continue;
         $ev['train'][] = [$r[0], $r[1], $r[2], $r[3], $r[4], $r[5], [], 1];
     }
+    foreach ((array)($result['ev']['talk'] ?? []) as $r) if (($line = classicdb_talk_line($r)) !== null) $ev['talk'][] = $line;
     foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^classic_[a-z_]+$/', (string)$why) && (int)$n > 0) $ev['left'][(string)$why] = (int)$n;
     return $ev;
+}
+
+/** A conversation line of the evidence, checked: ['npc'|'go', entry, text, recipe, spell it casts, terms]. */
+function classicdb_talk_line($r): ?array
+{
+    $whole = fn($v) => is_int($v) && $v > 0;
+    if (!is_array($r) || count($r) !== 6 || !in_array($r[0], ['npc', 'go'], true) || !$whole($r[1]) || !is_string($r[2]) || !$whole($r[3]) || !$whole($r[4]) || !is_array($r[5])) return null;
+    $text = trim($r[2]);
+    if ($text === '' || mb_strlen($text) > 500 || preg_match('/[\x00-\x1f\x7f]/u', $text)) return null;
+    $width = ['skill' => 3, 'quest' => 2, 'rep' => 3, 'level' => 2, 'knows' => 2, 'lacks' => 2];
+    foreach ($r[5] as $t) {
+        if (!is_array($t) || !isset($t[0], $width[$t[0]]) || count($t) !== $width[$t[0]]) return null;
+        foreach (array_slice($t, 1) as $v) if (!is_int($v) || $v < 0) return null;
+        if ($t[0] === 'rep' && $t[2] > 7) return null;
+    }
+    return [$r[0], $r[1], $text, $r[3], $r[4], array_values($r[5])];
+}
+
+/** Conversation menus of their own, where a template has none: 1,000,000 plus a creature's number, 2,000,000 plus an object's. */
+const CLASSICDB_MENU_BASE = ['npc' => 1000000, 'go' => 2000000];
+/** The column holding an object's conversation menu, by its type (GameObjectTemplate::GetGossipMenuId of the core). */
+const CLASSICDB_GO_MENU = [2 => 'Data3', 8 => 'Data10', 10 => 'Data19', 64 => 'Data2'];
+/** The core's own scripts that teach a spell in their conversation (tools/ft/server.py CORE_TEACHERS): a creature
+ *  without a script gets the script's name instead of SmartAI, which would only repeat part of what the script does. */
+const CLASSICDB_CORE_TEACHERS = [14894 => 'boss_gloomrel'];
+const CLASSICDB_AI = ['npc' => 'SmartAI', 'go' => 'SmartGameObjectAI'];
+
+/** Classic's terms as rows of `conditions` for a menu option (source type 15). Returns null for a term it cannot write. */
+function classicdb_conditions(array $terms, int $menu, int $option, string $comment): ?array
+{
+    $rows = [];
+    foreach ($terms as $t) {
+        switch ($t[0]) {
+            case 'skill': [$type, $v1, $v2, $not] = [7, $t[1], $t[2], 0]; break;            // CONDITION_SKILL: at least that value
+            case 'quest': [$type, $v1, $v2, $not] = [8, $t[1], 0, 0]; break;                 // CONDITION_QUESTREWARDED
+            case 'rep':   [$type, $v1, $v2, $not] = [5, $t[1], array_sum(array_map(fn($rank) => 1 << $rank, range($t[2], 7))), 0]; break;   // a mask of the ranks: that one or higher
+            case 'level': [$type, $v1, $v2, $not] = [27, $t[1], 3, 0]; break;                // CONDITION_LEVEL, COMP_TYPE_HIGH_EQ
+            case 'knows': [$type, $v1, $v2, $not] = [25, $t[1], 0, 0]; break;                // CONDITION_SPELL
+            case 'lacks': [$type, $v1, $v2, $not] = [25, $t[1], 0, 1]; break;
+            default: return null;
+        }
+        $rows["$type:$v1:$v2:$not"] = ['SourceTypeOrReferenceId' => 15, 'SourceGroup' => $menu, 'SourceEntry' => $option, 'SourceId' => 0, 'ElseGroup' => 0,
+            'ConditionTypeOrReference' => $type, 'ConditionTarget' => 0, 'ConditionValue1' => $v1, 'ConditionValue2' => $v2, 'ConditionValue3' => 0,
+            'NegativeCondition' => $not, 'ErrorType' => 0, 'ErrorTextId' => 0, 'ScriptName' => '', 'Comment' => mb_substr($comment, 0, 255)];
+    }
+    return array_values($rows);
+}
+
+/**
+ * The conversation lines that teach a recipe the server lacks, as rows: the line in the conversation the creature or
+ * object already opens (or a menu of its own when it opens none), Classic's conditions on it, and SmartAI that casts
+ * the spell when the line is picked and closes the conversation. Returns [rows by table, value changes, left out].
+ * $state: by "kind:entry": known, spawned, script, ai, type (an object's), menus [menu ids], shared [menu => true],
+ * options [menu => [OptionID => text]], smart (the highest SmartAI id), taken [menu => true] (numbers in use).
+ */
+function classicdb_talk_rows(array $talk, array $state, int $build, array $names = []): array
+{
+    $rows = []; $changes = []; $left = [];
+    $count = function (string $why) use (&$left) { $left[$why] = ($left[$why] ?? 0) + 1; };
+    $byTeacher = [];
+    foreach ($talk as $line) $byTeacher[$line[0] . ':' . $line[1]][] = $line;
+    foreach ($byTeacher as $key => $lines) {
+        [$kind, $entry] = [$lines[0][0], $lines[0][1]];
+        $s = $state[$key] ?? [];
+        if (empty($s['known'])) { foreach ($lines as $_) $count('classic_talk_unknown'); continue; }
+        if (empty($s['spawned'])) { foreach ($lines as $_) $count('classic_talk_not_spawned'); continue; }
+        $script = (string)($s['script'] ?? ''); $ai = (string)($s['ai'] ?? '');
+        // one of the core's own scripts: name it on a creature that has none
+        $scripted = array_values(array_filter($lines, fn($l) => $kind === 'npc' && isset(CLASSICDB_CORE_TEACHERS[$l[4]])));
+        if ($scripted) {
+            $name = CLASSICDB_CORE_TEACHERS[$scripted[0][4]];
+            if ($script === '' && $ai === '') $changes['creature_template.ScriptName'][] = [$entry, $name];
+            else foreach ($scripted as $_) $count($script === $name ? 'classic_talk_known' : 'classic_talk_other_script');
+            $lines = array_values(array_filter($lines, fn($l) => !isset(CLASSICDB_CORE_TEACHERS[$l[4]])));
+            if (!$lines) continue;
+        }
+        if ($script !== '') { foreach ($lines as $_) $count('classic_talk_other_script'); continue; }   // a script's own AI: SmartAI would not run
+        if ($ai !== '' && $ai !== CLASSICDB_AI[$kind]) { foreach ($lines as $_) $count('classic_talk_other_ai'); continue; }
+        if ($kind === 'go' && !isset(CLASSICDB_GO_MENU[(int)($s['type'] ?? -1)])) { foreach ($lines as $_) $count('classic_talk_object_type'); continue; }
+        // the menu the lines go into
+        $menus = array_values(array_unique(array_map('intval', $s['menus'] ?? [])));
+        if (count($menus) > 1) { foreach ($lines as $_) $count('classic_talk_several_menus'); continue; }
+        if ($menus) {
+            $menu = $menus[0];
+            if (!empty($s['shared'][$menu])) { foreach ($lines as $_) $count('classic_talk_menu_shared'); continue; }   // another NPC or object opens it too
+        } else {
+            $menu = CLASSICDB_MENU_BASE[$kind] + $entry;
+            if (!empty($s['taken'][$menu])) { foreach ($lines as $_) $count('classic_talk_menu_number_taken'); continue; }
+            if ($kind === 'npc') $rows['creature_template_gossip'][] = ['CreatureID' => $entry, 'MenuID' => $menu, 'VerifiedBuild' => $build];
+            else $changes['gameobject_template.' . CLASSICDB_GO_MENU[(int)$s['type']]][] = [$entry, $menu];
+        }
+        $options = $s['options'][$menu] ?? [];
+        $said = array_map(fn($t) => mb_strtolower(trim((string)$t)), $options);
+        $next = $options ? max(array_keys($options)) + 1 : 0;
+        $smart = (int)($s['smart'] ?? -1) + 1;
+        $wrote = false;
+        foreach ($lines as [, , $text, $recipe, $cast, $terms]) {
+            if (in_array(mb_strtolower($text), $said, true)) { $count('classic_talk_known'); continue; }
+            $who = $names[$kind][(string)$entry] ?? '';
+            $conditions = classicdb_conditions($terms, $menu, $next, trim("$who: learn $recipe (Classic database)"));
+            if ($conditions === null) { $count('classic_talk_condition'); continue; }
+            $rows['gossip_menu_option'][] = ['MenuID' => $menu, 'GossipOptionID' => 0, 'OptionID' => $next, 'OptionNpc' => 0, 'OptionText' => $text,
+                'OptionBroadcastTextID' => 0, 'Language' => 0, 'Flags' => 0, 'ActionMenuID' => 0, 'ActionPoiID' => 0, 'BoxCoded' => 0, 'BoxMoney' => 0,
+                'BoxText' => '', 'BoxBroadcastTextID' => 0, 'VerifiedBuild' => $build];
+            foreach ($conditions as $c) $rows['conditions'][] = $c;
+            foreach ([[134, $cast], [72, 0]] as [$action, $spell]) {   // INVOKER_CAST on the player, then CLOSE_GOSSIP
+                $rows['smart_scripts'][] = ['entryorguid' => $entry, 'source_type' => $kind === 'npc' ? 0 : 1, 'id' => $smart++, 'link' => 0, 'Difficulties' => '',
+                    'event_type' => 62, 'event_phase_mask' => 0, 'event_chance' => 100, 'event_flags' => 0, 'event_param1' => $menu, 'event_param2' => $next,
+                    'event_param3' => 0, 'event_param4' => 0, 'event_param5' => 0, 'event_param_string' => '', 'action_type' => $action, 'action_param1' => $spell,
+                    'action_param2' => 0, 'action_param3' => 0, 'action_param4' => 0, 'action_param5' => 0, 'action_param6' => 0, 'action_param7' => 0,
+                    'action_param_string' => '', 'target_type' => 7, 'target_param1' => 0, 'target_param2' => 0, 'target_param3' => 0, 'target_param4' => 0,
+                    'target_param_string' => '', 'target_x' => 0, 'target_y' => 0, 'target_z' => 0, 'target_o' => 0,
+                    'comment' => mb_substr(trim("$who - On Gossip Option $next Selected - " . ($action === 134 ? "Invoker Cast $spell (learn $recipe)" : 'Close Gossip')), 0, 1000)];
+            }
+            $said[] = mb_strtolower($text);
+            $next++; $wrote = true;
+        }
+        if (!$wrote) continue;
+        if ($ai === '') $changes[($kind === 'npc' ? 'creature' : 'gameobject') . '_template.AIName'][] = [$entry, CLASSICDB_AI[$kind]];
+        if ($kind === 'npc') $changes['creature_template.npcflag'][] = [$entry, 1];   // UNIT_NPC_FLAG_GOSSIP: a creature players can talk to
+    }
+    $ops = [];
+    foreach ($changes as $what => $list) {
+        [$table, $column] = explode('.', $what);
+        $ops[] = ['db' => 'world', 'table' => $table, 'columns' => ['entry', $column], 'match' => ['entry'], 'set' => $column,
+            ($column === 'npcflag' ? 'bits' : 'fill') => $column, 'rows' => $list];
+    }
+    return [$rows, $ops, $left];
+}
+
+/** What classicdb_talk_rows() needs to know about the creatures and objects of these lines, read from the world. */
+function classicdb_talk_state(array $talk): array
+{
+    $state = [];
+    $ids = ['npc' => [], 'go' => []];
+    foreach ($talk as $line) $ids[$line[0]][$line[1]] = true;
+    $in = fn(array $list) => implode(',', array_map('intval', $list)) ?: '0';
+    $npcs = array_keys($ids['npc']); $gos = array_keys($ids['go']);
+    $columns = array_unique(array_values(CLASSICDB_GO_MENU));
+    if ($npcs) {
+        foreach (rows('SELECT entry, ScriptName, AIName FROM creature_template WHERE entry IN (' . $in($npcs) . ')', [], 'world') as $r)
+            $state['npc:' . (int)$r['entry']] = ['known' => true, 'script' => (string)$r['ScriptName'], 'ai' => (string)$r['AIName'], 'menus' => []];
+        foreach (rows('SELECT DISTINCT id FROM creature WHERE id IN (' . $in($npcs) . ')', [], 'world') as $r) $state['npc:' . (int)$r['id']]['spawned'] = true;
+        foreach (rows('SELECT CreatureID, MenuID FROM creature_template_gossip WHERE CreatureID IN (' . $in($npcs) . ')', [], 'world') as $r)
+            $state['npc:' . (int)$r['CreatureID']]['menus'][] = (int)$r['MenuID'];
+    }
+    if ($gos) {
+        foreach (rows('SELECT entry, type, ScriptName, AIName, ' . implode(', ', $columns) . ' FROM gameobject_template WHERE entry IN (' . $in($gos) . ')', [], 'world') as $r) {
+            $column = CLASSICDB_GO_MENU[(int)$r['type']] ?? null;
+            $state['go:' . (int)$r['entry']] = ['known' => true, 'type' => (int)$r['type'], 'script' => (string)$r['ScriptName'], 'ai' => (string)$r['AIName'],
+                'menus' => $column && (int)$r[$column] > 0 ? [(int)$r[$column]] : []];
+        }
+        foreach (rows('SELECT DISTINCT id FROM gameobject WHERE id IN (' . $in($gos) . ')', [], 'world') as $r) $state['go:' . (int)$r['id']]['spawned'] = true;
+    }
+    // the menus in play: who else opens them, the lines they hold; the numbers a menu of its own would take
+    $menus = []; $own = [];
+    foreach ($state as $key => $s) {
+        foreach ($s['menus'] ?? [] as $m) $menus[$m] = true;
+        [$kind, $entry] = explode(':', $key);
+        $own[CLASSICDB_MENU_BASE[$kind] + (int)$entry] = true;
+    }
+    $menuIds = array_keys($menus);
+    if ($menuIds) {
+        $users = [];
+        foreach (rows('SELECT CreatureID, MenuID FROM creature_template_gossip WHERE MenuID IN (' . $in($menuIds) . ')', [], 'world') as $r) $users[(int)$r['MenuID']]['npc:' . (int)$r['CreatureID']] = true;
+        foreach (CLASSICDB_GO_MENU as $type => $column) {
+            foreach (rows("SELECT entry, $column m FROM gameobject_template WHERE type = $type AND $column IN (" . $in($menuIds) . ')', [], 'world') as $r) $users[(int)$r['m']]['go:' . (int)$r['entry']] = true;
+        }
+        foreach ($state as $key => &$s) foreach ($s['menus'] ?? [] as $m) if (count(array_diff_key($users[$m] ?? [], [$key => true])) > 0) $s['shared'][$m] = true;
+        unset($s);
+        $options = [];
+        foreach (rows('SELECT MenuID, OptionID, OptionText FROM gossip_menu_option WHERE MenuID IN (' . $in($menuIds) . ')', [], 'world') as $r) $options[(int)$r['MenuID']][(int)$r['OptionID']] = (string)$r['OptionText'];
+        foreach ($state as &$s) foreach ($s['menus'] ?? [] as $m) $s['options'][$m] = $options[$m] ?? [];
+        unset($s);
+    }
+    if ($own) {
+        $taken = [];
+        foreach (['SELECT DISTINCT MenuID m FROM gossip_menu_option WHERE MenuID IN (%s)', 'SELECT DISTINCT MenuID m FROM creature_template_gossip WHERE MenuID IN (%s)',
+                  'SELECT DISTINCT MenuID m FROM gossip_menu WHERE MenuID IN (%s)'] as $sql) {
+            foreach (rows(sprintf($sql, $in(array_keys($own))), [], 'world') as $r) $taken[(int)$r['m']] = true;
+        }
+        foreach ($state as $key => &$s) { [$kind, $entry] = explode(':', $key); $n = CLASSICDB_MENU_BASE[$kind] + (int)$entry; if (isset($taken[$n])) $s['taken'][$n] = true; }
+        unset($s);
+    }
+    foreach ($state as $key => &$s) {
+        [$kind, $entry] = explode(':', $key);
+        $s['smart'] = (int)(value('SELECT COALESCE(MAX(id), -1) FROM smart_scripts WHERE entryorguid = ? AND source_type = ?', [(int)$entry, $kind === 'npc' ? 0 : 1], 'world') ?? -1);
+    }
+    unset($s);
+    return $state;
 }
 
 /** The quests whose turn-in should cast a spell: quest_template.RewardSpell only, and written only where the quest
@@ -712,7 +903,13 @@ function classicdb_import(): array
         if ($tables[$table]['columns'] === $entry['columns']) $tables[$table]['groups'][0]['rows'] = array_merge($tables[$table]['groups'][0]['rows'], $entry['groups'][0]['rows']);
     }
     foreach ($ownLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
-    return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, classicdb_changes($result));
+    // the conversation lines that teach a recipe: the line, its conditions and the SmartAI that casts the spell
+    $talk = array_values(array_filter($ev['talk'] ?? [], fn($line) => !isset($gaps['later']['spells'][$line[3]])));
+    $names = ['npc' => (array)($result['names']['npc'] ?? []), 'go' => (array)($result['names']['go'] ?? [])];
+    [$spoken, $talkChanges, $talkLeft] = $talk ? classicdb_talk_rows($talk, classicdb_talk_state($talk), (int)(meta()['client_build'] ?? 0), $names) : [[], [], []];
+    foreach (classicdb_tables($spoken) as $table => $entry) $tables[$table] = $entry;
+    foreach ($talkLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
+    return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, array_merge(classicdb_changes($result), $talkChanges));
 }
 
 // ------------------------------------------------------------------ ForeverChanges (players' reports, from a file)

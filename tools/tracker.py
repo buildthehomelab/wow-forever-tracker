@@ -290,11 +290,14 @@ def classic_teachers(args):
     if gaps > len(wanted):
         found['left']['classic_gone_from_forever'] = gaps - len(wanted)
     result = {'version': str(pack.get('version') or '')[:120], 'made': str(pack.get('made') or '')[:10], 'asked': len(wanted),
-              'ev': {'train': found['train']}, 'changes': found['changes'], 'gossip': found['gossip'], 'left': found['left']}
+              'ev': {'train': found['train'], 'talk': found['talk']}, 'changes': found['changes'], 'gossip': found['gossip'],
+              'names': {'npc': {k: str(v)[:100] for k, v in (pack.get('npc_names') or {}).items()},
+                        'go': {k: str(v)[:100] for k, v in (pack.get('object_names') or {}).items()}},
+              'left': found['left']}
     with open(args.out, 'w', encoding='utf-8') as out:
         json.dump(result, out, ensure_ascii=False)
     log(f"classic: {len(wanted)} recipes asked, {len(found['train'])} trainer lines, {sum(len(c['rows']) for c in found['changes'])} quests, "
-        f"{len(found['gossip'])} taught in a conversation")
+        f"{len(found['talk'])} conversation lines, {len(found['gossip'])} taught in a conversation of an older pack")
 
 
 def player_reports(args):

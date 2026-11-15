@@ -8,7 +8,10 @@ names a teacher for. Where Forever kept the original game's recipe, the original
     evidence(pack, wanted, teachers, quests) ->
         train     [npc, spell, cost, level, skill line, skill rank, [], 1]   as app/sources.php takes trainers
         changes   quest_template.RewardSpell for quests of the realm that cast nothing at the turn-in
-        gossip    [npc, spell]  taught by a line of a creature's conversation: a script, not a row; counted, not written
+        gossip    [npc, spell]  taught by a line of a creature's conversation (a pack of the first format: counted only)
+        talk      [kind, entry, text, recipe, cast, terms]  taught by a line of a creature's ('npc') or an object's ('go')
+                  conversation that casts `cast`, with Classic's conditions as plain terms (tools/classicdb_pack.py
+                  terms()); the website writes the line, its conditions and the SmartAI that casts the spell
         left      what was not taken, by reason
 
 Classic's trainers and quests name the spell that teaches (10843 teaches Heavy Mageweave Bandage, 10841); the realm's
@@ -17,7 +20,8 @@ own learn effects say which recipe that is.
 import gzip
 import json
 
-FORMAT = 1
+FORMATS = (1, 2)   # 2 adds the conversation lines (talk)
+TERMS = {'skill': 3, 'quest': 2, 'rep': 3, 'level': 2, 'knows': 2, 'lacks': 2}   # a term's kind and its length
 NEVER_LEARNED = 3   # SkillLineAbility.AcquireMethod
 
 
@@ -25,13 +29,23 @@ def load(path):
     """The pack, or ValueError when the file is no pack of this format."""
     with gzip.open(path, 'rt', encoding='utf-8') as handle:
         pack = json.load(handle)
-    if not isinstance(pack, dict) or pack.get('format') != FORMAT:
+    if not isinstance(pack, dict) or pack.get('format') not in FORMATS:
         raise ValueError('not a pack made by tools/classicdb_pack.py')
     for key, width in (('trainers', 6), ('quests', 3), ('gossip', 2)):
         rows = pack.get(key)
         if not isinstance(rows, list) or any(not isinstance(r, list) or len(r) != width or any(not isinstance(v, int) or v < 0 for v in r) for r in rows):
             raise ValueError(f'the pack\'s {key} are not what tools/classicdb_pack.py writes')
+    pack['talk'] = [line for line in pack.get('talk') or [] if spoken(line)]
     return pack
+
+
+def spoken(line):
+    """A conversation line of the pack of the right shape: ['npc'|'go', entry, text, spell, [terms]]."""
+    if not isinstance(line, list) or len(line) != 5 or line[0] not in ('npc', 'go') or not isinstance(line[2], str) or not isinstance(line[4], list):
+        return False
+    if not all(isinstance(v, int) and v > 0 for v in (line[1], line[3])) or not 0 < len(line[2]) <= 500:
+        return False
+    return all(isinstance(t, list) and t and TERMS.get(t[0]) == len(t) and all(isinstance(v, int) and v >= 0 for v in t[1:]) for t in line[4])
 
 
 def askable(spells, known, acquire):
@@ -52,8 +66,10 @@ def evidence(pack, wanted, teachers, quests):
         by_spell['quests'].setdefault(cast or shown, []).append(quest)   # the spell the turn-in casts
     for npc, spell in pack['gossip']:
         by_spell['gossip'].setdefault(spell, []).append(npc)
+    for kind, entry, text, cast, terms in pack.get('talk', ()):
+        by_spell.setdefault('talk', {}).setdefault(cast, []).append((kind, entry, text, terms))
 
-    train, fills, gossip, left = {}, {}, set(), {}
+    train, fills, gossip, talk, left = {}, {}, set(), {}, {}
 
     def count(reason, n=1):
         left[reason] = left.get(reason, 0) + n
@@ -75,8 +91,13 @@ def evidence(pack, wanted, teachers, quests):
                 else:
                     fills.setdefault(quest, key)
         for key in keys:
+            for kind, entry, text, terms in by_spell.get('talk', {}).get(key, ()):
+                if kind != 'npc' or (entry, spell) not in train:
+                    talk.setdefault((kind, entry, spell), [kind, entry, text, spell, key, terms])
+                found = True
+        for key in keys:
             for npc in by_spell['gossip'].get(key, ()):
-                if (npc, spell) not in train:
+                if (npc, spell) not in train and ('npc', npc, spell) not in talk:
                     gossip.add((npc, spell))
                 found = True
         if not found:
@@ -87,4 +108,5 @@ def evidence(pack, wanted, teachers, quests):
     if fills:
         changes.append({'table': 'quest_template', 'columns': ['ID', 'RewardSpell'], 'match': ['ID'], 'set': 'RewardSpell',
                         'rows': [[quest, spell] for quest, spell in sorted(fills.items())]})
-    return {'train': [train[key] for key in sorted(train)], 'changes': changes, 'gossip': sorted(gossip), 'left': left}
+    return {'train': [train[key] for key in sorted(train)], 'changes': changes, 'gossip': sorted(gossip),
+            'talk': [talk[key] for key in sorted(talk)], 'left': left}
