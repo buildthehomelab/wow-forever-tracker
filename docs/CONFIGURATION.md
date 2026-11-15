@@ -82,6 +82,7 @@ The worldserver needs the ForeverTracker core module (`core/forge_commands.cpp`)
 |---|---|---|
 | `branch` | `forever` | Wowhead branch the locator reads positions from |
 | `pause` | `0.4` | Seconds between two requests to Wowhead |
+| `crawl_min_item` | `190000` | The page crawler ([WOWHEAD-PAGES.md](WOWHEAD-PAGES.md)) queues the gap items from this id up, after the items other content waits for. `0`: every gap item |
 
 ## `[phases]`
 

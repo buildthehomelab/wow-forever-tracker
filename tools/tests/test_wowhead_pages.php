@@ -55,4 +55,34 @@ check(array_keys($pages) === [1, 2] && $pages[1]['status'] === 'missing' && $pag
 check(wowhead_pages('quest', [$shipped]) === [], 'no file: no page');
 check(isset(SOURCES['wowhead']) && source_trust()[1] === 'wowhead' && source_named('Wowhead 2026-11-15') === 'wowhead', 'Wowhead is a source of its own, first after the client');
 
+// ---- the round trip with the browser crawler
+$waiting = [['quest', 'item 270001 not obtainable; item 3000 not obtainable'], ['quest', 'Quest giver: item 250001 (not obtainable)'],
+    ['recipe', 'Recipe exists but cannot be obtained: 260001, 260002'], ['recipe', 'Taught by item 260003, which players cannot get.'],
+    ['mount', 'Item exists but cannot be obtained: 8633'], ['toy', 'Item 255000 has no source.'], ['spell', 'Taught by item 9126, 0, which players cannot get.'],
+    ['quest', 'No quest text']];
+$order = wowhead_pages_order(array_fill_keys([5559, 250001, 250009, 190000], true), $waiting, array_fill_keys([902, 901], true));
+check($order['item'] === [3000, 8633, 9126, 250001, 255000, 260001, 260002, 260003, 270001, 190000, 250009], 'what other content waits for first, then the gap items from 190000 up: ' . json_encode($order['item']));
+check($order['quest'] === [901, 902], 'the quests without a giver or an ender');
+$order = wowhead_pages_order(array_fill_keys([250009], true), $waiting, [901 => true], ['item' => [3000 => true, 250009 => true], 'quest' => [901 => true]], 0);
+check(!in_array(3000, $order['item'], true) && !in_array(250009, $order['item'], true) && $order['quest'] === [], 'pages the cache has are not read again');
+
+$line = fn(array $r) => json_encode($r + ['kind' => 'item', 'v' => 1, 'fetched' => 1700000000, 'status' => 'ok']);
+check(wowhead_pages_clean(json_decode($line(['id' => 5, 'quick' => ['Level: 3', str_repeat('x', 301)], 'tabs' => ['sold-by' => ['template' => 'npc', 'rows' => [['id' => 1, 'name' => 'A vendor'], ['id' => 2, 'cost' => [5]]]], 'bad tab!' => ['rows' => []]]]), true))
+    === ['id' => 5, 'fetched' => 1700000000, 'v' => 1, 'status' => 'ok', 'quick' => ['Level: 3'], 'tabs' => ['sold-by' => ['template' => 'npc', 'rows' => [['id' => 2, 'cost' => [5]]]]]], 'a row with text is dropped, so is a line too long');
+foreach ([['status' => 'blocked'], ['kind' => 'mount'], ['id' => 0], ['id' => '5'], ['fetched' => 0], ['fetched' => time() + 864000], ['tabs' => [[1]]]] as $bad) {
+    check(wowhead_pages_clean(json_decode(json_encode($bad + ['kind' => 'item', 'id' => 5, 'v' => 1, 'fetched' => 1700000000, 'status' => 'ok', 'tabs' => []]), true)) === null, 'not a page: ' . json_encode($bad));
+}
+
+$dir = ft_test_dir() . '/pages';
+$counts = wowhead_pages_merge(implode("\n", [$line(['id' => 30, 'tabs' => []]), $line(['id' => 4, 'tabs' => []]), '{cut', $line(['id' => 7, 'kind' => 'quest', 'quick' => ['Start: [url=/forever/npc=1]']])]), $dir);
+check($counts === ['new' => 3, 'newer' => 0, 'older' => 0, 'not_a_page' => 1], 'merge: three pages and a broken line');
+$counts = wowhead_pages_merge(implode("\n", [$line(['id' => 30, 'fetched' => 1600000000, 'status' => 'missing']), $line(['id' => 4, 'fetched' => 1790000000, 'status' => 'missing'])]), $dir);
+check($counts === ['new' => 0, 'newer' => 1, 'older' => 1, 'not_a_page' => 0], 'merge: the newer answer of a page wins');
+check(array_keys(wowhead_pages('item', [$dir])) === [4, 30] && wowhead_pages('item', [$dir])[4]['status'] === 'missing' && wowhead_pages('item', [$dir])[30]['status'] === 'ok', 'the kept file: sorted by id, the right answers');
+check(file_get_contents("$dir/item.jsonl") === '{"id":4,"fetched":1790000000,"v":1,"status":"missing"}' . "\n" . '{"id":30,"fetched":1700000000,"v":1,"status":"ok","quick":[],"tabs":{}}' . "\n", 'the file is one page a line, an empty tab list written as an object');
+check(wowhead_pages('quest', [$dir])[7]['quick'] === ['Start: [url=/forever/npc=1]'], 'each kind in its own file');
+
+$js = wowhead_pages_crawler(['item' => [3, 4], 'quest' => []]);
+check(str_contains($js, "await WHC.add(\"item\", [3,4]);") && !str_contains($js, '"quest"') && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its queue, then start');
+
 ft_test_done();

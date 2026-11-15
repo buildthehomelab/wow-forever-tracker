@@ -30,6 +30,19 @@ if ($upload) {
         if (!in_array($head, ["PK", "\x1f\x8b"], true) || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/foreverchanges_pack.py.', 'Ce n’est pas un paquet créé par tools/foreverchanges_pack.py.')]);
         json_out(foreverchanges_import());
     }
+    if (preg_match('/\.jsonl$/i', $name)) {
+        // pages the Wowhead crawler read in a browser tab (tools/wowhead-pages/crawler.js, WHC.save()): into the cache,
+        // then an import card from the whole cache
+        require_once FT_APP . '/wowheadpages.php';
+        try { $merged = wowhead_pages_merge((string)file_get_contents($file['tmp_name'])); }
+        catch (RuntimeException $e) { json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]); }
+        if (!$merged['new'] && !$merged['newer'] && !$merged['older']) json_out(['ok' => false, 'message' => t('That file holds no page the Wowhead crawler saved.', 'Ce fichier ne contient aucune page enregistrée par le crawler Wowhead.')]);
+        $card = wowhead_pages_import();
+        $card['message'] = sprintf(t('%d new page(s), %d newer, %d older than the ones kept, %d line(s) that are no page.', '%d nouvelle(s) page(s), %d plus récente(s), %d plus ancienne(s) que celles conservées, %d ligne(s) qui ne sont pas des pages.'),
+            $merged['new'], $merged['newer'], $merged['older'], $merged['not_a_page']) . ' ' . ($card['message'] ?? '');
+        $card['ok'] = true;   // the pages are kept even when the card has nothing new
+        json_out($card);
+    }
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);
     $target = $dir . '/' . date('Ymd-His') . '-' . $name;
     move_uploaded_file($file['tmp_name'], $target);
@@ -76,6 +89,13 @@ switch ((string)($input['action'] ?? '')) {
     case 'source_foreverdb':
         require_once FT_APP . '/sources.php';
         json_out(foreverdb_import());
+    case 'wowhead_crawler':
+        // the browser crawler with the pages this tracker wants next already queued: nothing is asked of Wowhead here
+        require_once FT_APP . '/wowheadpages.php';
+        if (!table_exists('ft_entities')) json_out(['ok' => false, 'message' => t('Run the analysis first: the crawler reads the pages of its gaps.', 'Lancez d’abord l’analyse : le crawler lit les pages de ses manques.')]);
+        $queue = wowhead_pages_queue();
+        json_out(['ok' => true, 'file' => base64_encode(wowhead_pages_crawler($queue)), 'name' => 'wowhead-crawler.js', 'type' => 'text/javascript',
+                  'message' => sprintf(t('%d item page(s) and %d quest page(s) queued.', '%d page(s) d’objets et %d page(s) de quêtes en file.'), count($queue['item']), count($queue['quest']))]);
     case 'source_wowhead':
         // the pages kept in the cache (tools/wowhead-pages): nothing is asked of Wowhead here
         require_once FT_APP . '/wowheadpages.php';

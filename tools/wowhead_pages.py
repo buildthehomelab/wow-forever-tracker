@@ -1,4 +1,5 @@
-"""The cache of Wowhead pages (tools/wowhead-pages/cache/<kind>.jsonl) and what to read next.
+"""The cache of Wowhead pages (data/wowhead-pages/<kind>.jsonl) and what to read next, from the command line.
+The tracker's Imports page does the same (Download the crawler, Send wowhead-pages.jsonl).
 
 Wowhead's pages cannot be asked from a script (403), so they are read slowly from a browser tab by
 tools/wowhead-pages/crawler.js, which keeps facts only (docs/WOWHEAD-PAGES.md). This tool is the other half:
@@ -19,10 +20,12 @@ import re
 import sys
 import time
 
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wowhead-pages', 'cache')
+# outside the repository: a copy of Wowhead's data is kept, not republished with the code (app/wowheadpages.php reads it)
+CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'wowhead-pages')
 KINDS = ('item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset')
 KEPT = ('ok', 'missing')   # 'blocked' and 'odd' are no answer: the page is asked again
 MAX_ID = 2 ** 31 - 1
+TOOLTIP = re.compile(r'\[tooltip[^\]]*\].*?\[/tooltip\]|\[span[^\]]*\]|\[/span\]', re.S)
 
 
 def path(kind, folder=CACHE):
@@ -55,6 +58,8 @@ def clean(record):
     tabs = record.get('tabs') or {}
     if not isinstance(quick, list) or not isinstance(tabs, dict):
         return None
+    # a tooltip's own text (crawlers before 2026-11-15 kept it) is no fact of the page
+    quick = [TOOLTIP.sub('', line).strip() if isinstance(line, str) else line for line in quick]
     out['quick'] = [line for line in quick if isinstance(line, str) and 0 < len(line) <= 300 and '\n' not in line]
     out['tabs'] = {}
     for name, tab in sorted(tabs.items()):
