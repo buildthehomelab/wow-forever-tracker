@@ -26,6 +26,9 @@ TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES
 
 PROFESSION_CATEGORIES = {9, 11}       # SkillLine.CategoryID: secondary, primary professions
 CLASS_CATEGORY, RACIAL_CATEGORY = 7, 12
+# The spell categories (a spell's 'sub') players learn or use themselves; every other spell is internal: what an item
+# or a creature casts, a trigger, a leftover.
+PLAYER_SPELLS = ('class', 'profession', 'racial', 'talent', 'mount', 'pet', 'rune', 'petability')
 SCRIPT_EFFECTS, SCRIPT_AURAS = {3, 77}, {4, 226}
 EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL = 24, 36
 
@@ -48,12 +51,26 @@ def builds():
     for name in os.listdir(BUILDS) if os.path.isdir(BUILDS) else []:
         if name.isdigit() and any(os.path.isdir(os.path.join(BUILDS, name, locale)) for locale in ('frFR', 'enUS')):
             meta = os.path.join(BUILDS, name, 'build.json')
-            info = json.load(open(meta, encoding='utf-8-sig')) if os.path.isfile(meta) else {}
+            info = {}
+            if os.path.isfile(meta):
+                with open(meta, encoding='utf-8-sig') as handle:
+                    info = json.load(handle)
             found.append({'build': int(name), 'version': info.get('version', f'1.60.1.{name}'), 'date': info.get('date'),
                           'note': info.get('note', ''), 'source': info.get('source', ''), 'dir': os.path.join(BUILDS, name),
                           # an earlier build stored for the changelog holds the compared tables only (ft.client.history)
-                          'partial': info.get('tables') == 'changelog'})
-    return sorted(found, key=lambda b: b['build'])
+                          'partial': info.get('tables') == 'changelog',
+                          # the original game, stored as the build before the first beta (ft.vanilla)
+                          'baseline': info.get('baseline', '')})
+    found.sort(key=lambda b: b['build'])
+    # The original game counts only as [client] vanilla names it, and only before a build of the game (alone it is
+    # nothing to compare): a folder left from another setting (or the setting switched off) is no part of the changelog.
+    from . import vanilla
+    try:
+        choice = vanilla.setting()
+    except ValueError:
+        choice = None
+    real = [b for b in found if not b['baseline']]
+    return [b for b in found if not b['baseline'] or (choice and real and b['build'] == choice[2] and b['build'] < real[0]['build'])]
 
 
 _cache = {}
@@ -91,10 +108,11 @@ def table_hash(folder, name):
     return db2.Table(path, name).table_hash if os.path.isfile(path) else 0
 
 
-def official(folder):
-    """{type: {id: entity}} with a stable 'facts' dict used for diffs."""
-    t = lambda name: table(folder, name)
-    en = lambda name: {r['ID']: r for r in table(folder, name, 'enUS')}
+def official(folder, read=None):
+    """{type: {id: entity}} with a stable 'facts' dict used for diffs. read: a table's name -> its rows, for content
+    that is not stored as the client's own files (ft.vanilla)."""
+    t = read or (lambda name: table(folder, name))
+    en = lambda name: {r['ID']: r for r in (read(name) if read else table(folder, name, 'enUS'))}
     out = {}
 
     icons_spell = {r['SpellID']: r['SpellIconFileDataID'] for r in t('SpellMisc') if r['DifficultyID'] == 0}
@@ -350,16 +368,17 @@ def state(build):
     seen = hashlib.sha1()
     for locale in ('enUS', 'frFR'):
         for name in DIFF_TABLES:
-            path = os.path.join(build['dir'], locale, name + '.db2')
-            try:
-                stat = os.stat(path)
-                key = (path, stat.st_size, stat.st_mtime_ns)
-                if key not in _hashed:
-                    with open(path, 'rb') as handle:
-                        _hashed[key] = hashlib.sha1(handle.read()).hexdigest()
-                seen.update(f'{locale}/{name}:{_hashed[key]};'.encode())
-            except OSError:
-                pass
+            # .csv: the original game's tables, kept as they were downloaded (ft.vanilla)
+            for path in [os.path.join(build['dir'], locale, name + kind) for kind in (('.csv',) if build.get('baseline') else ('.db2',))]:
+                try:
+                    stat = os.stat(path)
+                    key = (path, stat.st_size, stat.st_mtime_ns)
+                    if key not in _hashed:
+                        with open(path, 'rb') as handle:
+                            _hashed[key] = hashlib.sha1(handle.read()).hexdigest()
+                    seen.update(f'{locale}/{name}:{_hashed[key]};'.encode())
+                except OSError:
+                    pass
     _found, origin = hotfixes.cached(build['dir'])
     over = os.path.join(build['dir'] if origin is None else os.path.join(os.path.dirname(os.path.normpath(build['dir'])), str(origin)), hotfixes.FILE)
     try:
@@ -378,12 +397,16 @@ def signature(build):
 def kept(build, before):
     """What digest() kept for this build against the one before it; None when there is nothing, or when a build, its
     hotfixes or the way they are read is no longer what it was."""
+    return kept_as(build, [code_mark(), signature(build), signature(before) if before else ''])
+
+
+def kept_as(build, mark):
+    """What was kept in a build's folder under this mark; None when there is nothing, or it was kept under another."""
     try:
         with open(os.path.join(build['dir'], KEPT), encoding='utf-8') as handle:
             found = json.load(handle)
     except (OSError, ValueError):
         return None
-    mark = [code_mark(), signature(build), signature(before) if before else '']
     return found if isinstance(found, dict) and found.get('mark') == mark else None
 
 
@@ -395,17 +418,29 @@ def digest(build, current, before=None, previous=None):
     out = {'counts': {kind: len(entities) for kind, entities in current.items() if not kind.startswith('_')}}
     if before is None:
         out['ids'] = {kind: sorted(entities) for kind, entities in current.items() if not kind.startswith('_')}
+        changed = [(kind, entity_id) for kind, ids in out['ids'].items() for entity_id in ids]
     else:
         alone = hotfix_only(build['dir'])
         out['changes'] = [[kind, entity_id, change, fields, (current.get(kind, {}).get(entity_id) or previous.get(kind, {}).get(entity_id) or {}).get('name', '')]
                           for kind, entity_id, change, fields in diff_builds(previous, current)]
         out['alone'] = sorted([kind, entity_id] for kind, entity_id, change, _fields, _name in out['changes'] if change == 'added' and (kind, entity_id) in alone)
+        changed = [(kind, entity_id) for kind, entity_id, change, _fields, _name in out['changes'] if change != 'removed']
+    # what each resource this build brought or changed looks like afterwards, as a fingerprint: the replay (replay())
+    # follows them from the first build to the newest
+    out['prints'] = {}
+    for kind, entity_id in changed:
+        out['prints'].setdefault(kind, {})[str(entity_id)] = fingerprint(current[kind][entity_id].get('facts'))
     return keep(build, before, out)
 
 
 def keep(build, before, out):
     """Writes what was worked out of a build into its folder, and returns it as it will be read back."""
-    out = {'mark': [code_mark(), signature(build), signature(before) if before else ''], **out}
+    return keep_as(build, [code_mark(), signature(build), signature(before) if before else ''], out)
+
+
+def keep_as(build, mark, out):
+    """Writes something worked out of a build into its folder under a mark, and returns it as it will be read back."""
+    out = {'mark': mark, **out}
     try:
         path = os.path.join(build['dir'], KEPT)
         with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
@@ -423,15 +458,26 @@ def forget(folder):
         del _cache[key]
 
 
-def changelog(build_list, log=lambda text: None, read=None, own=None):
+def changelog(build_list, log=lambda text: None, read=None, own=None, origin=None):
     """Every build against the one before it, oldest first.
 
-    Returns (the newest build's official content, changes, first_seen, changed_in, by_hotfix): changes as
+    Returns (the newest build's official content, changes, first_seen, changed_in, by_hotfix, more): changes as
     (build, build before, kind, id, change, fields, name); first_seen and changed_in {(kind, id): build}; by_hotfix
-    {kind: count} of the resources that exist by hotfix alone and were not called "added". Each build of the list
-    gets its 'counts'. read: a build's folder -> its official(); own: a folder -> its snapshot has the hotfixes of its
-    own build (both for tests)."""
+    {kind: count} of the resources that exist by hotfix alone and were not called "added"; more: {'baseline': what is
+    known of the original game's step or None, 'replay': replay(), 'minor': {(build, kind, id)} of the removals that
+    are of no interest to players, 'builds': the builds the changelog is about (the list without an original game
+    that could not be compared)}. Each build of the list gets its 'counts'.
+
+    When the list starts with the original game (ft.vanilla), the first build of the game is compared with it
+    (ft.vanilla.step) and everything the original game already had is "first seen" there.
+
+    read: a build's folder -> its official(); own: a folder -> its snapshot has the hotfixes of its own build;
+    origin: the step from the original game, as ft.vanilla.step (all three for tests)."""
     read, own = read or official, own or hotfixes.has_own
+    chain = [b for b in build_list if not b.get('baseline')]     # a baseline is never read as a build of the game
+    base = build_list[0] if chain and build_list[0].get('baseline') else None
+    if not chain:
+        raise ValueError('no build of the game is stored')
     changes, first_seen, changed_in, by_hotfix = [], {}, {}, {}
     loaded = {}      # build -> its official content: the newest build's, and the two being compared
 
@@ -445,21 +491,24 @@ def changelog(build_list, log=lambda text: None, read=None, own=None):
         return loaded[b['build']]
     quiet = None     # the first of the builds in a row, up to the one before, whose hotfixes were never stored
     read_back = same = 0
-    for index, b in enumerate(build_list):
-        before = build_list[index - 1] if index else None
+    steps = []       # (build, what was kept of it), oldest first: what the replay follows
+    late = {}        # build -> {(kind, id)}: there by hotfix alone, known "since" the game's first build
+    for index, b in enumerate(chain):
+        before = chain[index - 1] if index else None
         # what a build changed against the one before never changes once both are stored: it is kept
         found = kept(b, before)
         read_back += found is not None
         if before is not None and state(b) == state(before):
             # a build that changed the program alone: the same tables, byte for byte, under the same hotfixes
-            if b is not build_list[-1]:   # the newest build is always read from its own folder: the analysis works on it
+            if b is not chain[-1]:   # the newest build is always read from its own folder: the analysis works on it
                 twin[b['build']] = twin.get(before['build'], before)
             if found is None:
-                found = keep(b, before, {'counts': before['counts'], 'changes': [], 'alone': []})
+                found = keep(b, before, {'counts': before['counts'], 'changes': [], 'alone': [], 'prints': {}})
                 same += 1
         if found is None:
             found = digest(b, load(b), before, load(before) if before else None)
         b['counts'] = found['counts']
+        steps.append((b['build'], found))
         for kind, ids in (found.get('ids') or {}).items():
             for entity_id in ids:
                 first_seen.setdefault((kind, entity_id), b['build'])
@@ -476,15 +525,171 @@ def changelog(build_list, log=lambda text: None, read=None, own=None):
                     if (kind, entity_id) in alone:
                         first_seen[(kind, entity_id)] = min(first_seen[(kind, entity_id)], quiet)
                         by_hotfix[kind] = by_hotfix.get(kind, 0) + 1
+                        if quiet == chain[0]['build']:
+                            late.setdefault(b['build'], {})[(kind, entity_id)] = ((found.get('prints') or {}).get(kind) or {}).get(str(entity_id), '')
                         continue
                 changes.append((b['build'], before['build'], kind, entity_id, change, fields, name))
                 changed_in[(kind, entity_id)] = b['build']
         for build in [build for build in loaded if build != twin.get(b['build'], b)['build']]:
-            forget(next(x['dir'] for x in build_list if x['build'] == build))
+            forget(next(x['dir'] for x in chain if x['build'] == build))
             del loaded[build]
-    content = load(build_list[-1])
+    content = load(chain[-1])
     if read_back:
-        log(f'{read_back} of {len(build_list)} builds: changelog read back as kept (the builds have not changed)')
+        log(f'{read_back} of {len(chain)} builds: changelog read back as kept (the builds have not changed)')
     if same:
         log(f'{same} build(s) have the tables of the build before, byte for byte: no data change, not read')
-    return content, changes, first_seen, changed_in, by_hotfix
+    more = {'baseline': None, 'replay': None, 'minor': set(), 'builds': chain}
+    start = None
+    if base is not None:
+        # the game's first build against the original game. It comes last: only now is it known which resources are
+        # there by hotfix alone "since the first build", and those are compared as their hotfix stands
+        if origin is None:
+            from . import vanilla
+            origin = vanilla.step
+        start = origin(base, chain, late, load, log)
+        base['counts'] = start['counts']
+        # what the step read of the first build is not needed any more (the newest build's is: the analysis works on it)
+        for build in [build for build in loaded if build != twin.get(chain[-1]['build'], chain[-1])['build']]:
+            forget(next(x['dir'] for x in chain if x['build'] == build))
+            del loaded[build]
+    if start is not None and not start.get('compared', True):
+        # the two could not be compared (ft.vanilla.step says why in the log): the changelog starts at the first build
+        start = None
+    if start is not None:
+        first = chain[0]['build']
+        # "first seen in the original game": what it had and the game's first build has too (in its tables, or by a
+        # hotfix alone). What the first build lacked and a later one brought is first seen in that later build.
+        held = {(kind, entity_id) for kind, ids in (steps[0][1].get('ids') or {}).items() for entity_id in ids}
+        held |= {(kind, entity_id) for kind, entity_id in start.get('alone') or []}
+        old = {(kind, entity_id) for kind, ids in start['ids'].items() for entity_id in ids}
+        for key in old & held & first_seen.keys():
+            first_seen[key] = base['build']
+        listed = [(first, base['build'], kind, entity_id, change, fields, name) for kind, entity_id, change, fields, name in start['changes']]
+        for _build, _before, kind, entity_id, change, _fields, _name in listed:
+            if change != 'removed':
+                changed_in.setdefault((kind, entity_id), first)
+        changes = listed + changes
+        more['minor'] = {(first, kind, entity_id) for kind, entity_id in start.get('minor') or []}
+        more['baseline'] = {'build': base['build'], 'version': base.get('version', ''), 'first': first, 'hidden': start.get('hidden') or {},
+                            'alone': len(start.get('alone') or [])}
+        more['builds'] = [base] + chain
+    more['replay'] = replay((base['build'], start) if start else None, steps, content)
+    return content, changes, first_seen, changed_in, by_hotfix, more
+
+
+def replay(origin, steps, final):
+    """The double check: start from the first thing stored, apply what every build after it is said to have added,
+    changed and removed, and see whether that gives the newest build. It does when no step is missing and none says
+    something else than the builds do.
+
+    origin: (build, the original game's step as ft.vanilla.step kept it) or None; steps: [(build, what digest() kept)]
+    oldest first; final: the newest build's official content. Returns {'from', 'to', 'steps', 'ok', 'kinds': {kind:
+    {'start', 'added', 'alone', 'removed', 'end', 'now'}}, 'problems': [sentences, the first few], 'wrong': how many}.
+
+    Ids are followed from the very start. From the game's first build on, each resource's content is followed too, as
+    the fingerprint digest() kept of it: a resource no build says it changed must still be what the first build had."""
+    have, tally, problems = {}, {}, []
+    wrong = 0
+
+    def problem(text):
+        nonlocal wrong
+        wrong += 1
+        if len(problems) < 12:
+            problems.append(text)
+
+    def count(kind, what, n=1):
+        tally.setdefault(kind, {'start': 0, 'added': 0, 'alone': 0, 'removed': 0})[what] += n
+    if not steps:
+        return None
+    first_build, first = steps[0]
+    known = set()   # there by hotfix alone and already in the original game: "added" later without being new
+    if origin:
+        start_build, start = origin
+        for kind, ids in start['ids'].items():
+            have[kind] = dict.fromkeys(ids)
+            count(kind, 'start', len(ids))
+        known = {(kind, entity_id) for kind, entity_id in start.get('alone') or []}
+        for kind, entity_id, change, _fields, _name in start['changes']:
+            there = have.setdefault(kind, {})
+            if change == 'added':
+                if entity_id in there:
+                    problem(f'{kind} {entity_id}: build {first_build} adds it, the original game had it')
+                there[entity_id] = None
+                count(kind, 'added')
+            elif change == 'removed':
+                if there.pop(entity_id, 0) == 0:
+                    problem(f'{kind} {entity_id}: build {first_build} removes it, the original game did not have it')
+                count(kind, 'removed')
+        for kind in set(have) | set(first.get('ids') or {}):
+            reached = {entity_id for entity_id in have.get(kind, {}) if (kind, entity_id) not in known}
+            there = set((first.get('ids') or {}).get(kind) or [])
+            for entity_id in sorted(reached ^ there)[:3]:
+                problem(f'{kind} {entity_id}: ' + (f'build {first_build} has it and the step from the original game does not give it' if entity_id in there
+                                                 else f'the step from the original game gives it and build {first_build} does not have it'))
+            wrong += max(0, len(reached ^ there) - 3)
+            have[kind] = {**{entity_id: None for entity_id in have.get(kind, {}) if (kind, entity_id) in known}, **dict.fromkeys(there)}
+    else:
+        start_build = first_build
+        for kind, ids in (first.get('ids') or {}).items():
+            have[kind] = dict.fromkeys(ids)
+            count(kind, 'start', len(ids))
+    for kind, prints in (first.get('prints') or {}).items():
+        for entity_id, mark in prints.items():
+            if int(entity_id) in have.get(kind, {}):
+                have[kind][int(entity_id)] = mark
+    for build, found in steps[1:]:
+        alone = {(kind, entity_id) for kind, entity_id in found.get('alone') or []}
+        prints = found.get('prints') or {}
+        for kind, entity_id, change, _fields, _name in found.get('changes') or []:
+            there = have.setdefault(kind, {})
+            mark = (prints.get(kind) or {}).get(str(entity_id))
+            if change == 'added':
+                if (kind, entity_id) in known and entity_id in there:
+                    known.discard((kind, entity_id))        # the original game's, now with its hotfix: no addition
+                else:
+                    if entity_id in there:
+                        problem(f'{kind} {entity_id}: build {build} adds it, the build before had it')
+                    count(kind, 'alone' if (kind, entity_id) in alone else 'added')
+                there[entity_id] = mark
+            elif change == 'removed':
+                if entity_id not in there:
+                    problem(f'{kind} {entity_id}: build {build} removes it, the build before did not have it')
+                there.pop(entity_id, None)
+                count(kind, 'removed')
+            else:
+                if entity_id not in there:
+                    problem(f'{kind} {entity_id}: build {build} changes it, the build before did not have it')
+                there[entity_id] = mark
+    kinds = {}
+    for kind in sorted(set(have) | {kind for kind in final if not kind.startswith('_')}):
+        now, reached = final.get(kind, {}), have.get(kind, {})
+        for entity_id in sorted(set(now) ^ set(reached))[:3]:
+            problem(f'{kind} {entity_id}: ' + ('the newest build has it and no build added it' if entity_id in now else 'no build removed it and the newest build does not have it'))
+        wrong += max(0, len(set(now) ^ set(reached)) - 3)
+        differ = [entity_id for entity_id in set(now) & set(reached) if reached[entity_id] is not None and reached[entity_id] != fingerprint(now[entity_id].get('facts'))]
+        for entity_id in sorted(differ)[:3]:
+            problem(f'{kind} {entity_id}: it is not what the builds\' changes add up to')
+        wrong += max(0, len(differ) - 3)
+        kinds[kind] = {**tally.get(kind, {'start': 0, 'added': 0, 'alone': 0, 'removed': 0}), 'end': len(reached), 'now': len(now)}
+    return {'from': start_build, 'to': steps[-1][0], 'steps': len(steps) - (0 if origin else 1), 'ok': not wrong, 'kinds': kinds,
+            'problems': problems, 'wrong': wrong}
+
+
+def replay_lines(more):
+    """What the changelog's double check found, as lines for the analysis log."""
+    lines = []
+    base, found = more.get('baseline'), more.get('replay')
+    if base:
+        hidden = sum(int(n) for n in (base.get('hidden') or {}).values())
+        lines.append(f"the original game ({base['version']}) is the changelog's start: build {base['first']} is compared with it"
+                     + (f"; {base['alone']} of its resources are in no table and compared as their hotfix stands" if base.get('alone') else '')
+                     + (f"; {hidden} records of build {base['first']} are still encrypted" if hidden else ''))
+    if found:
+        start = 'the original game' if base and found['from'] == base['build'] else f"build {found['from']}"
+        total = sum(kind['now'] for kind in found['kinds'].values())
+        if found['ok']:
+            lines.append(f"replay: {start} and the changes of {found['steps']} build(s) give build {found['to']} exactly ({total} resources)")
+        else:
+            lines.append(f"replay: {start} and the changes of {found['steps']} build(s) do NOT give build {found['to']}: {found['wrong']} resource(s) differ")
+            lines += ['replay: ' + text for text in found['problems']]
+    return lines

@@ -19,7 +19,7 @@ import shutil
 import struct
 import tempfile
 
-from . import cdn, content, db2, hotfixes
+from . import cdn, content, db2, hotfixes, vanilla
 from .config import BUILDS, CONFIG, DATA, SCHEMA
 
 FILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'schema', 'db2-files.json')
@@ -108,7 +108,7 @@ def snapshot_layouts(build=None):
 
 
 def newest_snapshot():
-    builds = content.builds()
+    builds = [b for b in content.builds() if not b.get('baseline')]   # the original game is no build of the client's
     return builds[-1]['build'] if builds else 0
 
 
@@ -490,13 +490,26 @@ def alone_here(name):
     return handle
 
 
-def history(product=None, log=print, listed=None, opener=None, keep_cache=False, again=False, limit=0, path=None):
-    """history_run(), one at a time: a second run started while the first is reading the builds stores nothing."""
+def history(product=None, log=print, listed=None, opener=None, keep_cache=False, again=False, limit=0, path=None, origin=None):
+    """history_run(), one at a time: a second run started while the first is reading the builds stores nothing. Then
+    the original game, once: the build the changelog starts with (ft.vanilla). origin: a function -> the result of
+    ft.vanilla.fetch (for tests; with a made-up list of builds it is not asked for unless given)."""
     gate = alone_here('history.lock')
     if gate is None:
         return {'code': UP_TO_DATE, 'stored': [], 'refused': {}, 'failed': {}, 'message': 'another check is reading the earlier builds: left to it'}
     try:
-        return history_run(product, log, listed, opener, keep_cache, again, limit, path)
+        result = history_run(product, log, listed, opener, keep_cache, again, limit, path)
+        if origin is None and listed is None and opener is None:
+            origin = lambda: vanilla.fetch(log=log)
+        if origin and newest_snapshot():
+            try:
+                found = origin()
+                if found['code'] == vanilla.STORED:
+                    result['code'] = FETCHED
+                    result['message'] = result['message'].replace(' (run the analysis)', '') + '; ' + found['message']
+            except (RuntimeError, OSError, LookupError, ValueError) as error:
+                result['message'] += f'; the original game could not be read ({error}): asked again at the next check'
+        return result
     finally:
         gate.close()
 
@@ -520,7 +533,7 @@ def history_run(product=None, log=print, listed=None, opener=None, keep_cache=Fa
     if not have:
         return {**done, 'message': 'no snapshot yet: the earlier builds are read once there is one'}
     builds = (listed or (lambda: cdn.builds(products, CONFIG.get('client', 'build_list') or None)))()
-    stored = {b['build']: b for b in content.builds()}
+    stored = {b['build']: b for b in content.builds() if not b.get('baseline')}
     # the day a stored build came out, where the list knows better than the day the tracker first saw it
     for entry in builds:
         info = build_info(entry['build']) if entry['build'] in stored else {}

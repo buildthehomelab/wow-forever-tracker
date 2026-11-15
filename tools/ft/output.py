@@ -5,6 +5,7 @@ import re
 
 from . import sqlio
 from .baseline import NEW_FROM, Baseline
+from .content import PLAYER_SPELLS
 
 # Names of things players never see. Words that real names share are pinned to the shape a test name has: "Monster -
 # Sword2H" is a weapon model, "Monster Omelet" is dinner; "Test Dungeon" and "QA Test" are tests, "Test of Faith" and
@@ -70,7 +71,8 @@ CREATE TABLE ft_entities_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, name V
   internal TINYINT NOT NULL DEFAULT 0, is_new TINYINT NOT NULL DEFAULT 0, status ENUM('ok','partial','missing') NOT NULL, score TINYINT NOT NULL, checks JSON, data JSON,
   first_build INT NOT NULL, changed_build INT NOT NULL, phase TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (type, id), KEY ix_status (type, status, internal, phase), KEY ix_name (name), KEY ix_name_en (name_en), KEY ix_changed (changed_build)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_changes_new (seq INT AUTO_INCREMENT PRIMARY KEY, build INT NOT NULL, prev_build INT NOT NULL, type VARCHAR(16) NOT NULL, id INT NOT NULL,
-  kind ENUM('added','removed','modified') NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', fields JSON, KEY ix_build (build, type, kind), KEY ix_entity (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  kind ENUM('added','removed','modified') NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', fields JSON, internal TINYINT NOT NULL DEFAULT 0,
+  KEY ix_build (build, type, kind), KEY ix_entity (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_meta_new (k VARCHAR(64) PRIMARY KEY, v JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_tooltips_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, tip JSON NOT NULL, PRIMARY KEY (type, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE ft_fixes_new (type VARCHAR(16) NOT NULL, id INT NOT NULL, kind VARCHAR(16) NOT NULL, db VARCHAR(16) NOT NULL, rows_count INT NOT NULL DEFAULT 0,
@@ -158,7 +160,7 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     data['unnamed'] = True
                 name = name or f'#{entity_id}'
             elif kind == 'spell':
-                internal = 0 if entity['sub'] in ('class', 'profession', 'racial', 'talent', 'mount', 'pet', 'rune', 'petability') else 1
+                internal = 0 if entity['sub'] in PLAYER_SPELLS else 1
                 if entity_id in granted or leftover(kind, entity_id, entity, status, content.get('item', {}), wowhead, baseline, trained):
                     internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
@@ -201,8 +203,11 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                       f"{e(dumps(checks))},{e(dumps(data))},{first_seen.get((kind, entity_id), 0)},{changed_in.get((kind, entity_id), 0)},{phase_of.get((kind, entity_id), 0)})")
         batch.flush()
         batch = Batch(out, 'ft_changes_new')
+        # a removed resource has no line of its own any more to say it was a test or an unused one: the change says it
+        minor = ((ctx.get('changelog') or {}).get('minor') or set()) if ctx else set()
         for build, previous, kind, entity_id, change, fields, name in changes:
-            batch.add(f"(NULL,{build},{previous},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))})")
+            internal = 1 if change == 'removed' and ((build, kind, entity_id) in minor or (kind != 'quest' and bool(name) and INTERNAL_NAME.search(name))) else 0
+            batch.add(f"(NULL,{build},{previous},{e(kind)},{entity_id},{e(change)},{e((name or '')[:250])},{e(dumps(fields))},{internal})")
         batch.flush()
         batch = Batch(out, 'ft_tooltips_new', 300)
         for (kind, entity_id), tip in tooltips.items():
@@ -215,13 +220,17 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         batch.flush()
         meta = {'generated_at': datetime.datetime.now().isoformat(timespec='seconds'), 'server_build': server_build,
                 'client_build': build_list[-1]['build'] if build_list else 0, 'hidden': content.get('_meta', {}).get('hidden', {}),
-                'schema': 3,
+                'schema': 4,   # 4: ft_changes.internal
                 # release phases in order (number = position + 1): ft_entities.phase holds the number, 0 = released
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
                 'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else [],
                 # resources that exist by hotfix alone and that the changelog therefore does not call "added": {kind: count}
-                'hotfix_only': (ctx.get('hotfix_only') or {}) if ctx else {}}
+                'hotfix_only': (ctx.get('hotfix_only') or {}) if ctx else {},
+                # the original game as the changelog's start (ft.vanilla): {'build', 'version', 'first', 'hidden', 'alone'}
+                'baseline': ((ctx.get('changelog') or {}).get('baseline') if ctx else None) or {},
+                # the double check: the first thing stored and every build's changes give the newest build (ft.content.replay)
+                'replay': ((ctx.get('changelog') or {}).get('replay') if ctx else None) or {}}
         for key, value in meta.items():
             out.write(f"INSERT INTO ft_meta_new VALUES ({e(key)},{e(dumps(value))});\n")
         # atomic swap

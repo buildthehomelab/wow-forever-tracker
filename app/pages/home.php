@@ -27,7 +27,7 @@ $latestBuild = (int)value('SELECT MAX(build) FROM ft_changes');
 $latestVersion = '';
 foreach ($builds as $b) if ((int)$b['build'] === $latestBuild) $latestVersion = $b['version'];
 $latest = rows("SELECT c.type, c.id, c.kind, c.name, e.name_en, e.icon, e.quality, e.status, e.score FROM ft_changes c LEFT JOIN ft_entities e ON e.type = c.type AND e.id = c.id
-    WHERE c.build = ? AND (e.internal = 0 OR e.internal IS NULL) ORDER BY FIELD(c.kind,'added','modified','removed'), FIELD(c.type,'dungeon','zone','quest','mount','pet','toy','item','spell','talent','achievement') LIMIT 8", [$latestBuild]);
+    WHERE c.build = ? AND (e.internal = 0 OR e.internal IS NULL)" . changes_shown('c.') . " ORDER BY FIELD(c.kind,'added','modified','removed'), FIELD(c.type,'dungeon','zone','quest','mount','pet','toy','item','spell','talent','achievement') LIMIT 8", [$latestBuild]);
 $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes f JOIN ft_entities e USING (type, id) WHERE e.internal = 0') : 0;
 ?>
 <section class="hero">
@@ -127,9 +127,9 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
         <span class="tl-dot"></span>
         <strong><?= e($b['version']) ?></strong>
         <small><?= $b['released'] ? e(date(t('M j, Y', 'd/m/Y'), strtotime($b['released']))) : e(t('date unknown', 'date inconnue')) ?></small>
-        <span class="tl-tags"><?php if ($index === 0): ?><em class="tag is-gold"><?= e(t('Latest', 'Dernier')) ?></em><?php endif; ?><?php if ((int)$b['is_server']): ?><em class="tag"><?= e(t('Your server', 'Votre serveur')) ?></em><?php endif; ?><?php if (build_is_beta($b)): ?><em class="tag"><?= e(t('Beta', 'Bêta')) ?></em><?php endif; ?></span>
+        <span class="tl-tags"><?php if ($index === 0): ?><em class="tag is-gold"><?= e(t('Latest', 'Dernier')) ?></em><?php endif; ?><?php if ((int)$b['is_server']): ?><em class="tag"><?= e(t('Your server', 'Votre serveur')) ?></em><?php endif; ?><?php if (build_is_beta($b)): ?><em class="tag"><?= e(t('Beta', 'Bêta')) ?></em><?php endif; ?><?php if (build_is_vanilla($b)): ?><em class="tag"><?= e(t('Vanilla 1.12', 'Vanilla 1.12')) ?></em><?php endif; ?></span>
         <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
-        <?php else: ?><span class="tl-counts"><em><?= e($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : t('No data change', 'Aucune donnée modifiée')) ?></em></span><?php endif; ?>
+        <?php else: ?><span class="tl-counts"><em><?= e(build_is_vanilla($b) ? t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog') : ($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : t('No data change', 'Aucune donnée modifiée'))) ?></em></span><?php endif; ?>
       </a>
     </li>
   <?php endforeach; ?>

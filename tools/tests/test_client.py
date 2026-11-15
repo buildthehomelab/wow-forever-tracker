@@ -525,6 +525,21 @@ class History(unittest.TestCase):
         self.assertEqual((live['date'], live.get('note')), ('2026-11-04', None))
         self.assertIn('wow_classic_beta', beta['source'])
 
+    def test_the_original_game_is_stored_with_them(self):
+        # ft.vanilla.fetch, once the earlier builds are in; with a made-up list of builds it is not asked for by itself
+        self.assertNotIn('original game', self.history(self.LIST)['message'])
+        asked = []
+        stored = lambda: asked.append(1) or {'code': client.vanilla.STORED, 'build': 31650, 'message': 'the original game (1.13.2.31650): 19 tables stored (run the analysis)'}
+        result = self.history(self.LIST, origin=stored)
+        self.assertEqual((result['code'], asked), (client.FETCHED, [1]))   # nothing else was new: the analysis runs for it
+        self.assertIn('the original game (1.13.2.31650): 19 tables stored', result['message'])
+
+        def unreachable():
+            raise RuntimeError('timed out')
+        result = self.history(self.LIST, origin=unreachable)
+        self.assertEqual(result['code'], client.UP_TO_DATE)
+        self.assertIn('the original game could not be read (timed out): asked again at the next check', result['message'])
+
     def test_each_is_read_once(self):
         self.history(self.LIST)
         self.opened.clear()

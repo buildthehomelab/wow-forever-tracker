@@ -23,6 +23,7 @@ server DB2, world, hotfixes, auth, maps ──────┤
 | `ft/content.py` | Official content of one build (13 resource types) and build-to-build diffs |
 | `ft/hotfixes.py` | Blizzard's live hotfixes (the public hotfix cache) read with the tables' schema and laid over the snapshot of their build |
 | `ft/client.py`, `ft/cdn.py`, `schema/db2-files.json` | The live client build's tables straight from Blizzard's CDN, stored as a snapshot; read again when a key of unreleased content is published; the builds before it, back to the first beta, stored for the changelog (docs/CLIENT.md) |
+| `ft/vanilla.py` | The original game (patch 1.12, as the client WoW Classic launched with) stored as the build before the first beta and compared with it; the replay that checks the whole chain is `ft.content.replay` (docs/VANILLA.md) |
 | `ft/server.py` | What the server provides: its DB2 files, hotfix rows, spawns, loot, vendors, trainers, quests, instances, map files |
 | `ft/rules.py` | Availability checks of every resource, with English and French details |
 | `ft/summons.py`, `world/summoned.json` | What is in the game without a spawn row: the database's summons, and the core's C++ scripts read once by `make_summoned.py` |

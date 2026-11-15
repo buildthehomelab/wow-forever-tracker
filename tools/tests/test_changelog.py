@@ -4,6 +4,7 @@ The changelog build after build (ft.content.changelog): what a build changed aga
 once and kept in its folder, a resource that exists by hotfix alone is not "added", and thirty builds are never held
 in memory at once. No game files: a build's official content is a small dictionary.
 """
+import json
 import os
 import sys
 import tempfile
@@ -31,6 +32,7 @@ class Changelog(unittest.TestCase):
         self.build(100, {1: item('Sword'), 2: item('Shield')})
         self.build(200, {1: item('Sword', 5), 3: item('Helm')})
         self.build(300, {1: item('Sword', 5), 3: item('Helm'), 4: item('Boots')})
+        self.origin = None
 
     def build(self, number, items):
         path = os.path.join(self.folder.name, str(number))
@@ -46,7 +48,9 @@ class Changelog(unittest.TestCase):
         def read(folder):
             self.read.append(int(os.path.basename(folder)))
             return self.official[folder]
-        return content.changelog(self.builds, read=read, own=lambda folder: int(os.path.basename(folder)) in self.own)
+        found = content.changelog(self.builds, read=read, own=lambda folder: int(os.path.basename(folder)) in self.own, origin=self.origin)
+        self.more = found[5]
+        return found[:5]
 
     def test_every_build_against_the_one_before(self):
         newest, changes, first_seen, changed_in, by_hotfix = self.run_it()
@@ -134,6 +138,124 @@ class Changelog(unittest.TestCase):
             self.build(number, {1: item('Sword', number)})
         content.changelog(self.builds, read=read, own=lambda folder: False)
         self.assertEqual(max(most), 2)
+
+    # ---- the double check: the first build and every build's changes give the newest build
+    def test_the_changes_add_up_to_the_newest_build(self):
+        self.run_it()
+        found = self.more['replay']
+        self.assertEqual((found['from'], found['to'], found['steps'], found['ok'], found['problems']), (100, 300, 2, True, []))
+        self.assertEqual(found['kinds']['item'], {'start': 2, 'added': 2, 'alone': 0, 'removed': 1, 'end': 3, 'now': 3})
+        self.assertIn('give build 300 exactly (3 resources)', content.replay_lines(self.more)[-1])
+
+    def test_also_with_what_exists_by_hotfix_alone(self):
+        self.alone[300] = {('item', 4)}
+        self.run_it()
+        self.assertEqual(self.more['replay']['kinds']['item'], {'start': 2, 'added': 1, 'alone': 1, 'removed': 1, 'end': 3, 'now': 3})
+        self.assertTrue(self.more['replay']['ok'])
+
+    def kept_of(self, number):
+        path = os.path.join(self.folder.name, str(number), content.KEPT)
+        with open(path, encoding='utf-8') as handle:
+            return path, json.load(handle)
+
+    def test_a_step_that_lost_a_change_is_noticed(self):
+        self.run_it()
+        path, kept = self.kept_of(200)
+        kept['changes'] = [change for change in kept['changes'] if change[1] != 3]   # the Helm was never "added"
+        with open(path, 'w', encoding='utf-8') as handle:
+            json.dump(kept, handle)
+        self.run_it()
+        found = self.more['replay']
+        self.assertFalse(found['ok'])
+        self.assertIn('item 3: the newest build has it and no build added it', found['problems'])
+        self.assertIn('do NOT give build 300', content.replay_lines(self.more)[0])
+
+    def test_and_a_resource_that_is_not_what_the_changes_say(self):
+        self.run_it()
+        path, kept = self.kept_of(200)
+        kept['changes'] = [change for change in kept['changes'] if change[1] != 1]   # the Sword's new level was never noted
+        kept['prints']['item'].pop('1')
+        with open(path, 'w', encoding='utf-8') as handle:
+            json.dump(kept, handle)
+        self.run_it()
+        self.assertEqual((self.more['replay']['ok'], self.more['replay']['wrong']), (False, 1))
+        self.assertIn("item 1: it is not what the builds' changes add up to", self.more['replay']['problems'])
+
+    # ---- the original game as the start (ft.vanilla): the first build is compared with it
+    def with_the_original_game(self, step):
+        path = os.path.join(self.folder.name, '50')
+        os.makedirs(os.path.join(path, 'enUS'))
+        self.builds.insert(0, {'build': 50, 'dir': path, 'baseline': 'vanilla', 'version': '1.13.2.50'})
+        self.asked = []
+
+        def origin(base, chain, late, load, log):
+            self.asked.append((base['build'], [b['build'] for b in chain], late))
+            return step
+        self.origin = origin
+
+    def test_the_first_build_is_compared_with_the_original_game(self):
+        self.with_the_original_game({'counts': {'item': 2}, 'ids': {'item': [1, 9]}, 'minor': [['item', 9]], 'hidden': {'ItemSparse': 3}, 'alone': [],
+                                     'changes': [['item', 1, 'modified', {'ilvl': [0, 1]}, 'Sword'], ['item', 2, 'added', {}, 'Shield'], ['item', 9, 'removed', {}, 'Old Sword']]})
+        _newest, changes, first_seen, changed_in, _hot = self.run_it()
+        self.assertEqual(self.asked, [(50, [100, 200, 300], {})])
+        self.assertEqual(changes[:3], [(100, 50, 'item', 1, 'modified', {'ilvl': [0, 1]}, 'Sword'), (100, 50, 'item', 2, 'added', {}, 'Shield'),
+                                       (100, 50, 'item', 9, 'removed', {}, 'Old Sword')])
+        self.assertEqual(len(changes), 7)   # and the builds after it as before
+        self.assertEqual(first_seen, {('item', 1): 50, ('item', 2): 100, ('item', 3): 200, ('item', 4): 300})   # the Sword is the original game's
+        self.assertEqual((changed_in[('item', 1)], changed_in[('item', 2)]), (200, 200))   # the last build that touched it
+        self.assertEqual(self.builds[0]['counts'], {'item': 2})
+        self.assertEqual(self.more['minor'], {(100, 'item', 9)})
+        self.assertEqual(self.more['baseline'], {'build': 50, 'version': '1.13.2.50', 'first': 100, 'hidden': {'ItemSparse': 3}, 'alone': 0})
+        self.assertEqual([b['build'] for b in self.more['builds']], [50, 100, 200, 300])
+        found = self.more['replay']
+        self.assertEqual((found['from'], found['steps'], found['ok']), (50, 3, True))
+        self.assertEqual(found['kinds']['item'], {'start': 2, 'added': 3, 'alone': 0, 'removed': 2, 'end': 3, 'now': 3})
+        self.assertIn('the original game and the changes of 3 build(s) give build 300 exactly', content.replay_lines(self.more)[-1])
+
+    def test_what_the_original_game_had_and_a_hotfix_carries_is_neither_removed_nor_added(self):
+        # the Boots: the original game's, in no table of any build, carried by a hotfix build 300 is the first to have stored
+        self.alone[300] = {('item', 4)}
+        self.with_the_original_game({'counts': {'item': 2}, 'ids': {'item': [1, 4]}, 'alone': [['item', 4]],
+                                     'changes': [['item', 2, 'added', {}, 'Shield'], ['item', 4, 'modified', {'ilvl': [9, 1]}, 'Boots']]})
+        _newest, changes, first_seen, _changed, by_hotfix = self.run_it()
+        # the step is told which resources to take from their hotfix, each as it stands
+        self.assertEqual(self.asked[0][2], {300: {('item', 4): content.fingerprint(item('Boots')['facts'])}})
+        self.assertEqual([(build, change) for build, _b, _k, entity, change, _f, _n in changes if entity == 4], [(100, 'modified')])
+        self.assertEqual((first_seen[('item', 4)], by_hotfix), (50, {'item': 1}))
+        self.assertTrue(self.more['replay']['ok'], self.more['replay']['problems'])
+        self.assertEqual(self.more['replay']['kinds']['item'], {'start': 2, 'added': 2, 'alone': 0, 'removed': 1, 'end': 3, 'now': 3})
+
+    def test_a_step_from_the_original_game_that_does_not_give_the_first_build_is_noticed(self):
+        self.with_the_original_game({'counts': {'item': 1}, 'ids': {'item': [1]}, 'alone': [], 'changes': []})   # the Shield is never added
+        self.run_it()
+        self.assertFalse(self.more['replay']['ok'])
+        self.assertIn('item 2: build 100 has it and the step from the original game does not give it', self.more['replay']['problems'])
+
+    def test_what_the_first_build_lacked_is_first_seen_when_it_arrives(self):
+        # the Boots: the original game's, not in the first builds (not released yet), brought by build 300
+        self.with_the_original_game({'counts': {'item': 2}, 'ids': {'item': [1, 4]}, 'alone': [],
+                                     'changes': [['item', 2, 'added', {}, 'Shield'], ['item', 4, 'removed', {}, 'Boots']]})
+        _newest, changes, first_seen, _changed, _hot = self.run_it()
+        self.assertEqual((first_seen[('item', 1)], first_seen[('item', 4)]), (50, 300))
+        self.assertIn((300, 200, 'item', 4, 'added', {}, 'Boots'), changes)
+        self.assertTrue(self.more['replay']['ok'], self.more['replay']['problems'])
+
+    def test_a_step_that_could_not_be_compared_leaves_the_changelog_as_it_was(self):
+        # the first build stored in French (ft.vanilla.step): nothing is said against the original game
+        self.with_the_original_game({'counts': {'item': 9}, 'ids': {'item': [1, 9]}, 'alone': [], 'changes': [], 'compared': False})
+        _newest, changes, first_seen, _changed, _hot = self.run_it()
+        self.assertEqual((len(changes), first_seen[('item', 1)], self.more['baseline']), (4, 100, None))
+        self.assertEqual((self.more['replay']['from'], self.more['replay']['ok']), (100, True))
+        self.assertEqual([b['build'] for b in self.more['builds']], [100, 200, 300])   # the website is not told of a build nothing is compared with
+
+    def test_the_original_game_is_never_read_as_a_build_of_the_game(self):
+        with self.assertRaises(ValueError):
+            content.changelog([{'build': 50, 'dir': self.builds[0]['dir'], 'baseline': 'vanilla'}], read=lambda folder: {})
+        # a second folder marked as the original game (left from another setting) is no build either
+        self.with_the_original_game({'counts': {}, 'ids': {}, 'alone': [], 'changes': []})
+        self.builds.insert(1, {'build': 60, 'dir': self.builds[0]['dir'], 'baseline': 'vanilla'})
+        self.run_it()
+        self.assertEqual((self.asked[0][1], sorted(set(self.read))), ([100, 200, 300], [100, 200, 300]))
 
 
 if __name__ == '__main__':
