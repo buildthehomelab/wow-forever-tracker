@@ -65,7 +65,7 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
 
 <div class="build-switch">
   <?php foreach ($builds as $b): $has = in_array((int)$b['build'], $withChanges, true); ?>
-    <a class="<?= (int)$b['build'] === $build ? 'is-active' : '' ?> <?= $has ? '' : 'is-quiet' ?>" href="?build=<?= (int)$b['build'] ?>"><strong><?= e($b['version']) ?></strong><small><?= $b['released'] ? e(date(t('M j', 'd/m'), strtotime($b['released']))) : '' ?><?= (int)$b['is_server'] ? ' · ' . e(t('server', 'serveur')) : '' ?></small></a>
+    <a class="<?= (int)$b['build'] === $build ? 'is-active' : '' ?> <?= $has ? '' : 'is-quiet' ?>" href="?build=<?= (int)$b['build'] ?>"><strong><?= e($b['version']) ?></strong><small><?= $b['released'] ? e(date(t('M j', 'd/m'), strtotime($b['released']))) : '' ?><?= (int)$b['is_server'] ? ' · ' . e(t('server', 'serveur')) : '' ?><?= build_is_beta($b) ? ' · ' . e(t('beta', 'bêta')) : '' ?></small></a>
   <?php endforeach; ?>
 </div>
 
@@ -81,7 +81,9 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
 <?php endif; ?>
 
 <?php if (!in_array($build, $withChanges, true)): ?>
-  <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-equals"></i></div><p><?= e(t('No data change in this build compared with the previous one.', 'Aucune donnée modifiée dans ce build par rapport au précédent.')) ?></p></div>
+  <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-equals"></i></div><p><?= e($builds && $build === (int)end($builds)['build']
+      ? t('The first build the tracker holds: the changelog starts with the next one.', 'Le premier build que le tracker possède : le changelog commence au suivant.')
+      : t('No data change in this build compared with the previous one.', 'Aucune donnée modifiée dans ce build par rapport au précédent.')) ?></p></div>
 <?php else: ?>
 <div class="chips">
   <a class="<?= $filterType === '' ? 'is-active' : '' ?>" href="<?= e($query(['type' => ''])) ?>"><?= e(t('All', 'Tout')) ?></a>

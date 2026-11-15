@@ -127,7 +127,7 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
         <span class="tl-dot"></span>
         <strong><?= e($b['version']) ?></strong>
         <small><?= $b['released'] ? e(date(t('M j, Y', 'd/m/Y'), strtotime($b['released']))) : e(t('date unknown', 'date inconnue')) ?></small>
-        <span class="tl-tags"><?php if ($index === 0): ?><em class="tag is-gold"><?= e(t('Latest', 'Dernier')) ?></em><?php endif; ?><?php if ((int)$b['is_server']): ?><em class="tag"><?= e(t('Your server', 'Votre serveur')) ?></em><?php endif; ?></span>
+        <span class="tl-tags"><?php if ($index === 0): ?><em class="tag is-gold"><?= e(t('Latest', 'Dernier')) ?></em><?php endif; ?><?php if ((int)$b['is_server']): ?><em class="tag"><?= e(t('Your server', 'Votre serveur')) ?></em><?php endif; ?><?php if (build_is_beta($b)): ?><em class="tag"><?= e(t('Beta', 'Bêta')) ?></em><?php endif; ?></span>
         <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
         <?php else: ?><span class="tl-counts"><em><?= e($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : t('No data change', 'Aucune donnée modifiée')) ?></em></span><?php endif; ?>
       </a>

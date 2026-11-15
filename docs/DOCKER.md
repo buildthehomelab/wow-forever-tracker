@@ -101,6 +101,8 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_CLIENT_EVERY_HOURS` | `6` | Hours between checks of Blizzard's version server for a new client build, read from the CDN when there is one (docs/CLIENT.md); `0`: never. The first check follows the start's own analysis; **Check the client now** in the Forge does one at once |
 | `FT_CLIENT_HOTFIX_CACHE` | *(empty)* | The address of a hotfix cache (`DBCache.bin`) of the live game; empty: the public mirror of live WoW: Forever. It is downloaded with every client check and stored with the snapshot of its build (docs/CLIENT.md) |
 | `FT_CLIENT_PRODUCT` | `wowf` | The game whose live build is read (`wowf`: WoW: Forever) |
+| `FT_CLIENT_HISTORY` | `wow_classic_beta:1.60.` | The other products whose builds count as earlier builds of the game, each with the versions that count; the client check stores every earlier build once, so the changelog goes back to the first beta (docs/CLIENT.md). `off`: no earlier builds |
+| `FT_CLIENT_BUILD_LIST` | *(empty)* | The address of the list of earlier builds; empty: wago.tools' |
 | `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot`. The game client and the CDN always come before all of them (docs/SOURCES.md, *Rows the server already has*) |
 | `FT_SOURCES_REFRESH` | `1` | `0`: imports only add what is missing; they no longer propose a new value for a drop chance that moved |
 | `FT_SOURCES_CHANCE_TOLERANCE` | `10` | A drop chance has moved when it changed by this percent of what it was (and by 0.05 points at least) |
