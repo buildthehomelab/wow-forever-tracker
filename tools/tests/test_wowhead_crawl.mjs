@@ -126,4 +126,85 @@ test('a kept pace outside the limits is brought back inside them', () => {
   assert.equal(crawler.pacer({ gap: 10 ** 9 }).gap, crawler.PACE.slowest);
 });
 
+// ------------------------------------------------------------------ list pages and the whole database
+const pad = ' wowhead ' + 'x'.repeat(6000);
+const filterInit = 'Filter.init({"page":"npcs","criteria":[{"id":12,"name":"Level"},{"id":37,"options":[[2,">="],[4,"<="]],"name":"ID","num":true}]});';
+
+test('a literal that goes on as an expression is skipped whole', () => {
+  const [value] = crawler.readLiteral('{a: 1, extraCols: [].concat(F.x([151], 0)), b: {c: 2}.c, d: 3}', 0);
+  assert.deepEqual(value, { a: 1, d: 3 });
+});
+
+test('a list page in each of the three ways Wowhead writes one', () => {
+  const js = `<script>var listviewitems = [{"id":260166,"name":"Club","quality":2,"source":[4],"sourcemore":[{"n":"Feardred","t":5,"ti":86777}],"dps":40.3,"appearances":{"0":[717884,""]}}];
+new Listview({template: 'item', id: 'items', extraCols: [].concat(Filter.cols([151], 0)), note: "8,599 items found (1,000 displayed) - Try filtering", _truncated: 1, data: listviewitems});
+new Listview({template: 'generic-model', id: 'itemsgallery', data: listviewitems});</script>` + pad;
+  const a = crawler.extractList('items?filter=151;2;200000', js, 200);
+  assert.equal(a.status, 'ok'); assert.equal(a.found, 8599); assert.equal(a.truncated, true); assert.equal(a.cr, 151);
+  assert.deepEqual(a.rows, [{ id: 260166, quality: 2, source: [4], sourcemore: [{ t: 5, ti: 86777 }] }]);   // no name, no stats
+  const json = `<script>${filterInit}new Listview({"_truncated":1,"note":"15,596 NPCs found (1,000 displayed)","id":"npcs","template":"npc","data":[{"id":263380,"name":"Ghostmaw","minlevel":42,"maxlevel":42,"location":[16591],"react":[-1,-1],"envChange":{"status":"new"}}]});</script>` + pad;
+  const b = crawler.extractList('npcs', json, 200);
+  assert.deepEqual([b.found, b.truncated, b.cr], [15596, true, 37]);
+  assert.deepEqual(b.rows, [{ id: 263380, minlevel: 42, maxlevel: 42, location: [16591], react: [-1, -1] }]);
+  const tag = `<script type="application/json" id="data.page.listPage.listviews">[{"id":"objects","template":"object","data":[{"id":105174,"name":"Chest","type":3,"location":[1519]}],"note":"1 object found","totalCount":1}]</script>` + pad;
+  const c = crawler.extractList('objects?filter=15:15;2:4;1:200000', tag, 200);
+  assert.deepEqual([c.found, c.truncated, c.cr, c.rows], [1, false, 15, [{ id: 105174, type: 3, location: [1519] }]]);
+  assert.ok(!JSON.stringify([a, b, c]).match(/Club|Ghostmaw|Chest|Feardred/));
+});
+
+test('a list that found nothing, a block, and a page that is no list', () => {
+  assert.deepEqual(crawler.extractList('npcs?filter=37:37;2:4;5:9', `<script>${filterInit}</script>` + pad, 200).rows, []);
+  assert.equal(crawler.extractList('npcs', 'blocked', 405).status, 'blocked');
+  assert.equal(crawler.extractList('npcs', '<p>news</p>' + pad, 200).status, 'odd');
+});
+
+test('ranges: the queries, read back', () => {
+  assert.equal(crawler.rangeQuery('npcs', 37, 1, 20000), 'npcs?filter=37:37;2:4;1:20000');
+  assert.equal(crawler.rangeQuery('npcs', 37, 400001, 2147483647), 'npcs?filter=37;2;400001');
+  assert.deepEqual(crawler.parseQuery('npcs?filter=37:37;2:4;1:20000'), { list: 'npcs', cr: 37, lo: 1, hi: 20000 });
+  assert.deepEqual(crawler.parseQuery('npcs?filter=37;2;400001'), { list: 'npcs', cr: 37, lo: 400001, hi: 2147483647 });
+  assert.deepEqual(crawler.parseQuery('npcs'), { list: 'npcs', cr: null, lo: null, hi: null });
+  assert.equal(crawler.parseQuery('npcs?filter=1;1;1'), null);
+});
+
+test('a cut list is split into ranges that cover it, a whole one is not', () => {
+  const bare = crawler.splitList({ query: 'npcs', truncated: true, found: 15596, cr: 37, rows: [] });
+  assert.equal(bare.length, 21);                                   // 20 ranges of 1..400000, and 400001 up
+  assert.equal(bare[0], 'npcs?filter=37:37;2:4;1:20000');
+  assert.equal(bare[19], 'npcs?filter=37:37;2:4;380001:400000');
+  assert.equal(bare[20], 'npcs?filter=37;2;400001');
+  const part = crawler.splitList({ query: 'npcs?filter=37:37;2:4;1:20000', truncated: true, found: 1500, cr: 37, rows: [] });
+  assert.deepEqual(part, ['npcs?filter=37:37;2:4;1:10000', 'npcs?filter=37:37;2:4;10001:20000']);
+  const tail = crawler.splitList({ query: 'npcs?filter=37;2;400001', truncated: true, found: 1200, cr: 37, rows: [{ id: 400500 }, { id: 401000 }] });
+  assert.deepEqual(tail, ['npcs?filter=37:37;2:4;400001:400500', 'npcs?filter=37:37;2:4;400501:401000', 'npcs?filter=37;2;401001']);
+  assert.deepEqual(crawler.splitList({ query: 'npcs?filter=37:37;2:4;1:20000', truncated: false, found: 10, rows: [] }), []);
+  assert.deepEqual(crawler.splitList({ query: 'npcs?filter=37:37;2:4;7:7', truncated: true, found: 1001, cr: 37, rows: [] }), []);
+});
+
+test('the pages a whole list names: all npcs, items only for what their page adds, Classic only the shared ids', () => {
+  const npcs = { query: 'npcs?filter=37:37;2:4;1:9', status: 'ok', truncated: false, rows: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+  assert.deepEqual(crawler.detailsOf(npcs), { kind: 'npc', ids: [1, 2, 3] });
+  assert.deepEqual(crawler.detailsOf(npcs, new Set([2])), { kind: 'npc', ids: [2] });
+  const items = { query: 'items?filter=151:151;2:4;1:9', status: 'ok', truncated: false, rows: [{ id: 1, source: [2] }, { id: 2, source: [5, 16] }, { id: 3 }, { id: 4, source: [1, 4] }] };
+  assert.deepEqual(crawler.detailsOf(items), { kind: 'item', ids: [2] });
+  assert.deepEqual(crawler.detailsOf(Object.assign({}, npcs, { truncated: true })), []);
+});
+
+test('a Classic page is asked only when the Forever page lacks loot counts', () => {
+  assert.equal(crawler.richEnough(null), false);
+  assert.equal(crawler.richEnough({ kind: 'npc', status: 'ok', tabs: { drops: { rows: [{ id: 5, count: 3, outof: 20 }] } } }), false);
+  assert.equal(crawler.richEnough({ kind: 'npc', status: 'ok', tabs: { drops: { rows: [{ id: 5, count: 30, outof: 200 }] } } }), true);
+  assert.equal(crawler.richEnough({ kind: 'quest', status: 'ok', tabs: {} }), true);
+  assert.equal(crawler.richEnough({ kind: 'npc', status: 'missing' }), false);
+});
+
+test('queue keys: Forever without a branch, Classic and lists with one', () => {
+  assert.deepEqual(crawler.parseKey('item:123'), { branch: 'forever', kind: 'item', id: 123, path: '/forever/item=123' });
+  assert.deepEqual(crawler.parseKey('classic/npc:7'), { branch: 'classic', kind: 'npc', id: 7, path: '/classic/npc=7' });
+  assert.deepEqual(crawler.parseKey('classic/list:npcs?filter=37;2;1'), { branch: 'classic', kind: 'list', query: 'npcs?filter=37;2;1', path: '/classic/npcs?filter=37;2;1' });
+  assert.equal(crawler.parseKey('item:0'), null);
+  assert.equal(crawler.keyOf('forever', 'npc', 7), 'npc:7');
+  assert.equal(crawler.keyOf('classic', 'list', 'npcs'), 'classic/list:npcs');
+});
+
 console.log(passed + ' tests passed');

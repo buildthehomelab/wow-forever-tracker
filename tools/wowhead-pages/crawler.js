@@ -81,6 +81,9 @@
         }
         let value;
         [value, i] = readLiteral(text, i);
+        // a literal that goes on as an expression ([].concat(...), {...}.x): the whole is an expression
+        const next = space(text, i);
+        if (next < text.length && !',}]'.includes(text[next])) { value = SKIPPED; i = skipExpression(text, next); }
         if (c === '{') { if (value !== SKIPPED) out[key] = value; } else out.push(value === SKIPPED ? null : value);
       }
     }
@@ -120,29 +123,52 @@
     return undefined;
   }
 
-  /** The tabs of a page: {id: {template, rows}} from every `new Listview({...})`. */
-  function listviews(html) {
-    const tabs = {};
+  /** The Listview configs of a page, three ways Wowhead writes them: `new Listview({...})` as JavaScript or as JSON
+   *  (data inline, or `data: someVariable` declared earlier as `var someVariable = [...]`), and a list page's
+   *  `<script type="application/json" id="data.page.listPage.listviews">[{...}]</script>`. */
+  function configs(html) {
+    const out = [];
     const start = /new Listview\(\s*\{/g;
     for (let m; (m = start.exec(html));) {
       let config;
       try { config = readLiteral(html, m.index + m[0].length - 1)[0]; } catch (error) { continue; }
-      const id = typeof config.id === 'string' ? config.id : null;
-      const template = typeof config.template === 'string' ? config.template : '';
-      if (!id || NOT_DATA.has(template) || !/^[\w-]{1,60}$/.test(id)) continue;
-      let data = config.data;
-      if (data === undefined) {
-        // data: someVariable, declared earlier as `var someVariable = [...]`
+      if (!config || typeof config !== 'object') continue;
+      if (config.data === undefined) {
         const named = new RegExp('\\bdata\\s*:\\s*([A-Za-z_$][\\w$]*)\\s*[,}]').exec(html.slice(m.index, m.index + 4000));
         const at = named ? html.search(new RegExp('\\b(?:var|let|const)\\s+' + named[1].replace(/\$/g, '\\$') + '\\s*=\\s*\\[')) : -1;
-        if (at >= 0) { try { data = readLiteral(html, html.indexOf('[', at))[0]; } catch (error) { data = undefined; } }
+        if (at >= 0) { try { config.data = readLiteral(html, html.indexOf('[', at))[0]; } catch (error) { /* left without rows */ } }
       }
-      if (!Array.isArray(data)) continue;
+      out.push(config);
+    }
+    const json = /<script type="application\/json" id="data\.page\.listPage\.listviews">([\s\S]*?)<\/script>/.exec(html);
+    if (json) {
+      try { const list = JSON.parse(json[1]); for (const config of Array.isArray(list) ? list : [list]) if (config && typeof config === 'object') out.push(config); } catch (error) { /* not read */ }
+    }
+    return out;
+  }
+
+  /** How many rows a Listview says there are in all ("15,596 NPCs found (1,000 displayed)"), and whether it shows
+   *  fewer. */
+  function counted(config, shown) {
+    let found = typeof config.totalCount === 'number' ? config.totalCount : typeof config._totalCount === 'number' ? config._totalCount : null;
+    const note = typeof config.note === 'string' ? /^\s*(\d[\d,]*)\s/.exec(config.note) : null;
+    if (found === null && note) found = Number(note[1].replace(/,/g, ''));
+    return { found: found ?? shown, truncated: !!config._truncated || (found !== null && found > shown) };
+  }
+
+  /** The tabs of a page: {id: {template, rows, total?}}. */
+  function listviews(html) {
+    const tabs = {};
+    for (const config of configs(html)) {
+      const id = typeof config.id === 'string' ? config.id : null;
+      const template = typeof config.template === 'string' ? config.template : '';
+      if (!id || NOT_DATA.has(template) || !/^[\w-]{1,60}$/.test(id) || !Array.isArray(config.data)) continue;
+      const data = config.data;
       const rows = data.slice(0, MAX_ROWS).map(facts).filter(r => r && typeof r === 'object' && !Array.isArray(r));
       const tab = { template, rows };
       if (data.length > MAX_ROWS) tab.total = data.length;
-      const extra = facts(config._totalCount);
-      if (typeof extra === 'number' && extra > rows.length) tab.total = extra;
+      const { found } = counted(config, data.length);
+      if (found > rows.length) tab.total = found;
       tabs[id] = tab;
     }
     return tabs;
@@ -221,6 +247,132 @@
     return record;
   }
 
+  // ------------------------------------------------------------------ list pages and the whole database (pure)
+  //
+  // A list page (/forever/npcs) shows at most 1,000 rows of a search and says how many it found. Filtered by an id
+  // range (?filter=37:37;2:4;1:20000, "ID >= 1 and ID <= 20000") a list is whole when it found no more than it shows;
+  // when it is cut, its range is split and asked again. So the lists name every id Wowhead has, a few hundred pages
+  // for a whole branch, and the pages of the things are read after.
+
+  /** The lists the whole crawl reads, in this order: the kind of page each row is, the filter criterion of the id
+   *  (the list page names it too, see idCriterion), the highest id the first range asks for. */
+  const LISTS = {
+    npcs: { kind: 'npc', cr: 37, top: 400000 },
+    objects: { kind: 'object', cr: 15, top: 800000 },
+    quests: { kind: 'quest', cr: 30, top: 120000 },
+    items: { kind: 'item', cr: 151, top: 400000 },
+  };
+  const LAST_ID = 2147483647;
+  const PER_LIST = 1000;
+  /** Of a list row only these are kept: what a thing is and where it comes from, not every stat of an item. */
+  const LIST_FIELDS = new Set(['id', 'level', 'reqlevel', 'minlevel', 'maxlevel', 'quality', 'classs', 'subclass', 'slot', 'side', 'react',
+    'type', 'classification', 'boss', 'location', 'source', 'sourcemore', 'category', 'category2', 'reqclass', 'reqrace', 'skill',
+    'reqskill', 'tag', 'firstseenpatch', 'wflags', 'xp', 'money', 'itemrewards', 'itemchoices', 'currencyrewards', 'hasQuests']);
+
+  /** The filter criterion a list page names for "ID" (Filter.init's criteria), or null. */
+  function idCriterion(html) {
+    const at = html.indexOf('Filter.init(');
+    const m = at < 0 ? null : /\{[^{}]*?"name"\s*:\s*"ID"[^{}]*\}/.exec(html.slice(at, at + 300000));
+    const id = m && /"id"\s*:\s*(\d+)/.exec(m[0]);
+    return id ? Number(id[1]) : null;
+  }
+
+  /** The query of a list page for ids lo..hi (both kept); lo..LAST_ID is asked as "ID >= lo" only. */
+  function rangeQuery(list, cr, lo, hi) {
+    return hi >= LAST_ID ? `${list}?filter=${cr};2;${lo}` : `${list}?filter=${cr}:${cr};2:4;${lo}:${hi}`;
+  }
+
+  /** {list, cr, lo, hi} of a query rangeQuery made, or of a bare list ('npcs': the whole list, no range yet). */
+  function parseQuery(query) {
+    const bare = /^([a-z-]+)$/.exec(query);
+    if (bare) return { list: bare[1], cr: null, lo: null, hi: null };
+    const two = /^([a-z-]+)\?filter=(\d+):\2;2:4;(\d+):(\d+)$/.exec(query);
+    if (two) return { list: two[1], cr: Number(two[2]), lo: Number(two[3]), hi: Number(two[4]) };
+    const one = /^([a-z-]+)\?filter=(\d+);2;(\d+)$/.exec(query);
+    if (one) return { list: one[1], cr: Number(one[2]), lo: Number(one[3]), hi: LAST_ID };
+    return null;
+  }
+
+  /** A list page as a record: {kind: 'list', query, status, rows, found, truncated, cr}. */
+  function extractList(query, html, httpStatus) {
+    const record = { kind: 'list', query, v: VERSION };
+    if (httpStatus !== 200 || html.length < 5000 || !/wowhead/i.test(html)) return Object.assign(record, { status: 'blocked', http: httpStatus, bytes: html.length });
+    const q = parseQuery(query);
+    const main = configs(html).find(c => c && Array.isArray(c.data) && typeof c.template === 'string' && !NOT_DATA.has(c.template) && c.template !== 'generic-model');
+    // a search that found nothing shows no list at all; a page that is no list page is not understood
+    if (!main && !/Filter\.init|listPage|"ID"/.test(html)) return Object.assign(record, { status: 'odd', bytes: html.length });
+    const data = main ? main.data : [];
+    const rows = [];
+    for (const row of data) {
+      const kept = {};
+      for (const key of Object.keys(row || {})) if (LIST_FIELDS.has(key)) { const f = facts(row[key]); if (f !== undefined) kept[key] = f; }
+      if (typeof kept.id === 'number' && kept.id > 0) rows.push(kept);
+    }
+    const { found, truncated } = main ? counted(main, data.length) : { found: 0, truncated: false };
+    return Object.assign(record, { status: 'ok', rows, found, truncated, cr: idCriterion(html) ?? (q && q.cr) ?? (LISTS[q && q.list] || {}).cr ?? null });
+  }
+
+  /** The queries a cut list is split into: ranges of about 800 ids found each, at least two. A bare list starts at
+   *  1..top, and top+1 and up is asked on its own. Nothing when the range cannot be split. */
+  function splitList(record) {
+    const q = parseQuery(record.query);
+    if (!q || !record.truncated) return [];
+    const cr = record.cr || (LISTS[q.list] || {}).cr;
+    if (!cr) return [];
+    let lo = q.lo, hi = q.hi;
+    const out = [];
+    if (lo === null) {
+      lo = 1; hi = (LISTS[q.list] || {}).top || 400000;
+      out.push(rangeQuery(q.list, cr, hi + 1, LAST_ID));
+    } else if (hi >= LAST_ID) {
+      // ids beyond the top: split up to the highest id seen, then the rest
+      const seen = Math.max(lo, ...record.rows.map(r => r.id));
+      out.push(rangeQuery(q.list, cr, seen + 1, LAST_ID));
+      hi = seen;
+    }
+    if (hi <= lo) return out;
+    const parts = Math.min(hi - lo + 1, Math.max(2, Math.ceil(record.found / (PER_LIST * 0.8))));
+    const width = Math.ceil((hi - lo + 1) / parts);
+    const ranges = [];
+    for (let a = lo; a <= hi; a += width) ranges.push(rangeQuery(q.list, cr, a, Math.min(hi, a + width - 1)));
+    return ranges.concat(out);
+  }
+
+  /** The pages worth reading of a whole list's rows: every npc, object and quest; of items, those whose page says
+   *  more than the npc, object and quest pages do (a source other than crafted 1, drop 2, quest 4, vendor 5:
+   *  fishing, gathering, containers ...). `only` (a Set): only these ids (Classic: the ids Forever has too). */
+  function detailsOf(record, only) {
+    const q = parseQuery(record.query);
+    const list = q && LISTS[q.list];
+    if (!list || record.status !== 'ok' || record.truncated) return [];
+    const ids = [];
+    for (const row of record.rows) {
+      if (only && !only.has(row.id)) continue;
+      if (list.kind === 'item' && !(Array.isArray(row.source) && row.source.some(s => ![1, 2, 4, 5].includes(s)))) continue;
+      ids.push(row.id);
+    }
+    return { kind: list.kind, ids };
+  }
+
+  /** Whether a Forever page already holds what its Classic page would add: a loot tab with counts of at least 50
+   *  looted corpses or opened chests; for a quest, any page at all. A Classic page is read only when not. */
+  function richEnough(record) {
+    if (!record || record.status !== 'ok') return false;
+    if (record.kind === 'quest') return true;
+    return Object.values(record.tabs || {}).some(tab => (tab.rows || []).some(row => typeof row.outof === 'number' && row.outof >= 50));
+  }
+
+  /** A queue key: [branch/]kind:id, or [branch/]list:query. No branch is Forever. */
+  function parseKey(key) {
+    const m = /^(?:([a-z-]+)\/)?([a-z]+):(.+)$/.exec(key);
+    if (!m) return null;
+    const branch = m[1] || 'forever';
+    if (m[2] === 'list') return { branch, kind: 'list', query: m[3], path: '/' + branch + '/' + m[3] };
+    const id = Number(m[3]);
+    return Number.isInteger(id) && id > 0 ? { branch, kind: m[2], id, path: '/' + branch + '/' + m[2] + '=' + id } : null;
+  }
+  const keyOf = (branch, kind, idOrQuery) => (branch === 'forever' ? '' : branch + '/') + kind + ':' + idOrQuery;
+
   // ------------------------------------------------------------------ the pace (pure)
   //
   // Wowhead does not say its limit; it blocks an address for about eight minutes when it asks too much. So the pace
@@ -291,25 +443,25 @@
     return { p, wait };
   }
 
-  const api = { VERSION, PACE, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, pacer, classify, paced };
+  const api = { VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
 
-  const BRANCH = (location.pathname.match(/^\/([a-z-]+)(?:\/|$)/) || [])[1] || 'forever';
+  const BRANCHES = /^(forever|classic)$/;
   const KINDS = /^(item|npc|quest|object|spell|zone|faction|itemset)$/;
   const store = {
     get: (key, fallback) => { try { const v = localStorage.getItem('whc.' + key); return v === null ? fallback : JSON.parse(v); } catch (error) { return fallback; } },
-    set: (key, value) => { try { localStorage.setItem('whc.' + key, JSON.stringify(value)); } catch (error) { /* full or blocked: the queue then lives in memory only */ } },
+    set: (key, value) => { try { localStorage.setItem('whc.' + key, JSON.stringify(value)); } catch (error) { /* full or blocked */ } },
   };
   const state = {
-    queue: store.get('queue', []),        // 'item:123', in order
+    queue: [],                            // keys ('item:123', 'classic/npc:7', 'list:npcs'), in order; kept in IndexedDB
     pace: pacer(store.get('pace', null)), // the learned pace (see paced()), kept between runs
     jitter: 0.15,                         // each wait is the pace, give or take this share
     nextSlot: 0,                          // when the next request to Wowhead may leave, the page's own ones included
     blockedUntil: store.get('blockedUntil', 0),
     tries: {},                            // network errors per page in this run
-    fetched: 0, pageRequests: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '', log: [],
+    fetched: 0, skipped: 0, pageRequests: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '', log: [],
   };
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -330,45 +482,110 @@
     return pageFetch(input, init);
   };
 
+  // IndexedDB "whc": store "pages" holds what was read (key = the queue key), store "meta" the queue and the ids
+  // each branch's lists named. A whole crawl is tens of thousands of keys: more than localStorage holds.
   let opening = null;
   function db() {
     return opening ??= new Promise((resolve, reject) => {
-      const request = indexedDB.open('whc', 1);
-      request.onupgradeneeded = () => request.result.createObjectStore('pages', { keyPath: 'key' });
+      const request = indexedDB.open('whc', 2);
+      request.onupgradeneeded = () => {
+        const handle = request.result;
+        if (!handle.objectStoreNames.contains('pages')) handle.createObjectStore('pages', { keyPath: 'key' });
+        if (!handle.objectStoreNames.contains('meta')) handle.createObjectStore('meta');
+      };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
   }
-  async function pages(mode, work) {
+  async function tx(name, mode, work) {
     const handle = await db();
     return new Promise((resolve, reject) => {
-      const tx = handle.transaction('pages', mode);
-      const request = work(tx.objectStore('pages'));
-      tx.oncomplete = () => resolve(request && request.result);
-      tx.onerror = tx.onabort = () => reject(tx.error);
+      const t = handle.transaction(name, mode);
+      const request = work(t.objectStore(name));
+      t.oncomplete = () => resolve(request && request.result);
+      t.onerror = t.onabort = () => reject(t.error);
     });
   }
+  const pages = (mode, work) => tx('pages', mode, work);
+  const meta = {
+    get: key => tx('meta', 'readonly', s => s.get(key)),
+    set: (key, value) => tx('meta', 'readwrite', s => s.put(value, key)),
+  };
+  let saving = null, saveAgain = false;
+  /** Keeps the queue; writes coalesce, so a page every few seconds is one write each. */
+  function keepQueue() {
+    if (saving) { saveAgain = true; return saving; }
+    saving = meta.set('queue', state.queue).catch(() => {}).then(() => { saving = null; if (saveAgain) { saveAgain = false; return keepQueue(); } });
+    return saving;
+  }
+  const ready = (async () => {
+    const kept = await meta.get('queue');
+    // a crawler before 2026-11-15 kept its queue in localStorage
+    const old = store.get('queue', null);
+    state.queue = Array.isArray(kept) ? kept : Array.isArray(old) ? old : [];
+    if (old) { try { localStorage.removeItem('whc.queue'); } catch (error) { /* blocked */ } await keepQueue(); }
+  })();
 
-  /** Adds pages to the queue: add('item', [1, 2]). Pages already read are skipped unless {again: true}. */
-  async function add(kind, ids, options = {}) {
-    if (!KINDS.test(kind)) throw new Error('unknown kind ' + kind);
+  /** Puts keys in the queue: at its end, or {first: true} at its head (in their order). Keys already queued, and
+   *  pages already read unless {again: true}, are left out. */
+  async function enqueue(keys, options = {}) {
+    await ready;
     const have = options.again ? new Set() : new Set(await pages('readonly', s => s.getAllKeys()));
     const queued = new Set(state.queue);
-    let added = 0;
-    for (const id of ids) {
-      const key = kind + ':' + Number(id);
-      if (!Number.isInteger(Number(id)) || Number(id) <= 0 || queued.has(key) || have.has(key)) continue;
-      queued.add(key); added++;
-      if (options.first) state.queue.splice(added - 1, 0, key); else state.queue.push(key);
-    }
-    store.set('queue', state.queue);
-    return { added, queued: state.queue.length };
+    const fresh = [];
+    for (const key of keys) if (parseKey(key) && !queued.has(key) && !have.has(key)) { queued.add(key); fresh.push(key); }
+    if (options.first) state.queue.unshift(...fresh); else for (const key of fresh) state.queue.push(key);
+    await keepQueue();
+    return { added: fresh.length, queued: state.queue.length };
+  }
+
+  /** Adds pages: add('item', [1, 2]), add('npc', [7], {branch: 'classic'}). */
+  async function add(kind, ids, options = {}) {
+    const branch = options.branch || 'forever';
+    if (!KINDS.test(kind) || !BRANCHES.test(branch)) throw new Error('unknown kind or branch ' + branch + '/' + kind);
+    return enqueue(ids.filter(id => Number.isInteger(Number(id)) && Number(id) > 0).map(id => keyOf(branch, kind, Number(id))), options);
+  }
+
+  /** The whole database: every list of each branch first (a few hundred pages), then the page of every npc, object
+   *  and quest, and of the items whose page adds something (see detailsOf). Classic after Forever, and of Classic
+   *  only the ids Forever has too whose Forever page lacks loot counts (see richEnough). The lists go ahead of
+   *  whatever was queued; the pages they name go after it. */
+  async function full(options = {}) {
+    const branches = (options.branches || ['forever', 'classic']).filter(b => BRANCHES.test(b));
+    const lists = (options.lists || Object.keys(LISTS)).filter(l => LISTS[l]);
+    store.set('plan', { branches, lists, at: Date.now() });
+    const keys = [];
+    for (const branch of branches) for (const list of lists) keys.push(keyOf(branch, 'list', list));
+    return enqueue(keys, { first: true, again: options.again });
+  }
+
+  /** After a list page: a cut list is split (the parts go to the head of the queue); a whole one adds its ids to the
+   *  branch's set and queues the pages it names. */
+  async function afterList(record, branch) {
+    const parts = splitList(record);
+    if (parts.length) { await enqueue(parts.map(q => keyOf(branch, 'list', q)), { first: true }); return parts.length + ' parts'; }
+    const q = parseQuery(record.query);
+    const list = q && LISTS[q.list];
+    if (!list || record.truncated) return 'kept';
+    const named = new Set((await meta.get('ids:' + branch + ':' + list.kind)) || []);
+    for (const row of record.rows) named.add(row.id);
+    await meta.set('ids:' + branch + ':' + list.kind, [...named]);
+    if (!store.get('plan', null)) return record.rows.length + ' ids';
+    const only = branch === 'forever' ? null : new Set((await meta.get('ids:forever:' + list.kind)) || []);
+    const details = detailsOf(record, only);
+    const added = await enqueue(details.ids.map(id => keyOf(branch, details.kind, id)));
+    return record.rows.length + ' ids, ' + added.added + ' pages queued';
   }
 
   /** Reads one page: {answer, record?, note}. A page that does not come within a minute is a network error. */
   async function one(key) {
-    const [kind, idText] = key.split(':');
-    const id = Number(idText);
+    const k = parseKey(key);
+    if (!k) return { answer: 'skip', note: 'not a key' };
+    // a Classic page whose Forever page already says enough is not asked
+    if (k.branch !== 'forever' && k.kind !== 'list') {
+      const forever = await pages('readonly', s => s.get(keyOf('forever', k.kind, k.id)));
+      if (richEnough(forever)) return { answer: 'skip', note: 'Forever has it' };
+    }
     let response, html;
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 60000);
@@ -376,12 +593,13 @@
       await turn();
       if (!state.running) return { answer: 'stopped' };
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return { answer: 'error', note: 'offline' };
-      response = await pageFetch('/' + BRANCH + '/' + kind + '=' + id, { credentials: 'same-origin', redirect: 'follow', signal: abort.signal });
+      response = await pageFetch(k.path, { credentials: 'same-origin', redirect: 'follow', signal: abort.signal });
       html = await response.text();
     } catch (error) {
       return { answer: 'error', note: error && error.name === 'AbortError' ? 'no answer within a minute' : String(error) };
     } finally { clearTimeout(timer); }
-    const record = extract(kind, id, html, response.status, response.url);
+    const record = k.kind === 'list' ? extractList(k.query, html, response.status) : extract(k.kind, k.id, html, response.status, response.url);
+    if (k.branch !== 'forever') record.branch = k.branch;
     const answer = classify(response.status, html.length, record);
     // a page this reader does not understand, three times: kept as 'odd' so that the queue goes on
     const giveUp = answer === 'error' && record.status === 'odd' && (state.tries[key] || 0) >= 2;
@@ -389,7 +607,9 @@
     record.key = key;
     record.fetched = Math.floor(Date.now() / 1000);
     await pages('readwrite', s => s.put(record));
-    return { answer: 'page', record };
+    let said = '';
+    if (k.kind === 'list' && record.status === 'ok') said = await afterList(record, k.branch);
+    return { answer: 'page', record, note: said };
   }
 
   function note(text) {
@@ -399,6 +619,7 @@
   }
 
   async function run() {
+    await ready;
     if (state.running) return;
     state.running = true; state.startedAt = Date.now(); store.set('run', true);
     while (state.running && state.queue.length) {
@@ -407,6 +628,7 @@
       const key = state.queue[0];
       const result = await one(key);
       if (result.answer === 'stopped') break;
+      if (result.answer === 'skip') { state.skipped++; state.queue.shift(); keepQueue(); continue; }
       state.last = key + ' ' + (result.record ? result.record.status : result.answer); state.lastAt = Date.now();
       const before = state.pace.gap;
       const { p, wait } = paced(state.pace, result.answer);
@@ -414,7 +636,11 @@
       if (result.answer === 'page') {
         delete state.tries[key];
         state.fetched++;
-        state.queue.shift(); store.set('queue', state.queue);
+        // a list may have put its parts at the head: take this key out where it is
+        const at = state.queue.indexOf(key);
+        if (at >= 0) state.queue.splice(at, 1);
+        keepQueue();
+        if (result.note) note(key + ': ' + result.note);
         if (p.gap < before) note('pace ' + Math.round(before / 1000) + ' -> ' + Math.round(p.gap / 1000) + ' s');
         continue;
       }
@@ -432,31 +658,49 @@
     state.running = false;
   }
 
+  const shelf = key => { const k = parseKey(key); return k ? (k.branch === 'forever' ? '' : k.branch + ' ') + k.kind : '?'; };
+
   async function status() {
-    const all = await pages('readonly', s => s.getAll());
+    await ready;
     const counts = {};
-    for (const p of all) { const k = p.kind + ' ' + p.status; counts[k] = (counts[k] || 0) + 1; }
+    for (const key of await pages('readonly', s => s.getAllKeys())) counts[shelf(key)] = (counts[shelf(key)] || 0) + 1;
+    const queued = {};
+    for (const key of state.queue) queued[shelf(key)] = (queued[shelf(key)] || 0) + 1;
     const minutes = (Date.now() - state.startedAt) / 60000;
     const left = state.queue.length * state.pace.gap / 3600000;
     return {
-      running: state.running, queued: state.queue.length, read: counts, thisRun: state.fetched,
+      running: state.running, queued: state.queue.length, queuedByKind: queued, read: counts, thisRun: state.fetched, skipped: state.skipped,
       perMinute: state.startedAt && minutes > 0.5 ? Math.round(state.fetched / minutes * 10) / 10 : null,
       paceSeconds: Math.round(state.pace.gap / 100) / 10, blockedAtSeconds: state.pace.blockedAt ? Math.round(state.pace.blockedAt / 100) / 10 : null,
-      hoursLeft: Math.round(left * 10) / 10,
+      hoursLeft: Math.round(left * 10) / 10, plan: store.get('plan', null),
       pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
       waitingFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
     };
   }
 
-  /** The pages read, one JSON line each, sorted by kind and id; {kind, since} narrow it. */
+  /** The pages read, one JSON line each, sorted by key; {kind, branch, since} narrow it. Read with a cursor, so that
+   *  a whole crawl is never all in memory as objects at once. */
   async function lines(options = {}) {
-    const all = (await pages('readonly', s => s.getAll()))
-      .filter(p => (!options.kind || p.kind === options.kind) && (!options.since || p.fetched >= options.since))
-      .sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.id - b.id);
-    return all.map(p => { const { key, ...rest } = p; return JSON.stringify(rest); });
+    const handle = await db();
+    const out = [];
+    await new Promise((resolve, reject) => {
+      const request = handle.transaction('pages', 'readonly').objectStore('pages').openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return resolve();
+        const p = cursor.value;
+        if ((!options.kind || p.kind === options.kind) && (!options.branch || (p.branch || 'forever') === options.branch) && (!options.since || p.fetched >= options.since)) {
+          const { key, ...rest } = p;
+          out.push([key, JSON.stringify(rest)]);
+        }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+    return out.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0).map(x => x[1]);
   }
 
-  /** Downloads the pages read as wowhead-pages.jsonl (tools/wowhead_pages.py merge reads it). */
+  /** Downloads the pages read as wowhead-pages.jsonl (the Imports page and tools/wowhead_pages.py merge read it). */
   async function save(options = {}) {
     const text = (await lines(options)).join('\n') + '\n';
     const link = document.createElement('a');
@@ -467,18 +711,28 @@
     return { pages: text.split('\n').length - 1, bytes: text.length };
   }
 
+  /** Downloads only the pages read since the last saveNew() (all, the first time): a long crawl in parts. */
+  async function saveNew(options = {}) {
+    const since = store.get('savedAt', 0);
+    const now = Math.floor(Date.now() / 1000);
+    const name = options.name || 'wowhead-pages-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '') + '.jsonl';
+    const saved = await save(Object.assign({}, options, { since, name }));
+    store.set('savedAt', now);
+    return saved;
+  }
+
   root.WHC = {
-    add, status, lines, save, state, extract, PACE,
+    add, full, status, lines, save, saveNew, state, extract, PACE,
     log: () => state.log.slice(),
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },
     // sets the pace by hand; it goes on learning from there. pace(30, true) also forgets the remembered block pace
     pace: (seconds, forget) => { state.pace = pacer(Object.assign({}, state.pace, { gap: Number(seconds) * 1000, clean: 0 }, forget ? { blockedAt: 0 } : {})); store.set('pace', state.pace); return state.pace; },
-    clearQueue: () => { state.queue = []; store.set('queue', []); },
+    clearQueue: async () => { await ready; state.queue = []; await keepQueue(); },
     forget: key => pages('readwrite', s => s.delete(key)),
   };
   // back on the network: no need to wait out the rest of a network error's pause
   if (typeof addEventListener === 'function') addEventListener('online', () => { if (state.pace.errors) state.blockedUntil = Math.min(state.blockedUntil, Date.now() + 5000); });
   // a reload in the middle of a crawl: go on by itself
-  if (store.get('run', false) && state.queue.length) run();
+  ready.then(() => { if (store.get('run', false) && state.queue.length) run(); });
 })(typeof window !== 'undefined' ? window : globalThis);

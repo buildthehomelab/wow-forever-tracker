@@ -1,4 +1,4 @@
-"""The cache of Wowhead pages (data/wowhead-pages/<kind>.jsonl) and what to read next, from the command line.
+"""The cache of Wowhead pages (data/wowhead-pages/<shelf>.jsonl) and what to read next, from the command line.
 The tracker's Imports page does the same (Download the crawler, Send wowhead-pages.jsonl).
 
 Wowhead's pages cannot be asked from a script (403), so they are read slowly from a browser tab by
@@ -9,7 +9,9 @@ tools/wowhead-pages/crawler.js, which keeps facts only (docs/WOWHEAD-PAGES.md). 
     python tools/wowhead_pages.py merge wowhead-pages.jsonl          what the crawler saved, into the cache
     python tools/wowhead_pages.py stats                              what the cache holds
 
-The cache is one line a page, sorted by id, so that a new crawl is a readable diff. A page is never asked twice:
+The cache is one line a page, sorted by id, so that a new crawl is a readable diff. A shelf is a kind of page:
+`item.jsonl` holds Forever's item pages, `classic-npc.jsonl` Classic's npc pages, `forever-list.jsonl` the list
+pages that named every id of a branch (one line a list query). A page is never asked twice:
 `todo` leaves out what the cache has, unless it is older than --max-age days.
 """
 import argparse
@@ -23,13 +25,29 @@ import time
 # outside the repository: a copy of Wowhead's data is kept, not republished with the code (app/wowheadpages.php reads it)
 CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'wowhead-pages')
 KINDS = ('item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset')
+BRANCHES = ('forever', 'classic')
+QUERY = re.compile(r'[a-z-]{1,30}(\?filter=[\d:;]{1,80})?')
 KEPT = ('ok', 'missing')   # 'blocked' and 'odd' are no answer: the page is asked again
 MAX_ID = 2 ** 31 - 1
 TOOLTIP = re.compile(r'\[tooltip[^\]]*\].*?\[/tooltip\]|\[span[^\]]*\]|\[/span\]', re.S)
 
 
-def path(kind, folder=CACHE):
-    return os.path.join(folder, f'{kind}.jsonl')
+def path(shelf, folder=CACHE):
+    return os.path.join(folder, f'{shelf}.jsonl')
+
+
+def shelf_of(record):
+    """Where a crawler record is kept: 'item' (Forever's item pages, as before there were branches), 'classic-npc',
+    'forever-list'."""
+    branch = record.get('branch') or 'forever'
+    if record['kind'] == 'list':
+        return f'{branch}-list'
+    return record['kind'] if branch == 'forever' else f'{branch}-{record["kind"]}'
+
+
+def entity(record):
+    """What a record is one of on its shelf: a page's id, a list's query."""
+    return record['query'] if record.get('kind') == 'list' else record.get('id')
 
 
 def numbers_only(value):
@@ -46,12 +64,18 @@ def numbers_only(value):
 def clean(record):
     """A crawler record as the cache keeps it, or None when it is not one: a known kind, a whole id, an answer
     ('ok' or 'missing'), Quick Facts lines of a line's length, tabs of rows that hold numbers only."""
-    if not isinstance(record, dict) or record.get('kind') not in KINDS or record.get('status') not in KEPT:
+    if not isinstance(record, dict) or record.get('status') not in KEPT or (record.get('branch') or 'forever') not in BRANCHES:
+        return None
+    if record.get('kind') == 'list':
+        return clean_list(record)
+    if record.get('kind') not in KINDS:
         return None
     entity, fetched = record.get('id'), record.get('fetched')
     if not isinstance(entity, int) or isinstance(entity, bool) or not 0 < entity <= MAX_ID or not isinstance(fetched, int) or fetched <= 0:
         return None
     out = {'id': entity, 'fetched': fetched, 'v': int(record.get('v') or 0), 'status': record['status']}
+    if record.get('branch', 'forever') != 'forever':
+        out['branch'] = record['branch']
     if record['status'] == 'missing':
         return out
     quick = record.get('quick') or []
@@ -76,31 +100,47 @@ def clean(record):
     return out
 
 
-def load(kind, folder=CACHE):
-    """{id: record} of one kind; a line that does not read is skipped."""
+def clean_list(record):
+    """A list page as the cache keeps it: its query, the rows (numbers only), how many it found and whether it was cut."""
+    query, fetched, rows = record.get('query'), record.get('fetched'), record.get('rows')
+    if not isinstance(query, str) or not QUERY.fullmatch(query) or not isinstance(fetched, int) or fetched <= 0 or not isinstance(rows, list):
+        return None
+    out = {'kind': 'list', 'query': query, 'fetched': fetched, 'v': int(record.get('v') or 0), 'status': 'ok'}
+    if record.get('branch', 'forever') != 'forever':
+        out['branch'] = record['branch']
+    out['rows'] = [row for row in rows if isinstance(row, dict) and isinstance(row.get('id'), int) and numbers_only(row)]
+    out['found'] = record['found'] if isinstance(record.get('found'), int) else len(out['rows'])
+    out['truncated'] = bool(record.get('truncated'))
+    if isinstance(record.get('cr'), int):
+        out['cr'] = record['cr']
+    return out
+
+
+def load(shelf, folder=CACHE):
+    """{id or query: record} of one shelf; a line that does not read is skipped."""
     pages = {}
     try:
-        with open(path(kind, folder), encoding='utf-8') as handle:
+        with open(path(shelf, folder), encoding='utf-8') as handle:
             for line in handle:
                 try:
                     record = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(record, dict) and isinstance(record.get('id'), int):
-                    pages[record['id']] = record
+                if isinstance(record, dict) and isinstance(entity(record), (int, str)):
+                    pages[entity(record)] = record
     except OSError:
         pass
     return pages
 
 
-def save(kind, pages, folder=CACHE):
-    """Writes one kind whole or not at all, sorted by id."""
+def save(shelf, pages, folder=CACHE):
+    """Writes one shelf whole or not at all, sorted by id (lists by query)."""
     os.makedirs(folder, exist_ok=True)
-    scratch = f'{path(kind, folder)}.{os.getpid()}.tmp'
+    scratch = f'{path(shelf, folder)}.{os.getpid()}.tmp'
     with open(scratch, 'w', encoding='utf-8', newline='\n') as handle:
-        for entity in sorted(pages):
-            handle.write(json.dumps(pages[entity], ensure_ascii=False, separators=(',', ':')) + '\n')
-    os.replace(scratch, path(kind, folder))
+        for key in sorted(pages, key=lambda k: (isinstance(k, str), k if isinstance(k, str) else '', k if isinstance(k, int) else 0)):
+            handle.write(json.dumps(pages[key], ensure_ascii=False, separators=(',', ':')) + '\n')
+    os.replace(scratch, path(shelf, folder))
 
 
 def merge(files, folder=CACHE):
@@ -121,11 +161,11 @@ def merge(files, folder=CACHE):
                 if record is None:
                     counts['not_a_page'] += 1
                     continue
-                incoming.setdefault(raw['kind'], []).append(record)
-    for kind, records in incoming.items():
-        pages = load(kind, folder)
+                incoming.setdefault(shelf_of(raw), []).append(record)
+    for shelf, records in incoming.items():
+        pages = load(shelf, folder)
         for record in records:
-            have = pages.get(record['id'])
+            have = pages.get(entity(record))
             if have is None:
                 counts['new'] += 1
             elif have.get('fetched', 0) < record['fetched']:
@@ -133,8 +173,8 @@ def merge(files, folder=CACHE):
             else:
                 counts['older'] += 1
                 continue
-            pages[record['id']] = record
-        save(kind, pages, folder)
+            pages[entity(record)] = record
+        save(shelf, pages, folder)
     return counts
 
 
@@ -197,11 +237,25 @@ def todo(csv_path, kinds, min_item, max_age, folder=CACHE, now=None):
     return out
 
 
+def shelves(folder=CACHE):
+    try:
+        return sorted(name[:-6] for name in os.listdir(folder) if name.endswith('.jsonl'))
+    except OSError:
+        return []
+
+
 def stats(folder=CACHE):
     lines = []
-    for kind in KINDS:
+    for kind in shelves(folder):
         pages = load(kind, folder)
         if not pages:
+            continue
+        if kind.endswith('-list'):
+            named = {}
+            for page in pages.values():
+                if not page.get('truncated'):
+                    named.setdefault(page['query'].split('?')[0], set()).update(row['id'] for row in page['rows'])
+            lines.append(f'{kind}: {len(pages)} list pages, ' + ', '.join(f'{len(ids)} {name}' for name, ids in sorted(named.items())))
             continue
         ok = [p for p in pages.values() if p['status'] == 'ok']
         tabs = {}

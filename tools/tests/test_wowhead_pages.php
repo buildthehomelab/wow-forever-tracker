@@ -82,7 +82,21 @@ check(array_keys(wowhead_pages('item', [$dir])) === [4, 30] && wowhead_pages('it
 check(file_get_contents("$dir/item.jsonl") === '{"id":4,"fetched":1790000000,"v":1,"status":"missing"}' . "\n" . '{"id":30,"fetched":1700000000,"v":1,"status":"ok","quick":[],"tabs":{}}' . "\n", 'the file is one page a line, an empty tab list written as an object');
 check(wowhead_pages('quest', [$dir])[7]['quick'] === ['Start: [url=/forever/npc=1]'], 'each kind in its own file');
 
+$list = ['kind' => 'list', 'query' => 'npcs?filter=37:37;2:4;1:20000', 'fetched' => 1700000000, 'v' => 2, 'status' => 'ok', 'found' => 2, 'truncated' => false, 'cr' => 37,
+    'rows' => [['id' => 7, 'minlevel' => 3], ['id' => 9, 'name' => 'text'], ['minlevel' => 1]]];
+$lines = array_map('json_encode', [
+    ['kind' => 'npc', 'id' => 7, 'fetched' => 1700000000, 'v' => 1, 'status' => 'ok', 'branch' => 'classic', 'tabs' => []],
+    $list, $list + ['branch' => 'classic'], ['branch' => 'retail'] + $list, ['query' => 'npcs?filter="x"'] + $list,
+]);
+$m = wowhead_pages_merge(implode("\n", $lines), $dir);
+check($m['new'] === 3 && $m['not_a_page'] === 2, 'Classic pages and lists are kept, another branch or a query that is no filter is not');
+check(wowhead_pages('classic-npc', [$dir])[7]['branch'] === 'classic' && !isset(wowhead_pages('npc', [$dir])[7]), 'a Classic page on a shelf of its own, apart from Forever\'s');
+$kept = wowhead_pages('forever-list', [$dir])['npcs?filter=37:37;2:4;1:20000'] ?? [];
+check(($kept['rows'] ?? null) === [['id' => 7, 'minlevel' => 3]] && !isset($kept['branch']) && isset(wowhead_pages('classic-list', [$dir])['npcs?filter=37:37;2:4;1:20000']), 'a list by its query, rows with text or no id dropped');
+
 $js = wowhead_pages_crawler(['item' => [3, 4], 'quest' => []]);
 check(str_contains($js, "await WHC.add(\"item\", [3,4]);") && !str_contains($js, '"quest"') && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its queue, then start');
+
+check(str_contains(wowhead_pages_crawler(['item' => [3]], true), "await WHC.full();\n  WHC.start();") && !str_contains($js, 'WHC.full'), 'the full crawl download also starts the whole database');
 
 ft_test_done();

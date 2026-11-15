@@ -63,6 +63,19 @@ class Merge(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.cache)), ['item.jsonl', 'quest.jsonl'])   # no scratch file left
         self.assertEqual(wp.merge([second], self.cache)['older'], 3)                        # again: nothing changes
 
+    def test_classic_pages_and_lists_go_on_shelves_of_their_own(self):
+        listing = {'kind': 'list', 'query': 'npcs?filter=37:37;2:4;1:20000', 'fetched': 100, 'v': 2, 'status': 'ok', 'found': 2, 'truncated': False, 'cr': 37,
+                   'rows': [{'id': 7, 'minlevel': 3}, {'id': 9, 'name': 'text'}, {'name': 'no id'}]}
+        saved = self.saved('a.jsonl', [page('npc', 7, branch='classic', tabs={}), page('npc', 7), listing, dict(listing, branch='classic'),
+                                       dict(listing, query='npcs?filter=1;1;"x"'), page('npc', 8, branch='retail')])
+        self.assertEqual(wp.merge([saved], self.cache), {'new': 4, 'newer': 0, 'older': 0, 'not_a_page': 2})
+        self.assertEqual(sorted(os.listdir(self.cache)), ['classic-list.jsonl', 'classic-npc.jsonl', 'forever-list.jsonl', 'npc.jsonl'])
+        self.assertEqual(wp.load('classic-npc', self.cache)[7]['branch'], 'classic')
+        kept = wp.load('forever-list', self.cache)['npcs?filter=37:37;2:4;1:20000']
+        self.assertEqual(kept['rows'], [{'id': 7, 'minlevel': 3}])   # a row with text, or without an id, is dropped
+        self.assertNotIn('branch', kept)
+        self.assertIn('forever-list: 1 list pages, 1 npcs', wp.stats(self.cache))
+
     def test_stats(self):
         wp.merge([self.saved('a.jsonl', [page('item', 1, tabs={'sold-by': {'rows': [{'id': 2}]}, 'dropped-by': {'rows': []}}), page('item', 2, status='missing')])], self.cache)
         self.assertEqual(wp.stats(self.cache), ['item: 1 pages, 1 Wowhead does not have, newest 1970-01-01', '    sold-by                          1 pages'])

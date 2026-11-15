@@ -98,12 +98,16 @@ switch ((string)($input['action'] ?? '')) {
         require_once FT_APP . '/sources.php';
         json_out(foreverdb_import());
     case 'wowhead_crawler':
-        // the browser crawler with the pages this tracker wants next already queued: nothing is asked of Wowhead here
+    case 'wowhead_crawler_full':
+        // the browser crawler with the pages this tracker wants next already queued: nothing is asked of Wowhead here.
+        // The full one also reads the whole database of Forever and Classic after them (docs/WOWHEAD-PAGES.md)
         require_once FT_APP . '/wowheadpages.php';
         if (!table_exists('ft_entities')) json_out(['ok' => false, 'message' => t('Run the analysis first: the crawler reads the pages of its gaps.', 'Lancez d’abord l’analyse : le crawler lit les pages de ses manques.')]);
         $queue = wowhead_pages_queue();
-        json_out(['ok' => true, 'file' => base64_encode(wowhead_pages_crawler($queue)), 'name' => 'wowhead-crawler.js', 'type' => 'text/javascript',
-                  'message' => sprintf(t('%d item page(s) and %d quest page(s) queued.', '%d page(s) d’objets et %d page(s) de quêtes en file.'), count($queue['item']), count($queue['quest']))]);
+        $full = ($input['action'] ?? '') === 'wowhead_crawler_full';
+        json_out(['ok' => true, 'file' => base64_encode(wowhead_pages_crawler($queue, $full)), 'name' => $full ? 'wowhead-crawler-full.js' : 'wowhead-crawler.js', 'type' => 'text/javascript',
+                  'message' => sprintf(t('%d item page(s) and %d quest page(s) queued.', '%d page(s) d’objets et %d page(s) de quêtes en file.'), count($queue['item']), count($queue['quest']))
+                      . ($full ? ' ' . t('Then every list of Forever and Classic, and the pages they name.', 'Puis toutes les listes de Forever et Classic, et les pages qu’elles nomment.') : '')]);
     case 'source_wowhead':
         // the pages kept in the cache (tools/wowhead-pages): nothing is asked of Wowhead here
         require_once FT_APP . '/wowheadpages.php';
