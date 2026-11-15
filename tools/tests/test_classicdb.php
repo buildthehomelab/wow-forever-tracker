@@ -104,7 +104,7 @@ check(array_map(fn($r) => [$r['MenuID'], $r['OptionID']], $r4['gossip_menu_optio
 check(!in_array('creature_template.ScriptName', array_map(fn($op) => $op['table'] . '.' . $op['set'], $o4), true) && !in_array('creature_template.AIName', array_map(fn($op) => $op['table'] . '.' . $op['set'], $o4), true),
     "his script and AI are left as they are");
 // the core's own Classic scripts: counted apart, whether they teach or need the core fixed
-foreach (['classic_mob_craftsman_omarion' => 'classic_talk_core_teaches', 'classic_npc_knot_thimblejack' => 'classic_talk_core_broken', 'npc_engineering_tele_trinket' => 'classic_talk_core_broken'] as $name => $why) {
+foreach (['classic_mob_craftsman_omarion' => 'classic_talk_core_broken', 'classic_npc_knot_thimblejack' => 'classic_talk_core_broken', 'npc_engineering_tele_trinket' => 'classic_talk_core_broken'] as $name => $why) {
     [, , $l5] = classicdb_talk_rows([$knot], ['npc:14338' => ['known' => true, 'spawned' => true, 'script' => $name, 'ai' => '']], 70938);
     check($l5 === [$why => 1], "a line of a creature run by $name: $why");
 }

@@ -654,8 +654,9 @@ const CLASSICDB_GO_MENU = [2 => 'Data3', 8 => 'Data10', 10 => 'Data19', 64 => 'D
  *  script does. One that already runs SmartAI (Gloom'rel on Everlake: his challenge) gets the SmartAI line instead. */
 const CLASSICDB_CORE_TEACHERS = [14894 => 'boss_gloomrel'];
 /** The core's scripts a teacher may run, and whether each teaches on WoW: Forever (tools/ft/server.py CORE_TEACHERS):
- *  a line of a creature or object they run is counted apart, not as some other script. */
-const CLASSICDB_CORE_SCRIPTS = ['boss_gloomrel' => true, 'classic_mob_craftsman_omarion' => true, 'classic_go_field_repair_bot_74A' => true,
+ *  a line of a creature or object they run is counted apart, not as some other script. Omarion's casts spells the
+ *  Forever client lacks (all but Icebane Breastplate) until the core fork's fix is live. */
+const CLASSICDB_CORE_SCRIPTS = ['boss_gloomrel' => true, 'classic_mob_craftsman_omarion' => false, 'classic_go_field_repair_bot_74A' => true,
     'classic_npc_knot_thimblejack' => false, 'npc_engineering_tele_trinket' => false];
 const CLASSICDB_AI = ['npc' => 'SmartAI', 'go' => 'SmartGameObjectAI'];
 

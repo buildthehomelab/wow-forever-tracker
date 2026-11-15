@@ -338,11 +338,21 @@ class Conversations(unittest.TestCase):
     def test_the_cores_classic_scripts(self):
         # Omarion's script teaches his 13 recipes; the Field Repair Bot schematic, an object, teaches on use
         found = self.casts([], scripts=[('npc', 16365, 'classic_mob_craftsman_omarion'), ('go', 179552, 'classic_go_field_repair_bot_74A')])
-        self.assertIn(('go', 179552, 22864), found)
-        self.assertIn(('npc', 16365, 28212), found)
-        self.assertEqual(len(found), 14)
+        self.assertEqual(found, [('go', 179552, 22864), ('npc', 16365, 28245)])   # Omarion: only the spell Forever has
         # a script name on the wrong kind of template teaches nothing
         self.assertEqual(self.casts([], scripts=[('npc', 179552, 'classic_go_field_repair_bot_74A')]), [])
+
+    def test_a_choice_that_calls_a_timed_list(self):
+        # Gloom'rel on Everlake: choice 1945/1 calls list 950000386, which casts 14894 (Learn Smelt Dark Iron)
+        lists = {950000386: {14894}, 5: {1}, 6: {2}, 7: {3}}
+        choices = [(0, 9037, 1945, 1, server.SMART_CALL_LIST, [950000386, 0, 0, 0, 0, 0]),
+                   (0, 9037, 1945, 1, 72, [0] * 6),                                      # closing the window casts nothing
+                   (0, 1, 10, 0, server.SMART_CALL_RANDOM_LIST, [5, 6, 0, 0, 0, 0]),    # either list may run
+                   (0, 2, 20, 0, server.SMART_CALL_RANGE_LIST, [6, 7, 0, 0, 0, 0]),
+                   (1, 180368, 6443, 0, 134, [24267, 0, 0, 0, 0, 0]),                    # a direct cast still counts
+                   (0, 3, 30, 0, server.SMART_CALL_LIST, [999, 0, 0, 0, 0, 0])]          # a list that casts nothing
+        self.assertEqual(server.choice_spells(choices, lists), [(0, 1, 10, 0, 1), (0, 1, 10, 0, 2), (0, 2, 20, 0, 2), (0, 2, 20, 0, 3),
+                                                                (0, 9037, 1945, 1, 14894), (1, 180368, 6443, 0, 24267)])
 
     def test_the_rules_count_it_where_someone_stands(self):
         ctx = world(conversation_casts=[('npc', 14338, 22814), ('go', 180368, 24267)], spell_teaches={(22814, 22813), (24267, 24266)},

@@ -58,6 +58,11 @@ GO_MENU_COLUMN = {2: 'Data3', 8: 'Data10', 10: 'Data19', 64: 'Data2'}
 # SmartAI: the event of a conversation choice (menu, option) and the actions that cast a spell
 SMART_GOSSIP_SELECT = 62
 SMART_CASTS = (11, 85, 86, 134)   # CAST, SELF_CAST, CROSS_CAST, INVOKER_CAST: the spell is action_param1
+# A choice may run a timed action list instead (source_type 9, its rows' entryorguid is the list's id), whose rows cast:
+# CALL_TIMED_ACTIONLIST (the list is action_param1), CALL_RANDOM_TIMED_ACTIONLIST (one of action_param1..6),
+# CALL_RANDOM_RANGE_TIMED_ACTIONLIST (one from action_param1 to action_param2). Gloom'rel teaches Smelt Dark Iron so.
+SMART_CALL_LIST, SMART_CALL_RANDOM_LIST, SMART_CALL_RANGE_LIST = 80, 87, 88
+SMART_TIMED_LIST = 9
 # The core's own C++ scripts that teach a spell in a conversation (a creature) or on use (an object), by script name:
 # (kind, the spells they cast on the player). Only scripts read in the realm's core and found to work on WoW: Forever.
 # Left out until the core fork's fix is live on the realm:
@@ -67,8 +72,10 @@ SMART_CASTS = (11, 85, 86, 134)   # CAST, SELF_CAST, CROSS_CAST, INVOKER_CAST: t
 #                                 2506, which the Forever client does not have.
 CORE_TEACHERS = {
     'boss_gloomrel': ('npc', {14894}),   # Gloom'rel, Blackrock Depths: Learn Smelt Dark Iron
-    # Master Craftsman Omarion, Naxxramas: the learn spells of his 13 recipes (Argent Dawn Revered or Exalted, skill 300)
-    'classic_mob_craftsman_omarion': ('npc', {28212, 28215, 28213, 28214, 28229, 28230, 28228, 28232, 28233, 28231, 28248, 28249, 28245}),
+    # Master Craftsman Omarion, Naxxramas (Argent Dawn Revered or Exalted, skill 300). His script casts the patterns'
+    # own spells (28212...), and the Forever client has only one of them: Plans: Icebane Breastplate. The other 12
+    # teach nobody until the core fork's fix (Classic's learn spells 28251-28263) is live; then they go here.
+    'classic_mob_craftsman_omarion': ('npc', {28245}),
     # Schematic: Field Repair Bot 74A, Blackrock Depths: used at Engineering 300, Learn Field Repair Bot 74A
     'classic_go_field_repair_bot_74A': ('go', {22864}),
 }
@@ -112,6 +119,27 @@ def conversation_casts(creature_menus, object_menus, options, smart, scripts):
     return sorted(found)
 
 
+def choice_spells(choices, lists):
+    """[(source_type, entryorguid, menu, option, spell)]: what each SmartAI conversation choice casts, itself or through
+    a timed action list it calls (a random one counts: each may be the one that runs). choices: [(source_type,
+    entryorguid, menu, option, action_type, [action_param1..6])]; lists: {list id: {spells its rows cast}}."""
+    out = set()
+    for source, guid, menu, option, action, params in choices:
+        params = [int(p or 0) for p in params] + [0] * 6
+        if action in SMART_CASTS:
+            spells = {params[0]}
+        elif action == SMART_CALL_LIST:
+            spells = lists.get(params[0], set())
+        elif action == SMART_CALL_RANDOM_LIST:
+            spells = set().union(*(lists.get(p, set()) for p in params[:6] if p))
+        elif action == SMART_CALL_RANGE_LIST and 0 < params[0] <= params[1] and params[1] - params[0] <= 1000:
+            spells = set().union(*(lists.get(p, set()) for p in range(params[0], params[1] + 1)))
+        else:
+            spells = set()
+        out.update((source, guid, menu, option, spell) for spell in spells if spell)
+    return sorted(out)
+
+
 def read_conversations(q, has_table):
     """conversation_casts() from the world database."""
     whole = lambda v: int(v or 0)
@@ -127,8 +155,19 @@ def read_conversations(q, has_table):
     options = [(whole(r['MenuID']), whole(r['OptionID']), whole(r['ActionMenuID'])) for r in q('SELECT MenuID, OptionID, ActionMenuID FROM gossip_menu_option')]
     smart = []
     if has_table('smart_scripts'):
-        rows = q(f"SELECT entryorguid, source_type, event_param1, event_param2, action_param1 FROM smart_scripts WHERE event_type = {SMART_GOSSIP_SELECT} "
-                 f"AND source_type IN (0, 1) AND action_type IN ({','.join(map(str, SMART_CASTS))})")
+        actions = ','.join(map(str, SMART_CASTS + (SMART_CALL_LIST, SMART_CALL_RANDOM_LIST, SMART_CALL_RANGE_LIST)))
+        choices = [(int(r['source_type']), int(r['entryorguid']), whole(r['event_param1']), whole(r['event_param2']), int(r['action_type']),
+                    [r[f'action_param{i}'] for i in range(1, 7)])
+                   for r in q(f"SELECT entryorguid, source_type, event_param1, event_param2, action_type, action_param1, action_param2, action_param3, "
+                              f"action_param4, action_param5, action_param6 FROM smart_scripts WHERE event_type = {SMART_GOSSIP_SELECT} "
+                              f"AND source_type IN (0, 1) AND action_type IN ({actions})")]
+        lists = {}
+        if any(c[4] not in SMART_CASTS for c in choices):
+            for r in q(f"SELECT entryorguid, action_param1 FROM smart_scripts WHERE source_type = {SMART_TIMED_LIST} "
+                       f"AND action_type IN ({','.join(map(str, SMART_CASTS))}) AND action_param1 > 0"):
+                lists.setdefault(int(r['entryorguid']), set()).add(whole(r['action_param1']))
+        rows = [{'source_type': source, 'entryorguid': guid, 'event_param1': menu, 'event_param2': option, 'action_param1': spell}
+                for source, guid, menu, option, spell in choice_spells(choices, lists)]
         # a negative entryorguid is one spawn's script: its template's entry
         spawns = {('npc', -int(r['entryorguid'])) if int(r['source_type']) == 0 else ('go', -int(r['entryorguid'])) for r in rows if int(r['entryorguid']) < 0}
         entry_of = {}
