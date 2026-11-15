@@ -216,4 +216,13 @@ new Listview({template: 'item', id: 'sells', data: [{"id":12844,"avail":-1,"cost
   assert.deepEqual(record.tabs.sells.rows, [{ id: 12844, avail: -1, cost: [[0, [], [[22484, 15]]]] }]);
 });
 
+test('a range with nothing in it: Wowhead shows its whole list instead, the page is read as empty', () => {
+  const whole = `<script type="application/json" id="data.page.listPage.listviews">[{"id":"objects","template":"object","data":[{"id":31},{"id":716529}],"note":"5,127 objects found (1,000 displayed)","totalCount":5127,"_truncated":true}]</script>` + pad;
+  const empty = crawler.extractList('objects?filter=15;2;800001', whole, 200);
+  assert.deepEqual([empty.rows, empty.found, empty.truncated], [[], 0, false]);
+  assert.deepEqual(crawler.splitList(empty), []);
+  const inside = crawler.extractList('objects?filter=15:15;2:4;1:800000', whole, 200);   // every row in the range: the list as it is
+  assert.deepEqual([inside.rows.length, inside.found, inside.truncated], [2, 5127, true]);
+});
+
 console.log(passed + ' tests passed');

@@ -311,7 +311,10 @@
       for (const key of Object.keys(row || {})) if (LIST_FIELDS.has(key)) { const f = facts(row[key]); if (f !== undefined) kept[key] = f; }
       if (typeof kept.id === 'number' && kept.id > 0) rows.push(kept);
     }
-    const { found, truncated } = main ? counted(main, data.length) : { found: 0, truncated: false };
+    let { found, truncated } = main ? counted(main, data.length) : { found: 0, truncated: false };
+    // a range with nothing in it: Wowhead drops the filter and shows its whole list instead. A row outside the range
+    // says so, and the range is empty
+    if (q && q.lo !== null && rows.some(r => r.id < q.lo || r.id > q.hi)) { rows.length = 0; found = 0; truncated = false; }
     return Object.assign(record, { status: 'ok', rows, found, truncated, cr: idCriterion(html) ?? (q && q.cr) ?? (LISTS[q && q.list] || {}).cr ?? null });
   }
 
