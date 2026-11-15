@@ -8,6 +8,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | Source | What it is | Licence | How it is read |
 |---|---|---|---|
 | [Wowhead's pages](WOWHEAD-PAGES.md) | Wowhead's WoW Forever database, page by page: the creatures and chests that drop an item and how often its players saw it, who sells it, who starts and ends a quest | none stated: ids and counts only, no text; credit it | from a copy in `data/wowhead-pages`, read slowly in your own browser tab (The Forge › Imports). The tracker never asks Wowhead for a page |
+| [Wowhead Classic's pages](WOWHEAD-PAGES.md#classics-pages) | Wowhead's WoW Classic database, page by page: how often Classic's players saw a creature or chest drop an item, for creatures and chests Forever kept | none stated: ids and counts only, no text; credit it | from the same copy, read by the full crawl. Drops only, and only where Forever's pages count too few; trusted after every source recorded on Forever |
 | [NorgannonDB](NORGANNONDB.md) | open Forever database: QuestieDB, pfQuest, DungeonJournal, cmangos classic-db and its players' Collector | GPL-3.0 | pinned commit, downloaded whole |
 | [EG Link](https://github.com/JIVESCORP/eg-link-output-wowf) | what EG Link players' addons recorded on live Forever, per client build: vendor windows, loot with kill counts, trainer lists, who offers and takes quests | CC BY 4.0: credit *"Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."* | its newest commit, every Forever build |
 | [ForeverDB.net](https://foreverdb.net) | its addon data: stock of vendors its players saw on Forever, boss loot measured on Forever, quest givers and enders its players recorded | GPL-3.0 with attribution: *"Data from ForeverDB.net"* | its manifest's version, each file checked by sha256 |
@@ -213,7 +214,7 @@ line like a table; nothing changes until the card is applied.
   the game itself, and no import changes a row written from them. The other sources describe what the client does not
   carry (where things drop, who sells them, who gives a quest). `[sources] trust` orders those, most trusted first. By
   default: Wowhead, then Questie's data (it comes through NorgannonDB), then Icy Veins, then EG Link, ForeverDB.net and
-  AtlasLoot, and last the original game's database.
+  AtlasLoot, then what was counted on Classic (Wowhead Classic), and last the original game's database.
 - **Moved.** By a tenth of what it was (`[sources] chance_tolerance`, percent) and by 0.05 points at least: a source
   that counted a few more corpses shifts every number a little, and each change is a line in a file.
 - **Safe.** Each statement names the value it replaces (`... AND ABS(Chance - 7.75) < 0.005`): it changes nothing where
@@ -290,7 +291,7 @@ cut short goes on from where it stopped, since what was asked since the button w
 ## Running them
 
 - The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
-- `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead`; `atlasloot --if-new` does nothing
+- `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic`; `atlasloot --if-new` does nothing
   when the newest CurseForge file is the one imported last. One run of a source at a time: a second one says the
   import is already running and exits 3. `--log` writes the run's lines to `data/source-<source>.log`, the file the
   Imports page reads, instead of printing them.

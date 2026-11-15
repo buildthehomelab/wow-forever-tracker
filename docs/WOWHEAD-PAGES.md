@@ -70,8 +70,27 @@ seconds the whole database is days of crawling. The queue and what was read live
 crawl is more than localStorage holds); `WHC.status()` gives what is queued and read by kind. The tab must stay open
 and, ideally, visible: a hidden tab's timers are slowed.
 
-**What the import reads of it**: Forever's item, quest, npc and object pages (below). The lists and the Classic pages
-are kept in the cache for the imports that will read them.
+**What the import reads of it**: Forever's item, quest, npc and object pages (below), and Classic's npc and object
+pages as a card of their own ([Classic's pages](#classics-pages)). The lists are kept in the cache for the imports
+that will read them.
+
+## Classic's pages
+
+*Import Classic pages* (The Forge › Imports, or `php tools/source-import.php wowheadclassic`) makes a card of its own,
+source *Wowhead Classic*, from the Classic pages the full crawl read. Classic's players looted the same creatures and
+chests far more often than Forever's have so far, so their counts fill in where Forever's are too few:
+
+- **Drops only**: an npc page's *Drops*, an object page's *Contains*, *Mining*, *Herbalism*, with the same counts as
+  Forever's (at least 10 loots, seen at least twice). Vendors and quest givers are not taken: Forever moved them.
+- **Only where Forever has no counted chance** for that creature or chest and item; where it has one, Forever's is
+  taken and the Classic one is counted on the card.
+- **Forever's item pages decide a world drop**, as they do for Forever's own npc pages: a creature's drop of a gap
+  item waits for the item's Forever page.
+- **Trust**: after every source recorded on Forever, before the original game's database. A Classic chance never
+  changes a row Wowhead (Forever) or a live recording brought; it may measure again the rows it brought itself, and
+  the original game's database's.
+
+Each row's `Comment` is `Wowhead Classic <date>`.
 
 ## The pace
 

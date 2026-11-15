@@ -112,6 +112,10 @@ switch ((string)($input['action'] ?? '')) {
         // the pages kept in the cache (tools/wowhead-pages): nothing is asked of Wowhead here
         require_once FT_APP . '/wowheadpages.php';
         json_out(wowhead_pages_import());
+    case 'source_wowheadclassic':
+        // Classic's pages kept in the cache: drops where Forever's own pages count too few
+        require_once FT_APP . '/wowheadpages.php';
+        json_out(wowhead_pages_classic_import());
     case 'source_foreverchanges':
         require_once FT_APP . '/sources.php';
         json_out(foreverchanges_import());
