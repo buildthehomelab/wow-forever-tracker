@@ -231,7 +231,7 @@ function import_build(int $id, array $only = [], array $items = []): array
     // values a source measured again (source_refresh): each a line of the card named "table.column", ticked like a table
     $changes = array_values(array_filter($data['changes'] ?? [], fn($op) => is_array($op) && isset($op['table'], $op['set']) && (!$only || in_array($op['table'] . '.' . $op['set'], $only, true))));
     if ($only) $tables = array_intersect_key($tables, array_flip($only));
-    $warnings = []; $ops = []; $nearby = 0; $unknown = 0; $lootIds = []; $vendors = [];
+    $warnings = []; $ops = []; $nearby = 0; $unknown = 0; $lootIds = []; $vendors = []; $trainers = [];
     $itemSet = $items ? array_flip(array_map('intval', $items)) : null;
     if ($itemSet !== null) {
         // only what makes these items obtainable: their loot rows, vendor rows and the quests that reward them
@@ -308,6 +308,7 @@ function import_build(int $id, array $only = [], array $items = []): array
                 if (array_filter($r, 'is_array')) { $unknown++; continue; }
                 if ($table === 'creature_loot_template' && is_int($r['Entry'] ?? null)) $lootIds[$r['Entry']] = true;
                 if ($table === 'npc_vendor' && is_int($r['entry'] ?? null)) $vendors[$r['entry']] = true;
+                if ($table === 'creature_trainer' && is_int($r['CreatureID'] ?? null)) $trainers[$r['CreatureID']] = true;
                 $rows[] = array_values($r);
             }
             if (!$rows) continue;
@@ -317,8 +318,12 @@ function import_build(int $id, array $only = [], array $items = []): array
     }
     // a creature drops a loot table only when its template points to it: fill LootID where it is still 0
     // a creature sells only with the vendor flag (npcflag 128): added where it lacks it
-    if ($vendors) forge_merge($ops, ['db' => 'world', 'table' => 'creature_template', 'columns' => ['entry', 'npcflag'], 'match' => ['entry'], 'bits' => 'npcflag',
-        'rows' => array_map(fn($entry) => [$entry, 128], array_keys($vendors))]);
+    // and trains only with the trainer flags (16 trainer + 64 profession trainer), added the same way
+    $flags = [];
+    foreach (array_keys($vendors) as $entry) $flags[$entry] = 128;
+    foreach (array_keys($trainers) as $entry) $flags[$entry] = ($flags[$entry] ?? 0) | 16 | 64;
+    if ($flags) forge_merge($ops, ['db' => 'world', 'table' => 'creature_template', 'columns' => ['entry', 'npcflag'], 'match' => ['entry'], 'bits' => 'npcflag',
+        'rows' => array_map(fn($entry, $bits) => [$entry, $bits], array_keys($flags), $flags)]);
     // (a loot table some creature already points to needs nothing: the rows were added to that creature's own table)
     foreach (array_chunk(array_keys($lootIds), 1000) as $chunk) {
         foreach (rows('SELECT DISTINCT LootID FROM creature_template_difficulty WHERE LootID IN (' . implode(',', $chunk) . ')', [], 'world') as $r) unset($lootIds[(int)$r['LootID']]);
