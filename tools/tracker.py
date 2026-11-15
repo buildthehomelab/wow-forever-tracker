@@ -238,6 +238,50 @@ def wowhead_verdicts(content, results, baseline, ask):
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
+def classic_teachers(args):
+    """What a pack of the original game's database says about the profession recipes nobody can learn on the realm
+    (ft.classic, docs/SOURCES.md): trainer lines, quests whose turn-in should cast a spell. Called by the website."""
+    from ft import classic, phases as phase_rules
+    from ft.content import EFFECT_LEARN_SPELL, PROFESSION_CATEGORIES
+    try:
+        pack = classic.load(args.pack)
+    except (OSError, ValueError, EOFError) as error:
+        sys.exit(f'classic: {args.pack} cannot be read ({error})')
+    if not sqlio.has_table('ft_entities', 'tracker'):
+        sys.exit('classic: no analysis yet (run it first)')
+    lines = {r['ID'] for r in server.server_db2('SkillLine') if r['CategoryID'] in PROFESSION_CATEGORIES}
+    line_of = {}
+    for ability in server.server_db2('SkillLineAbility'):
+        if ability['SkillLine'] in lines:
+            line_of.setdefault(ability['Spell'], ability['SkillLine'])
+    waiting = phase_rules.closed(phase_rules.load(), CONFIG.get('phases', 'current'))
+    later = ' AND phase NOT IN (' + ','.join(str(int(p)) for p in waiting) + ')' if waiting and sqlio.has_column('ft_entities', 'phase', 'tracker') else ''
+    wanted = {}
+    for row in sqlio.query("SELECT id, checks FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('spell', 'recipe')" + later, 'tracker'):
+        spell = int(row['id'])
+        if spell in line_of and any(c.get('code') == 'learn' and not c.get('ok') for c in json.loads(row['checks'] or '[]')):
+            wanted[spell] = line_of[spell]
+    teachers = {}
+    for effect in server.server_db2('SpellEffect'):
+        if effect['Effect'] == EFFECT_LEARN_SPELL and effect['EffectTriggerSpell'] in wanted:
+            teachers.setdefault(effect['EffectTriggerSpell'], set()).add(effect['SpellID'])
+    for row in server.server_db2('SpellLearnSpell'):
+        if row['LearnSpellID'] in wanted and row['SpellID']:
+            teachers.setdefault(row['LearnSpellID'], set()).add(row['SpellID'])
+    named = sorted({quest for quest, _shown, _cast in pack['quests']})
+    quests = {}
+    for start in range(0, len(named), 1000):
+        for row in sqlio.query('SELECT ID, RewardSpell FROM quest_template WHERE ID IN (' + ','.join(map(str, named[start:start + 1000])) + ')'):
+            quests[int(row['ID'])] = int(row['RewardSpell'] or 0)
+    found = classic.evidence(pack, wanted, teachers, quests)
+    result = {'version': str(pack.get('version') or '')[:120], 'made': str(pack.get('made') or '')[:10], 'asked': len(wanted),
+              'ev': {'train': found['train']}, 'changes': found['changes'], 'gossip': found['gossip'], 'left': found['left']}
+    with open(args.out, 'w', encoding='utf-8') as out:
+        json.dump(result, out, ensure_ascii=False)
+    log(f"classic: {len(wanted)} recipes asked, {len(found['train'])} trainer lines, {sum(len(c['rows']) for c in found['changes'])} quests, "
+        f"{len(found['gossip'])} taught in a conversation")
+
+
 def player_reports(args):
     """Turns a ForeverChanges pack into the evidence the website's import card is made from (ft.reports,
     docs/SOURCES.md): its NPC names matched to the server's creatures by where they stand. Called by the website."""
@@ -625,6 +669,9 @@ def main():
     told = sub.add_parser('reports', help="players' reports (a ForeverChanges pack) as evidence for the website's import card")
     told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pack.py made')
     told.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
+    old_game = sub.add_parser('classic', help="the original game's teachers of recipes nobody can learn yet (a classic-db pack) as evidence for the website's import card")
+    old_game.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/classicdb_pack.py made')
+    old_game.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
     check = sub.add_parser('check', help='fetch, hotfixes, then analyse when either brought something new')
     check.add_argument('--wowhead', action='store_true', help='as for analyse')
     check.add_argument('--always', action='store_true', help='analyse even when nothing was new')
@@ -671,6 +718,8 @@ def main():
         refresh_quests(args)
     elif args.command == 'reports':
         player_reports(args)
+    elif args.command == 'classic':
+        classic_teachers(args)
     elif args.command == 'hotfixes':
         url = CONFIG.get('client', 'hotfix_cache') or hotfixes.MIRROR
         result = client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url))()

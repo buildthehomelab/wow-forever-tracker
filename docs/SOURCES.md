@@ -14,9 +14,32 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever, one answer per item, quest and NPC | none stated: reference for your own server | asked about each gap, two requests a second, in the background |
 
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
+| [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it. Asked last, and only about profession recipes nobody can learn | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
 Questie and DungeonJournal come in through NorgannonDB, which is built from them: a second Questie import would only
 repeat its rows.
+
+## The original game's database: the last word, from a file
+
+`python tools/classicdb_pack.py ClassicDB_1_12_1_z2815.sql.gz out.cdbpack` makes a pack from the full dump of
+cmangos' classic-db (`Full_DB/` of its repository): about 150 kB of gzipped JSON with its trainer lines, the quests
+whose turn-in shows or casts a spell, and the spells a line of a creature's conversation casts. The dump is only read
+as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
+(`data/classicdb/pack.cdbpack`) and a card is made at once; *Read the pack again* makes a new card after an analysis.
+
+- **Only what nothing else answers.** The original game is not WoW: Forever. The pack is asked about profession
+  recipes that exist in the Forever client and that nobody can learn on the server: no trainer, no quest, no
+  obtainable item, no live recording. Where Forever kept the original recipe, the original teacher is the best word
+  left. It is the last source in `[sources] trust`.
+- **The spell that teaches.** Classic's trainers and quests name the teaching spell (10843 teaches Heavy Mageweave
+  Bandage, 10841). The server's own learn effects say which recipe that is.
+- **Trainers.** A trainer line becomes a `trainer_spell` row at the trainer the server has for that creature, with
+  Classic's cost, skill and level, under the same rules as every other source.
+- **Quests.** A quest of the server that casts nothing at its turn-in gets the spell Classic cast
+  (`quest_template.RewardSpell`). The operation fills: a quest that already casts a spell is left as it is and counted.
+- **Conversations.** A recipe Classic teaches through a line of a creature's conversation (Knot Thimblejack's Gordok
+  Ogre Suit, Omarion's frost resistance sets, the transporter gnomes) needs a script on the server, not a row: it is
+  counted on the card, never written.
 
 ## ForeverChanges: names and places, from a file
 
@@ -161,7 +184,7 @@ line like a table; nothing changes until the card is applied.
   the game itself, and no import changes a row written from them. The other sources describe what the client does not
   carry (where things drop, who sells them, who gives a quest). `[sources] trust` orders those, most trusted first. By
   default: Wowhead, then Questie's data (it comes through NorgannonDB), then Icy Veins, then EG Link, ForeverDB.net and
-  AtlasLoot.
+  AtlasLoot, and last the original game's database.
 - **Moved.** By a tenth of what it was (`[sources] chance_tolerance`, percent) and by 0.05 points at least: a source
   that counted a few more corpses shifts every number a little, and each change is a line in a file.
 - **Safe.** Each statement names the value it replaces (`... AND ABS(Chance - 7.75) < 0.005`): it changes nothing where
