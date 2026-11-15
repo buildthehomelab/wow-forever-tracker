@@ -67,6 +67,63 @@ test('a quest series: the quests before and after, 0 for the page itself', () =>
   const record = crawler.extract('quest', 20, quest, 200, '');
   assert.deepEqual(record.series, [10, 0, 30]);
   assert.deepEqual(record.quick, ['Start: [url=/forever/npc=7]']);
+  const tip = crawler.quickFacts('WH.markup.printHtml("[ul][li][tooltip name=x1]Consumed when used[\\/tooltip][span tooltip=x1 class=tip]Consumable[\\/span][\\/li][\\/ul]", "infobox-contents-0");');
+  assert.deepEqual(tip, ['Consumable']);
+});
+
+// ------------------------------------------------------------------ the pace
+const run = (p, answers) => { const waits = []; for (const a of answers) { const r = crawler.paced(p, a); p = r.p; waits.push(r.wait); } return [p, waits]; };
+const pages = n => Array(n).fill('page');
+
+test('clean pages speed it up, step by step, never past the fastest', () => {
+  let [p] = run(crawler.pacer(), pages(15));
+  assert.equal(p.gap, Math.round(30000 * 0.92));
+  [p] = run(p, pages(15 * 60));
+  assert.equal(p.gap, crawler.PACE.fastest);
+});
+
+test('a block slows it down, waits, and remembers the pace it came at', () => {
+  let [p] = run(crawler.pacer({ gap: 12000 }), []);
+  let waits;
+  [p, waits] = run(p, ['block']);
+  assert.deepEqual([p.gap, p.blockedAt, waits[0]], [19200, 12000, 8.5 * 60000]);
+  [p, waits] = run(p, ['block']);                       // straight after: twice the wait
+  assert.equal(waits[0], 17 * 60000);
+  [p] = run(p, pages(15 * 40));                         // then it settles above the remembered pace, not at the fastest
+  assert.ok(p.gap >= Math.round(p.blockedAt * crawler.PACE.margin) && p.gap < 19200 * 1.6, String(p.gap));
+});
+
+test('the remembered block pace fades after a long clean run at the margin', () => {
+  let [p] = run(crawler.pacer({ gap: 14400, blockedAt: 12000 }), pages(crawler.PACE.fadeEvery));
+  assert.equal(p.blockedAt, 11400);
+});
+
+test('network errors wait longer each time, ease the pace every third, and are no block', () => {
+  let [p, waits] = run(crawler.pacer({ gap: 20000 }), ['error', 'error', 'error', 'error']);
+  assert.deepEqual(waits, [15000, 30000, 60000, 120000]);
+  assert.deepEqual([p.gap, p.blockedAt], [24000, 0]);
+  [p, waits] = run(p, Array(10).fill('error'));
+  assert.equal(waits.at(-1), crawler.PACE.longestErrorWait);
+  [p] = run(p, ['page']);
+  assert.equal(p.errors, 0);
+});
+
+test('answers: a block, slow down, a network problem, a page', () => {
+  assert.equal(crawler.classify(405, 2120, { status: 'blocked' }), 'block');
+  assert.equal(crawler.classify(403, 900, { status: 'blocked' }), 'block');
+  assert.equal(crawler.classify(429, 100, { status: 'blocked' }), 'slow');
+  assert.equal(crawler.classify(502, 100, { status: 'blocked' }), 'error');
+  assert.equal(crawler.classify(0, 0, null), 'error');
+  assert.equal(crawler.classify(200, 300, { status: 'blocked' }), 'error');   // a cut or foreign answer
+  assert.equal(crawler.classify(200, 90000, { status: 'odd' }), 'error');
+  assert.equal(crawler.classify(200, 90000, { status: 'ok' }), 'page');
+  assert.equal(crawler.classify(404, 9000, { status: 'missing' }), 'page');
+});
+
+test('a kept pace outside the limits is brought back inside them', () => {
+  assert.equal(crawler.pacer({ gap: 1 }).gap, crawler.PACE.fastest);
+  assert.equal(crawler.pacer({ gap: 'x' }).gap, crawler.PACE.start);
+  assert.equal(crawler.pacer({ gap: 10 ** 9 }).gap, crawler.PACE.slowest);
 });
 
 console.log(passed + ' tests passed');

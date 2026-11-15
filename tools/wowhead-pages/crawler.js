@@ -158,7 +158,7 @@
       // a line is the text of one [li]; a [li] that opens a list of its own gives its label first, then its children
       const lines = [];
       const open = [];
-      const emit = line => { line = line.replace(/\[url=([^\]\s]*)[^\]]*\][\s\S]*?\[\/url\]/g, '[url=$1]').replace(/\s+/g, ' ').trim(); if (line && line.length <= 300) lines.push(line); };
+      const emit = line => { line = line.replace(/\[tooltip[^\]]*\][\s\S]*?\[\/tooltip\]/g, '').replace(/\[span[^\]]*\]|\[\/span\]/g, '').replace(/\[url=([^\]\s]*)[^\]]*\][\s\S]*?\[\/url\]/g, '[url=$1]').replace(/\s+/g, ' ').trim(); if (line && line.length <= 300) lines.push(line); };
       for (const part of text.split(/(\[li[^\]]*\]|\[\/li\]|\[ul[^\]]*\]|\[\/ul\])/)) {
         if (/^\[li/.test(part)) open.push('');
         else if (part === '[/li]') { if (open.length) emit(open.pop()); }
@@ -221,7 +221,77 @@
     return record;
   }
 
-  const api = { VERSION, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract };
+  // ------------------------------------------------------------------ the pace (pure)
+  //
+  // Wowhead does not say its limit; it blocks an address for about eight minutes when it asks too much. So the pace
+  // is learned: it speeds up a little after each run of clean pages and slows down a lot after a block (the way TCP
+  // finds a link's speed), and it remembers the pace a block came at, so it settles just above it instead of running
+  // into it again. That memory fades slowly, so a limit that was raised is found too. A network error is no block: the
+  // page is asked again after a growing wait, and the pace only eases when such errors keep coming.
+
+  const PACE = {
+    start: 30000,          // ms between two pages at first
+    fastest: 8000,         // never faster than this
+    slowest: 180000,       // never slower than this
+    speedUpEvery: 15,      // clean pages in a row before a step faster
+    speedUp: 0.92,         // ... of this much
+    slowDown: 1.6,         // after a block
+    margin: 1.2,           // stay this much slower than the pace a block came at
+    fadeEvery: 60,         // clean pages at that margin before the remembered block pace fades ...
+    fade: 0.95,            // ... by this much
+    blockWait: 8.5 * 60000,
+    longestBlockWait: 34 * 60000,
+    errorWait: 15000,      // after a network error, doubled while they follow each other
+    longestErrorWait: 10 * 60000,
+  };
+
+  /** A new pacer state, or the one kept from an earlier run. */
+  function pacer(kept) {
+    const p = Object.assign({ gap: PACE.start, blockedAt: 0, clean: 0, atMargin: 0, blocks: 0, errors: 0 }, kept || {});
+    p.gap = Math.min(PACE.slowest, Math.max(PACE.fastest, Number(p.gap) || PACE.start));
+    return p;
+  }
+
+  /** What an answer is: 'page' (a Wowhead page, or Wowhead saying it has none), 'block' (Wowhead refuses this address
+   *  for a while), 'slow' (asked to slow down), 'error' (the network or Wowhead had a problem: ask again later). */
+  function classify(httpStatus, bytes, record) {
+    if (httpStatus === 405 || httpStatus === 403) return 'block';
+    if (httpStatus === 429) return 'slow';
+    if (!httpStatus || httpStatus >= 500 || httpStatus === 408) return 'error';
+    if (record && record.status === 'blocked') return httpStatus === 200 ? 'error' : 'block';   // a short or foreign answer
+    if (record && record.status === 'odd') return 'error';
+    return 'page';
+  }
+
+  /** The pacer after an answer: {p, wait}: the new state, and how long to wait before anything else (ms). */
+  function paced(p, answer, now = Date.now()) {
+    p = Object.assign({}, p);
+    let wait = 0;
+    if (answer === 'page') {
+      p.errors = 0; p.blocks = 0;
+      const floor = Math.max(PACE.fastest, p.blockedAt * PACE.margin);
+      if (++p.clean >= PACE.speedUpEvery) { p.clean = 0; p.gap = Math.max(floor, Math.round(p.gap * PACE.speedUp)); }
+      // running at the margin for a long while: what blocked once may have been a busy hour, try a little closer
+      if (p.blockedAt && p.gap <= floor * 1.01 && ++p.atMargin >= PACE.fadeEvery) { p.atMargin = 0; p.blockedAt = Math.round(p.blockedAt * PACE.fade); }
+    } else if (answer === 'block') {
+      p.blockedAt = Math.max(p.blockedAt * PACE.fade, p.gap);   // the pace that ran into it
+      p.gap = Math.min(PACE.slowest, Math.round(p.gap * PACE.slowDown));
+      p.clean = 0; p.atMargin = 0;
+      wait = Math.min(PACE.blockWait * 2 ** p.blocks, PACE.longestBlockWait);
+      p.blocks++;
+    } else if (answer === 'slow') {
+      p.gap = Math.min(PACE.slowest, Math.round(p.gap * 1.3)); p.clean = 0;
+      wait = 60000;
+    } else {
+      // the network: wait longer each time; when it keeps failing the pace eases too (an overloaded line)
+      wait = Math.min(PACE.errorWait * 2 ** p.errors, PACE.longestErrorWait);
+      if (++p.errors % 3 === 0) p.gap = Math.min(PACE.slowest, Math.round(p.gap * 1.2));
+      p.clean = 0;
+    }
+    return { p, wait };
+  }
+
+  const api = { VERSION, PACE, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
@@ -234,12 +304,12 @@
   };
   const state = {
     queue: store.get('queue', []),        // 'item:123', in order
-    gap: store.get('gap', 20000),         // ms between two requests, plus up to `jitter`: about 3 pages a minute
-    jitter: 3000,
+    pace: pacer(store.get('pace', null)), // the learned pace (see paced()), kept between runs
+    jitter: 0.15,                         // each wait is the pace, give or take this share
     nextSlot: 0,                          // when the next request to Wowhead may leave, the page's own ones included
-    blockWait: 8.5 * 60000,               // after a block; doubled while blocks follow each other, 34 min at most
     blockedUntil: store.get('blockedUntil', 0),
-    blocks: 0, errors: 0, fetched: 0, skipped: 0, pageRequests: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '',
+    tries: {},                            // network errors per page in this run
+    fetched: 0, pageRequests: 0, running: false, last: null, startedAt: 0, lastAt: 0, note: '', log: [],
   };
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -250,7 +320,7 @@
   async function turn() {
     const now = Date.now();
     const at = Math.max(now, state.nextSlot);
-    state.nextSlot = at + state.gap + Math.random() * state.jitter;
+    state.nextSlot = at + state.pace.gap * (1 + (Math.random() * 2 - 1) * state.jitter);
     if (at > now) await sleep(at - now);
   }
   root.fetch = async function (input, init) {
@@ -295,48 +365,68 @@
     return { added, queued: state.queue.length };
   }
 
+  /** Reads one page: {answer, record?, note}. A page that does not come within a minute is a network error. */
   async function one(key) {
     const [kind, idText] = key.split(':');
     const id = Number(idText);
     let response, html;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 60000);
     try {
       await turn();
-      response = await pageFetch('/' + BRANCH + '/' + kind + '=' + id, { credentials: 'same-origin', redirect: 'follow' });
+      if (!state.running) return { answer: 'stopped' };
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return { answer: 'error', note: 'offline' };
+      response = await pageFetch('/' + BRANCH + '/' + kind + '=' + id, { credentials: 'same-origin', redirect: 'follow', signal: abort.signal });
       html = await response.text();
-    } catch (error) { return { status: 'error', note: String(error) }; }
+    } catch (error) {
+      return { answer: 'error', note: error && error.name === 'AbortError' ? 'no answer within a minute' : String(error) };
+    } finally { clearTimeout(timer); }
     const record = extract(kind, id, html, response.status, response.url);
-    if (record.status === 'blocked') return record;
+    const answer = classify(response.status, html.length, record);
+    // a page this reader does not understand, three times: kept as 'odd' so that the queue goes on
+    const giveUp = answer === 'error' && record.status === 'odd' && (state.tries[key] || 0) >= 2;
+    if (answer !== 'page' && !giveUp) return { answer, note: 'HTTP ' + response.status + ', ' + html.length + ' bytes' };
     record.key = key;
     record.fetched = Math.floor(Date.now() / 1000);
     await pages('readwrite', s => s.put(record));
-    return record;
+    return { answer: 'page', record };
+  }
+
+  function note(text) {
+    state.note = new Date().toLocaleTimeString() + ' ' + text;
+    state.log.push(state.note);
+    if (state.log.length > 50) state.log.shift();
   }
 
   async function run() {
     if (state.running) return;
     state.running = true; state.startedAt = Date.now(); store.set('run', true);
     while (state.running && state.queue.length) {
-      const wait = state.blockedUntil - Date.now();
-      if (wait > 0) { await sleep(Math.min(wait, 30000)); continue; }
+      const left = state.blockedUntil - Date.now();
+      if (left > 0) { await sleep(Math.min(left, 30000)); continue; }
       const key = state.queue[0];
       const result = await one(key);
-      state.last = key + ' ' + result.status; state.lastAt = Date.now();
-      if (result.status === 'blocked') {
-        state.blocks++;
-        state.blockedUntil = Date.now() + Math.min(state.blockWait * 2 ** (state.blocks - 1), 34 * 60000);
-        store.set('blockedUntil', state.blockedUntil);
-        state.note = 'blocked (HTTP ' + result.http + ', ' + result.bytes + ' bytes) at ' + new Date().toLocaleTimeString();
+      if (result.answer === 'stopped') break;
+      state.last = key + ' ' + (result.record ? result.record.status : result.answer); state.lastAt = Date.now();
+      const before = state.pace.gap;
+      const { p, wait } = paced(state.pace, result.answer);
+      state.pace = p; store.set('pace', p);
+      if (result.answer === 'page') {
+        delete state.tries[key];
+        state.fetched++;
+        state.queue.shift(); store.set('queue', state.queue);
+        if (p.gap < before) note('pace ' + Math.round(before / 1000) + ' -> ' + Math.round(p.gap / 1000) + ' s');
         continue;
       }
-      if (result.status === 'error') {
-        // no answer: the page goes to the end of the queue; ten in a row and the crawl stops by itself
-        if (++state.errors >= 10) { state.note = 'stopped: ten requests in a row got no answer (' + result.note + ')'; break; }
-        state.queue.push(state.queue.shift());
-        await sleep(30000);
-        continue;
+      state.blockedUntil = Date.now() + wait;
+      store.set('blockedUntil', state.blockedUntil);
+      if (result.answer === 'block' || result.answer === 'slow') {
+        note(result.answer + ' (' + result.note + '): waiting ' + Math.round(wait / 60000) + ' min, pace ' + Math.round(before / 1000) + ' -> ' + Math.round(p.gap / 1000) + ' s');
+      } else {
+        // the network: the page is asked again after the wait, the queue keeps its order
+        state.tries[key] = (state.tries[key] || 0) + 1;
+        note('network (' + result.note + '): asking again in ' + Math.round(wait / 1000) + ' s');
       }
-      state.errors = 0; state.blocks = 0; state.fetched++;
-      state.queue.shift(); store.set('queue', state.queue);
     }
     if (!state.queue.length) { store.set('run', false); state.note = state.note || 'queue done'; }
     state.running = false;
@@ -347,11 +437,14 @@
     const counts = {};
     for (const p of all) { const k = p.kind + ' ' + p.status; counts[k] = (counts[k] || 0) + 1; }
     const minutes = (Date.now() - state.startedAt) / 60000;
+    const left = state.queue.length * state.pace.gap / 3600000;
     return {
       running: state.running, queued: state.queue.length, read: counts, thisRun: state.fetched,
       perMinute: state.startedAt && minutes > 0.5 ? Math.round(state.fetched / minutes * 10) / 10 : null,
+      paceSeconds: Math.round(state.pace.gap / 100) / 10, blockedAtSeconds: state.pace.blockedAt ? Math.round(state.pace.blockedAt / 100) / 10 : null,
+      hoursLeft: Math.round(left * 10) / 10,
       pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
-      blockedFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
+      waitingFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
     };
   }
 
@@ -375,13 +468,17 @@
   }
 
   root.WHC = {
-    add, status, lines, save, state, extract,
+    add, status, lines, save, state, extract, PACE,
+    log: () => state.log.slice(),
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },
-    pace: seconds => { state.gap = Math.max(4, Number(seconds)) * 1000; store.set('gap', state.gap); return state.gap; },   // under 17 gets blocked
+    // sets the pace by hand; it goes on learning from there. pace(30, true) also forgets the remembered block pace
+    pace: (seconds, forget) => { state.pace = pacer(Object.assign({}, state.pace, { gap: Number(seconds) * 1000, clean: 0 }, forget ? { blockedAt: 0 } : {})); store.set('pace', state.pace); return state.pace; },
     clearQueue: () => { state.queue = []; store.set('queue', []); },
     forget: key => pages('readwrite', s => s.delete(key)),
   };
+  // back on the network: no need to wait out the rest of a network error's pause
+  if (typeof addEventListener === 'function') addEventListener('online', () => { if (state.pace.errors) state.blockedUntil = Math.min(state.blockedUntil, Date.now() + 5000); });
   // a reload in the middle of a crawl: go on by itself
   if (store.get('run', false) && state.queue.length) run();
 })(typeof window !== 'undefined' ? window : globalThis);
