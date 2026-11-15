@@ -18,7 +18,8 @@
 //                                                    higher rank with neither is left out (a talent's later rank
 //                                                    would be sold to players who never took the talent)
 //
-// Sources: NorgannonDB (app/norgannon.php), AtlasLoot (app/atlasloot.php), EG Link, ForeverDB.net, Icy Veins (below).
+// Sources: NorgannonDB (app/norgannon.php), AtlasLoot (app/atlasloot.php), Wowhead's pages (app/wowheadpages.php), EG Link,
+// ForeverDB.net, Icy Veins (below).
 // See docs/SOURCES.md.
 require_once FT_APP . '/imports.php';
 require_once FT_APP . '/collector.php';
@@ -30,6 +31,7 @@ const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' =>
     'Fishing' => 356, 'Jewelcrafting' => 755, 'Inscription' => 773, 'Lockpicking' => 633, 'Poisons' => 40, 'Riding' => 762];
 
 const SOURCES = [
+    'wowhead' => ['Wowhead', 'facts from the pages of wowhead.com/forever (ids and players’ counts, no text; no licence stated: credited)'],
     'norgannondb' => ['NorgannonDB', 'GPL-3.0 (with QuestieDB, pfQuest, DungeonJournal)'],
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],

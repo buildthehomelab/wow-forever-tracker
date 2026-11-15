@@ -15,6 +15,8 @@ jobs:
         env:
           FOREVER_TRACKER_CONFIG: config.sample.ini
         run: python3 -m unittest discover -s tools/tests
+      - name: Wowhead page crawler (what it keeps of a page)
+        run: node tools/tests/test_wowhead_crawl.mjs
       - name: PHP syntax
         run: find app public tools -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Shell syntax

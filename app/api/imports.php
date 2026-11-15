@@ -76,6 +76,10 @@ switch ((string)($input['action'] ?? '')) {
     case 'source_foreverdb':
         require_once FT_APP . '/sources.php';
         json_out(foreverdb_import());
+    case 'source_wowhead':
+        // the pages kept in the cache (tools/wowhead-pages): nothing is asked of Wowhead here
+        require_once FT_APP . '/wowheadpages.php';
+        json_out(wowhead_pages_import());
     case 'source_foreverchanges':
         require_once FT_APP . '/sources.php';
         json_out(foreverchanges_import());
