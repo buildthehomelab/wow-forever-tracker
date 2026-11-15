@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **A checkout finds the server's build as the analysis does.** Without `[server] build` (or `build_file`) in
+  config.ini, it takes the client build the realms accept (`auth.realmlist`), as the analysis already did, instead of
+  stopping.
 - **Checkout: the client's data at any step.** `tracker.py checkout <step>` writes the tables of a build or of a
   day's hotfixes (`70938+1`) as an SQL file for a test realm's hotfixes database: every record that differs from the
   server's DB2 files, removals as `hotfix_data` status 2, one push, exact floats, a manifest of what it holds and what

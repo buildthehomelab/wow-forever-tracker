@@ -560,22 +560,29 @@ def npc_checks(ask):
     sqlio.execute_file(path, 'tracker')
 
 
+def known_server_build():
+    """The build of the server's client data: [server] build_file or build in config.ini, else the client build the
+    realms accept (auth.realmlist), the next best guess; 0 when neither is known."""
+    server_build = CONFIG.server_build()
+    if server_build:
+        return server_build
+    try:
+        server_build = int(sqlio.column('SELECT MAX(gamebuild) FROM realmlist', 'auth')[0] or 0)
+    except (RuntimeError, OSError, IndexError, ValueError, TypeError):
+        return 0
+    if server_build:
+        log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
+    return server_build
+
+
 def analyse(args):
     started = time.time()
     build_list = official_content.builds()
     if not [b for b in build_list if not b.get('baseline')]:
         sys.exit('No snapshot in data/builds. Run the snapshot command first.')
-    server_build = CONFIG.server_build()
+    server_build = known_server_build()
     if not server_build:
-        # no build_file / build in config.ini: the client build the realms accept is the next best guess
-        try:
-            server_build = int(sqlio.column('SELECT MAX(gamebuild) FROM realmlist', 'auth')[0] or 0)
-        except (RuntimeError, IndexError, ValueError, TypeError):
-            server_build = 0
-        if server_build:
-            log(f'server build not set in config.ini ([server] build or build_file): using {server_build} from auth.realmlist')
-        else:
-            log('warning: server build unknown: set [server] build in config.ini')
+        log('warning: server build unknown: set [server] build in config.ini')
     content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
     build_list = more['builds']   # without an original game that could not be compared: the website would show it as a build
     latest = build_list[-1]
@@ -649,9 +656,9 @@ def checkout_cmd(args):
         step = checkout.find(args.step)
     except ValueError as error:
         sys.exit(str(error))
-    server_build = CONFIG.server_build()
+    server_build = known_server_build()
     if not server_build:
-        sys.exit('server build unknown: set [server] build in config.ini (the checkout writes rows for that build)')
+        sys.exit('server build unknown: set [server] build in config.ini, or let the tracker read auth.realmlist (the checkout writes rows for that build)')
     if args.fetch and step['partial']:
         # the client check reads builds into the same CDN folder: one at a time
         gate = client.alone_here('history.lock')
