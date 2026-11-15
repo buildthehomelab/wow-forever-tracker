@@ -207,4 +207,13 @@ test('queue keys: Forever without a branch, Classic and lists with one', () => {
   assert.equal(crawler.keyOf('classic', 'list', 'npcs'), 'classic/list:npcs');
 });
 
+test('an npc page: its drops with counts, without what the page repeats for display', () => {
+  const npc = `<script>var g_pageInfo = {type: 1, typeId: 250484};
+new Listview({template: 'item', id: 'drops', _totalCount: 995, data: [{"id":818,"name":"Tigerseye","classs":7,"flags2":-2147459072,"count":27,"outof":995,"modes":{"0":{"count":27,"outof":995},"mode":[1]},"itemSeasonPhaseData":{"0":{"0":{"count":27}}},"envChange":{"labels":[]},"stack":[1,1]}]});
+new Listview({template: 'item', id: 'sells', data: [{"id":12844,"avail":-1,"cost":[[0,[],[[22484,15]]]]}]});</script>` + pad;
+  const record = crawler.extract('npc', 250484, npc, 200, '');
+  assert.deepEqual(record.tabs.drops, { template: 'item', rows: [{ id: 818, classs: 7, count: 27, outof: 995, stack: [1, 1] }], total: 995 });
+  assert.deepEqual(record.tabs.sells.rows, [{ id: 12844, avail: -1, cost: [[0, [], [[22484, 15]]]] }]);
+});
+
 console.log(passed + ' tests passed');

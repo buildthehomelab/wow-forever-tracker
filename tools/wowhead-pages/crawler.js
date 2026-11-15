@@ -22,6 +22,9 @@
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
   const MAX_ROWS = 2000;
+  // what a row repeats for the page's own display (models, per-season and per-mode copies of its counts): not kept
+  const DISPLAY_ONLY = new Set(['envChange', 'modes', 'itemSeasonPhaseData', 'appearances', 'bonustrees', 'flags2', 'displayid', 'npcmodel', 'popularity']);
+  const rowFacts = row => { if (!row || typeof row !== 'object' || Array.isArray(row)) return null; const out = {}; for (const key of Object.keys(row)) if (!DISPLAY_ONLY.has(key)) out[key] = row[key]; return facts(out); };
 
   // ------------------------------------------------------------------ reading a page (pure)
 
@@ -164,7 +167,7 @@
       const template = typeof config.template === 'string' ? config.template : '';
       if (!id || NOT_DATA.has(template) || !/^[\w-]{1,60}$/.test(id) || !Array.isArray(config.data)) continue;
       const data = config.data;
-      const rows = data.slice(0, MAX_ROWS).map(facts).filter(r => r && typeof r === 'object' && !Array.isArray(r));
+      const rows = data.slice(0, MAX_ROWS).map(rowFacts).filter(r => r && typeof r === 'object' && !Array.isArray(r));
       const tab = { template, rows };
       if (data.length > MAX_ROWS) tab.total = data.length;
       const { found } = counted(config, data.length);
