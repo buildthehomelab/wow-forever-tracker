@@ -1,8 +1,8 @@
 """What the original game's database says about a recipe the realm cannot teach yet.
 
 The source is a pack of cmangos' classic-db (tools/classicdb_pack.py, GPL-3.0): the 1.12 game, not WoW: Forever. It is
-the least trusted source there is and is only asked about what nothing else answers: a profession recipe that exists
-in the Forever client, that no trainer, quest or obtainable item of the realm teaches, and that no live recording
+the least trusted source there is and is only asked about what nothing else answers: a profession recipe that still
+exists in the Forever client (askable), that no trainer, quest or obtainable item of the realm teaches, and that no live recording
 names a teacher for. Where Forever kept the original game's recipe, the original game's teacher is the best word left.
 
     evidence(pack, wanted, teachers, quests) ->
@@ -18,6 +18,7 @@ import gzip
 import json
 
 FORMAT = 1
+NEVER_LEARNED = 3   # SkillLineAbility.AcquireMethod
 
 
 def load(path):
@@ -31,6 +32,14 @@ def load(path):
         if not isinstance(rows, list) or any(not isinstance(r, list) or len(r) != width or any(not isinstance(v, int) or v < 0 for v in r) for r in rows):
             raise ValueError(f'the pack\'s {key} are not what tools/classicdb_pack.py writes')
     return pack
+
+
+def askable(spells, known, acquire):
+    """The recipes it makes sense to ask the original game about: the ones WoW: Forever still has. A recipe whose spell
+    the server's data no longer holds, or that every skill line marks as never learned, is one Forever took away (the
+    old healing potions, replaced by new ones): the original game would hand it back to every trainer.
+    spells: {spell: skill line}; known: the server's spells; acquire: {spell: {AcquireMethod of each skill line row}}."""
+    return {spell: line for spell, line in spells.items() if spell in known and acquire.get(spell) != {NEVER_LEARNED}}
 
 
 def evidence(pack, wanted, teachers, quests):

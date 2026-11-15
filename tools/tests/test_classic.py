@@ -156,6 +156,15 @@ class Evidence(unittest.TestCase):
     def test_what_classic_does_not_know(self):
         self.assertEqual(self.found({1263078: 171})['left'], {'classic_silent': 1})
 
+    def test_what_forever_took_away_is_not_asked(self):
+        # the old healing potions: 2337 is gone from the server's spells, 3447 is there but every skill line says "never
+        # learned"; Goldthorn Tea is learned the usual way, and a spell listed twice is kept when one line teaches it
+        gaps = {2337: 171, 3447: 171, 13028: 185, 7181: 171}
+        left = classic.askable(gaps, known={3447, 13028, 7181}, acquire={2337: {3}, 3447: {3}, 13028: {0}, 7181: {0, 3}})
+        self.assertEqual(left, {13028: 185, 7181: 171})
+        self.assertEqual(classic.askable(gaps, known=set(), acquire={}), {})
+        self.assertEqual(classic.askable({13028: 185}, known={13028}, acquire={}), {13028: 185})   # no skill row read: asked
+
     def test_only_what_was_asked(self):
         self.assertEqual(self.found({}), {'train': [], 'changes': [], 'gossip': [], 'left': {}})
 

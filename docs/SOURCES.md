@@ -31,6 +31,9 @@ as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tr
   recipes that exist in the Forever client and that nobody can learn on the server: no trainer, no quest, no
   obtainable item, no live recording. Where Forever kept the original recipe, the original teacher is the best word
   left. It is the last source in `[sources] trust`.
+- **Not what Forever took away.** A recipe whose spell the server's data no longer holds, or that every skill line
+  marks as never learned, is not asked: Forever replaced the old healing potions with new ones, and the original
+  game would hand the old ones back to every alchemy trainer. They are counted on the card.
 - **The spell that teaches.** Classic's trainers and quests name the teaching spell (10843 teaches Heavy Mageweave
   Bandage, 10841). The server's own learn effects say which recipe that is.
 - **Trainers.** A trainer line becomes a `trainer_spell` row at the trainer the server has for that creature, with

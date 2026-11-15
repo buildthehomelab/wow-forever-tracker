@@ -257,10 +257,14 @@ def classic_teachers(args):
     if not sqlio.has_table('ft_entities', 'tracker'):
         sys.exit('classic: no analysis yet (run it first)')
     lines = {r['ID'] for r in server.server_db2('SkillLine') if r['CategoryID'] in PROFESSION_CATEGORIES}
-    line_of = {}
+    line_of, acquire = {}, {}
     for ability in server.server_db2('SkillLineAbility'):
+        acquire.setdefault(ability['Spell'], set()).add(ability['AcquireMethod'])
         if ability['SkillLine'] in lines:
             line_of.setdefault(ability['Spell'], ability['SkillLine'])
+    known = {r['ID'] for r in server.server_db2('SpellName')}
+    if sqlio.has_table('spell_name', 'hotfixes'):
+        known |= {int(v) for v in sqlio.column('SELECT ID FROM spell_name', 'hotfixes')}
     waiting = phase_rules.closed(phase_rules.load(), CONFIG.get('phases', 'current'))
     later = ' AND phase NOT IN (' + ','.join(str(int(p)) for p in waiting) + ')' if waiting and sqlio.has_column('ft_entities', 'phase', 'tracker') else ''
     wanted = {}
@@ -268,6 +272,8 @@ def classic_teachers(args):
         spell = int(row['id'])
         if spell in line_of and any(c.get('code') == 'learn' and not c.get('ok') for c in json.loads(row['checks'] or '[]')):
             wanted[spell] = line_of[spell]
+    gaps = len(wanted)
+    wanted = classic.askable(wanted, known, acquire)   # not what Forever took away
     teachers = {}
     for effect in server.server_db2('SpellEffect'):
         if effect['Effect'] == EFFECT_LEARN_SPELL and effect['EffectTriggerSpell'] in wanted:
@@ -281,6 +287,8 @@ def classic_teachers(args):
         for row in sqlio.query('SELECT ID, RewardSpell FROM quest_template WHERE ID IN (' + ','.join(map(str, named[start:start + 1000])) + ')'):
             quests[int(row['ID'])] = int(row['RewardSpell'] or 0)
     found = classic.evidence(pack, wanted, teachers, quests)
+    if gaps > len(wanted):
+        found['left']['classic_gone_from_forever'] = gaps - len(wanted)
     result = {'version': str(pack.get('version') or '')[:120], 'made': str(pack.get('made') or '')[:10], 'asked': len(wanted),
               'ev': {'train': found['train']}, 'changes': found['changes'], 'gossip': found['gossip'], 'left': found['left']}
     with open(args.out, 'w', encoding='utf-8') as out:
