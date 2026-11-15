@@ -395,14 +395,15 @@
     importApi({ action }).then((data) => {
       // a source with nothing new still replaced its earlier cards that were never applied: show the list as it is now
       if (!data.ok) { if (data.replaced) setTimeout(() => location.reload(), 2500); return toast(esc(data.message || 'Error'), 'error'); }
-      if (data.zip) {
+      if (data.zip || data.file) {
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([Uint8Array.from(atob(data.zip), (c) => c.charCodeAt(0))], { type: 'application/zip' }));
+        a.href = URL.createObjectURL(new Blob([Uint8Array.from(atob(data.zip || data.file), (c) => c.charCodeAt(0))], { type: data.type || 'application/zip' }));
         a.download = data.name; a.click();
+        if (data.message) toast(esc(data.message));
         return;
       }
       toast(esc(data.message || ''));
-      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
+      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   $$('[data-import-upload] input[type=file]').forEach((upload) => upload.addEventListener('change', () => {

@@ -101,6 +101,18 @@ $leftLabels = [
     'trainer_skill_unknown' => t('profession entries with an unknown skill', 'entrées de métier à la compétence inconnue'), 'trainer_profession_skill_unknown' => t('profession entries without a skill rank', 'entrées de métier sans rang de compétence'),
     'phase_not_open' => t('gap items and quests of a release phase that is not open yet (not looked at)', 'objets et quêtes manquants d’une phase de sortie pas encore ouverte (non consultés)'),
     'trainer_phase_not_open' => t('trainer spells of a release phase that is not open yet', 'sorts d’entraîneur d’une phase de sortie pas encore ouverte'),
+    // Wowhead pages (app/wowheadpages.php)
+    'wowhead_item_not_read' => t('gap items whose Wowhead page has not been read yet (python tools/wowhead_pages.py todo lists them for the crawler)', 'objets manquants dont la page Wowhead n’a pas encore été lue (python tools/wowhead_pages.py todo les liste pour le crawler)'),
+    'wowhead_quest_not_read' => t('quests without a giver or an ender whose Wowhead page has not been read yet', 'quêtes sans donneur ou sans valideur dont la page Wowhead n’a pas encore été lue'),
+    'wowhead_item_unknown' => t('gap items Wowhead has no page for', 'objets manquants pour lesquels Wowhead n’a pas de page'),
+    'wowhead_no_source' => t('gap items whose Wowhead page names no source at all', 'objets manquants dont la page Wowhead ne nomme aucune source'),
+    'wowhead_only_other_source' => t('gap items Wowhead only knows from a quest reward, a craft, a container, skinning, pick pocketing or fishing (not written by this import)', 'objets manquants que Wowhead ne connaît que par une récompense de quête, un artisanat, un conteneur, le dépeçage, le vol à la tire ou la pêche (non écrits par cet import)'),
+    'wowhead_drop_world' => t('drops of items that fifteen or more different creatures drop (world drops: nobody’s own loot)', 'butins d’objets que quinze créatures différentes ou plus laissent tomber (butin mondial : le butin propre de personne)'),
+    'wowhead_drop_few' => t('drops players saw once, or counted in fewer than ten loots (a sighting, not a rate)', 'butins vus une seule fois, ou comptés sur moins de dix butins (une observation, pas un taux)'),
+    'wowhead_drop_not_counted' => t('drops Wowhead gives without counts', 'butins que Wowhead donne sans décompte'),
+    'wowhead_vendor_other_cost' => t('vendor stock paid with a currency or with items (no cost to give it)', 'articles de marchand payés avec une monnaie ou des objets (pas de coût à leur donner)'),
+    'wowhead_quest_unknown' => t('quests Wowhead has no page for', 'quêtes pour lesquelles Wowhead n’a pas de page'),
+    'wowhead_quest_started_by_item' => t('quests an item starts (no giver to write)', 'quêtes lancées par un objet (pas de donneur à écrire)'),
     // Wowhead quest enders (app/wowhead.php)
     'not_looked_up_yet' => t('quests not looked up on Wowhead yet (run it again)', 'quêtes pas encore consultées sur Wowhead (relancez)'),
     'not_on_wowhead' => t('quests Wowhead does not know', 'quêtes inconnues de Wowhead'),
@@ -217,6 +229,22 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_atlasloot"><i class="fas fa-book-skull"></i> <?= e(t('Import AtlasLoot', 'Importer AtlasLoot')) ?></button>
   </div>
   <?php if ($alLog !== ''): ?><p class="muted small">AtlasLoot: <?= e($alLog) ?></p><?php endif; ?>
+</section>
+
+<?php require_once FT_APP . '/wowheadpages.php'; $whPages = ['item' => count(wowhead_pages('item')), 'quest' => count(wowhead_pages('quest'))]; ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Players’ counts', 'Décomptes des joueurs')) ?></span><h2><?= e(t('Wowhead pages', 'Pages Wowhead')) ?></h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('Wowhead’s tooltips say what WoW Forever has; its pages say where it comes from: the creatures and chests that drop an item and how often players saw it, who sells it, who starts and ends a quest. Wowhead answers page requests from a server with “forbidden”, so the pages are read slowly in your own browser, and this tracker asks Wowhead for nothing.', 'Les infobulles de Wowhead disent ce que WoW Forever contient ; ses pages disent d’où cela vient : les créatures et coffres qui donnent un objet et à quelle fréquence les joueurs l’ont vu, qui le vend, qui donne et valide une quête. Wowhead refuse les requêtes de pages venant d’un serveur : elles sont donc lues lentement dans votre propre navigateur, et ce tracker ne demande rien à Wowhead.')) ?></li>
+    <li><?= e(t('Download the crawler: the pages this tracker wants next are already in it, the ones other content waits for first. Open wowhead.com/forever in a browser tab, open its developer console (F12), paste the file and press Enter. Leave the tab open: it reads a page every half minute or so, finds by itself how fast Wowhead lets it go, and waits when Wowhead says to. Pasting it again after a reload goes on where it stopped.', 'Téléchargez le crawler : les pages que ce tracker veut ensuite y sont déjà, d’abord celles que d’autres contenus attendent. Ouvrez wowhead.com/forever dans un onglet, ouvrez sa console (F12), collez le fichier et validez. Laissez l’onglet ouvert : il lit une page toutes les trente secondes environ, trouve seul l’allure que Wowhead tolère et attend quand Wowhead le demande. Le recoller après un rechargement reprend où il s’était arrêté.')) ?></li>
+    <li><?= e(t('Type WHC.save() in that console at any time: it downloads wowhead-pages.jsonl. Send that file here: the pages are kept (numbers only, no name or text of a page) and an import card is made from all of them. Then download the crawler again for the next pages.', 'Tapez WHC.save() dans cette console quand vous voulez : cela télécharge wowhead-pages.jsonl. Envoyez ce fichier ici : les pages sont conservées (des nombres seulement, aucun nom ni texte) et une carte d’import est faite de toutes. Retéléchargez ensuite le crawler pour les pages suivantes.')) ?></li>
+  </ol>
+  <p class="muted small"><?= e(sprintf(t('Pages kept: %s item pages, %s quest pages.', 'Pages conservées : %s pages d’objets, %s pages de quêtes.'), number($whPages['item']), number($whPages['quest']))) ?></p>
+  <div class="btn-row">
+    <button class="btn is-small" type="button" data-scribe="wowhead_crawler"><i class="fas fa-download"></i> <?= e(t('Download the crawler', 'Télécharger le crawler')) ?></button>
+    <form class="import-upload" data-import-upload><label class="btn is-small"><i class="fas fa-file-arrow-up"></i> <?= e(t('Send wowhead-pages.jsonl', 'Envoyer wowhead-pages.jsonl')) ?><input type="file" accept=".jsonl" hidden></label></form>
+    <button class="btn is-small is-gold" type="button" data-scribe="source_wowhead" <?= array_sum($whPages) ? '' : 'disabled' ?>><i class="fas fa-book-open"></i> <?= e(t('Import Wowhead pages', 'Importer les pages Wowhead')) ?></button>
+  </div>
 </section>
 
 <section class="block import-add">

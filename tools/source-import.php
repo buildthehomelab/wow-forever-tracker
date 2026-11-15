@@ -1,7 +1,7 @@
 <?php
 // Imports one open data source as an import card aimed at the last analysis' gaps (docs/SOURCES.md).
 //
-//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot [--if-new] [--resume] [--log]
+//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead [--if-new] [--resume] [--log]
 //
 // One run of a source at a time: the run holds a lock (app/sources.php, source_lock) and a second one says so and
 // exits 3 without touching anything.
@@ -17,11 +17,12 @@ $_SERVER['SCRIPT_NAME'] = '/index.php';
 require dirname(__DIR__) . '/app/bootstrap.php';
 require FT_APP . '/norgannon.php';
 require FT_APP . '/atlasloot.php';
+require FT_APP . '/wowheadpages.php';
 $source = $argv[1] ?? '';
 $flags = array_slice($argv, 2);
 $ifNew = in_array('--if-new', $flags, true);
 $resume = in_array('--resume', $flags, true) && $source === 'icyveins';
-$run = ['norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import'];
+$run = ['norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import', 'wowhead' => 'wowhead_pages_import'];
 if (!isset($run[$source])) { fwrite(STDERR, "usage: php tools/source-import.php " . implode('|', array_keys($run)) . " [--if-new] [--resume] [--log]\n"); exit(2); }
 $lock = source_lock($source, 10);
 if ($lock === false) { fwrite(STDERR, 'cannot open ' . source_lock_file($source) . ": is the data folder writable?\n"); exit(1); }

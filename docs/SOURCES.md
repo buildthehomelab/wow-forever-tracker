@@ -7,6 +7,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 
 | Source | What it is | Licence | How it is read |
 |---|---|---|---|
+| [Wowhead's pages](WOWHEAD-PAGES.md) | Wowhead's WoW Forever database, page by page: the creatures and chests that drop an item and how often its players saw it, who sells it, who starts and ends a quest | none stated: ids and counts only, no text; credit it | from a copy in `data/wowhead-pages`, read slowly in your own browser tab (The Forge › Imports). The tracker never asks Wowhead for a page |
 | [NorgannonDB](NORGANNONDB.md) | open Forever database: QuestieDB, pfQuest, DungeonJournal, cmangos classic-db and its players' Collector | GPL-3.0 | pinned commit, downloaded whole |
 | [EG Link](https://github.com/JIVESCORP/eg-link-output-wowf) | what EG Link players' addons recorded on live Forever, per client build: vendor windows, loot with kill counts, trainer lists, who offers and takes quests | CC BY 4.0: credit *"Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."* | its newest commit, every Forever build |
 | [ForeverDB.net](https://foreverdb.net) | its addon data: stock of vendors its players saw on Forever, boss loot measured on Forever, quest givers and enders its players recorded | GPL-3.0 with attribution: *"Data from ForeverDB.net"* | its manifest's version, each file checked by sha256 |
@@ -152,6 +153,10 @@ website runs.
 - **Loot**: into the creature's own loot table (`LootID` filled where it is 0) or the chest's (`Data1`); a chance of 0
   (unknown) is left out; an item the table already gives, references included, is left out. EG Link drops count from
   10 looked corpses; skinning, pick pocketing and quest-tied loot are left out.
+- **Wowhead's pages**: a drop counts from 10 loots of that creature or chest in which the item fell at least twice;
+  an item 15 or more creatures drop is a world drop and is left out; vendor stock paid with a currency or with items
+  is left out; a quest's giver and ender are taken by id from the page's Quick Facts. It needs no second source: it
+  is the most trusted one after the client. [WOWHEAD-PAGES.md](WOWHEAD-PAGES.md) has the details.
 - **AtlasLoot**: only the files its `_Forever.toc` loads; a table that switches itself off before The Burning Crusade
   (`data-tbc.lua`) is not Forever's, nor are blocks wrapped for a later version, instances marked `IgnoreAsSource`
   and rows with a price (vendor stock). A boss without a creature number (Forever's new dungeons) or a chest is found
@@ -209,7 +214,8 @@ line like a table; nothing changes until the card is applied.
   the row moved on meanwhile, nothing more when it runs again, and the rollback is the same statement the other way
   round. *Data repo .sql* exports it as it is.
 - **Which sources.** Icy Veins (it looks the items of imported drops up again, besides the gaps; its answers are kept
-  for two weeks), EG Link and ForeverDB.net (their whole files are read anyway). Not yet: NorgannonDB (it is asked about
+  for two weeks), EG Link and ForeverDB.net (their whole files are read anyway), and Wowhead's pages (every item page
+  in the cache is compared, whether the item is still a gap or not). Not yet: NorgannonDB (it is asked about
   the gaps only), AtlasLoot (its measures are the other sources'), and a trainer's price or a vendor's stock (those tables do not say
   which import brought a row).
 
@@ -277,8 +283,8 @@ cut short goes on from where it stopped, since what was asked since the button w
 
 ## Running them
 
-- The Forge › Imports: *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
-- `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot`; `atlasloot --if-new` does nothing
+- The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
+- `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead`; `atlasloot --if-new` does nothing
   when the newest CurseForge file is the one imported last. One run of a source at a time: a second one says the
   import is already running and exits 3. `--log` writes the run's lines to `data/source-<source>.log`, the file the
   Imports page reads, instead of printing them.
