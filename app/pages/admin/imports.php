@@ -45,6 +45,10 @@ $leftLabels = [
     'drop_differs_trusted' => t('drops whose chance differs from a more trusted source’s row (not changed)', 'butins dont la chance diffère de celle d’une source plus fiable (inchangés)'),
     'report_quest_not_seen' => t('quests no player of the site saw (Classic’s lines: not taken)', 'quêtes qu’aucun joueur du site n’a vues (lignes de Classic : non reprises)'),
     'report_quest_started_by_item' => t('quests an item starts (no giver to write)', 'quêtes lancées par un objet (pas de donneur à écrire)'),
+    'classic_conversation' => t('recipes the original game teaches through a line of a creature’s conversation (a script, not a row: not written)', 'recettes que le jeu d’origine enseigne par une réplique d’un PNJ (un script, pas une ligne : non écrites)'),
+    'classic_quest_unknown' => t('quests of the original game that taught a recipe and that this server does not have', 'quêtes du jeu d’origine qui enseignaient une recette et que ce serveur n’a pas'),
+    'classic_quest_casts_already' => t('quests that already cast a spell at the turn-in (left as they are)', 'quêtes qui lancent déjà un sort au rendu (laissées telles quelles)'),
+    'classic_silent' => t('recipes the original game’s database names no teacher for', 'recettes pour lesquelles la base du jeu d’origine ne nomme personne'),
     'report_name_unknown' => t('NPC names no creature or object of this server has', 'noms de PNJ qu’aucune créature ni objet de ce serveur ne porte'),
     'report_not_spawned' => t('names that two or more templates share, none of them spawned (nothing tells which one players met), and drops of creatures nobody spawned', 'noms que deux modèles ou plus partagent, aucun n’étant placé (rien ne dit lequel les joueurs ont rencontré), et butins de créatures que personne n’a placées'),
     'report_several_same_name' => t('names several creatures share, with nothing to tell them apart', 'noms partagés par plusieurs créatures, sans rien pour les distinguer'),
@@ -164,6 +168,21 @@ page_start(t('Imports', 'Imports'), 'admin');
   </div>
 </section>
 
+<?php $cdbPack = classicdb_pack(); ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('The original game, from a file', 'Le jeu d’origine, depuis un fichier')) ?></span><h2><?= e(t('Classic database', 'Base de données Classic')) ?></h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('cmangos’ classic-db (GPL-3.0) is the content of the 1.12 game, not of WoW: Forever. The tracker never downloads it: it reads a pack made from the project’s own dump (python tools/classicdb_pack.py ClassicDB_1_12_1_….sql.gz out.cdbpack, about 150 kB).', 'classic-db de cmangos (GPL-3.0) est le contenu du jeu 1.12, pas de WoW: Forever. Le tracker ne le télécharge jamais : il lit un paquet créé à partir de l’export du projet (python tools/classicdb_pack.py ClassicDB_1_12_1_….sql.gz sortie.cdbpack, environ 150 ko).')) ?></li>
+    <li><?= e(t('It is the last source asked, and only about profession recipes nobody can learn on this server: the trainers that taught them, and the quests whose turn-in cast them. A quest gets the spell only where it casts nothing yet.', 'C’est la dernière source consultée, et seulement pour les recettes de métier que personne ne peut apprendre sur ce serveur : les entraîneurs qui les enseignaient, et les quêtes dont le rendu les lançait. Une quête ne reçoit le sort que si elle n’en lance aucun.')) ?></li>
+    <li><?= e(t('A recipe the original game teaches through a line of a creature’s conversation needs a script, not a row: it is counted, not written.', 'Une recette que le jeu d’origine enseigne par une réplique d’un PNJ demande un script, pas une ligne : elle est comptée, pas écrite.')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <form class="import-upload" data-import-upload><label class="btn is-small is-gold"><i class="fas fa-file-arrow-up"></i> <?= e(t('Send a .cdbpack file', 'Envoyer un fichier .cdbpack')) ?><input type="file" accept=".cdbpack" hidden></label></form>
+    <?php if (is_file($cdbPack)): ?><button class="btn is-small" type="button" data-scribe="source_classicdb"><i class="fas fa-rotate"></i> <?= e(t('Read the pack again', 'Relire le paquet')) ?></button>
+      <small class="muted"><?= e(sprintf(t('Pack of %s, %s.', 'Paquet du %s, %s.'), date(t('M j, Y H:i', 'd/m/Y H:i'), (int)filemtime($cdbPack)), number((int)filesize($cdbPack) / 1024, 0) . ' kB')) ?></small><?php endif; ?>
+  </div>
+</section>
+
 <?php $alLog = is_file(source_log('atlasloot')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('atlasloot')))) : ''; ?>
 <section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Addon data', 'Données d’addon')) ?></span><h2>AtlasLoot Classic Forever</h2></div></header>
@@ -230,7 +249,7 @@ foreach ($ordered as $s): $counts = json_decode((string)$s['counts'], true) ?: [
   </header>
   <div class="import-tables">
     <?php foreach ($counts as $table => $n): ?>
-      <label class="checkbox-line"><input type="checkbox" value="<?= e($table) ?>" checked> <span><?= e($tableLabels[$table] ?? (preg_match('/^quest_[a-z_]+\.(\w+)$/', (string)$table, $m) ? sprintf(t('Quests the server has: %s changed on live', 'Quêtes du serveur : %s a changé en jeu'), $m[1]) : $table)) ?></span> <small class="muted"><?= e($table) ?> · <?= number($n) ?></small></label>
+      <label class="checkbox-line"><input type="checkbox" value="<?= e($table) ?>" checked> <span><?= e($tableLabels[$table] ?? (str_starts_with((string)$s['file'], 'classicdb@') && $table === 'quest_template.RewardSpell' ? t('Quests that cast nothing at the turn-in: the spell the original game cast', 'Quêtes qui ne lancent rien au rendu : le sort que lançait le jeu d’origine') : (preg_match('/^quest_[a-z_]+\.(\w+)$/', (string)$table, $m) ? sprintf(t('Quests the server has: %s changed on live', 'Quêtes du serveur : %s a changé en jeu'), $m[1]) : $table))) ?></span> <small class="muted"><?= e($table) ?> · <?= number($n) ?></small></label>
     <?php endforeach; ?>
   </div>
   <?php if ($ignored): ?><p class="muted small"><?= e(t('Left out:', 'Écarté :')) ?> <?= e(implode(', ', array_map(fn($t, $n) => ($leftLabels[$t] ?? $t) . " ($n)", array_keys($ignored), $ignored))) ?></p><?php endif; ?>

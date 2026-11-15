@@ -36,6 +36,7 @@ const SOURCES = [
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
     'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14)'],
+    'classicdb' => ['Classic database', 'cmangos classic-db, GPL-3.0: the original game, asked last'],
 ];
 
 /**
@@ -231,12 +232,12 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
  *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot';
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -580,6 +581,66 @@ function source_check(): ?array
     @ini_set('memory_limit', '2048M');
     @set_time_limit(0);
     return null;
+}
+
+// ------------------------------------------------------------------ The original game's database, from a file
+// cmangos' classic-db is the content of the 1.12 game, not of WoW: Forever. It is the last source asked, and only about
+// profession recipes nobody can learn on this server: who trained them, which quest's turn-in cast them. The tracker
+// reads a pack made from the project's own dump (tools/classicdb_pack.py), sent through the Imports page; it never
+// downloads it. tools/tracker.py classic matches the pack to the gaps (ft.classic, docs/SOURCES.md).
+
+function classicdb_pack(): string { return FT_ROOT . '/data/classicdb/pack.cdbpack'; }
+
+/** The evidence tools/tracker.py made from a pack, checked: trainer lines of whole numbers with a skill line, the
+ *  counted reasons that are its own. Anything else is dropped. */
+function classicdb_evidence(array $result): array
+{
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => []];
+    $count = fn($v) => is_int($v) && $v >= 0;
+    foreach ((array)($result['ev']['train'] ?? []) as $r) {
+        if (!is_array($r) || count($r) !== 8 || !is_int($r[0]) || $r[0] <= 0 || !is_int($r[1]) || $r[1] <= 0 || !$count($r[2]) || !$count($r[3])
+            || !is_int($r[4]) || $r[4] <= 0 || !$count($r[5]) || $r[6] !== [] || $r[7] !== 1) continue;
+        $ev['train'][] = [$r[0], $r[1], $r[2], $r[3], $r[4], $r[5], [], 1];
+    }
+    foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^classic_[a-z_]+$/', (string)$why) && (int)$n > 0) $ev['left'][(string)$why] = (int)$n;
+    return $ev;
+}
+
+/** The quests whose turn-in should cast a spell: quest_template.RewardSpell only, and written only where the quest
+ *  casts nothing yet (the operation fills, it never replaces). */
+function classicdb_changes(array $result): array
+{
+    $changes = [];
+    foreach (source_quest_changes($result) as $op) {
+        if ($op['table'] !== 'quest_template' || $op['set'] !== 'RewardSpell') continue;
+        $op['rows'] = array_values(array_filter($op['rows'], fn($row) => is_int($row[1]) && $row[1] > 0));
+        if ($op['rows']) $changes[] = $op + ['fill' => 'RewardSpell'];
+    }
+    return $changes;
+}
+
+function classicdb_import(): array
+{
+    if ($e = source_check()) return $e;
+    $pack = classicdb_pack();
+    if (!is_file($pack)) return ['ok' => false, 'message' => t('No Classic database pack yet: make one with tools/classicdb_pack.py and send the .cdbpack file here.', 'Pas encore de paquet de la base Classic : créez-en un avec tools/classicdb_pack.py et envoyez ici le fichier .cdbpack.')];
+    $out = dirname($pack) . '/evidence.json';
+    @unlink($out);
+    $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' classic --pack ' . escapeshellarg($pack) . ' --out ' . escapeshellarg($out) . ' 2>&1';
+    $lines = []; $code = 1;
+    if (function_exists('exec')) @exec($command, $lines, $code);
+    $result = $code === 0 && is_file($out) ? json_decode((string)file_get_contents($out), true) : null;
+    @unlink($out);
+    if (!is_array($result)) {
+        error_log('Forever Tracker: the Classic database pack could not be read: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
+        return ['ok' => false, 'message' => t('The Classic database pack could not be read (see the PHP error log). Is it a .cdbpack file made by tools/classicdb_pack.py, and has the analysis run?', 'Le paquet de la base Classic n’a pas pu être lu (voir le journal d’erreurs PHP). Est-ce un fichier .cdbpack créé par tools/classicdb_pack.py, et l’analyse a-t-elle tourné ?')];
+    }
+    $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['made'] ?? '')) ? (string)$result['made'] : date('Y-m-d', (int)filemtime($pack));
+    $label = 'Classic database ' . $made;
+    $ev = classicdb_evidence($result);
+    [$tables, $left] = source_tables($ev, $label, source_gaps());
+    return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, classicdb_changes($result));
 }
 
 // ------------------------------------------------------------------ ForeverChanges (players' reports, from a file)
