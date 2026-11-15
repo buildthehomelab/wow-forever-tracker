@@ -207,7 +207,8 @@ function forge_plan(array $ops, array $options = [], array $warnings = []): arra
             foreach ($todo as $row) {
                 $condition = implode(' AND ', array_map(fn($i) => forge_ident($columns[$i]) . ' = ' . forge_literal($row[$i], $database), $where));
                 $plans[$database]['apply'][] = 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ' WHERE ' . $condition . ';';
-                array_unshift($plans[$database]['rollback'], 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = 0 WHERE ' . $condition . ' AND ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ';');
+                // a text column (a script or AI name) is emptied again, a number set back to 0
+                array_unshift($plans[$database]['rollback'], 'UPDATE ' . forge_ident($table) . ' SET ' . forge_ident($fill) . ' = ' . (is_string($row[$at]) ? "''" : '0') . ' WHERE ' . $condition . ' AND ' . forge_ident($fill) . ' = ' . forge_literal($row[$at], $database) . ';');
             }
             continue;
         }
