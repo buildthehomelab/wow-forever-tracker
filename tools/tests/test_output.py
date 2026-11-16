@@ -43,6 +43,7 @@ class Written(unittest.TestCase):
             'pet': {3500: named('Gill\'el', spell=3)},
             'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants')},
             'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants')},
+            'quest': {55296: named(''), 9999999: named('')},
         }
         results = {(kind, i): ('missing', 0, []) for kind in cls.content for i in cls.content[kind]}
         with tempfile.TemporaryDirectory() as folder:
@@ -86,6 +87,12 @@ class Written(unittest.TestCase):
     def test_an_unnamed_recipe_stays_visible(self):
         # the client keeps some content unnamed for players to discover: no name is no reason to hide it
         self.assertEqual(self.internal('recipe', 1252979), 0)
+
+    def test_an_unnamed_quest_of_the_classic_era_client(self):
+        # the Classic Era client's own tracking quests have no title: nothing to add; Forever's unnamed quests stay until
+        # Wowhead says it does not know them either
+        self.assertEqual(self.internal('quest', 55296), 1)
+        self.assertEqual(self.internal('quest', 9999999), 0)
 
     def test_not_used_item(self):
         self.assertEqual(self.internal('item', 269326), 1)

@@ -160,7 +160,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # Unnamed quests stay visible (they are what the server lacks) unless Wowhead does not know them either.
                 looked_up = str(entity_id) in quest_names
                 unknown_everywhere = not name and looked_up and not (quest_names[str(entity_id)].get('fr') or quest_names[str(entity_id)].get('en'))
-                internal = 1 if unknown_everywhere or (name and INTERNAL_NAME.search(name)) else 0
+                # An unnamed quest the Classic Era client already had (Season of Discovery, hidden tracking flags): Wowhead
+                # is only asked about Forever's own quests, so no answer would ever hide it. No title is no quest players take.
+                classic_unnamed = not name and not baseline.is_new(kind, entity_id, entity)
+                internal = 1 if unknown_everywhere or classic_unnamed or (name and INTERNAL_NAME.search(name)) else 0
                 if not name:
                     data['unnamed'] = True
                 name = name or f'#{entity_id}'
