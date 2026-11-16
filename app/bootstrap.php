@@ -305,11 +305,16 @@ function day_sections(string $day): array
     return $out;
 }
 /** The topics of some days' notes, most lines first: ['Classes' => 41, 'Items' => 10, ...]. */
+/**
+ * Headings that say how a post is laid out, not what part of the game changed: no topic on a card. A heading-less post
+ * ('Notes'), a change log, known or fixed issues, forum rules, and a sentence in bold (it ends in a stop or a colon).
+ */
+const NOTES_NOT_TOPICS = '/^(notes|general|change ?log|changes and updates|bug ?fixes|resolved issues|what blizzard said too|customer support|how to\\b.*)$|known issues|new to this build|[.:!?]\\s*$/iu';
 function notes_topics(array $days): array
 {
     $count = [];
     foreach ($days as $day) foreach (day_sections($day) as $name => $lines) {
-        if ($name === 'Notes' || mb_strlen((string)$name) > 32) continue;   // no topic: a heading-less post, a sentence in bold
+        if (mb_strlen((string)$name) > 32 || preg_match(NOTES_NOT_TOPICS, (string)$name)) continue;
         $count[$name] = ($count[$name] ?? 0) + count($lines);
     }
     arsort($count);

@@ -30,4 +30,13 @@ check($notes['days']['2026-11-15']['posts'] === [3], 'another blue post counts o
 check(($notes['days']['2026-11-08']['fc']['id'] ?? '') === 'hotfix-2026-11-08', 'ForeverChanges where Blizzard posted nothing');
 check(isset($notes['builds'][70888]), 'a build note by its number');
 
+// a card's topics: what part of the game changed, not how the post is laid out
+foreach (['Notes', 'Change Log', 'Changes and Updates', 'Known Issues September 18, 2026', 'New to this build – Known Issues',
+          'Known Issues - New October 1', 'Bug Fixes', 'Resolved Issues', 'What Blizzard said too', 'General', 'How to Join',
+          'How to Report Bugs:', 'Do not “bump” posts.', 'Customer Support'] as $heading)
+    check(preg_match(NOTES_NOT_TOPICS, $heading) === 1, "no topic: $heading");
+foreach (['Classes', 'Items', 'Quests and World', 'Hunter and Druid', 'Gamepad Support', 'User Interface and Accessibility',
+          'Enemies and NPCs', 'Night Elf', 'Auction House and mail'] as $topic)
+    check(preg_match(NOTES_NOT_TOPICS, $topic) === 0, "a topic: $topic");
+
 ft_test_done();
