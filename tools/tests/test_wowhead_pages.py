@@ -31,9 +31,10 @@ class Clean(unittest.TestCase):
         self.assertEqual(record['quick'], ['ok'])
         self.assertNotIn('series', record)
 
-    def test_what_a_row_repeats_for_display_is_dropped(self):
-        record = wp.clean(page('npc', 5, tabs={'drops': {'template': 'item', 'rows': [{'id': 818, 'count': 27, 'outof': 995, 'modes': {'0': {'count': 27}}, 'flags2': -5, 'envChange': {'labels': []}}]}}))
-        self.assertEqual(record['tabs']['drops']['rows'], [{'id': 818, 'count': 27, 'outof': 995}])
+    def test_every_number_of_a_row_is_kept(self):
+        row = {'id': 818, 'count': 27, 'outof': 995, 'modes': {'0': {'count': 27}}, 'flags2': -5, 'envChange': {'labels': []}}
+        record = wp.clean(page('npc', 5, tabs={'drops': {'template': 'item', 'rows': [row]}}))
+        self.assertEqual(record['tabs']['drops']['rows'], [row])
 
     def test_no_answer_is_no_page(self):
         for bad in (page('item', 5, status='blocked'), page('item', 5, status='odd'), page('mount', 5), page('item', 0), page('item', True),

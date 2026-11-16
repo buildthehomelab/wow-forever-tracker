@@ -19,7 +19,10 @@ crawler as something else.
 
 ## What is kept of a page
 
-Numbers only. Of each tab (*Dropped by*, *Sold by*, *Contained in*, ...) the rows with their ids and counts; the Quick
+Every number, and nothing else. A page costs seconds of a slow crawl and its numbers a few kilobytes of disk, so all of
+them are kept, also the ones no import reads yet (per-season and per-mode counts, an item's stats): a later import
+reads the cache, it does not ask Wowhead again. Of each tab (*Dropped by*, *Sold by*, *Contained in*, ...) the rows
+with all their numbers (up to 20,000 rows a tab); the Quick
 Facts lines (`Level: 13`, `Start: [url=/forever/npc=253812]`) with the text of their links removed; the map pins.
 Names, descriptions, quest text, comments, screenshots and guides are never kept: the crawler drops every text value
 before it stores a row, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both.
@@ -53,8 +56,8 @@ no client file carries, for WoW Forever and for WoW Classic:
 1. **The lists.** `/forever/npcs`, `/objects`, `/quests`, `/items`, then the same of `/classic`. A list page shows at
    most 1,000 rows and says how many it found; filtered by an id range (`npcs?filter=37:37;2:4;1:20000`, ID ≥ 1 and
    ≤ 20000) it is whole when it found no more than it shows. A cut list is split into ranges of about 800 found ids and
-   those are read first, until every list is whole: a few hundred pages name every id of both branches. Of a row only
-   what a thing is and where it comes from is kept (level, quality, zones, `source` codes), not its stats or its name.
+   those are read first, until every list is whole: a few hundred pages name every id of both branches. Of a row every
+   number is kept (level, quality, zones, `source` codes, an item's stats), never its name.
    The lists go ahead of whatever was queued.
 2. **The pages they name**, after whatever was queued: every npc (drops with counts, sold items, quests it starts and
    ends, where it stands), every object (contents, quests), every quest, and of the items only those whose page says
@@ -128,8 +131,7 @@ repository. From the pages it takes:
 
 The npc and object pages are read a line at a time (a whole crawl is tens of thousands of pages), and of their drops
 and stock only the items worth a row are kept: the gaps, and the items of drop rows an import brought, which are
-measured again. A tab row is kept without what it repeats for the page's own display (models, per-season copies of
-its counts).
+measured again (the cache itself keeps every row).
 
 Not written, and counted on the card: an npc's skinning and pick pocketing loot (tables of their own); items Wowhead only knows as a quest reward, a craft, the content of another
 item, or from skinning, pick pocketing and fishing; drops without counts.

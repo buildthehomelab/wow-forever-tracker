@@ -31,8 +31,6 @@ function wowhead_pages_dirs(): array { return [FT_ROOT . '/tools/wowhead-pages/c
 function wowhead_pages_dir(): string { return FT_ROOT . '/data/wowhead-pages'; }
 const WOWHEAD_PAGES_KINDS = ['item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset'];
 const WOWHEAD_PAGES_BRANCHES = ['forever', 'classic'];
-/** What a tab row repeats for the page's own display (crawlers before 2026-11-15 kept it): not kept. */
-const WOWHEAD_PAGES_DISPLAY_ONLY = ['envChange', 'modes', 'itemSeasonPhaseData', 'appearances', 'bonustrees', 'flags2', 'displayid', 'npcmodel', 'popularity'];
 
 /** Where a crawler line is kept (tools/wowhead_pages.py shelf_of): 'item' for Forever's item pages, as before there
  *  were branches; 'classic-npc'; 'forever-list' for the list pages that named every id of a branch. */
@@ -412,8 +410,7 @@ function wowhead_pages_clean($record): ?array
     ksort($tabs);
     foreach ($tabs as $name => $tab) {
         if (!preg_match('/^[\w-]{1,60}$/', (string)$name) || !is_array($tab) || !is_array($tab['rows'] ?? null)) continue;
-        $rows = array_map(fn($r) => is_array($r) && $r && !array_is_list($r) ? array_diff_key($r, array_flip(WOWHEAD_PAGES_DISPLAY_ONLY)) : $r, $tab['rows']);
-        $rows = array_values(array_filter($rows, fn($r) => is_array($r) && (!$r || !array_is_list($r)) && wowhead_pages_numbers_only($r)));
+        $rows = array_values(array_filter($tab['rows'], fn($r) => is_array($r) && (!$r || !array_is_list($r)) && wowhead_pages_numbers_only($r)));
         $kept = ['template' => substr((string)($tab['template'] ?? ''), 0, 40), 'rows' => $rows];
         if (is_int($tab['total'] ?? null) && $tab['total'] > count($rows)) $kept['total'] = $tab['total'];
         $out['tabs'][(string)$name] = $kept;

@@ -29,8 +29,6 @@ BRANCHES = ('forever', 'classic')
 QUERY = re.compile(r'[a-z-]{1,30}(\?filter=[\d:;]{1,80})?')
 KEPT = ('ok', 'missing')   # 'blocked' and 'odd' are no answer: the page is asked again
 MAX_ID = 2 ** 31 - 1
-# what a tab row repeats for the page's own display (crawlers before 2026-11-15 kept it): not kept
-DISPLAY_ONLY = ('envChange', 'modes', 'itemSeasonPhaseData', 'appearances', 'bonustrees', 'flags2', 'displayid', 'npcmodel', 'popularity')
 TOOLTIP = re.compile(r'\[tooltip[^\]]*\].*?\[/tooltip\]|\[span[^\]]*\]|\[/span\]', re.S)
 
 
@@ -91,8 +89,7 @@ def clean(record):
     for name, tab in sorted(tabs.items()):
         if not re.fullmatch(r'[\w-]{1,60}', str(name)) or not isinstance(tab, dict) or not isinstance(tab.get('rows'), list):
             continue
-        rows = [{k: v for k, v in row.items() if k not in DISPLAY_ONLY} for row in tab['rows'] if isinstance(row, dict)]
-        rows = [row for row in rows if numbers_only(row)]
+        rows = [row for row in tab['rows'] if isinstance(row, dict) and numbers_only(row)]
         kept = {'template': str(tab.get('template') or '')[:40], 'rows': rows}
         if isinstance(tab.get('total'), int) and tab['total'] > len(rows):
             kept['total'] = tab['total']
