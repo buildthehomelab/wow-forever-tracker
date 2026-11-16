@@ -271,9 +271,11 @@ compares the **drops the server already has** with what its source says now, and
 new one, as a line of its card: *Creature drop chances that moved*, *Chest drop chances that moved*. Tick or untick the
 line like a table; nothing changes until the card is applied.
 
-- **Whose rows.** Only a row an import brought: its `Comment` names the source (`Icy Veins 2026-11-14`). The source
-  itself may change it, and so may a more trusted one. A row no import brought (the core's own data, a hand fix) and a
-  row of a more trusted source are counted on the card (*differs ... not changed*) and left alone.
+- **Whose rows.** The newer word wins unless a more trusted source wrote the row. Who wrote it: the tracker's own
+  ledger (`ft_row_origin`, kept by every apply since it was added), else the source its `Comment` names
+  (`Icy Veins 2026-11-14`), else the core. The core's own rows rank below every source, so any import that disagrees
+  replaces them (`[sources] change_core = 0` protects them again). A row a more trusted source wrote is counted on the
+  card and left alone.
 - **Trust.** The game client and Blizzard's CDN come first, always: what the client's own tables or a hotfix hold is
   the game itself, and no import changes a row written from them. The other sources describe what the client does not
   carry (where things drop, who sells them, who gives a quest). `[sources] trust` orders those, most trusted first. By
@@ -289,6 +291,25 @@ line like a table; nothing changes until the card is applied.
   in the cache is compared, whether the item is still a gap or not). Not yet: NorgannonDB (it is asked about
   the gaps only), AtlasLoot (its measures are the other sources'), and a trainer's price or a vendor's stock (those tables do not say
   which import brought a row).
+
+### Every value, and spawns that moved
+
+A card does not only add the rows the server lacks. Every applied card (Apply, or by itself: `[imports] auto_apply`)
+also compares the rows it carries with the ones the server already has, by their primary key, on every column it gives
+but `VerifiedBuild` and `Comment`. Where the server's value differs, and the row's writer is not more trusted than the
+card's source (*Whose rows* above), the card's value replaces it, with the same guarded statement and rollback as a drop
+chance. A drop chance counts as different only past `[sources] chance_tolerance`.
+
+Spawns: a creature or object the card places where none of its kind stands, with one of the same kind on the same map
+within `[imports] spawn_move_yards` (40 by default, 0: never) that the card does not also place, is that spawn moved:
+the nearest one gets the card's position and facing, keeping its guid (its addon, formation and pool rows stay). A
+spawn a more trusted source placed is left where it is, and no second one is added beside it. Like every spawn, moves
+are written only while the worldserver is stopped.
+
+A file imported by hand counts as the source `sniff` (WowPacketParser's format) or `scribe` (ForeverScribe's notes).
+Both come after the Forever sources and before Classic's in the default order.
+
+Applying the cards in the order they were made (which auto-apply does) is what makes the newest word the one that stays.
 
 ### Quests, read again from the live game
 

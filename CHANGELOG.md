@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Imports apply themselves.** A card is now applied as soon as an import makes it, from a button, an upload, a
+  background run (Icy Veins, ForeverChanges) or Wowhead's quest enders, so the next analysis counts it without a
+  click on Apply. The card's message says how many rows went in and the history number to roll them back. Spawn
+  rows (and the rows keyed by their guid) go in only when the remote console says the worldserver is stopped;
+  otherwise they wait on the card for its Apply button. `[imports] auto_apply = 0` (Docker: `FT_IMPORTS_AUTO_APPLY=0`)
+  brings back the old way.
+
+- **The newer word wins: every value, and spawns that moved.** An applied card now also replaces the values of rows
+  the server already has (every column it gives, by primary key), and moves a spawn of the same kind standing within
+  40 yards (`[imports] spawn_move_yards`) to where the card places it, keeping its guid. A row or spawn a more trusted
+  source wrote stays as it is. The core's own rows now rank below every source (`[sources] change_core = 0` protects
+  them), and a new ledger (`ft_row_origin`) remembers which source last wrote each row. Files imported by hand count as
+  `sniff` (WowPacketParser) or `scribe` (ForeverScribe), after the Forever sources and before Classic's.
+
 - **Season of Discovery items Forever kept: Wowhead Classic's item pages.** The Forever client still carries Season of
   Discovery's items, and Forever brought some of them back (the Tarnished Undermine Real), but Wowhead's Forever pages
   often know no source for them yet. For a gap item that is Season's (id 190000 and up, in the Classic Era client), the

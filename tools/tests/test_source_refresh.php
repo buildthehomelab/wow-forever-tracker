@@ -6,8 +6,8 @@ ft_test_boot();
 require FT_APP . '/sources.php';
 
 // ---- the order of trust
-check(source_trust('') === ['client', 'wowhead', 'norgannondb', 'icyveins', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'wowheadclassic', 'classicdb'], 'by default: the game client and the CDN, Wowhead, Questie\'s data (NorgannonDB), Icy Veins, players\' reports, then the others, Classic\'s counts before the original game\'s database');
-check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'norgannondb', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'wowheadclassic', 'classicdb'], '[sources] trust goes next; the sources it leaves out follow in the default order');
+check(source_trust('') === ['client', 'wowhead', 'norgannondb', 'icyveins', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'classicdb'], 'by default: the game client and the CDN, Wowhead, Questie\'s data (NorgannonDB), Icy Veins, players\' reports, then the others, files imported by hand, Classic\'s counts before the original game\'s database');
+check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'norgannondb', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'classicdb'], '[sources] trust goes next; the sources it leaves out follow in the default order');
 check(source_trust('Wowhead, Questie, nonsense, icyveins')[2] === 'norgannondb', '"questie" is NorgannonDB, and a name that is no source is ignored');
 check(source_trust('wowhead, cdn')[0] === 'client' && source_trust('icyveins, gameclient, wowhead')[0] === 'client', 'the client is first wherever a configuration puts it');
 check(source_may_change('wowhead', 'client') === 'trusted' && source_may_change('icyveins', 'client') === 'trusted', 'no source changes a row written from the client\'s own tables');
@@ -25,7 +25,10 @@ $trust = source_trust('');
 check(source_may_change('icyveins', 'icyveins', $trust) === 'yes', 'its own rows');
 check(source_may_change('icyveins', 'atlasloot', $trust) === 'yes' && source_may_change('icyveins', 'eglink', $trust) === 'yes', 'the rows of a less trusted source');
 check(source_may_change('icyveins', 'norgannondb', $trust) === 'trusted', 'not the rows of a more trusted one');
-check(source_may_change('icyveins', null, $trust) === 'core', 'not the rows no import brought (the core\'s own data, a hand fix)');
+check(source_may_change('icyveins', null, $trust) === 'yes' && source_may_change('classicdb', null, $trust) === 'yes', 'the core\'s own rows rank below every source: the newer word replaces them');
+check(source_may_change('icyveins', null, $trust, false) === 'core', 'unless [sources] change_core = 0');
+check(source_may_change('wowhead', 'hand', $trust) === 'trusted' && source_origin('Forge #12 (fix)') === 'hand' && source_origin('Linen Cloth') === null, 'an administrator\'s own fix is never replaced');
+check(source_may_change('nonsense', null, $trust) === 'trusted', 'a source that is not in the list changes nothing');
 check(source_may_change('atlasloot', 'icyveins', $trust) === 'trusted', 'the least trusted changes only its own');
 
 // ---- when a chance has moved
@@ -55,10 +58,10 @@ $measured = [
     'creature_loot_template:2:2' => 0.0,           // no chance known
 ];
 [$rows, $left] = source_drop_changes('icyveins', $measured, $current + ['creature_loot_template:2:2' => ['Chance' => 5.0, 'Comment' => 'Icy Veins']], 10.0, $trust);
-check($rows === ['creature_loot_template' => [[780, 0, 213127, 5.2]], 'gameobject_loot_template' => [[1421, 0, 268416, 1.1]]], 'its own row and a less trusted source\'s take the new chance, rounded as an import writes it');
-check($left === ['drop_same' => 1, 'drop_differs_core' => 1, 'drop_differs_trusted' => 1], 'what has not moved, the core\'s row and the more trusted source\'s row are counted and left alone');
+check($rows === ['creature_loot_template' => [[780, 0, 213127, 5.2], [588, 0, 2589, 42.0]], 'gameobject_loot_template' => [[1421, 0, 268416, 1.1]]], 'its own row, the core\'s and a less trusted source\'s take the new chance, rounded as an import writes it');
+check($left === ['drop_same' => 1, 'drop_differs_trusted' => 1], 'what has not moved and the more trusted source\'s row are counted and left alone');
 [$rows] = source_drop_changes('atlasloot', $measured, $current, 10.0, $trust);
-check($rows === ['gameobject_loot_template' => [[1421, 0, 268416, 1.1]]], 'a less trusted source changes only its own row');
+check($rows === ['creature_loot_template' => [[588, 0, 2589, 42.0]], 'gameobject_loot_template' => [[1421, 0, 268416, 1.1]]], 'a less trusted source changes only its own row and the core\'s');
 [$rows, $left] = source_drop_changes('icyveins', ['creature_loot_template:780:213127' => 250.0], $current, 10.0, $trust);
 check($rows === ['creature_loot_template' => [[780, 0, 213127, 100.0]]], 'a chance is never above 100');
 

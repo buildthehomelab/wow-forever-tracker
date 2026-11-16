@@ -103,6 +103,11 @@ guess = ${FT_ATLASLOOT_GUESS:-1}
 trust = "${FT_SOURCES_TRUST:-}"
 refresh = ${FT_SOURCES_REFRESH:-1}
 chance_tolerance = ${FT_SOURCES_CHANCE_TOLERANCE:-10}
+change_core = ${FT_SOURCES_CHANGE_CORE:-1}
+
+[imports]
+auto_apply = ${FT_IMPORTS_AUTO_APPLY:-1}
+spawn_move_yards = ${FT_IMPORTS_SPAWN_MOVE_YARDS:-40}
 
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"

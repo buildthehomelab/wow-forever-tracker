@@ -170,7 +170,7 @@ function wowhead_quest_import(): array
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     import_index($id, $tables);
-    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0,
+    return import_auto_apply(['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0,
             'message' => sprintf(t('%s: %d quest ender(s) named by Wowhead.', '%s : %d valideur(s) nommés par Wowhead.'), $name, count($rows))
-                . (($left['not_looked_up_yet'] ?? 0) ? ' ' . sprintf(t('%d quest(s) not looked up yet: run it again for the rest.', '%d quête(s) pas encore consultées : relancez pour la suite.'), $left['not_looked_up_yet']) : '')];
+                . (($left['not_looked_up_yet'] ?? 0) ? ' ' . sprintf(t('%d quest(s) not looked up yet: run it again for the rest.', '%d quête(s) pas encore consultées : relancez pour la suite.'), $left['not_looked_up_yet']) : '')]);
 }

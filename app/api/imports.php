@@ -44,7 +44,7 @@ if ($upload) {
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);
     $target = $dir . '/' . date('Ymd-His') . '-' . $name;
     move_uploaded_file($file['tmp_name'], $target);
-    json_out(import_file($target, pathinfo($name, PATHINFO_FILENAME)));
+    json_out(import_auto_apply(import_file($target, pathinfo($name, PATHINFO_FILENAME))));
 }
 
 $id = (int)($input['id'] ?? 0);
@@ -54,7 +54,7 @@ switch ((string)($input['action'] ?? '')) {
     case 'import':
         $file = basename((string)($input['file'] ?? ''));
         if ($file === '' || !is_file("$dir/$file")) json_out(['ok' => false, 'message' => t('File not found.', 'Fichier introuvable.')]);
-        json_out(import_file("$dir/$file", pathinfo($file, PATHINFO_FILENAME)));
+        json_out(import_auto_apply(import_file("$dir/$file", pathinfo($file, PATHINFO_FILENAME))));
     case 'scribe_install':
     case 'scribe_zip':
         // the ForeverScribe addon, into the game client of [client] path or as a zip

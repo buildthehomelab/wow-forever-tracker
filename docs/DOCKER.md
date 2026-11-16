@@ -106,6 +106,9 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_CLIENT_VANILLA` | `wow_classic:1.13.2.31650` | The client that stands for the original game (patch 1.12), stored once as the build before the first beta: the changelog starts there and the first beta build is compared with it (docs/VANILLA.md). `off`: the changelog starts at the first beta build |
 | `FT_CLIENT_BUILD_LIST` | *(empty)* | The address of the list of earlier builds; empty: wago.tools' |
 | `FT_SOURCES_TRUST` | *(empty)* | The sources, most trusted first (`wowhead,questie,icyveins`); the ones left out follow in the default order: `wowhead, norgannondb, icyveins, eglink, foreverdb, atlasloot`. The game client and the CDN always come before all of them (docs/SOURCES.md, *Rows the server already has*) |
+| `FT_IMPORTS_AUTO_APPLY` | `1` | `1`: each import card is applied as soon as it is made (spawns only while the worldserver is stopped). `0`: cards wait for their Apply button |
+| `FT_IMPORTS_SPAWN_MOVE_YARDS` | `40` | A spawn a card places this close to an unconfirmed one of the same kind moves that one there instead of adding a second. `0`: never move |
+| `FT_SOURCES_CHANGE_CORE` | `1` | `1`: the core's own rows rank below every source, so a newer import's values replace them. `0`: imports change only rows an import wrote |
 | `FT_SOURCES_REFRESH` | `1` | `0`: imports only add what is missing; they no longer propose a new value for a drop chance that moved |
 | `FT_SOURCES_CHANCE_TOLERANCE` | `10` | A drop chance has moved when it changed by this percent of what it was (and by 0.05 points at least) |
 | `FT_ATLASLOOT_GUESS` | `1` | `0`: AtlasLoot drops without a measured chance are left out instead of getting an even share of their boss's list |
