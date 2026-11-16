@@ -14,6 +14,17 @@ page_start(t('Crawl Wowhead', 'Parcourir Wowhead'), 'admin');
     <p class="muted small"><?= e(t('Wowhead’s page may not call this tracker (it turns every http:// request into https://), but two tabs may pass messages: keep both tabs open. What the crawl reads while this tab is closed waits in the Wowhead tab and comes the next time it is linked.', 'La page de Wowhead ne peut pas appeler ce tracker (elle change toute requête http:// en https://), mais deux onglets peuvent échanger des messages : gardez les deux ouverts. Ce que le parcours lit pendant que cet onglet est fermé attend dans l’onglet Wowhead et arrive au prochain lien.')) ?></p></div></div>
 </section>
 
+<section class="block">
+  <h2><?= e(t('By itself: the Chrome extension', 'Tout seul : l’extension Chrome')) ?></h2>
+  <p><?= e(t('On a computer that stays on, the extension keeps a pinned Wowhead tab crawling with no console and no tab of this site open: it loads the crawler with this tracker’s queue after every load, opens the tab again when it is closed or Chrome restarts, and sends each page here. Its icon shows what it is doing and can pause it.', 'Sur un ordinateur qui reste allumé, l’extension garde un onglet Wowhead épinglé qui parcourt le site sans console ni onglet de ce site ouvert : elle charge le crawler avec la file de ce tracker après chaque chargement, rouvre l’onglet quand il est fermé ou que Chrome redémarre, et envoie chaque page ici. Son icône montre ce qu’elle fait et peut la mettre en pause.')) ?></p>
+  <ol class="steps-list">
+    <li><?= e(t('Download it (it carries this tracker’s address and a key of its own) and unzip it somewhere it can stay.', 'Téléchargez-la (elle porte l’adresse de ce tracker et une clé à elle) et décompressez-la là où elle peut rester.')) ?></li>
+    <li><?= e(t('In Chrome: chrome://extensions › Developer mode › Load unpacked › the wowhead-crawl folder.', 'Dans Chrome : chrome://extensions › Mode développeur › Charger l’extension non empaquetée › le dossier wowhead-crawl.')) ?></li>
+    <li><?= e(t('Close any other Wowhead crawl first (WHC.stop() in its tab): only one may run per address.', 'Fermez d’abord tout autre parcours Wowhead (WHC.stop() dans son onglet) : un seul par adresse.')) ?></li>
+  </ol>
+  <div class="btn-row"><button class="btn is-gold" type="button" data-scribe="wowhead_extension"><i class="fas fa-puzzle-piece"></i> <?= e(t('Download the Chrome extension', 'Télécharger l’extension Chrome')) ?></button></div>
+</section>
+
 <section class="block" data-crawl-link data-wowhead="https://www.wowhead.com/forever">
   <ol class="steps-list">
     <li><?= e(t('Open Wowhead from here: a tab opens on wowhead.com/forever with the crawler and its queue (the full crawl: your gaps first, then the whole database).', 'Ouvrez Wowhead d’ici : un onglet s’ouvre sur wowhead.com/forever avec le crawler et sa file (le parcours complet : vos manques d’abord, puis toute la base).')) ?></li>

@@ -769,7 +769,7 @@
       hoursLeft: Math.round(left * 10) / 10, plan: store.get('plan', null),
       pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
       waitingFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
-      link: link.origin ? { tracker: link.origin, connected: !!(root.opener && !root.opener.closed), toSend: outbox.size, sent: link.sent, last: link.last } : null,
+      link: link.origin ? { tracker: link.origin, connected: !!peer(), extension: viaExtension, toSend: outbox.size, sent: link.sent, last: link.last } : null,
       batchFiles: store.get('autosave', 0) ? { everyMinutes: store.get('autosave', 0), waiting: outbox.size } : null,
     };
   }
@@ -824,9 +824,15 @@
   // policy upgrades every http:// request to https://), but two windows may pass messages: this tab's opener is the
   // tracker page. What is not sent yet waits in IndexedDB (store "meta", "outbox"), so a closed tracker tab or a
   // reload loses nothing: the next link sends it.
+  //
+  // Loaded by the Chrome extension (tools/wowhead-pages/extension, root.__whcExtension): the extension's own script in
+  // this same tab is the other end instead; it sends the pages to the tracker itself.
   const boot = (() => { try { const b = JSON.parse(root.name || ''); return b && typeof b === 'object' ? b : {}; } catch (error) { return {}; } })();
-  const link = { origin: /^https?:\/\/[\w.:\-\[\]]+$/.test(boot.link || '') ? boot.link : store.get('link', null), sent: 0, last: '', batch: 0, inflight: null, at: 0 };
-  if (link.origin) store.set('link', link.origin);
+  const viaExtension = !!root.__whcExtension && typeof location !== 'undefined';
+  const link = { origin: viaExtension ? location.origin : /^https?:\/\/[\w.:\-\[\]]+$/.test(boot.link || '') ? boot.link : store.get('link', null), sent: 0, last: '', batch: 0, inflight: null, at: 0 };
+  if (link.origin && !viaExtension) store.set('link', link.origin);
+  /** Where the pages go: this tab (the extension listens in it), or the tracker tab that opened this one. */
+  const peer = () => viaExtension ? root : (root.opener && !root.opener.closed ? root.opener : null);
   const outbox = new Set();
   let outboxReady = (async () => {
     await ready;
@@ -841,14 +847,15 @@
   const BATCH = 40;
   async function send() {
     await outboxReady;
-    if (!link.origin || !outbox.size || !root.opener || root.opener.closed) return;
+    const to = peer();
+    if (!link.origin || !outbox.size || !to) return;
     if (link.inflight && Date.now() - link.at < 120000) return;   // an answer is awaited (two minutes at most)
     const keys = [...outbox].slice(0, BATCH);
     // these pages only, in one transaction (tx() hands back what .result holds once it completes)
     const records = await pages('readonly', s => { const out = []; for (const k of keys) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
     const lines = records.map(p => { const { key, ...rest } = p; return JSON.stringify(rest); });
     link.inflight = ++link.batch; link.at = Date.now(); link.keys = keys;
-    root.opener.postMessage({ whc: 'pages', batch: link.inflight, lines }, link.origin);
+    to.postMessage({ whc: 'pages', batch: link.inflight, lines }, link.origin);
   }
   if (typeof addEventListener === 'function') addEventListener('message', event => {
     const d = event.data;

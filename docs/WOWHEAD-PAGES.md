@@ -49,6 +49,29 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 Without the website: `python tools/wowhead_pages.py todo <the To add list as CSV>` prints the queue as
 `WHC.add(...)` lines and `python tools/wowhead_pages.py merge wowhead-pages.jsonl` fills the same cache.
 
+## The Chrome extension
+
+A crawl that starts and goes on by itself, on a computer that stays on: `tools/wowhead-pages/extension/`.
+
+1. The Forge › **Crawl** › *Download the Chrome extension*. The zip carries this tracker's address (the one the
+   download was asked at) and a key of its own in `config.json`; the key is made the first time and kept in
+   `data/wowhead-extension.key`, so the tracker needs no setting.
+2. Unzip it where it can stay, then in Chrome: `chrome://extensions` › Developer mode › *Load unpacked* › the
+   `wowhead-crawl` folder.
+3. Stop any other crawl on the same address first (`WHC.stop()` in its tab, then close it): Wowhead counts them all.
+
+The extension keeps one pinned Wowhead tab (Memory Saver may not put it to sleep). After every load of it, it asks the
+tracker for the crawler with its queue (`GET api/wowhead-crawler`, the full crawl, as *Open Wowhead* hands it out)
+and loads it into the page; the crawler goes on where it was (its queue and pace are in the tab's IndexedDB). Every 5
+minutes it checks that the tab is there and has its crawler: a closed tab, a crash or a restart of Chrome is mended
+then. The crawler passes what it read to the extension's script in the same tab (`window.postMessage`, as a linked
+crawl does to its opener), which sends it to `api/wowhead-push` with the key; the crawler forgets a batch only once the
+tracker kept it. The icon's popup shows the queue, the pace, the last page and what was sent, and pauses the crawl;
+a `!` on the icon means the tracker did not answer or refused.
+
+Loaded from the repository instead of a download: copy `config.example.json` to `config.json` and fill it in (the
+tracker's address, and its `[wowhead] push_token` or the key in `data/wowhead-extension.key`).
+
 ## A linked crawl
 
 The Forge › **Crawl** keeps every page in the tracker as the crawl reads it: nothing to save and send by hand.
@@ -208,4 +231,4 @@ Each loot row's `Comment` is `Wowhead <date of the newest page>`, which is how a
   errors) and the whole database: the three ways a list page is written, the splitting of a cut list, the pages a list
   names, when a Classic page is read, the queue keys.
 - `python -m unittest tools/tests/test_wowhead_pages.py`: the cache and the to-do list.
-- `php tools/tests/test_wowhead_pages.php`: the evidence and what is left out, the queue order, the merge and the crawler download.
+- `php tools/tests/test_wowhead_pages.php`: the evidence and what is left out, the queue order, the merge, the crawler download and the extension's (its key, its zip, `api/wowhead-crawler`).

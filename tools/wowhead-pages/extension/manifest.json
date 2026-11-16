@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Forever Tracker: Wowhead crawl",
+  "version": "1.0.0",
+  "description": "Keeps a Wowhead tab crawling for your Forever Tracker: loads the tracker's crawler after every load and sends what it reads.",
+  "minimum_chrome_version": "111",
+  "permissions": ["tabs", "scripting", "storage", "alarms"],
+  "host_permissions": ["https://www.wowhead.com/*", "http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://www.wowhead.com/*"], "js": ["bridge.js"], "run_at": "document_start" }
+  ],
+  "action": { "default_title": "Wowhead crawl", "default_popup": "popup.html" }
+}

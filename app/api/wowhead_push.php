@@ -1,15 +1,14 @@
 <?php
 // POST api/wowhead-push: pages the Wowhead crawler saved (one JSON line a page, the body as it is), sent by a script
 // rather than a browser (tools/wowhead-pages/push.sh, docs/WOWHEAD-PAGES.md "Batches from a computer"). No session:
-// the X-Push-Token header must equal [wowhead] push_token, which is empty (and this endpoint closed) unless set.
+// the X-Push-Token header must be [wowhead] push_token (empty, so closed, unless set) or the Chrome extension's key
+// (made when it is first downloaded, wowhead_extension_key()).
 // The pages are kept as a linked crawl's are (wowhead_pages_append) and answered at once; the import cards are made
 // again after the answer, when due ([wowhead] card_minutes).
 require_once FT_APP . '/wowheadpages.php';
 
-$token = (string)config('wowhead', 'push_token', '');
-$given = (string)($_SERVER['HTTP_X_PUSH_TOKEN'] ?? '');
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_out(['ok' => false, 'error' => 'POST only'], 405);
-if (strlen($token) < 16 || !hash_equals($token, $given)) json_out(['ok' => false, 'error' => 'not allowed'], 403);
+if (!wowhead_push_allowed((string)($_SERVER['HTTP_X_PUSH_TOKEN'] ?? ''))) json_out(['ok' => false, 'error' => 'not allowed'], 403);
 $body = (string)file_get_contents('php://input');
 $lines = array_values(array_filter(preg_split('/\r?\n/', $body), fn($l) => trim($l) !== ''));
 if (!$lines) json_out(['ok' => false, 'error' => 'no page in the body'], 400);

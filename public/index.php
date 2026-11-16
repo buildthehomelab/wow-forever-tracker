@@ -28,6 +28,11 @@ if ($parts === ['api', 'wowhead-push']) {
     require FT_APP . '/api/wowhead_push.php';
     exit;
 }
+// the crawler for the Chrome extension, with the same keys
+if ($parts === ['api', 'wowhead-crawler']) {
+    require FT_APP . '/api/wowhead_crawler.php';
+    exit;
+}
 
 // Private trackers only show the login page to visitors. The API answers them 403 instead of a redirect to a page:
 // the search and the tooltips would otherwise hand out names and statuses to anyone who asks.
