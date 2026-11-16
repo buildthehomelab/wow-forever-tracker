@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The Crawl and Imports pages count Wowhead Classic's item pages.** The crawl reads the Classic page of each Season of
+  Discovery item Forever kept with no source, but neither page counted them, so a crawl reading them looked stuck. The
+  *Import Classic pages* button is also offered when only Classic item pages were read.
+
 - **ForeverDB.net is read into the world facts.** `python tools/tracker.py world facts foreverdb` reads what its
   players recorded on Forever (the vendors and trainers they saw, those vendors' stock, boss loot measured over kills,
   who gives and takes the quests they saw) and leaves its Classic rows out. Its pin is the version its manifest names
