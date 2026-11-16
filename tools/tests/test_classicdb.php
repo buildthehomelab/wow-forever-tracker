@@ -143,10 +143,17 @@ check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'ev
     "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and turn-in events (34 becomes 62)");
 [, $fl2] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce'], $templates, 70938);
 // the yearly holidays use the realm's own events: none is made, a missing one is counted
-foreach (CLASSICDB_HOLIDAYS as $key => $h) if (!in_array($key, ['darkmoon', 'noblegarden'], true)) foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
-[$ng, $ngl] = classicdb_holiday_rows('noblegarden', ['9' => ['creatures' => [], 'objects' => [[50, 180040, 0, 1, 2, 3, 0, 0, 0, 0, 0, 180]]]], [], $templates, 70938);
-check($ng['game_event'][0]['eventEntry'] === 9 && $ng['game_event'][0]['holiday'] === 181 && $ng['game_event'][0]['length'] === 10080 && $ng['game_event'][0]['holidayStage'] === 1
-    && $ng['game_event_gameobject'] === [['eventEntry' => 9, 'guid' => 50]] && $ngl === [], "Noblegarden: event 9 made on Forever's holiday 181, 7 days, its eggs linked to it");
+foreach (CLASSICDB_HOLIDAYS as $key => $h) if ($key !== 'darkmoon') foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
+$egg = ['9' => ['creatures' => [], 'objects' => [[50, 180040, 0, 1, 2, 3, 0, 0, 0, 0, 0, 180]]]];
+[$ng, $ngl, $ngc] = classicdb_holiday_rows('noblegarden', $egg, [28 => 'Noblegarden'], $templates, 70938);
+$set = array_combine(array_column($ngc, 'set'), array_map(fn($op) => $op['rows'], $ngc));
+check(!isset($ng['game_event']) && $ng['game_event_gameobject'] === [['eventEntry' => 28, 'guid' => 50]] && $ngl === []
+    && $set === ['start_time' => [[28, '2027-03-29 10:00:00']], 'end_time' => [[28, '2037-12-31 23:59:59']], 'holiday' => [[28, 181]], 'holidayStage' => [[28, 1]]]
+    && $ngc[0]['columns'] === ['eventEntry', 'start_time'] && $ngc[0]['match'] === ['eventEntry'],
+    "Noblegarden: the realm's event 28 takes Forever's holiday 181 and dates, its eggs linked to it, no new event");
+[$ng2, $ngl2, $ngc2] = classicdb_holiday_rows('noblegarden', $egg, [28 => 'Something else'], $templates, 70938);
+check($ng2 === [] && $ngc2 === [] && $ngl2 === ['classic_holiday_event_number_taken' => 1], 'an event 28 that is not Noblegarden is left alone');
+check(CLASSICDB_HOLIDAYS['newyear']['events'][6]['event'] === 34, "New Year's Eve: 34 on the realm, not 6 (the fireworks)");
 $yearly = ['12' => ['creatures' => [[1, 14829, 0, 1, 2, 3, 0, 180, 0.0, 0]], 'objects' => []]];
 [$hw, $hwl] = classicdb_holiday_rows('hallows', $yearly, [12 => "Hallow's End"], $templates, 70938);
 check($hw['game_event_creature'] === [['eventEntry' => 12, 'guid' => 1]] && !isset($hw['game_event']) && $hwl === [], "Hallow's End: spawns linked to the realm's event 12");
