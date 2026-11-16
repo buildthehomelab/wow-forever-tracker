@@ -36,7 +36,8 @@ from . import db2, hotfixes
 FILE = 'dated.json'        # in the newest build's hotfixes/ folder: the window of each row, with what it was worked out from
 REBUILT = 'rebuilt'        # the mark of the caches written here, in a build's hotfixes/index.json
 KINDS = 'base', 'window', 'newest'
-_VERSION = 2
+_VERSION = 1             # how the rows are dated: a change re-reads every build (minutes)
+_LABELS = 2              # how the windows are named and written: a change only writes them again
 
 
 def _row_key(build_folder, table_name):
@@ -218,7 +219,7 @@ def rebuild(chain, notes_days=(), log=print, force=False):
     with open(path, 'rb') as handle:
         blob = handle.read()
     mark = {'version': _VERSION, 'cache': hashlib.sha256(blob).hexdigest(),
-            'builds': [[b['build'], b.get('date')] for b in chain], 'days': sorted(notes_days)}
+            'builds': [[b['build'], b.get('date')] for b in chain], 'days': sorted(notes_days), 'labels': _LABELS}
     state_path = os.path.join(newest['dir'], hotfixes.HISTORY, FILE)
     try:
         with open(state_path, encoding='utf-8') as handle:
@@ -228,7 +229,7 @@ def rebuild(chain, notes_days=(), log=print, force=False):
     if not force and done.get('mark') == mark:
         return {'code': 3, 'windows': done.get('windows', {}), 'message': 'hotfix windows: unchanged'}
     # the rows' windows depend on the cache and the builds alone (minutes of work); the notes only date them
-    rows_mark = {k: v for k, v in mark.items() if k != 'days'}
+    rows_mark = {k: v for k, v in mark.items() if k not in ('days', 'labels')}
     if not force and done.get('rows_mark') == rows_mark and isinstance(done.get('rows'), list):
         found = {index: 'base' for index in range(len(hotfixes.parse(blob)[1]))}
         found.update({int(index): window for index, window in done['rows']})
