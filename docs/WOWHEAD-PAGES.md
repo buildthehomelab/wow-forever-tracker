@@ -64,7 +64,9 @@ The extension keeps one pinned Wowhead tab (Memory Saver may not put it to sleep
 tracker for the crawler with its queue (`GET api/wowhead-crawler`, the full crawl, as *Open Wowhead* hands it out)
 and loads it into the page; the crawler goes on where it was (its queue and pace are in the tab's IndexedDB). Every 5
 minutes it checks that the tab is there and has its crawler: a closed tab, a crash or a restart of Chrome is mended
-then. The crawler passes what it read to the extension's script in the same tab (`window.postMessage`, as a linked
+then. A crawler loaded more than an hour ago is replaced: once the tracker has answered with a new one, the tab is
+reloaded and takes it, so a crawl that runs for days follows the tracker's latest queue and crawler (an extension
+before 1.1.0 kept the first crawler until the tab happened to reload). The crawler passes what it read to the extension's script in the same tab (`window.postMessage`, as a linked
 crawl does to its opener), which sends it to `api/wowhead-push` with the key; the crawler forgets a batch only once the
 tracker kept it. The icon's popup shows the queue, the pace, the last page and what was sent, and pauses the crawl;
 a `!` on the icon means the tracker did not answer or refused.
@@ -118,9 +120,9 @@ A whole crawl is days of pages, so the queue is always in the order of what a pa
 | 0 | the list pages | they name every other page, and are few |
 | 1 `gap` | the items a quest, recipe, mount, toy or spell waits for; the quests without a giver or an ender | each unblocks something players cannot do |
 | 2 `named` | the creatures, vendors and chests a tier-1 page names (not a world drop's fifteen and more), who gives or takes such a quest | their own pages count better, and a new drop row from an npc page waits for the item's page |
-| 3 `missing` | the server's creatures and objects whose data is missing: vendors that sell nothing, trainers that teach nothing, chests that hold nothing, creatures without loot (the ones with no service first) | fills holes in what is already in the world |
-| 4 `gapOther` | the items that only lack a source | |
-| 5 | what a tier-4 page names | |
+| 3 `gapOther` | the items that only lack a source | each is an item players cannot get yet |
+| 4 `namedOther` | what a tier-3 page names | |
+| 5 `missing` | the server's creatures and objects whose data is missing: vendors that sell nothing, trainers that teach nothing, chests that hold nothing, creatures without loot (the ones with no service first) | fills holes in what is already in the world |
 | 6 | the rest of Forever | measures again what the server already has |
 | 8 | Classic | only where Forever's counts are thin |
 
@@ -128,9 +130,10 @@ The Classic item page of a Season of Discovery item Forever kept goes in the tie
 it ([below](#season-of-discovery-items)).
 
 *Download the crawler* hands each page its tier from the last analysis and the world database
-(`wowhead_pages_queue`: the tracker's gaps, and `wowhead_pages_missing_data` for tier 3, only the ids Wowhead's Forever
+(`wowhead_pages_queue`: the tracker's gaps, and `wowhead_pages_missing_data` for tier 5, only the ids Wowhead's Forever
 lists name once they were read). In a crawl that already queued a page it moves up, never down; a page read is not
-asked again. The tiers 2 and 5 are made by the crawler itself, as it reads the pages that name them.
+asked again. A crawl kept before 2026-11-16 (when tier 3 was the missing data) is put in this order once, the next
+time its crawler loads. The tiers 2 and 4 are made by the crawler itself, as it reads the pages that name them.
 `WHC.prioritize(['npc:7', 'object:2'], 'missing')` moves pages by hand.
 
 ## The whole database

@@ -394,9 +394,9 @@
     list: 0,       // the lists: they name everything else
     gap: 1,        // an item a quest, recipe, mount, toy or spell waits for; a quest without giver or ender
     named: 2,      // a creature, vendor or chest a tier-1 page names
-    missing: 3,    // a creature or object of the server whose data is missing (no stock, no loot, no trainer list)
-    gapOther: 4,   // an item that only lacks a source
-    namedOther: 5, // what a tier-4 page names
+    gapOther: 3,   // an item that only lacks a source
+    namedOther: 4, // what a tier-3 page names
+    missing: 5,    // a creature or object of the server whose data is missing (no stock, no loot, no trainer list)
     bulk: 6,       // the rest of Forever: the rows the server has, measured again
     classic: 8,    // Classic: only where Forever's counts are thin
   };
@@ -409,6 +409,17 @@
   }
   /** What the pages a page names are worth: the tier after its own, for the gaps; nothing (left where they are) else. */
   const namedTier = tier => tier <= TIERS.gap ? TIERS.named : tier <= TIERS.gapOther ? TIERS.namedOther : null;
+  /** The tiers a crawl kept before 2026-11-16 (missing 3, gapOther 4, namedOther 5) as they are now: the items that
+   *  only lack a source, and what they name, come before the server's creatures and objects whose data is missing. */
+  const TIER_ORDER = 2;
+  function retier(tiers) {
+    const was = { 3: TIERS.missing, 4: TIERS.gapOther, 5: TIERS.namedOther };
+    const out = {};
+    for (const [key, tier] of Object.entries(tiers || {})) out[key] = tier in was ? was[tier] : tier;
+    return out;
+  }
+  /** The queue in tier order, keeping the order within a tier. */
+  const sortQueue = (queue, tiers) => queue.map((key, i) => [tierOf(tiers, key), i, key]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 
   /** A queue key: [branch/]kind:id, or [branch/]list:query. No branch is Forever. */
   function parseKey(key) {
@@ -491,7 +502,7 @@
     return { p, wait };
   }
 
-  const api = { namedBy, TIERS, defaultTier, tierOf, insertAt, namedTier, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { namedBy, TIERS, defaultTier, tierOf, insertAt, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
@@ -574,6 +585,15 @@
     state.queue = Array.isArray(kept) ? kept : Array.isArray(old) ? old : [];
     const tiers = await meta.get('tiers');
     state.tiers = tiers && typeof tiers === 'object' ? tiers : {};
+    if ((await meta.get('tierOrder')) !== TIER_ORDER) {
+      if (Object.keys(state.tiers).length) {
+        state.tiers = retier(state.tiers);
+        state.queue = sortQueue(state.queue, state.tiers);
+        await meta.set('tiers', state.tiers).catch(() => {});
+        await keepQueue();
+      }
+      await meta.set('tierOrder', TIER_ORDER).catch(() => {});
+    }
     if (old) { try { localStorage.removeItem('whc.queue'); } catch (error) { /* blocked */ } await keepQueue(); }
   })();
 
