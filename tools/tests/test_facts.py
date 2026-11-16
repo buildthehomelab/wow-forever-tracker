@@ -4,6 +4,7 @@ The last class needs a MySQL server: it runs when FT_TEST_CONFIG names a config.
 [database] tracker database is created and dropped), and is skipped otherwise.
 """
 import collections
+import hashlib
 import json
 import os
 import sys
@@ -580,6 +581,143 @@ class RxpGuides(unittest.TestCase):
                 self.assertEqual([names for _root, _dirs, names in os.walk(folder) if names], [])
         with self.assertRaises(facts.SourceError):
             facts.fetch_rxpguides('main', '/nonexistent', fetch)
+
+
+FDB_HEAD = '-- Data: ForeverDB.net (https://foreverdb.net), build 1.60.1.70938. Reuse requires this credit: see NOTICE.txt (GPL-3.0 section 7(b)).\nlocal _, ns = ...\n'
+FOREVERDB_FILES = {
+    'Meta.lua': FDB_HEAD + 'ns.meta = {version="2026-11-16.4ee95f5b",built=1794847557,build="1.60.1.70938",cap=60}\n',
+    'NPCs.lua': FDB_HEAD + (
+        '-- Vendors and trainers: [npc] = {name, title, map, x, y, side (A/H), seen in Forever}. Classic places unless seen.\n'
+        'ns.npcs = {[54]={"Corina Steele","Weaponsmith",1429,41.6,65.8,"A",1},[66]={"Tharynn Bouden","Trade Supplies",1429,41.7,67,"A",0},'
+        '[3313]={"Trak\'gen","General Supplies",1454,52.2,40.6,"H",1},[x]={"bad key"},[55]={"too short"}}\n'
+        'ns.sold = {[2488]={54,536,1,0,66,536,1,0,3313,500,5,0,3313,900,10,0},[159]={3313,25,1,3},[2489]={54,"free",1,0},[7]={54,1}}\n'
+        'ns.soldNames = {[2488]="Gladius",[159]="Refreshing Spring Water"}\n'),
+    'Loot.lua': FDB_HEAD + (
+        'ns.lootDB = {\n  v = 1,\n  inst = {\n    { id = 389, name = "Ragefire Chasm", bosses = {\n'
+        '        { npc = 11517, name = "Oggleflint", loot = "272998:50:f:2:16;1210:12.5:f::16;818:6.25:c;1794:0:f:::4;x:1:f" },\n'
+        '        { name = "Trash", loot = "2589:5:f::40" },\n'
+        '        { npc = 11520, name = "Taragaman the Hungerer", loot = "14145:56.25:f:2:16" } } } } }\n'),
+    'QuestForever.lua': FDB_HEAD + (
+        'ns.qfQuests = {\n'
+        '[5]="Jitters\' Growling Gut|20|0|Speak with Chef Grual.|n288|n272|27|0|163|17|",\n'
+        '[7]="Kobold Camp Cleanup|2|1|Kill 10 Kobold Vermin.|n197,o35|n197|46|1|783|1|",\n'
+        '[9]="Never Seen|15|0|Classic only.|n233|n233|0|0|0|9|",\n'
+        '[11]="Odd Giver|10|0|Bring armbands.|q963|n963|25|0|239|7|",\n'
+        '[12]="Too few fields|12",\n'
+        '}\n'),
+}
+
+
+def foreverdb_tree(folder, files=FOREVERDB_FILES):
+    for name, text in files.items():
+        with open(os.path.join(folder, name), 'w', encoding='utf-8') as handle:
+            handle.write(text)
+
+
+class ForeverDb(unittest.TestCase):
+    def read(self, files=FOREVERDB_FILES):
+        self.skipped = collections.Counter()
+        with tempfile.TemporaryDirectory() as folder:
+            foreverdb_tree(folder, files)
+            return list(facts.foreverdb(folder, self.skipped))
+
+    def test_every_fact_is_storable_on_the_files_build_and_none_hides_another(self):
+        found = self.read()
+        self.assertTrue(all(facts.check(f) for f in found))
+        self.assertEqual({f.build for f in found}, {70938})
+        keys = [(f.kind, f.subject_kind, f.subject, f.object) for f in found]
+        self.assertEqual(len(keys), len(set(keys)))
+
+    def test_only_npcs_seen_in_forever(self):
+        talked = {f.subject: f.data for f in self.read() if f.kind == 'talked'}
+        self.assertEqual(sorted(talked), [54, 3313])                         # 66 is a Classic place
+        self.assertEqual(talked[54], {'name': 'Corina Steele', 'title': 'Weaponsmith', 'side': 'Alliance',
+                                      'positions': [{'uiMap': 1429, 'mapX': 41.6, 'mapY': 65.8}]})
+        self.assertEqual(talked[3313]['side'], 'Horde')
+
+    def test_the_stock_of_those_vendors_every_listing(self):
+        sells = {(f.subject, f.object): f.data['listings'] for f in self.read() if f.kind == 'sells'}
+        self.assertEqual(sorted(sells), [(54, 2488), (3313, 159), (3313, 2488)])        # not the Classic vendor 66's
+        self.assertEqual(sells[(54, 2488)], [{'itemId': 2488, 'price': 536, 'stack': 1, 'name': 'Gladius'}])
+        self.assertEqual([listing['stack'] for listing in sells[(3313, 2488)]], [5, 10])
+        self.assertEqual(sells[(3313, 159)][0]['stockMax'], 3)
+        self.assertTrue(sells[(3313, 159)][0]['limited'])
+
+    def test_boss_loot_measured_in_forever(self):
+        drops = {(f.subject, f.object): f for f in self.read() if f.kind == 'drops'}
+        self.assertEqual(sorted(drops), [(11517, 1210), (11517, 1794), (11517, 272998), (11520, 14145)])     # not Classic's 818, not the trash list
+        self.assertEqual(drops[(11517, 272998)].data, {'instance': 389, 'boss': 'Oggleflint', 'percent': 50.0, 'kills': 16, 'hidden': 2})
+        self.assertEqual(drops[(11517, 272998)].samples, 16)
+        self.assertEqual((drops[(11517, 1794)].data.get('percent'), drops[(11517, 1794)].data['seen'], drops[(11517, 1794)].samples), (None, 4, 0))
+
+    def test_who_gives_and_takes_a_quest_players_saw(self):
+        found = self.read()
+        pairs = {(f.kind, f.subject_kind, f.subject, f.object) for f in found if f.kind in ('gives', 'takes')}
+        self.assertEqual(pairs, {('gives', 'npc', 288, 5), ('takes', 'npc', 272, 5), ('gives', 'npc', 197, 7), ('gives', 'object', 35, 7),
+                                 ('takes', 'npc', 197, 7), ('takes', 'npc', 963, 11)})          # 9: no player saw it
+        seven = next(f for f in found if f.kind == 'gives' and f.object == 7)
+        self.assertEqual((seven.samples, seven.data), (46, {'title': 'Kobold Camp Cleanup', 'players': 46, 'level': 2, 'new': True}))
+
+    def test_what_could_not_be_read_is_counted_not_guessed(self):
+        self.read()
+        self.assertEqual(dict(self.skipped), {'NPCs.lua': 4, 'Loot.lua': 1, 'QuestForever.lua': 2})
+
+    def test_a_file_missing_or_written_another_way_stops_the_reading(self):
+        for name, text in (('Meta.lua', FDB_HEAD + 'ns.meta = {build="soon"}\n'), ('NPCs.lua', FDB_HEAD + 'ns.npcs = {}\n'),
+                           ('Loot.lua', FDB_HEAD + 'ns.lootDB = { f = function() end }\n'), ('QuestForever.lua', None)):
+            files = dict(FOREVERDB_FILES, **{name: text}) if text else {k: v for k, v in FOREVERDB_FILES.items() if k != name}
+            with self.assertRaises(facts.SourceError) as refused:
+                self.read(files)
+            self.assertIn(name, str(refused.exception))
+
+    def manifest(self, version='2026-11-16.4ee95f5b', files=FOREVERDB_FILES):
+        listed = [{'path': 'Data/' + name, 'url': f'downloads/addon-data/{name}?v=1a2b', 'sha256': hashlib.sha256(text.encode()).hexdigest()}
+                  for name, text in files.items()] + [{'path': 'Data/Gear.lua', 'url': 'downloads/addon-data/Gear.lua', 'sha256': '0' * 64}]
+        return json.dumps({'addon': {}, 'data': {'version': version, 'files': listed}}).encode()
+
+    def test_fetch(self):
+        asked = []
+
+        def fetch(url):
+            asked.append(url)
+            if url == facts.FOREVERDB_MANIFEST:
+                return self.manifest()
+            return FOREVERDB_FILES[url.rpartition('/')[2].partition('?')[0]].encode()
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(facts.fetch_foreverdb('2026-11-16.4ee95f5b', folder, fetch), 4)
+            self.assertEqual(asked, [facts.FOREVERDB_MANIFEST] + [f'https://foreverdb.net/downloads/addon-data/{name}?v=1a2b'
+                                                                  for name in ('Meta.lua', 'NPCs.lua', 'Loot.lua', 'QuestForever.lua')])
+            self.assertEqual(sorted(os.listdir(folder)), ['Loot.lua', 'Meta.lua', 'NPCs.lua', 'QuestForever.lua'])
+            asked.clear()
+            self.assertEqual(facts.fetch_foreverdb('2026-11-16.4ee95f5b', folder, fetch), 0)
+            self.assertEqual(asked, [])                                     # all there: nothing asked
+            self.assertTrue(list(facts.foreverdb(folder)))
+
+    def test_what_is_not_the_pinned_whole_file_is_not_kept(self):
+        good = self.manifest()
+        cases = [
+            (self.manifest(version='2026-11-17.0000'), FOREVERDB_FILES, 'world pin foreverdb'),          # moved on since the pin
+            (good, dict(FOREVERDB_FILES, **{'Meta.lua': FOREVERDB_FILES['Meta.lua'][:-5]}), 'did not download whole'),
+            (good, {k: '<html>Cloudflare</html>' for k in FOREVERDB_FILES}, 'did not download whole'),
+            (json.dumps({'data': {'version': '2026-11-16.4ee95f5b', 'files': [
+                {'path': 'Data/Meta.lua', 'url': 'https://elsewhere.invalid/Meta.lua', 'sha256': '0' * 64}]}}).encode(), FOREVERDB_FILES, 'Data/Meta.lua'),
+            (b'<html>not json</html>', FOREVERDB_FILES, 'could not be downloaded'),
+        ]
+        for listing, served, said in cases:
+            with tempfile.TemporaryDirectory() as folder:
+                with self.assertRaises(facts.SourceError) as refused:
+                    facts.fetch_foreverdb('2026-11-16.4ee95f5b', folder,
+                                          lambda url: listing if url == facts.FOREVERDB_MANIFEST else served[url.rpartition('/')[2].partition('?')[0]].encode())
+                self.assertIn(said, str(refused.exception))
+                self.assertEqual(os.listdir(folder), [])
+
+        def unreachable(url):
+            raise OSError('no route')
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(facts.SourceError):
+            facts.fetch_foreverdb('2026-11-16.4ee95f5b', folder, unreachable)
+        for pin in ('', None, '../etc', 'a' * 65):
+            with self.assertRaises(facts.SourceError):
+                facts.fetch_foreverdb(pin, '/nonexistent', unreachable)
 
 
 class Lua(unittest.TestCase):

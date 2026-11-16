@@ -24,7 +24,7 @@ USES = ('public', 'private', 'reference')            # from the least to the mos
 PUBLISHABLE = {'GPL-2.0-or-later', 'GPL-3.0', 'CC-BY-4.0', 'MIT', 'game data', 'own'}
 # pin type: the fields it needs
 PIN_TYPES = {'github-branch': ('repo',), 'github-release': ('repo', 'tag'), 'github-latest-release': ('repo',), 'curseforge': ('project',),
-             'wago-build': ('product',),
+             'wago-build': ('product',), 'manifest': ('url',),
              'url': ('url',), 'replay': (), 'none': ()}
 USER_AGENT = 'ForeverTracker (world build)'
 
@@ -240,6 +240,13 @@ def resolve(pin, fetch_json=http_json, fetch_digest=http_digest):
         if _build_number(newest.get('version', '')) < 0:
             raise LookupError(f"wago.tools: no build number in the versions of {pin['product']}")
         return {'version': newest['version'], 'date': newest.get('created_at', '')}
+    if kind == 'manifest':
+        # an addon's file list that names its own version ({"data": {"version": ..., "files": [...]}}: ForeverDB.net)
+        listing = fetch_json(pin['url'])
+        version = str(((listing.get('data') if isinstance(listing, dict) else None) or {}).get('version') or '')
+        if not re.fullmatch(r'[\w.\-]{1,64}', version):     # the version names a folder: nothing else gets through
+            raise LookupError(f"{pin['url']}: no version in the manifest")
+        return {'version': version}
     if kind == 'url':
         digest, size = fetch_digest(pin['url'])
         return {'version': digest[:16], 'sha256': digest, 'size': size}
