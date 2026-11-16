@@ -46,6 +46,34 @@ constexpr ClassicDungeonBossEntry Entries[] =
 };
 static constexpr DungeonEncounterData encounters[] = { { CZF_ENC_GAHZRILLA, {{ 594 }} }, { CZF_ENC_UKORZ, {{ 600 }} } };
 '''
+# The Classic scripts' shapes: a helper of their own, an array a summon picks from, an entry swap, and the ones that
+# are no creature (a summon group's id, a passenger slot)
+SHAPES = '''
+enum { NPC_SOLAKAR = 10264, NPC_FIREBRAND_GRUNT = 9045, NPC_BANNOK_GRIMAXE = 9596, SUMMON_ACOLYTES = 1, SLOT_MAGE = 11 };
+uint32 const BrdRingBoss[] = { 9027, 9028, 9029 };
+uint32 const Waves[] = { 1, 2, 3 };
+TempSummon* SummonRookeryCreature(uint32 entry, Position const& pos) { return instance->SummonCreature(entry, pos); }
+void Rookery() { SummonRookeryCreature(NPC_SOLAKAR, Position(43.7f, -259.8f, 91.6f, 0.0f)); }
+void Ring() { me->SummonCreature(BrdRingBoss[urand(0, 2)], x, y, z); me->SummonCreature(Waves[i], x, y, z); }
+void Group() { me->SummonCreatureGroup(SUMMON_ACOLYTES); _controller.SummonCreatures(SLOT_MAGE, SLOT_MAGE); }
+uint32 GetCreatureEntry(ObjectGuid::LowType spawnId, CreatureData const* data) override
+{
+    if (data->id == NPC_FIREBRAND_GRUNT && urand(0, 99) < 5)
+        return NPC_BANNOK_GRIMAXE;
+    return data->id;
+}
+'''
+
+
+class Shapes(unittest.TestCase):
+    def test_helpers_arrays_and_entry_swaps(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Classic', 'brs.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(SHAPES)
+            creatures, _objects, _encounters = make_summoned.scan(folder)
+        self.assertEqual(set(creatures), {10264, 9027, 9028, 9029, 9596})   # no 1, 2, 3 or 11: indexes, a group, a slot
 
 
 class Scan(unittest.TestCase):
@@ -91,6 +119,8 @@ class Shipped(unittest.TestCase):
         self.assertEqual(lists['encounters'].get(594), [7273])     # Gahz'rilla, Zul'Farrak
         self.assertIn(1853, lists['encounters'].get(2801, []))     # Darkmaster Gandling, Scholomance
         self.assertIn(12580, lists['creatures'])                   # Reginald Windsor walks into Stormwind
+        for entry in (9028, 10264, 9596):                          # Grizzle, Solakar Flamewreath, Bannok Grimaxe
+            self.assertIn(entry, lists['creatures'])
 
     def test_a_missing_or_broken_file_is_an_empty_list(self):
         self.assertEqual(summons.core('/nonexistent/summoned.json')['encounters'], {})
