@@ -253,12 +253,29 @@ function icyveins_npc_evidence(array &$ev, int $npc, array $r): void
     // a list counts only from an NPC that offers training (or one whose services were never recorded)
     $trains = (array)($r['addon_trains'] ?? []);
     if ($trains && $services && !in_array(ICYVEINS_SERVICE_TRAINER, $services, true)) { icyveins_left($ev, 'icyveins_trainer_list_not_a_trainer', count($trains)); $trains = []; }
+    $recipes = [];
     foreach ($trains as $s) {
         if (empty($s['spell_id']) || !empty($s['item_id'])) continue;
-        if ((int)(json_decode((string)($s['details'] ?? ''), true)['trainerType'] ?? 0) === 2) { icyveins_left($ev, 'trainer_profession_skill_unknown'); continue; }   // no skill rank given
         $cost = max(array_map(fn($p) => (int)($p['cost'] ?? 0), (array)($s['prices'] ?? [])) ?: [(int)($s['cost'] ?? 0)]);
         $rankNo = preg_match('/(\d+)/', (string)($s['rank'] ?? ''), $m) ? (int)$m[1] : 0;
+        $details = json_decode((string)($s['details'] ?? ''), true) ?: [];
+        if ((int)($details['trainerType'] ?? 0) === 2) {
+            // a profession or a recipe: the recording names its skill and the rank it needs ("Tailoring", "140")
+            if (!isset($details['skillRank']) || !is_numeric($details['skillRank'])) { icyveins_left($ev, 'trainer_profession_skill_unknown'); continue; }
+            $line = source_skill_line((string)($details['skillLine'] ?? $details['skill'] ?? ''), (string)($s['name'] ?? ''));
+            if (!$line) { icyveins_left($ev, 'trainer_skill_unknown'); continue; }
+            $recipes[$line][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), $line, (int)$details['skillRank'], [], $rankNo];
+            continue;
+        }
         $ev['train'][] = [$npc, (int)$s['spell_id'], $cost, (int)($s['req_level'] ?? 0), 0, 0, null, $rankNo];
+    }
+    // a profession trainer teaches one profession: recipes of another one in its list were recorded at someone else
+    if ($recipes) {
+        $main = array_search(max(array_map('count', $recipes)), array_map('count', $recipes), true);
+        foreach ($recipes as $line => $list) {
+            if ($line === $main) $ev['train'] = array_merge($ev['train'] ?? [], $list);
+            else icyveins_left($ev, 'icyveins_recipe_other_profession', count($list));
+        }
     }
     foreach ((array)($r['addon_quests'] ?? []) as $q) {
         if ((int)($q['quest_id'] ?? 0) <= 0) continue;

@@ -45,6 +45,20 @@ $ev = [];
 icyveins_npc_evidence($ev, 5499, ['addon_services' => [['service' => 7]], 'addon_trains' => [['spell_id' => 2259, 'prices' => [['cost' => 10], ['cost' => 9]], 'req_level' => 5, 'rank' => '']]]);
 check($ev['train'] === [[5499, 2259, 10, 5, 0, 0, null, 0]], 'a trainer\'s list is kept, at its highest price');
 
+// Georgio Bolero: a tailoring trainer; each recipe names its skill and the rank it needs
+$ev = [];
+icyveins_npc_evidence($ev, 1346, ['addon_services' => [['service' => 7]], 'addon_trains' => [
+    ['spell_id' => 8766, 'name' => 'Azure Silk Belt', 'cost' => 1000, 'req_level' => 0, 'rank' => null, 'prices' => [['cost' => 1000], ['cost' => 900]],
+     'details' => '{"skill": "Tailoring", "skillLine": "Tailoring", "skillRank": "140", "trainerType": "2"}'],
+    ['spell_id' => 1, 'name' => 'Old Recipe', 'cost' => 5, 'details' => '{"skill": "Tailoring", "trainerType": "2"}'],
+    ['spell_id' => 2, 'name' => 'Odd Recipe', 'cost' => 5, 'details' => '{"skill": "Basket Weaving", "skillRank": "10", "trainerType": "2"}'],
+    ['spell_id' => 3, 'name' => 'Stray Bandage', 'cost' => 5, 'details' => '{"skillLine": "First Aid", "skillRank": "40", "trainerType": "2"}'],
+    ['spell_id' => 8760, 'name' => 'Azure Silk Hood', 'cost' => 600, 'details' => '{"skillLine": "Tailoring", "skillRank": "120", "trainerType": "2"}'],
+]]);
+check($ev['train'] === [[1346, 8766, 1000, 0, 197, 140, [], 0], [1346, 8760, 600, 0, 197, 120, [], 0]], 'a recipe gets its skill line and rank (Tailoring 197, 140), no previous rank asked');
+check(($ev['left']['icyveins_recipe_other_profession'] ?? 0) === 1, 'a recipe of another profession than most of the list is a stray: left out');
+check(($ev['left']['trainer_profession_skill_unknown'] ?? 0) === 1 && ($ev['left']['trainer_skill_unknown'] ?? 0) === 1, 'without a rank, or with a skill this tracker does not know, it is counted, not written');
+
 // Copper Vein: what it holds, with chances
 $ev = [];
 icyveins_object_evidence($ev, 1731, ['addon_contains' => [['item_id' => 2770, 'stack' => 1, 'chance' => 0.97149]], 'addon_quests' => [['quest_id' => 9, 'starts' => true, 'ends' => false]]]);

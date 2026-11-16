@@ -32,7 +32,7 @@ the data stays a reference for your own server.
 | gameobject `addon_contains` | item, chance, stack (chests, ore veins, herbs) | `gameobject_loot_template` |
 | gameobject `addon_gathers`, item `addon_gathered_from` | gather kind (mine, herb, skin, fish, unlock), container item | containers (clams, lockboxes) kept: no chance recorded |
 | npc `addon_sells`, item `addon_sold_by` | item, price, stock left, cost items / currencies, still sold | `npc_vendor` (money only) |
-| npc `addon_trains` | spell, cost, level, rank | `trainer_spell`, only from NPCs whose services include training |
+| npc `addon_trains` | spell, cost, level, rank; for professions the skill and the rank it needs (`details`: skillLine, skillRank) | `trainer_spell` (with `ReqSkillLine` / `ReqSkillRank` for recipes), only from NPCs whose services include training |
 | npc `addon_services` | service number (5 vendor, 6 flight master, 7 trainer, 8 banker, 18 spirit healer, 20 innkeeper; others not decoded yet), repair | `creature_template.npcflag` bits the creature lacks |
 | quest `addon_givers`, npc/gameobject `addon_quests` | who starts, who ends | `creature_` / `gameobject_queststarter` / `questender` |
 | quest `addon_dialog` | kind (complete, progress), speaker, text | `quest_offer_reward`, `quest_request_items` (quests without a row) |
