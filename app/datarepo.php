@@ -14,7 +14,8 @@ const DATAREPO_LEDGER = 'everlake_import_rows';
 /** Spawns get fixed guids, never MAX(guid) + 1: base + operation id × 10000. Keeps clear of the import block (900000000). */
 const DATAREPO_GUID_BASE = 910000000;
 const DATAREPO_GUID_STEP = 10000;
-/** A spawn of the same creature or object this close (yards, same map) is the same spawn. */
+/** A spawn of the same creature or object this close (yards, same map) is the same spawn; a holiday's spawns are matched
+ *  as far as the import matched them (IMPORT_SAME_HOLIDAY_SPAWN). */
 const DATAREPO_SAME_SPAWN = 5;
 /** Rows a table's rows need before they mean anything: [table => [column, parent table, parent column]]. */
 const DATAREPO_PARENTS = [
@@ -116,7 +117,7 @@ function datarepo_sources(array $log): array
 }
 
 /** Stage, filter and insert one table's rows; $rows are read from the world database (column => value). */
-function datarepo_block(string $table, array $rows, string $file, string $note, ?int $guidBase = null): array
+function datarepo_block(string $table, array $rows, string $file, string $note, ?int $guidBase = null, float $same = DATAREPO_SAME_SPAWN): array
 {
     $types = datarepo_columns($table);
     $columns = array_keys($types);
@@ -135,7 +136,7 @@ function datarepo_block(string $table, array $rows, string $file, string $note, 
         AND INDEX_NAME = (SELECT MIN(INDEX_NAME) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?) ORDER BY SEQ_IN_INDEX", [$table, $table], 'world'), 'c') ?: $columns;
     if ($guidBase !== null) {
         // a spawn: same creature or object within a few yards on the same map = already there, and the guid must be free
-        $d = DATAREPO_SAME_SPAWN * DATAREPO_SAME_SPAWN;
+        $d = $same * $same;
         $out[] = "DELETE s FROM $stage s JOIN `$table` x ON x.`id` = s.`id` AND x.`map` = s.`map` AND (x.`position_x` - s.`position_x`) * (x.`position_x` - s.`position_x`) + (x.`position_y` - s.`position_y`) * (x.`position_y` - s.`position_y`) <= $d;";
         $out[] = "DELETE s FROM $stage s JOIN `$table` x ON x.`guid` = s.`guid`;";
     } elseif ($primary) {
@@ -194,7 +195,13 @@ function datarepo_export(int $logId): array
         $count += count($found);
     }
     $base = DATAREPO_GUID_BASE + (int)$log['id'] * DATAREPO_GUID_STEP;
-    $renumbered = ['creature' => [], 'gameobject' => []];   // [table => [guid on the realm => guid in this file]]
+    // a holiday's spawns (all of a table's spawns linked to a game event by this operation) are matched farther
+    $holiday = ['creature' => [], 'gameobject' => []];
+    foreach (['game_event_creature' => 'creature', 'game_event_gameobject' => 'gameobject'] as $links => $spawnTable) {
+        if (!isset($dependent[$links]) || !table_exists($links, 'world')) continue;
+        foreach ($dependent[$links] as $where) foreach (rows('SELECT guid FROM ' . forge_ident($links) . ' WHERE eventEntry > 0 AND (' . $where . ')', [], 'world') as $r) $holiday[$spawnTable][(int)$r['guid']] = true;
+    }
+    $renumbered = ['creature' => [], 'gameobject' => []]; $within = [];   // [table => [guid on the realm => guid in this file]]
     foreach ($changes['spawns'] as $table => $guids) {
         $found = [];
         foreach (array_chunk(array_values(array_unique($guids)), 500) as $chunk) {
@@ -204,7 +211,10 @@ function datarepo_export(int $logId): array
         if (count($found) >= DATAREPO_GUID_STEP) return ['ok' => false, 'message' => 'Too many spawns in one operation.'];
         foreach ($found as $i => &$r) { $renumbered[$table][(int)$r['guid']] = $base + $i; $r['guid'] = $base + $i; }
         unset($r);
-        $blocks[] = datarepo_block($table, $found, $file, $note, $base);
+        $linked = isset($holiday[$table]) && !array_diff(array_keys($renumbered[$table]), array_keys($holiday[$table]));
+        $same = $linked ? max(DATAREPO_SAME_SPAWN, IMPORT_SAME_HOLIDAY_SPAWN[$table]) : DATAREPO_SAME_SPAWN;
+        if ($same != DATAREPO_SAME_SPAWN) $within[] = sprintf('%g for a holiday\'s %s', $same, $table === 'creature' ? 'creature' : 'object');
+        $blocks[] = datarepo_block($table, $found, $file, $note, $base, $same);
         $count += count($found);
     }
     foreach ($dependent as $table => $wheres) {
@@ -233,7 +243,7 @@ function datarepo_export(int $logId): array
         '-- Made from the official WoW Forever client data' . ($build ? " (build $build)" : '') . ' and the Forge rules (docs/FORGE.md); rows as they were on that realm when exported.',
         ...($sources ? ['-- Sources: ' . implode(', ', $sources) . ' (NOTICE.md, Forge exports).'] : []),
         '-- Never edit this file once it is deployed: a later fix is a new file. Running it again changes nothing: a row is added only',
-        '-- where none exists, spawns only where the same creature or object is not already within ' . DATAREPO_SAME_SPAWN . ' yards, and each added row is recorded in ' . DATAREPO_LEDGER . '.',
+        '-- where none exists, spawns only where the same creature or object is not already within ' . DATAREPO_SAME_SPAWN . ' yards' . ($within ? ' (' . implode(', ', $within) . ')' : '') . ', and each added row is recorded in ' . DATAREPO_LEDGER . '.',
         '',
         'CREATE TABLE IF NOT EXISTS `' . DATAREPO_LEDGER . "` (
   `tbl` varchar(64) NOT NULL COMMENT 'world table of the row',

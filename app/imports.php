@@ -10,6 +10,13 @@
 require_once FT_APP . '/forge.php';
 
 const IMPORT_SPAWN_TABLES = ['creature' => 'npc', 'gameobject' => 'go'];
+/** How near (yards, same map) a spawn of the same creature or object is taken for the one the server already has. */
+const IMPORT_SAME_SPAWN = 3.0;
+/** The same for a holiday's spawn (one the import links to a game event), which is matched farther: the realm's holiday
+ *  spawns come from another database, which places the same NPC a few yards off (a second Silas Darkmoon 18 yards from
+ *  the first, the Elders of the Lunar Festival 4 to 25), and an object a step aside. Only the server's spawns are
+ *  matched this far: the import's own stay apart at IMPORT_SAME_SPAWN, so a crowd of the same NPC keeps its members. */
+const IMPORT_SAME_HOLIDAY_SPAWN = ['creature' => 30.0, 'gameobject' => 10.0];
 // tables keyed by a spawn guid: [table => [guid columns]]
 const IMPORT_GUID_TABLES = ['creature_addon' => ['guid'], 'gameobject_addon' => ['guid'], 'creature_formations' => ['leaderGUID', 'memberGUID'],
     'game_event_creature' => ['guid'], 'game_event_gameobject' => ['guid'], 'linked_respawn' => ['guid', 'linkedGuid'], 'spawn_group' => ['spawnId'],
@@ -274,10 +281,37 @@ function import_delete(int $id): void
 }
 
 // ------------------------------------------------------------------ planning
+/** The spawns an import links to a holiday (a game event that brings them in), by their guid in the import:
+ *  ['creature' => [guid => true], 'gameobject' => [...]]. A negative event (one that hides a spawn) does not count. */
+function import_holiday_spawns(array $tables): array
+{
+    $holiday = ['creature' => [], 'gameobject' => []];
+    foreach (['game_event_creature' => 'creature', 'game_event_gameobject' => 'gameobject'] as $links => $spawnTable) {
+        foreach ($tables[$links]['groups'] ?? [] as $group) foreach ($group['rows'] as $row) {
+            $r = array_combine($group['columns'], $row);
+            if ((int)($r['eventEntry'] ?? 0) > 0 && array_key_exists('guid', $r)) $holiday[$spawnTable][is_array($r['guid']) ? implode('', $r['guid']) : (string)$r['guid']] = true;
+        }
+    }
+    return $holiday;
+}
+
+/** Whether a spawn of the import stands already: the server has the same creature / object near it ($server, [x, y]
+ *  pairs on the same map: IMPORT_SAME_SPAWN yards, IMPORT_SAME_HOLIDAY_SPAWN for a holiday's spawn), or the import
+ *  placed one at the same spot ($added: IMPORT_SAME_SPAWN, so a crowd of the same NPC keeps its members). */
+function import_spawn_stands(string $table, bool $holiday, float $x, float $y, array $server, array $added): bool
+{
+    $reach = $holiday ? (IMPORT_SAME_HOLIDAY_SPAWN[$table] ?? IMPORT_SAME_SPAWN) : IMPORT_SAME_SPAWN;
+    foreach ([[$server, $reach], [$added, IMPORT_SAME_SPAWN]] as [$spots, $yards]) {
+        foreach ($spots as [$sx, $sy]) if (hypot($sx - $x, $sy - $y) < $yards) return true;
+    }
+    return false;
+}
+
 /**
  * The Forge plan of an import: tables to apply (all when empty), optionally only the rows that make the given items
  * obtainable. Spawns get new guids from the current maximum; a spawn whose creature / object already stands within
- * 3 yards on the same map is left out, with the rows that depend on its guid.
+ * IMPORT_SAME_SPAWN yards on the same map (IMPORT_SAME_HOLIDAY_SPAWN for a holiday's) is left out, with the rows that
+ * depend on its guid.
  */
 function import_build(int $id, array $only = [], array $items = []): array
 {
@@ -305,22 +339,26 @@ function import_build(int $id, array $only = [], array $items = []): array
 
     // new guids for spawns, and the spawns that already exist close by
     $guidMap = ['npc' => [], 'go' => []]; $next = [];
+    $holiday = import_holiday_spawns($tables);
     foreach (IMPORT_SPAWN_TABLES as $table => $kind) {
         if (!isset($tables[$table])) continue;
         $next[$kind] = (int)value("SELECT COALESCE(MAX(guid), 0) FROM `$table`", [], 'world');
         $entries = [];
         foreach ($tables[$table]['groups'] as $group) foreach ($group['rows'] as $row) { $r = array_combine($group['columns'], $row); if (is_int($r['id'] ?? null)) $entries[$r['id']] = true; }
-        $existing = [];
+        $existing = []; $added = [];
         foreach (array_chunk(array_keys($entries), 1000) as $chunk) {
             foreach (rows("SELECT guid, id, map, position_x x, position_y y FROM `$table` WHERE id IN (" . implode(',', $chunk) . ')', [], 'world') as $e) $existing[$e['id'] . ':' . $e['map']][] = [(float)$e['x'], (float)$e['y'], (int)$e['guid']];
         }
-        // a spawn the card also places (within 3 yards) is confirmed: never moved to another of the card's places
+        // a spawn the card also places (within IMPORT_SAME_SPAWN yards, a holiday's IMPORT_SAME_HOLIDAY_SPAWN) is confirmed:
+        // never moved to another of the card's places
         $confirmed = []; $spawnOrigin = [];
         if ($refresh && $radius > 0) {
             foreach ($tables[$table]['groups'] as $group) foreach ($group['rows'] as $row) {
                 $r = array_combine($group['columns'], $row);
+                $original = is_array($r['guid'] ?? null) ? implode('', $r['guid']) : (string)($r['guid'] ?? '');
+                $reach = isset($holiday[$table][$original]) ? IMPORT_SAME_HOLIDAY_SPAWN[$table] : IMPORT_SAME_SPAWN;
                 foreach ($existing[($r['id'] ?? 0) . ':' . ($r['map'] ?? 0)] ?? [] as [$x, $y, $guid]) {
-                    if (is_numeric($r['position_x'] ?? null) && hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < 3.0) $confirmed[$guid] = true;
+                    if (is_numeric($r['position_x'] ?? null) && hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < $reach) $confirmed[$guid] = true;
                 }
             }
             $guids = []; foreach ($existing as $list) foreach ($list as $e) $guids[] = (string)$e[2];
@@ -336,11 +374,10 @@ function import_build(int $id, array $only = [], array $items = []): array
                 $r = array_combine($group['columns'], $row);
                 $original = is_array($r['guid'] ?? null) ? implode('', $r['guid']) : (string)($r['guid'] ?? '');
                 if (!isset($known[(int)($r['id'] ?? 0)])) { $unknown++; continue; }
-                $close = false;
-                foreach ($existing[($r['id'] ?? 0) . ':' . ($r['map'] ?? 0)] ?? [] as [$x, $y]) {
-                    if (hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < 3.0) { $close = true; break; }
-                }
-                if ($close) { $nearby++; continue; }
+                // the same creature or object close by on the server (a holiday's farther: IMPORT_SAME_HOLIDAY_SPAWN), or this
+                // card's own at the same spot: it stands already
+                $at = ($r['id'] ?? 0) . ':' . ($r['map'] ?? 0);
+                if (import_spawn_stands($table, isset($holiday[$table][$original]), (float)$r['position_x'], (float)$r['position_y'], $existing[$at] ?? [], $added[$at] ?? [])) { $nearby++; continue; }
                 // the same creature or object a few yards off, that the card does not place where it stands: it moved
                 if ($refresh && $radius > 0 && !isset($guidMap[$kind][$original])) {
                     $best = null; $bestAt = $radius;
@@ -369,7 +406,7 @@ function import_build(int $id, array $only = [], array $items = []): array
                 }
                 $guidMap[$kind][$original] ??= ++$next[$kind];
                 $r['guid'] = $guidMap[$kind][$original];
-                $existing[$r['id'] . ':' . $r['map']][] = [(float)$r['position_x'], (float)$r['position_y'], 0];
+                $added[$at][] = [(float)$r['position_x'], (float)$r['position_y']];
                 $origins[] = ['world', $table, (string)$r['guid'], $source];
                 $keepRows[] = array_values($r);
             }

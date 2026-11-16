@@ -49,8 +49,10 @@ as text.
   realm's events 14, 15 and 62), and the yearly holidays under the realm's own events: Lunar Festival 7, Love is in
   the Air 8, Noblegarden 9 (the realm lacks it: made on Forever's holiday 181, 7 days), Children's Week 10, Midsummer 1, Harvest Festival 11 (33 in the original game), Hallow's
   End 12, Winter Veil 2, New Year's Eve 6. A card's preview says how many of its spawns already stand on the realm:
-  the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature or
-  object already stands within 3 yards is left out with its links. The world data export numbers the spawns in its
+  the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature
+  already stands within 30 yards, or whose object within 10, is left out with its links: the realm's holiday spawns come
+  from another database (VMaNGOS), which places the same NPC a few yards off, and a closer match gave the realm a
+  second Silas Darkmoon or Lunar Festival Elder. The card's own spawns are still told apart at 3 yards, so a crowd stays whole. The world data export numbers the spawns in its
   own range and writes each link with its spawn's new number, only where that spawn was added. Restart the
   worldserver after applying: events are read at start. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
 (`data/classicdb/pack.cdbpack`) and a card is made at once; *Read the pack again* makes a new card after an analysis.
