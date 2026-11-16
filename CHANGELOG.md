@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **ForeverChanges needs a second source.** A row only ForeverChanges states is no longer put on its card, so it is
+  never applied by itself nor exported: Wowhead, ForeverDB.net or EG Link (their last snapshots; EG Link's quest texts
+  for turn-in and progress texts) must state the same thing. What is left is listed on the card as hints about the gaps.
+
 - **ForeverChanges: only the gaps' pages.** A visit of foreverchanges.pro now asks for the sitemaps, the two
   continents' map files and the page of each quest or item the last analysis lacks, and nothing else: no more
   Forever's own pages outside the gaps, other maps, dungeons, topic pages or Classic's pages, and no rereading of

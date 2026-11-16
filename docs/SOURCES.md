@@ -15,7 +15,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
-| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | only the pages of the tracker's gaps, read slowly in the background (robots.txt obeyed, one request at a time); every file kept privately in `data/` |
+| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project. Since 2026-11-16 a row needs a second source (Wowhead, ForeverDB.net, EG Link): alone it is a hint | only the pages of the tracker's gaps, read slowly in the background (robots.txt obeyed, one request at a time); every file kept privately in `data/` |
 | [VMaNGOS](https://github.com/vmangos/core) | the world database of the 1.12 game, not of Forever, kept patch by patch (the pack takes 1.12): the same questions as cmangos classic-db, asked just before it | GPL-2.0 | from a file you send: a pack made from the `db-….zip` of its `db_latest` release, the tracker never downloads it |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
@@ -157,6 +157,17 @@ the history of every file, since a changed file is a new key and the old one sta
 remembers what each kept page states, so a page is parsed once. `python tools/foreverchanges_pull.py status` says
 what is kept; `pack` makes the pack again with no network. Each card's evidence is kept as a snapshot
 (docs/SNAPSHOTS.md): *Card* in *What the sources said* makes it again from the database after a new analysis.
+
+**A second source, or a hint** (the project's decision of 2026-11-16). ForeverChanges stays a card source, but a row
+it alone states never becomes a row: not on the card, so it is never applied to the test realm (cards apply
+themselves) and never exported to the data repository. A row counts when the client and Blizzard's CDN, Wowhead,
+ForeverDB.net or EG Link states it too: the same creature selling or dropping the same item, the same creature or
+object giving or taking the same quest (the last snapshot of Wowhead, ForeverDB.net and EG Link), the same quest
+window recorded (EG Link's quest texts, `world facts eglink`). The client holds none of these, so in practice it is
+the other three. Everything else that is about a gap stays on the card as a hint (`hints`, 500 at most, and a count
+per kind under what was left out): it points at the gap, for a person or another source to settle. A second source
+that has no snapshot yet is named on the card. Made before this rule, and not removed: Forge operation 23 in the
+data repository and one hand-written drop there (Lost One Cook, Recipe: Giant Scrambled Eggs).
 
 - **Quest givers by id.** The map's `quest-givers.json` names who starts each quest by id (`n620` a creature, `o9000`
   an object) and marks the rows its players saw (`addon`). Those rows are taken as they are, with no name to match,
