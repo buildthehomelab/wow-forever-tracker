@@ -47,22 +47,45 @@ async function crawlTab(create = true) {
   return found;
 }
 
-/** Loads the crawler into the tab when it has none; it starts by itself (the tracker's file ends with WHC.start()). */
-async function load(tabId) {
-  const [{ result: has } = {}] = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => !!window.WHC });
-  if (has) return;
+/** How long a crawler runs before the tab is reloaded for a new one: the tracker's queue (what it wants read next, in
+ *  what order) and its crawler code change while a tab crawls for days. */
+const REFRESH_MINUTES = 60;
+let fresh = null;   // a crawler fetched just before a reload, for the load that follows it
+
+async function fetchCrawler() {
   const { tracker, key } = await config();
   let answer;
   try { answer = await fetch(tracker + '/api/wowhead-crawler', { headers: { 'X-Push-Token': key }, cache: 'no-store' }); }
-  catch (error) { return note('the tracker does not answer at ' + tracker + ': tried again in 5 minutes', true); }
+  catch (error) { await note('the tracker does not answer at ' + tracker + ': tried again in 5 minutes', true); return null; }
   if (!answer.ok) {
     const said = await answer.json().catch(() => ({}));
-    return note('the tracker refused the crawler (' + answer.status + (said.error ? ': ' + said.error : '') + ')', true);
+    await note('the tracker refused the crawler (' + answer.status + (said.error ? ': ' + said.error : '') + ')', true);
+    return null;
   }
-  const src = await answer.text();
+  return answer.text();
+}
+
+/** Loads the crawler into the tab when it has none; it starts by itself (the tracker's file ends with WHC.start()). A
+ *  crawler older than REFRESH_MINUTES (or one an earlier version of the extension loaded, which kept no time) is
+ *  replaced: the tab is reloaded, and loads the new one. Only once the tracker has answered, so a crawl goes on while
+ *  the tracker is away. */
+async function load(tabId) {
+  const [{ result: loadedAt } = {}] = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => window.WHC ? (window.__whcLoadedAt || 0) : null });
+  if (loadedAt !== null && loadedAt !== undefined) {
+    if (Date.now() - loadedAt < REFRESH_MINUTES * 60000) return;
+    const src = await fetchCrawler();
+    if (src === null) return;
+    fresh = src;
+    await note('the tab is reloaded for the tracker\'s latest queue');
+    await chrome.tabs.reload(tabId);
+    return;
+  }
+  const src = fresh || await fetchCrawler();
+  fresh = null;
+  if (src === null) return;
   await chrome.scripting.executeScript({
     target: { tabId }, world: 'MAIN', args: [src],
-    func: (code) => { if (window.WHC) return; window.__whcExtension = true; (0, eval)(code); },
+    func: (code) => { if (window.WHC) return; window.__whcExtension = true; window.__whcLoadedAt = Date.now(); (0, eval)(code); },
   });
   await note('crawler loaded from the tracker');
 }
@@ -80,7 +103,8 @@ async function start() {
 
 chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create('check', { periodInMinutes: 5 }); start(); });
 chrome.runtime.onStartup.addListener(() => { chrome.alarms.create('check', { periodInMinutes: 5 }); start(); });
-// every 5 minutes: the tab is there (closed: opened again) and has its crawler (lost: loaded again)
+// every 5 minutes: the tab is there (closed: opened again) and has its crawler (lost: loaded again; older than
+// REFRESH_MINUTES: the tab reloaded for a new one)
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === 'check') start(); });
 chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if (change.status !== 'complete') return;

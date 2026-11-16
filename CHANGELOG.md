@@ -11,6 +11,31 @@
   Forever's own pages outside the gaps, other maps, dungeons, topic pages or Classic's pages, and no rereading of
   them. Files an earlier visit kept stay in `data/` and still go into the card. Its cards are made as before.
 
+- **The Chrome extension takes a new crawler every hour.** It loaded the tracker's crawler only when its tab had
+  none, so a tab that crawled for days kept the queue and code it started with: the new order of the crawl did not
+  reach it. Extension 1.1.0 reloads the tab for a new crawler once the one it runs is an hour old (and at once for one
+  an earlier version loaded), only after the tracker answered. Download it again from The Forge › Crawl and reload it
+  in `chrome://extensions`.
+
+- **The crawl reads the items with no source before the creatures with missing data.** The items that only lacked a
+  source were the crawler's tier 4, behind more than 2,000 creature pages of tier 3 (about a day of reading at its
+  pace). They are now tier 3, what their pages name tier 4, and the server's creatures and objects whose data is
+  missing tier 5. A crawl that is already running (the Chrome extension's) is put in the new order once, the next
+  time it loads the crawler.
+
+- **The VMaNGOS pack leaves out what players could never reach.** VMaNGOS keeps vendors that never spawn (the World
+  Mount Vendor, test and "[UNUSED]" vendors), vendor lists no spawned NPC uses (old PvP rank gear) and quests Blizzard
+  marked as never made ("<NYI>", "<TXT>", "<UNUSED>", "REUSE", test quests). classic-db leaves these out. Counted as
+  ways the game gave an item out, they took 114 items and 24 mount spells out of *Internal / test* and put them in To
+  add. The pack now drops them. Make the pack again and send it to put those back.
+
+- **A card no longer puts back drop chances a better source set.** A card's values measured again (the `/* refresh */`
+  lines) were weighed against who wrote each row only when the card was made, and applying them never kept their
+  source. So a card made before a Wowhead apply put its own numbers back over Wowhead's, and any card could undo any
+  other's. Those values are now weighed again when the card is built: a row a more trusted source (or an
+  administrator) wrote since is held, and the source of each one applied is kept. The sources of rows refreshed
+  before this are read back once from the History, the newest apply of a row winning.
+
 - **Applied import cards fold away.** A card kept its place on the Imports page after it was applied, and the Imports
   badge counted every card ever made. Each card now records when it was last applied and when nothing on it was
   missing any more (an apply that wrote it all, or a preview or apply that found nothing to add). Those cards fold

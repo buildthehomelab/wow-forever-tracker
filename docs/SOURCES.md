@@ -35,7 +35,9 @@ a classic-db card; a VMaNGOS card may change a classic-db row.
 450 kB, in 25 seconds. VMaNGOS keeps every row with the patches it belongs to; the pack keeps patch 1.12 only (the
 newest version of a template up to 1.12, a loot, spawn or event row only when 1.12 is in its range, a trainer line or
 spell by the 1.12.1 client build 5875), renames the columns to cmangos' and is made by the same code as the classic-db
-pack. Its holiday buttons (under *VMaNGOS*) use the realm's own event numbers, since the realm's calendar is VMaNGOS's;
+pack. It leaves out what players could never reach, which VMaNGOS keeps and classic-db does not: vendors never spawned,
+vendor lists no spawned creature uses, and quests whose title marks them as never made (`<NYI>`, `<TXT>`, `<UNUSED>`,
+`REUSE`, test quests). Creatures that are summoned rather than spawned keep their loot. Its holiday buttons (under *VMaNGOS*) use the realm's own event numbers, since the realm's calendar is VMaNGOS's;
 apply a holiday's card from one database only. The analysis reads both packs: a spell either teaches counts as taught,
 and an item is "given out nowhere" only when neither gives it out. Send either `.cdbpack` on the Imports page: the pack
 names its source and is kept as that source's one pack (`data/vmangos/pack.cdbpack`, `data/classicdb/pack.cdbpack`).
