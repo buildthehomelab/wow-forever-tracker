@@ -403,7 +403,7 @@
         return;
       }
       toast(esc(data.message || ''));
-      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_wowheadclassic' || action === 'source_atlasloot' || action === 'snapshot_card' || action === 'snapshot_cards') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
+      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_vmangos' || action === 'source_wowhead' || action === 'source_wowheadclassic' || action === 'source_atlasloot' || action === 'snapshot_card' || action === 'snapshot_cards') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   // The Forge › Crawl: opens Wowhead with the crawler in it, and keeps what that tab reads (docs/WOWHEAD-PAGES.md)

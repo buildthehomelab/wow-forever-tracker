@@ -16,6 +16,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | read from the site slowly in the background (robots.txt obeyed, one request at a time), the gaps first; every file kept privately in `data/` |
+| [VMaNGOS](https://github.com/vmangos/core) | the world database of the 1.12 game, not of Forever, kept patch by patch (the pack takes 1.12): the same questions as cmangos classic-db, asked just before it | GPL-2.0 | from a file you send: a pack made from the `db-….zip` of its `db_latest` release, the tracker never downloads it |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
 What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
@@ -24,6 +25,22 @@ Questie and DungeonJournal come in through NorgannonDB, which is built from them
 repeat its rows.
 
 ## The original game's database: the last word, from a file
+
+Two databases of the 1.12 game answer the same questions from packs of one format: **VMaNGOS** first, then cmangos
+**classic-db** (`[sources] trust`: `…, wowheadclassic, vmangos, classicdb`). A row a VMaNGOS card wrote is not changed by
+a classic-db card; a VMaNGOS card may change a classic-db row.
+
+`python tools/vmangos_pack.py db-13a411e.zip out.cdbpack` makes the VMaNGOS pack from the release zip of
+[vmangos/core](https://github.com/vmangos/core/releases/tag/db_latest) (or from the `mangos.sql` inside it): about
+450 kB, in 25 seconds. VMaNGOS keeps every row with the patches it belongs to; the pack keeps patch 1.12 only (the
+newest version of a template up to 1.12, a loot, spawn or event row only when 1.12 is in its range, a trainer line or
+spell by the 1.12.1 client build 5875), renames the columns to cmangos' and is made by the same code as the classic-db
+pack. Its holiday buttons (under *VMaNGOS*) use the realm's own event numbers, since the realm's calendar is VMaNGOS's;
+apply a holiday's card from one database only. The analysis reads both packs: a spell either teaches counts as taught,
+and an item is "given out nowhere" only when neither gives it out. Send either `.cdbpack` on the Imports page: the pack
+names its source and is kept as that source's one pack (`data/vmangos/pack.cdbpack`, `data/classicdb/pack.cdbpack`).
+
+What follows holds for both; the examples are classic-db's.
 
 `python tools/classicdb_pack.py ClassicDB_1_12_1_z2815.sql.gz out.cdbpack` makes a pack from the full dump of
 cmangos' classic-db (`Full_DB/` of its repository): about 170 kB of gzipped JSON with its trainer lines, the quests

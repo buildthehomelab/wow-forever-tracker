@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **VMaNGOS is a source, just above the Classic database.** `tools/vmangos_pack.py` makes a pack from the world
+  database of VMaNGOS' `db_latest` release (GPL-2.0), patch 1.12 only, in the Classic database pack's format; send it
+  on the Imports page (a pack names its source). It answers the same questions (trainers, quest turn-in spells,
+  conversation lines, drops and vendors of recipes, holiday spawns) and ranks after Wowhead Classic and before cmangos
+  classic-db. Its holiday cards use the realm's own event numbers. The analysis reads both packs.
+
 - **The fishing contest card uses the realm's crew event.** It linked Riggle Bassbait and his crew to event 62,
   which on the realm's calendar (VMaNGOS's) is an AQ War event; the realm's crew event is 40, which already has them.
 

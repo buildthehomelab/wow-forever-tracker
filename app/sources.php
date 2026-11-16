@@ -41,6 +41,7 @@ const SOURCES = [
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
     'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14)'],
     'wowheadclassic' => ['Wowhead Classic', 'drop counts from the pages of wowhead.com/classic, for creatures and chests Forever kept whose Forever pages count too few (no text; no licence stated: credited)'],
+    'vmangos' => ['VMaNGOS', 'VMaNGOS world database (vmangos/core), GPL-2.0: the original game at patch 1.12, asked before the Classic database'],
     'classicdb' => ['Classic database', 'cmangos classic-db, GPL-3.0: the original game, asked last'],
 ];
 
@@ -283,15 +284,16 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
  *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
- *  (Wowhead Classic, the original game's database) comes after everything recorded on Forever. A file imported by hand
+ *  (Wowhead Classic, then the original game's database: VMaNGOS before cmangos' classic-db) comes after everything
+ *  recorded on Forever. A file imported by hand
  *  ("sniff": WowPacketParser's format; "scribe": ForeverScribe's notes) comes after the Forever sources and before
  *  Classic's. The core's own rows, which no import wrote, rank below all of them ([sources] change_core). */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,classicdb';
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,vmangos,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -649,12 +651,26 @@ function source_check(): ?array
 }
 
 // ------------------------------------------------------------------ The original game's database, from a file
-// cmangos' classic-db is the content of the 1.12 game, not of WoW: Forever. It is the last source asked, and only about
-// profession recipes nobody can learn on this server: who trained them, which quest's turn-in cast them. The tracker
-// reads a pack made from the project's own dump (tools/classicdb_pack.py), sent through the Imports page; it never
-// downloads it. tools/tracker.py classic matches the pack to the gaps (ft.classic, docs/SOURCES.md).
+// Two databases of the 1.12 game, not of WoW: Forever: VMaNGOS' world database (tools/vmangos_pack.py) and cmangos'
+// classic-db (tools/classicdb_pack.py). They are the last sources asked, VMaNGOS before classic-db, and only about what
+// nobody can learn or get on this server: who trained a recipe, which quest's turn-in cast it, who dropped or sold it.
+// Each is read from a pack of the same format made from the project's own dump, sent through the Imports page; the
+// tracker never downloads them. tools/tracker.py classic matches a pack to the gaps (ft.classic, docs/SOURCES.md).
 
-function classicdb_pack(): string { return FT_ROOT . '/data/classicdb/pack.cdbpack'; }
+/** The sources read from such a pack, the more trusted first, by the name their cards and rows carry. */
+const CLASSIC_PACKS = ['vmangos' => 'VMaNGOS', 'classicdb' => 'Classic database'];
+
+function classicdb_pack(string $source = 'classicdb'): string
+{
+    if (!isset(CLASSIC_PACKS[$source])) throw new InvalidArgumentException("no pack source $source");
+    return FT_ROOT . "/data/$source/pack.cdbpack";
+}
+
+/** Which source a pack was made for: the 'source' it names (tools/vmangos_pack.py writes "VMaNGOS"), else classic-db. */
+function classicdb_pack_source(array $pack): string
+{
+    return stripos((string)($pack['source'] ?? ''), 'vmangos') !== false ? 'vmangos' : 'classicdb';
+}
 
 /** The evidence tools/tracker.py made from a pack, checked: trainer lines of whole numbers with a skill line,
  *  conversation lines, drops and vendors of items players cannot get, the counted reasons that are its own. Anything
@@ -739,7 +755,7 @@ function classicdb_conditions(array $terms, int $menu, int $option, string $comm
  * $state: by "kind:entry": known, spawned, script, ai, type (an object's), menus [menu ids], shared [menu => true],
  * options [menu => [OptionID => text]], smart (the highest SmartAI id), taken [menu => true] (numbers in use).
  */
-function classicdb_talk_rows(array $talk, array $state, int $build, array $names = []): array
+function classicdb_talk_rows(array $talk, array $state, int $build, array $names = [], string $mark = 'Classic database'): array
 {
     $rows = []; $changes = []; $left = [];
     $count = function (string $why) use (&$left) { $left[$why] = ($left[$why] ?? 0) + 1; };
@@ -789,7 +805,7 @@ function classicdb_talk_rows(array $talk, array $state, int $build, array $names
         foreach ($lines as [, , $text, $recipe, $cast, $terms]) {
             if (in_array(mb_strtolower($text), $said, true)) { $count('classic_talk_known'); continue; }
             $who = $names[$kind][(string)$entry] ?? '';
-            $conditions = classicdb_conditions($terms, $menu, $next, trim("$who: learn $recipe (Classic database)"));
+            $conditions = classicdb_conditions($terms, $menu, $next, trim("$who: learn $recipe ($mark)"));
             if ($conditions === null) { $count('classic_talk_condition'); continue; }
             $rows['gossip_menu_option'][] = ['MenuID' => $menu, 'GossipOptionID' => 0, 'OptionID' => $next, 'OptionNpc' => 0, 'OptionText' => $text,
                 'OptionBroadcastTextID' => 0, 'Language' => 0, 'Flags' => 0, 'ActionMenuID' => 0, 'ActionPoiID' => 0, 'BoxCoded' => 0, 'BoxMoney' => 0,
@@ -998,10 +1014,11 @@ const CLASSICDB_HOLIDAYS = [
  * the realm. A spawn in several of the holiday's events is one spawn with a link to each. The guids are the original
  * game's: applying the card gives them new ones (import_build), and the links follow.
  */
-function classicdb_holiday_rows(string $key, array $events, array $realm, array $templates, int $build): array
+function classicdb_holiday_rows(string $key, array $events, array $realm, array $templates, int $build, string $source = 'classicdb'): array
 {
     $holiday = CLASSICDB_HOLIDAYS[$key] ?? null;
     if (!$holiday) return [[], ['classic_holiday_unknown' => 1]];
+    $holiday['events'] = classicdb_holiday_events($key, $source);
     $rows = []; $left = []; $changes = [];
     $count = function (string $why, int $n = 1) use (&$left) { if ($n > 0) $left[$why] = ($left[$why] ?? 0) + $n; };
     $seen = ['npc' => [], 'go' => []];
@@ -1056,18 +1073,34 @@ function classicdb_holiday_rows(string $key, array $events, array $realm, array 
     return [$rows, $left, $changes];
 }
 
-/** The card of a holiday's spawns (CLASSICDB_HOLIDAYS), from the pack of format 4. */
-function classicdb_holiday_import(string $key): array
+/**
+ * A holiday's events as $source's pack numbers them: [the pack's event => what it becomes on the realm]. CLASSICDB_HOLIDAYS
+ * keys them by classic-db's numbers. The realm's calendar is VMaNGOS's, so a VMaNGOS pack's event is the realm's own
+ * number: the same targets, keyed by it.
+ */
+function classicdb_holiday_events(string $key, string $source = 'classicdb'): array
+{
+    $events = CLASSICDB_HOLIDAYS[$key]['events'] ?? [];
+    if ($source !== 'vmangos') return $events;
+    $out = [];
+    foreach ($events as $target) $out[(int)$target['event']] = $target;
+    return $out;
+}
+
+/** The card of a holiday's spawns (CLASSICDB_HOLIDAYS), from $source's pack of format 4. */
+function classicdb_holiday_import(string $key, string $source = 'classicdb'): array
 {
     if ($e = source_check()) return $e;
     $holiday = CLASSICDB_HOLIDAYS[$key] ?? null;
-    if (!$holiday) return ['ok' => false, 'message' => t('No such holiday.', 'Fête inconnue.')];
-    $path = classicdb_pack();
+    if (!$holiday || !isset(CLASSIC_PACKS[$source])) return ['ok' => false, 'message' => t('No such holiday.', 'Fête inconnue.')];
+    $holiday['events'] = classicdb_holiday_events($key, $source);
+    $mark = CLASSIC_PACKS[$source];
+    $path = classicdb_pack($source);
     $raw = is_file($path) ? @gzdecode((string)file_get_contents($path)) : false;
     $pack = $raw !== false ? json_decode($raw, true) : null;
     if (!is_array($pack) || !is_array($pack['holidays'] ?? null)) {
-        return ['ok' => false, 'message' => t('The Classic database pack holds no holiday spawns: make it again with tools/classicdb_pack.py (format 4) and send it here.',
-            'Le paquet de la base Classic ne contient aucun placement de fête : recréez-le avec tools/classicdb_pack.py (format 4) et envoyez-le ici.')];
+        return ['ok' => false, 'message' => sprintf(t('The %s pack holds no holiday spawns: make it again (format 4) and send it here.',
+            'Le paquet %s ne contient aucun placement de fête : recréez-le (format 4) et envoyez-le ici.'), $mark)];
     }
     $events = array_map(fn($t) => (int)$t['event'], $holiday['events']);
     $realm = [];
@@ -1080,17 +1113,20 @@ function classicdb_holiday_import(string $key): array
     $templates = ['npc' => [], 'go' => []];
     if ($ids['npc']) foreach (rows('SELECT entry FROM creature_template WHERE entry IN (' . implode(',', array_keys($ids['npc'])) . ')', [], 'world') as $r) $templates['npc'][(int)$r['entry']] = true;
     if ($ids['go']) foreach (rows('SELECT entry FROM gameobject_template WHERE entry IN (' . implode(',', array_keys($ids['go'])) . ')', [], 'world') as $r) $templates['go'][(int)$r['entry']] = true;
-    [$rows, $left, $changes] = classicdb_holiday_rows($key, $pack['holidays'], $realm, $templates, (int)(meta()['client_build'] ?? 0));
+    [$rows, $left, $changes] = classicdb_holiday_rows($key, $pack['holidays'], $realm, $templates, (int)(meta()['client_build'] ?? 0), $source);
     $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($pack['made'] ?? '')) ? (string)$pack['made'] : date('Y-m-d', (int)filemtime($path));
-    $name = 'Classic database ' . $made . ': ' . $holiday['name'][0];
-    return source_card('classicdb', $name, 'classicdb-holiday-' . $key . '@' . $made, classicdb_tables($rows), $left, $changes, 'classicdb-holiday-' . $key);
+    $name = $mark . ' ' . $made . ': ' . $holiday['name'][0];
+    return source_card($source, $name, $source . '-holiday-' . $key . '@' . $made, classicdb_tables($rows), $left, $changes, $source . '-holiday-' . $key);
 }
 
-function classicdb_import(): array
+function classicdb_import(string $source = 'classicdb'): array
 {
     if ($e = source_check()) return $e;
-    $pack = classicdb_pack();
-    if (!is_file($pack)) return ['ok' => false, 'message' => t('No Classic database pack yet: make one with tools/classicdb_pack.py and send the .cdbpack file here.', 'Pas encore de paquet de la base Classic : créez-en un avec tools/classicdb_pack.py et envoyez ici le fichier .cdbpack.')];
+    if (!isset(CLASSIC_PACKS[$source])) return ['ok' => false, 'message' => t('No such source.', 'Source inconnue.')];
+    $mark = CLASSIC_PACKS[$source];
+    $tool = $source === 'vmangos' ? 'tools/vmangos_pack.py' : 'tools/classicdb_pack.py';
+    $pack = classicdb_pack($source);
+    if (!is_file($pack)) return ['ok' => false, 'message' => sprintf(t('No %s pack yet: make one with %s and send the .cdbpack file here.', 'Pas encore de paquet %s : créez-en un avec %s et envoyez ici le fichier .cdbpack.'), $mark, $tool)];
     $out = dirname($pack) . '/evidence.json';
     @unlink($out);
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -1100,13 +1136,13 @@ function classicdb_import(): array
     $result = $code === 0 && is_file($out) ? json_decode((string)file_get_contents($out), true) : null;
     @unlink($out);
     if (!is_array($result)) {
-        error_log('Forever Tracker: the Classic database pack could not be read: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
-        return ['ok' => false, 'message' => t('The Classic database pack could not be read (see the PHP error log). Is it a .cdbpack file made by tools/classicdb_pack.py, and has the analysis run?', 'Le paquet de la base Classic n’a pas pu être lu (voir le journal d’erreurs PHP). Est-ce un fichier .cdbpack créé par tools/classicdb_pack.py, et l’analyse a-t-elle tourné ?')];
+        error_log("Forever Tracker: the $mark pack could not be read: " . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
+        return ['ok' => false, 'message' => sprintf(t('The %s pack could not be read (see the PHP error log). Is it a .cdbpack file made by %s, and has the analysis run?', 'Le paquet %s n’a pas pu être lu (voir le journal d’erreurs PHP). Est-ce un fichier .cdbpack créé par %s, et l’analyse a-t-elle tourné ?'), $mark, $tool)];
     }
     $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['made'] ?? '')) ? (string)$result['made'] : date('Y-m-d', (int)filemtime($pack));
-    $label = 'Classic database ' . $made;
+    $label = $mark . ' ' . $made;
     $ev = classicdb_evidence($result);
-    snapshot_try('classicdb', $made, $ev, 'gaps');   // the pack is asked only about recipes nobody can learn
+    snapshot_try($source, $made, $ev, 'gaps');   // the pack is asked only about recipes nobody can learn
     $gaps = source_gaps();
     // a creature Classic trains at that is no trainer here gets a list of its own; the others' lines go the usual way
     [$own, $ownLeft, $ev['train']] = classicdb_trainer_rows($ev['train'], classicdb_trainer_state($ev['train'], $gaps), (int)(meta()['client_build'] ?? 0));
@@ -1120,10 +1156,10 @@ function classicdb_import(): array
     // the conversation lines that teach a recipe: the line, its conditions and the SmartAI that casts the spell
     $talk = array_values(array_filter($ev['talk'] ?? [], fn($line) => !isset($gaps['later']['spells'][$line[3]])));
     $names = ['npc' => (array)($result['names']['npc'] ?? []), 'go' => (array)($result['names']['go'] ?? [])];
-    [$spoken, $talkChanges, $talkLeft] = $talk ? classicdb_talk_rows($talk, classicdb_talk_state($talk), (int)(meta()['client_build'] ?? 0), $names) : [[], [], []];
+    [$spoken, $talkChanges, $talkLeft] = $talk ? classicdb_talk_rows($talk, classicdb_talk_state($talk), (int)(meta()['client_build'] ?? 0), $names, $mark) : [[], [], []];
     foreach (classicdb_tables($spoken) as $table => $entry) $tables[$table] = $entry;
     foreach ($talkLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
-    return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, array_merge(classicdb_changes($result), $talkChanges));
+    return source_card($source, $label, $source . '@' . $made, $tables, $left, array_merge(classicdb_changes($result), $talkChanges));
 }
 
 // ------------------------------------------------------------------ ForeverChanges (players' reports, from the site)
