@@ -159,6 +159,40 @@ page_start(t('Imports', 'Imports'), 'admin');
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
 </nav>
 
+<?php require_once FT_APP . '/snapshots.php'; $snapshots = snapshot_latest(); ?>
+<section class="block import-add" id="source-snapshots">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('Kept in this tracker’s database', 'Conservé dans la base de ce tracker')) ?></span><h2><?= e(t('What the sources said', 'Ce que disent les sources')) ?></h2></div></header>
+  <p class="muted small"><?= e(t('Each import keeps what its source said (who drops, sells, teaches, gives or takes what) as a snapshot in this tracker’s own database, never in the repository: a fact is kept once, with the first and last run that said it. Below, each source’s last run against the one before.', 'Chaque import conserve ce que dit sa source (qui donne, vend, enseigne, propose ou valide quoi) comme un instantané dans la base de ce tracker, jamais dans le dépôt : un fait est gardé une fois, avec le premier et le dernier passage qui l’a dit. Ci-dessous, le dernier passage de chaque source comparé au précédent.')) ?></p>
+  <?php if (!$snapshots): ?>
+    <p class="muted small"><?= e(t('No import has run since snapshots were kept.', 'Aucun import n’a tourné depuis que les instantanés sont conservés.')) ?></p>
+  <?php else: ?>
+  <table class="table is-forge">
+    <thead><tr><th><?= e(t('Source', 'Source')) ?></th><th><?= e(t('Version', 'Version')) ?></th><th><?= e(t('Run', 'Passage')) ?></th><th><?= e(t('Facts', 'Faits')) ?></th><th><?= e(t('New', 'Nouveaux')) ?></th><th><?= e(t('Changed', 'Modifiés')) ?></th><th><?= e(t('Gone', 'Disparus')) ?></th></tr></thead>
+    <tbody>
+    <?php foreach ($snapshots as $source => $snap): $changes = (int)$snap['added'] + (int)$snap['changed'] + (int)$snap['gone'] ? snapshot_changes((int)$snap['id'], 25) : null; ?>
+      <tr>
+        <td><?= e(SOURCES[$source][0] ?? $source) ?></td>
+        <td><code><?= e(mb_strimwidth((string)$snap['version'], 0, 16, '…')) ?></code></td>
+        <td><?= e(substr((string)$snap['made'], 0, 16)) ?></td>
+        <td><?= e(number((int)$snap['facts'])) ?><?= $snap['scope'] !== 'all' ? ' <small class="muted" title="' . e(t('this source is asked about the gaps only: what it did not say is not gone, only not asked', 'cette source n’est interrogée que sur les manques : ce qu’elle n’a pas dit n’a pas disparu, il n’a pas été demandé')) . '">' . e(t('gaps', 'manques')) . '</small>' : '' ?></td>
+        <td><?= e(number((int)$snap['added'])) ?></td>
+        <td><?= e(number((int)$snap['changed'])) ?></td>
+        <td><?= $snap['scope'] === 'all' ? e(number((int)$snap['gone'])) : '–' ?></td>
+      </tr>
+      <?php if ($changes): ?>
+      <tr><td colspan="7"><details><summary class="small"><?= e(t('The first of them', 'Les premiers')) ?></summary><ul class="small">
+        <?php $say = fn($r) => $r['fact'] . ' ' . ($r['kind'] ? $r['kind'] . ' ' : '') . $r['entity'] . ' → ' . $r['target'] . ($r['value'] !== null ? ' (' . rtrim(rtrim(number_format((float)$r['value'], 4, '.', ''), '0'), '.') . ')' : ''); ?>
+        <?php foreach ($changes['added'] as $r): ?><li>+ <?= e($say($r)) ?></li><?php endforeach; ?>
+        <?php foreach ($changes['changed'] as [$old, $new]): ?><li>~ <?= e($say($new)) ?> <span class="muted"><?= e(t('was', 'était')) ?> <?= e($old['value'] ?? '–') ?></span></li><?php endforeach; ?>
+        <?php foreach ($changes['gone'] as $r): ?><li>− <?= e($say($r)) ?></li><?php endforeach; ?>
+      </ul></details></td></tr>
+      <?php endif; ?>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <?php endif; ?>
+</section>
+
 <section class="block import-add">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Collect while you play', 'Collecter en jouant')) ?></span><h2><?= e(t('The ForeverScribe addon', 'L’addon ForeverScribe')) ?></h2></div></header>
   <ol class="steps-list">

@@ -313,6 +313,7 @@ function atlasloot_import(bool $ifNew = false): array
     $witnessLeft = [];
     $ev = atlasloot_evidence($tables, atlasloot_measured($gaps, $witnessLeft));
     $ev['left'] += $witnessLeft;
+    snapshot_try('atlasloot', (string)$file['version'], $ev);
     $label = 'AtlasLoot ' . $file['version'];
     [$cards, $left] = source_tables($ev, $label, $gaps);
     // gap items whose chance is an even share (an upper bound: drops the server already has are left out later)

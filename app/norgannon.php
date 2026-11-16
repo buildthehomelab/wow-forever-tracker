@@ -139,6 +139,7 @@ function norgannon_import(): array
     // or (drops) AtlasLoot's boss tables
     $witnesses = [icyveins_cached_items($gaps['items']), icyveins_cached_quests($gaps['noGiver'] + $gaps['noEnder'])];
     $ev = norgannon_evidence($dir, $gaps);
+    snapshot_try('norgannondb', $commit, $ev, 'gaps');   // what it says, before the live recordings vote on it
     foreach (['eglink', 'foreverdb'] as $source) {
         $w = ($source . '_evidence')();
         if (!empty($w['ev'])) $witnesses[] = $w['ev'];

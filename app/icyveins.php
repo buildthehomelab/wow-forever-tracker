@@ -416,6 +416,7 @@ function icyveins_import(?callable $progress = null): array
     }
     if ($progress) $progress('reading the mirror');
     $ev = icyveins_evidence($mirror);
+    snapshot_try('icyveins', date('Y-m-d'), $ev);
     $label = 'Icy Veins ' . date('Y-m-d');
     [$tables, $left] = source_tables($ev, $label, $gaps);
     if ($asked >= icyveins_max()) $left['icyveins_lookup_limit_reached_run_again'] = 1;

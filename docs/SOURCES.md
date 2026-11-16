@@ -18,6 +18,8 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it. Asked last, and only about profession recipes nobody can learn | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
+What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
+
 Questie and DungeonJournal come in through NorgannonDB, which is built from them: a second Questie import would only
 repeat its rows.
 
