@@ -113,7 +113,7 @@ switch ($action) {
         $queue = wowhead_pages_queue();
         $full = ($input['action'] ?? '') === 'wowhead_crawler_full';
         json_out(['ok' => true, 'file' => base64_encode(wowhead_pages_crawler($queue, $full)), 'name' => $full ? 'wowhead-crawler-full.js' : 'wowhead-crawler.js', 'type' => 'text/javascript',
-                  'message' => sprintf(t('%d item page(s) and %d quest page(s) queued, %d npc and %d object page(s) with missing data first.', '%d page(s) d’objets et %d page(s) de quêtes en file, %d pages de PNJ et %d d’objets du monde aux données manquantes en premier.'), count($queue['item']), count($queue['quest']), count($queue['npc'] ?? []), count($queue['object'] ?? []))
+                  'message' => sprintf(t('%d item page(s) and %d quest page(s) queued, then %d npc and %d object page(s) with missing data.', '%d page(s) d’objets et %d page(s) de quêtes en file, puis %d pages de PNJ et %d d’objets du monde aux données manquantes.'), count($queue['item']), count($queue['quest']), count($queue['npc'] ?? []), count($queue['object'] ?? []))
                       . ($full ? ' ' . t('Then every list of Forever and Classic, and the pages they name.', 'Puis toutes les listes de Forever et Classic, et les pages qu’elles nomment.') : '')]);
     case 'wowhead_extension':
         // the Chrome extension, with this tracker's address and its key inside: a crawl that starts by itself

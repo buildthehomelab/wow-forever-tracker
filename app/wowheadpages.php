@@ -706,8 +706,8 @@ function wowhead_pages_queue(): array
 /**
  * crawler.js with the queue added and started: what the browser tab runs. Each page goes in with what it is worth
  * (the crawler's TIERS, most first): the quests without a giver or an ender and the items other content waits for
- * ('gap'), the creatures and objects of the server whose data is missing ('missing'), the items that only lack a source
- * ('gapOther'). In a crawl that already queued them they move up. $full: the whole database too (WHC.full(): every
+ * ('gap'), the items that only lack a source ('gapOther'), the creatures and objects of the server whose data is missing
+ * ('missing'). In a crawl that already queued them they move up. $full: the whole database too (WHC.full(): every
  * list of Forever and Classic first, then the pages they name, after these).
  */
 function wowhead_pages_crawler(array $queue, bool $full = false): string
@@ -728,10 +728,10 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $put('quest', $queue['quest'] ?? [], 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
-    $put('npc', $queue['npc'] ?? [], 'missing');
-    $put('object', $queue['object'] ?? [], 'missing');
     $put('item', array_slice($items, $blocking), 'gapOther');
     $put('classic/item', array_slice($season, $seasonBlocking), 'gapOther');
+    $put('npc', $queue['npc'] ?? [], 'missing');
+    $put('object', $queue['object'] ?? [], 'missing');
     if ($full) $lines[] = '  await WHC.full();';
     $lines[] = '  WHC.start();';
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";

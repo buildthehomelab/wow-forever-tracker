@@ -247,20 +247,30 @@ test('the queue is in value order: a page goes after every page worth as much or
   assert.equal(crawler.defaultTier('classic/list:npcs'), T.list);
   assert.equal(crawler.defaultTier('npc:7'), T.bulk);
   assert.equal(crawler.defaultTier('classic/npc:7'), T.classic);
-  const tiers = { 'quest:1': T.gap, 'item:5': T.gap, 'npc:9': T.missing, 'item:6': T.gapOther };
-  const queue = ['list:npcs', 'quest:1', 'item:5', 'npc:9', 'item:6', 'npc:7', 'object:2', 'classic/npc:7'];
-  assert.equal(crawler.insertAt(queue, tiers, T.named), 3);       // after the gaps, before the missing data
-  assert.equal(crawler.insertAt(queue, tiers, T.missing), 4);
+  const tiers = { 'quest:1': T.gap, 'item:5': T.gap, 'item:6': T.gapOther, 'npc:9': T.missing };
+  const queue = ['list:npcs', 'quest:1', 'item:5', 'item:6', 'npc:9', 'npc:7', 'object:2', 'classic/npc:7'];
+  assert.equal(crawler.insertAt(queue, tiers, T.named), 3);       // after the gaps, before the items that lack a source
+  assert.equal(crawler.insertAt(queue, tiers, T.namedOther), 4);  // what those name, before the missing data
+  assert.equal(crawler.insertAt(queue, tiers, T.missing), 5);
   assert.equal(crawler.insertAt(queue, tiers, T.bulk), 7);        // a Forever page before the Classic ones
   assert.equal(crawler.insertAt(queue, tiers, T.classic), 8);
   assert.equal(crawler.insertAt(queue, tiers, T.list), 1);
+});
+
+test('a crawl kept before the items that lack a source came first is put in the new order', () => {
+  const T = crawler.TIERS;
+  const kept = { 'item:5': 1, 'npc:9': 3, 'npc:8': 3, 'item:6': 4, 'npc:4': 5, 'npc:7': 6 };
+  const tiers = crawler.retier(kept);
+  assert.deepEqual(tiers, { 'item:5': T.gap, 'npc:9': T.missing, 'npc:8': T.missing, 'item:6': T.gapOther, 'npc:4': T.namedOther, 'npc:7': T.bulk });
+  assert.deepEqual(crawler.sortQueue(['list:items', 'item:5', 'npc:9', 'npc:8', 'item:6', 'npc:4', 'npc:7', 'classic/npc:1'], tiers),
+    ['list:items', 'item:5', 'item:6', 'npc:4', 'npc:9', 'npc:8', 'npc:7', 'classic/npc:1']);
 });
 
 test('what a page names is worth the tier after its own, for the gaps only', () => {
   const T = crawler.TIERS;
   assert.equal(crawler.namedTier(T.gap), T.named);
   assert.equal(crawler.namedTier(T.gapOther), T.namedOther);
-  assert.equal(crawler.namedTier(T.missing), T.namedOther);
+  assert.equal(crawler.namedTier(T.missing), null);
   assert.equal(crawler.namedTier(T.bulk), null);
 });
 
