@@ -245,6 +245,20 @@ def wowhead_verdicts(content, results, baseline, ask):
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
+def classic_taught(path=None):
+    """The spells the original game teaches anywhere, from the Classic database pack the website keeps
+    (data/classicdb/pack.cdbpack); None without a pack, or with one that cannot be read."""
+    from ft import classic
+    path = path or os.path.join(DATA, 'classicdb', 'pack.cdbpack')
+    if not os.path.isfile(path):
+        return None
+    try:
+        return classic.taught(classic.load(path))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        log(f'classic database pack not read ({error}): spells nothing teaches stay listed')
+        return None
+
+
 def classic_teachers(args):
     """What a pack of the original game's database says about the profession recipes nobody can learn on the realm
     (ft.classic, docs/SOURCES.md): trainer lines, quests whose turn-in should cast a spell. Called by the website."""
@@ -621,6 +635,8 @@ def analyse(args):
             qid = change[3]
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             hotfix_changes[index] = change[:6] + (name,)
+    ctx['season'] = baseline.season
+    ctx['classic_taught'] = classic_taught()
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     try:

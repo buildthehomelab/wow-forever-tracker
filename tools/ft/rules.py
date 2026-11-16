@@ -3,6 +3,7 @@
 import math
 
 from . import bosses, reports
+from .baseline import NEW_FROM
 from .server import log
 
 
@@ -191,6 +192,16 @@ def evaluate_all(content, ctx):
             if target in chain:
                 todo.append(target)
     granted = ctx['granted_spells'] = set()   # spells of a player's skill lines that nobody learns: the writer lists them as internal
+    # What the original game taught anywhere (trainers, quests, conversations: the Classic database pack), with what
+    # those spells teach; None without a pack
+    classic_taught = None
+    if ctx.get('classic_taught') is not None:
+        classic_taught, todo = set(ctx['classic_taught']), list(ctx['classic_taught'])
+        while todo:
+            for target in chain.get(todo.pop(), set()) - classic_taught:
+                classic_taught.add(target)
+                todo.append(target)
+    season = ctx.get('season') or (lambda kind, entity_id: False)
     # What a spell that cannot be learned yet is waiting for, by the realm's own data: the quest that rewards it (itself or
     # the spell that teaches it) and cannot be done yet, the trainer that lists it and is not spawned.
     reward_quests = {}
@@ -281,6 +292,19 @@ def evaluate_all(content, ctx):
                 how.append(L('obtainable item', 'objet obtenable'))
             if category == 'talent':
                 how.append(L('talent', 'talent'))
+            if not how and spell_id not in trained_any and spell_id not in reward_quests:
+                # Not content of WoW: Forever: a Season of Discovery addition only Season items teach, or an original
+                # spell nothing teaches that the original game taught nowhere either (a proc, a passive, an old talent
+                # rank, what an item casts)
+                if season('spell', spell_id) and all(season('item', item) for item in items):
+                    how.append(L('Not learned: a Season of Discovery addition to the Classic Era client, which nothing on WoW: Forever teaches.',
+                                 'Non appris : un ajout de Season of Discovery au client Classic Era, que rien n’enseigne sur WoW: Forever.'))
+                elif classic_taught is not None and not items and not season('spell', spell_id) and spell_id < NEW_FROM['spell'] \
+                        and spell_id not in classic_taught:
+                    how.append(L('Not learned: nothing teaches it, and the original game taught it nowhere either (Classic database).',
+                                 'Non appris : rien ne l’enseigne, et le jeu d’origine ne l’enseignait nulle part non plus (base Classic).'))
+                if how:
+                    granted.add(spell_id)
             waiting = None if how else waiting_for(spell_id, items)
             if how:
                 detail = join(how)

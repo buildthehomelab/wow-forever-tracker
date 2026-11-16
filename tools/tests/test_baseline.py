@@ -42,6 +42,19 @@ class SeasonMap(unittest.TestCase):
             self.assertFalse(self.baseline.season_map(map_id), map_id)
 
 
+class Season(unittest.TestCase):
+    def test_classic_era_additions(self):
+        baseline = Baseline()
+        if 'SpellName' not in baseline.tables or 'ItemSparse' not in baseline.tables:
+            self.skipTest('no SpellName or ItemSparse table in the Classic Era baseline')
+        # an Engrave rune, a Qiraji Battle Tank of the anniversary, Season of Discovery's Naxxramas Glacial Vest, a pattern
+        for kind, entity_id in (('spell', 400104), ('spell', 473848), ('spell', 1223760), ('item', 215129)):
+            self.assertTrue(baseline.season(kind, entity_id), entity_id)
+        # an original spell, Forever's own spell and Forever's re-issued pattern
+        for kind, entity_id in (('spell', 10681), ('spell', 1247741), ('item', 273590)):
+            self.assertFalse(baseline.season(kind, entity_id), entity_id)
+
+
 class Written(unittest.TestCase):
     """output.write_sql lists such an instance and its bosses under Internal / test, and leaves the others alone."""
 

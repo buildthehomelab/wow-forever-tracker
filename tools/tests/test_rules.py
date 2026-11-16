@@ -304,6 +304,63 @@ class AchievementRewards(unittest.TestCase):
         self.assertEqual(self.reward({'reward': '', 'reward_item': 0}), ('ok', []))
 
 
+class NotContent(unittest.TestCase):
+    """Spells listed as internal instead of incomplete: Season of Discovery additions only Season items teach, and
+    original spells nothing teaches that the original game taught nowhere either (Classic database pack)."""
+
+    SEASON = {('spell', 435481), ('spell', 400104), ('item', 215129)}
+
+    def season(self, kind, entity_id):
+        return (kind, entity_id) in self.SEASON
+
+    def result(self, spell, **over):
+        ctx = world(season=self.season, **over)
+        results = evaluate({'spell': {spell: {'sub': 'profession'}}}, ctx)
+        return results[('spell', spell)], ctx
+
+    def test_a_season_spell_only_season_items_teach(self):
+        (status, _, checks), ctx = self.result(435481, teaches={435481: {215129}})
+        self.assertEqual(status, 'ok')
+        self.assertIn('Season of Discovery', next(c for c in checks if c['code'] == 'learn')['detail']['en'])
+        self.assertIn(435481, ctx['granted_spells'])
+        (status, _, _), ctx = self.result(400104)   # a rune nothing teaches
+        self.assertIn(400104, ctx['granted_spells'])
+
+    def test_a_season_spell_forever_reissued(self):
+        # Forever's own item for the same pattern (273590): the recipe is Forever's to place, it stays on the list
+        (status, _, _), ctx = self.result(435481, teaches={435481: {215129, 273590}})
+        self.assertEqual(status, 'partial')
+        self.assertNotIn(435481, ctx['granted_spells'])
+
+    def test_an_original_spell_nothing_ever_taught(self):
+        (status, _, checks), ctx = self.result(26363, classic_taught={10843})   # a Lightning Shield proc
+        self.assertEqual(status, 'ok')
+        self.assertIn('original game taught it nowhere', next(c for c in checks if c['code'] == 'learn')['detail']['en'])
+        self.assertIn(26363, ctx['granted_spells'])
+
+    def test_what_the_original_game_taught_stays(self):
+        # Classic's quest casts 11522, which teaches Restorative Potion: a real gap of the realm
+        (status, _, _), ctx = self.result(11452, classic_taught={11522}, spell_teaches={(11522, 11452)})
+        self.assertEqual(status, 'partial')
+        self.assertNotIn(11452, ctx['granted_spells'])
+
+    def test_without_a_pack_or_with_a_teacher_it_stays(self):
+        for over in ({}, {'classic_taught': {1}, 'teaches': {26363: {13323}}}, {'classic_taught': {1}, 'trainer_spells': [(5, 26363)]}):
+            (status, _, _), ctx = self.result(26363, **over)
+            self.assertEqual(status, 'partial', over)
+            self.assertNotIn(26363, ctx['granted_spells'])
+
+    def test_a_skill_line_not_for_players(self):
+        from ft import content
+        self.assertTrue(content.DO_NOT_TRANSLATE.search('Test Profession [DNT]'))
+        for name in ('Tailoring', 'Engineering', 'Dance'):
+            self.assertFalse(content.DO_NOT_TRANSLATE.search(name), name)
+
+    def test_forever_spells_stay(self):
+        (status, _, _), ctx = self.result(1325756, classic_taught={1})   # Death Mark: new in Forever, not in the Classic Era client
+        self.assertEqual(status, 'partial')
+
+
 class Conversations(unittest.TestCase):
     """A recipe taught in a conversation: an NPC's or an object's menu choice casts a spell that teaches it."""
 

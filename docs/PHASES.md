@@ -114,3 +114,18 @@ spell or recipe that only items teach, when each of those items is a test item o
 An item missing from the client counts the same way for a Season of Discovery spell only. An original recipe whose
 unused pattern is gone (the Naxxramas frost resistance sets, quest recipes) and a spell new in Forever whose item is
 not in the client yet (content still locked) stay on the list. The rules are in `tools/ft/rules.py` (`granted_spells`) and `tools/ft/output.py` (`leftover`).
+
+Two more kinds go there:
+
+- **Season of Discovery spells:** spells the Classic Era client gained after the original game (above the "new"
+  cut-off and in that client: runes, Season recipes, the anniversary Qiraji mounts, Season of Discovery's own
+  Naxxramas sets) that nothing on the realm teaches, or only Season items do. A Season recipe Forever re-issued with
+  an item of its own stays on the list.
+- **Original spells nobody ever learned:** an original spell nothing on the realm teaches (no trainer list, quest,
+  item or conversation) that the original game taught nowhere either: no trainer, quest or conversation of the
+  Classic database pack (`data/classicdb/pack.cdbpack`, Imports › Classic database) teaches it or a spell leading to
+  it. These are procs, form and stance passives, old talent ranks and what an item casts. Without a pack they stay
+  on the list.
+
+Spells of a skill line Blizzard marks as not for players (`[DNT]`, "Test Profession [DNT]") are not read as spells
+of a player's skill line at all.

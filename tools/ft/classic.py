@@ -39,6 +39,14 @@ def load(path):
     return pack
 
 
+def taught(pack):
+    """Every spell the original game's trainers, quest turn-ins and conversations teach or cast (before the learn
+    effects are followed): a spell nothing in it teaches was never a line of anyone's spellbook there."""
+    spells = {row[1] for row in pack['trainers']} | {s for row in pack['quests'] for s in row[1:] if s}
+    spells |= {row[1] for row in pack['gossip']} | {line[3] for line in pack.get('talk') or []}
+    return spells - {0}
+
+
 def spoken(line):
     """A conversation line of the pack of the right shape: ['npc'|'go', entry, text, spell, [terms]]."""
     if not isinstance(line, list) or len(line) != 5 or line[0] not in ('npc', 'go') or not isinstance(line[2], str) or not isinstance(line[4], list):
