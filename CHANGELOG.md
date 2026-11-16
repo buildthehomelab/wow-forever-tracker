@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A card no longer puts back drop chances a better source set.** A card's values measured again (the `/* refresh */`
+  lines) were weighed against who wrote each row only when the card was made, and applying them never kept their
+  source. So a card made before a Wowhead apply put its own numbers back over Wowhead's, and any card could undo any
+  other's. Those values are now weighed again when the card is built: a row a more trusted source (or an
+  administrator) wrote since is held, and the source of each one applied is kept. The sources of rows refreshed
+  before this are read back once from the History, the newest apply of a row winning.
+
 - **Applied import cards fold away.** A card kept its place on the Imports page after it was applied, and the Imports
   badge counted every card ever made. Each card now records when it was last applied and when nothing on it was
   missing any more (an apply that wrote it all, or a preview or apply that found nothing to add). Those cards fold
