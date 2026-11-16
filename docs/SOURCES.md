@@ -47,7 +47,7 @@ as text.
   with Forever's holiday 263, Mulgore event 5 with holiday 264: the core reads their dates from the client; the
   building stages are left out, Forever's Faire has one stage) and the **Stranglethorn Fishing Extravaganza** (the
   realm's events 14, 15 and 62), and the yearly holidays under the realm's own events: Lunar Festival 7, Love is in
-  the Air 8, Noblegarden 9, Children's Week 10, Midsummer 1, Harvest Festival 11 (33 in the original game), Hallow's
+  the Air 8, Noblegarden 9 (the realm lacks it: made on Forever's holiday 181, 7 days), Children's Week 10, Midsummer 1, Harvest Festival 11 (33 in the original game), Hallow's
   End 12, Winter Veil 2, New Year's Eve 6. A card's preview says how many of its spawns already stand on the realm:
   the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature or
   object already stands within 3 yards is left out with its links. The world data export numbers the spawns in its
