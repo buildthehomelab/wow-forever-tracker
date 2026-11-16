@@ -1,7 +1,7 @@
 <?php
 // Imports one open data source as an import card aimed at the last analysis' gaps (docs/SOURCES.md).
 //
-//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic [--if-new] [--resume] [--log]
+//   php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|foreverchanges [--if-new] [--resume] [--log]
 //   php tools/source-import.php <source> --from-database      the card from the source's last snapshot, nothing asked
 //
 // One run of a source at a time: the run holds a lock (app/sources.php, source_lock) and a second one says so and
@@ -12,6 +12,8 @@
 //   (data/source-icyveins.resume, left by a run in flight); exit 3 while an analysis runs.
 // --log: writes its lines to data/source-<source>.log (what the Imports page shows) instead of printing them, once it
 //   holds the lock: a start that lost the race leaves the log of the run that won alone.
+// foreverchanges: a visit of foreverchanges.pro (tools/foreverchanges_pull.py: up to [foreverchanges] limit files, the
+//   gaps first), then the card from everything kept. The container runs it every FT_FOREVERCHANGES_EVERY_HOURS.
 // --from-database: the card is made from what the source said at its last run (docs/SNAPSHOTS.md), nothing is
 //   downloaded or asked: seconds, where Icy Veins takes hours.
 // Says what the card holds and what was left out. Nothing is applied: preview and apply it from The Forge › Imports.
@@ -25,7 +27,7 @@ $source = $argv[1] ?? '';
 $flags = array_slice($argv, 2);
 $ifNew = in_array('--if-new', $flags, true);
 $resume = in_array('--resume', $flags, true) && $source === 'icyveins';
-$run = ['norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import', 'wowhead' => 'wowhead_pages_import', 'wowheadclassic' => 'wowhead_pages_classic_import'];
+$run = ['norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import', 'wowhead' => 'wowhead_pages_import', 'wowheadclassic' => 'wowhead_pages_classic_import', 'foreverchanges' => 'foreverchanges_pull'];
 if (!isset($run[$source])) { fwrite(STDERR, "usage: php tools/source-import.php " . implode('|', array_keys($run)) . " [--if-new] [--resume] [--log] [--from-database]\n"); exit(2); }
 $lock = source_lock($source, 10);
 if ($lock === false) { fwrite(STDERR, 'cannot open ' . source_lock_file($source) . ": is the data folder writable?\n"); exit(1); }
@@ -48,7 +50,7 @@ if ($source === 'icyveins') touch($marker);
 $say($resume ? 'started again after a restart' : 'started');
 $fromDatabase = in_array('--from-database', $flags, true);
 if ($fromDatabase && $source === 'icyveins') @unlink($marker);   // nothing to go on with: it asks nothing
-$out = $fromDatabase ? snapshot_card($source) : match ($source) { 'icyveins' => icyveins_import($say), 'atlasloot' => atlasloot_import($ifNew), default => $run[$source]() };
+$out = $fromDatabase ? snapshot_card($source) : match ($source) { 'icyveins' => icyveins_import($say), 'foreverchanges' => foreverchanges_pull($say), 'atlasloot' => atlasloot_import($ifNew), default => $run[$source]() };
 if ($source === 'icyveins') @unlink($marker);
 // with a card, it closes the list; without one, the message is the last line (the Imports page shows it)
 if (!empty($out['id'])) $line(date('H:i:s') . ' ' . ($out['message'] ?? '') . "\n");

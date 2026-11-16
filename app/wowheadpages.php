@@ -588,15 +588,23 @@ function wowhead_pages_missing_data(): array
     return $out;
 }
 
+/** The failing checks of what is released and not ok yet (quests, recipes, mounts, toys, spells), as [type, text]:
+ *  what wowhead_pages_order() reads the items other content waits for from. ForeverChanges' pull reads them too. */
+function wowhead_pages_waiting(): array
+{
+    $waiting = [];
+    foreach (rows("SELECT type, checks FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('quest', 'recipe', 'mount', 'toy', 'spell') AND " . released_sql()) as $x) {
+        foreach (failing_checks(json_decode((string)$x['checks'], true) ?: []) as $c) $waiting[] = [$x['type'], is_array($c['detail'] ?? null) ? (string)($c['detail']['en'] ?? '') : (string)($c['detail'] ?? '')];
+    }
+    return $waiting;
+}
+
 /** The pages this tracker wants next, from the last analysis (wowhead_pages_order), and the creatures and objects
  *  whose data is missing (wowhead_pages_missing_data): their pages are moved up in a running crawl. */
 function wowhead_pages_queue(): array
 {
     $gaps = source_gaps();
-    $waiting = [];
-    foreach (rows("SELECT type, checks FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type IN ('quest', 'recipe', 'mount', 'toy', 'spell') AND " . released_sql()) as $x) {
-        foreach (failing_checks(json_decode((string)$x['checks'], true) ?: []) as $c) $waiting[] = [$x['type'], is_array($c['detail'] ?? null) ? (string)($c['detail']['en'] ?? '') : (string)($c['detail'] ?? '')];
-    }
+    $waiting = wowhead_pages_waiting();
     $read = [];
     foreach (['item', 'quest'] as $kind) {
         foreach (wowhead_pages($kind) as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;

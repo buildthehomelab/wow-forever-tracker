@@ -20,16 +20,6 @@ if ($upload) {
             : t('Upload failed.', 'Échec de l’envoi.')]);
     }
     $name = preg_replace('/[^\w.\- ]+/u', '_', basename((string)$file['name'])) ?: 'import.sql';
-    if (preg_match('/\.fcpack$/i', $name)) {
-        // a ForeverChanges pack (tools/foreverchanges_pack.py): kept as the one pack, and read at once
-        require_once FT_APP . '/sources.php';
-        $pack = foreverchanges_pack();
-        @mkdir(dirname($pack), 0775, true);
-        $head = (string)@file_get_contents($file['tmp_name'], false, null, 0, 2);
-        // a zip (the pack beside the rest of the site's data) or, from an earlier pack tool, gzipped JSON
-        if (!in_array($head, ["PK", "\x1f\x8b"], true) || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/foreverchanges_pack.py.', 'Ce n’est pas un paquet créé par tools/foreverchanges_pack.py.')]);
-        json_out(foreverchanges_import());
-    }
     if (preg_match('/\.jsonl$/i', $name)) {
         // pages the Wowhead crawler read in a browser tab (tools/wowhead-pages/crawler.js, WHC.save()): into the cache,
         // then an import card from the whole cache
@@ -136,8 +126,9 @@ switch ((string)($input['action'] ?? '')) {
         require_once FT_APP . '/wowheadpages.php';
         json_out(wowhead_pages_classic_import());
     case 'source_foreverchanges':
+        // a visit of the site, in the background (minutes to an hour): its card appears when it is done
         require_once FT_APP . '/sources.php';
-        json_out(foreverchanges_import());
+        json_out(source_start('foreverchanges'));
     case 'source_classicdb':
         require_once FT_APP . '/sources.php';
         json_out(classicdb_import());

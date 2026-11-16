@@ -35,8 +35,8 @@ takes seconds where Icy Veins takes hours, and it is made against the gaps and t
 analysis, *Make every card from the database* (The Forge › Imports, *What the sources said*) makes every source's card
 again; each row's *Card* button makes one. From the command line: `php tools/source-import.php <source> --from-database`.
 
-- Wowhead, Wowhead Classic, EG Link, ForeverDB.net, Icy Veins, AtlasLoot and NorgannonDB. ForeverChanges and the
-  original game's database are read from a pack you sent, kept in `data/`: their *Read the pack again* asks nothing
+- Wowhead, Wowhead Classic, EG Link, ForeverDB.net, Icy Veins, AtlasLoot, NorgannonDB and ForeverChanges. The
+  original game's database is read from a pack you sent, kept in `data/`: its *Read the pack again* asks nothing
   either.
 - NorgannonDB's second sources (its vendors and drops need one) are EG Link's and ForeverDB.net's last snapshots, Icy
   Veins' cache and the last AtlasLoot download: nothing is downloaded for them either.

@@ -15,7 +15,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
-| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
+| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | read from the site slowly in the background (robots.txt obeyed, one request at a time), the gaps first; every file kept privately in `data/` |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
 What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
@@ -93,16 +93,54 @@ as text.
   challenge, as on Everlake) gets the SmartAI line.
   The pack (`format` 2) carries these lines; a pack of the first format only counts them.
 
-## ForeverChanges: names and places, from a file
+## ForeverChanges: names and places, from the site
 
-`python tools/foreverchanges_pack.py copy.db out.fcpack` makes a pack from a crawl of the site (the SQLite file it
-leaves, several hundred MB): a zip of under 10 MB. Inside, `pack.json` is the lists the tracker reads (quests, item
-sources, the NPCs and pins of the maps), and `site/` holds every data file of the site in English as the crawl has
-it, kept so that a later version can read more without a new upload. The HTML pages (the same data inside the
-site's layout) and the six other languages are what makes the crawl big, and are left out. Send the `.fcpack` on the Imports page: it becomes the one
-pack the tracker keeps (`data/foreverchanges/pack.fcpack`) and a card is made at once; *Read the pack again* makes a
-new card after an analysis.
+The tracker reads foreverchanges.pro itself: *The Forge › Imports › Read the site*, and the container every
+`FT_FOREVERCHANGES_EVERY_HOURS` (24; `0` = never). A visit (`tools/foreverchanges_pull.py pull`, run in the background
+by `php tools/source-import.php foreverchanges`) reads up to `[foreverchanges] limit` files (1,500), then makes the
+pack (`data/foreverchanges/pack.fcpack`) and the card from everything kept so far. The whole site is 19,828
+files: at 2.5 seconds a request, about fourteen hours the first time, spread over visits; then only what is new and
+what is older than two weeks. There is no upload any more: the site was rebuilt in November 2026 and the data files
+the old pack was made from (`quests.jsonl`, `items.jsonl`, `tracker-pages/…`) are gone.
 
+What the site holds (2026-11-15) and what is read of it:
+
+| What | Requests | Read into the card | Gap it fills |
+|---|---|---|---|
+| the map's data files of the two continents (`/map/<map>/<file>.json`) | 24 | quest givers **by id** (`quest-givers.json`, the rows its players saw), NPCs its players saw and rares, commerce NPCs and books (places for the locator) | quests without a giver; things nobody spawned |
+| quest pages (`/quest/<id>/…`) | 5,729 (1,477 Forever's own) | who starts and ends it (name, zone, place), its side, whether players saw it, the hand-in and progress texts | quests without a giver or an ender, empty quest windows |
+| item pages (`/item/<id>/…`) | 13,340 (6,158 Forever's own) | vendors, drops counted in kills | items players cannot get |
+| the other maps' data files (dungeons, battlegrounds, cities: three files each of twelve) | 528 | the same as the continents' | the same, inside instances |
+| dungeons and topic pages (rares, library books, hidden items …) | 207 | kept, not read yet | |
+| the rest of the map files (`services`, `nodes`, `creatures`, `pins`: inns, gathering nodes, flight paths, entrances) | in the above | kept, not read yet | |
+
+**How it reads.** `robots.txt` first, and obeyed (the site closes `/api/`, `/search`, `/spell/`, `/admin`); a plain
+request with the tracker's own user agent, asked for compressed; one at a time; English pages only. The pause
+starts at `[foreverchanges] pause` (2.5 s) and moves with what the site says: a 429 or 503 doubles it and waits what
+Retry-After asks (a minute at least), an answer slower than four seconds lengthens it, fifty quick answers in a row
+ease it back. It is kept (`pacer.json`) for the next visit. A 401, 403 or 451, a Cloudflare challenge, or three
+throttles or failures in a row stop the visit: nothing is retried around a refusal, and the card is made from what
+was kept. Measured on 2026-11-15: about 290 requests at 2.5 s over four visits, no throttle (the pause grew to 2.8 s
+once, for slow answers, and eased back).
+
+**In what order.** What the last analysis lacks first, as the Wowhead crawler does: the continents' map files, then
+the quests without a giver or an ender, the items other content waits for, Forever's own quests (from id 76000), the
+other gap items, the other maps' files, Forever's own items (from 200000), the dungeons and topic pages, then
+Classic's quests and items. After that, what was read longer than `[foreverchanges] older` days ago (14), oldest
+first; a file the site did not have (404) is asked again four times less often.
+
+**What is kept, privately** (data/ is never committed): each file once in the content-named store
+(`data/sources/blobs/`, as app/store.php keeps every source's files), linked at `data/foreverchanges/site/<path>`; of
+a page its `<title>` and `<main>`, gzipped. `pages.jsonl` has a line a reading (the file, when, the status, its key):
+the history of every file, since a changed file is a new key and the old one stays in the store. `parsed.jsonl`
+remembers what each kept page states, so a page is parsed once. `python tools/foreverchanges_pull.py status` says
+what is kept; `pack` makes the pack again with no network. Each card's evidence is kept as a snapshot
+(docs/SNAPSHOTS.md): *Card* in *What the sources said* makes it again from the database after a new analysis.
+
+- **Quest givers by id.** The map's `quest-givers.json` names who starts each quest by id (`n620` a creature, `o9000`
+  an object) and marks the rows its players saw (`addon`). Those rows are taken as they are, with no name to match,
+  when the server has a template of that id; one nobody spawned still gives the quest, and its place goes to the
+  locator. The other rows are QuestieDB's, which the tracker reads itself: left out and counted.
 - **A name, not a number.** The site says "Furmund, Orgrimmar, 50.9 65.3". The name is matched to the server's
   creature (or object) of that name that stands there: the place is turned into world coordinates with the client's
   own map tables, and the creature whose spawn is nearest is taken when it is within 80 yards and no other of that
@@ -129,12 +167,12 @@ new card after an analysis.
 - From there the rules are every source's: only the analysis' gaps, a vendor or drop the server already has is left
   out, and the card is previewed and applied like any other.
 
-Two more things come out of the same pack:
+Two more things come out of the same visit:
 
 - **Places for what nobody spawned.** The site's maps show NPCs by entry and world coordinates, and rares, commerce
   NPCs and library books by name. Those the server has a template of and no spawn for get their reported place
   (kept with the ForeverScribe positions, which the locator prefers to a looked-up one): press *Locate* on the Spawns
-  page after reading a pack. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
+  page after a visit. Only NPCs the site's own addon saw are taken from its NPC list; the rest of that list is
   QuestieDB's, which the tracker reads itself. A pin's name must be exactly one template's.
   The same goes for the quest givers, enders and vendors of its quest and item lists: one that nobody spawned gets
   the place the report gives it, when exactly one template has its name. The first run with only the maps' pins placed nothing the content was waiting for: those NPCs stood

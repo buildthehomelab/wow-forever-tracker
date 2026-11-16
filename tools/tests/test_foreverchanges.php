@@ -37,4 +37,12 @@ $told = foreverchanges_evidence(['ev' => ['text' => [[7, 'complete', 'You have o
 check($told === [[7, 'complete', 'You have our thanks, $N.$B$BWell done.'], [10, 'progress', 'Still out there.']],
     'what an NPC says: a quest, one of the two windows, words without a raw line break or a mark of the site left in');
 
+// what the pull reads first: the quests without a giver or an ender, the items other content waits for, then the other
+// items players cannot get (all of them: the site's own item ids start low too)
+$wanted = foreverchanges_wanted(['items' => [12 => true, 290000 => true, 280000 => true], 'noGiver' => [99001 => true], 'noEnder' => [5000 => true, 99001 => true]],
+    [['quest', 'Quest giver: item 280000 not obtainable'], ['toy', 'Item 12 has no source.']]);
+check($wanted === ['quests' => [5000, 99001], 'items_first' => [12, 280000], 'items' => [290000]], 'the pull is told the gaps, those other content waits for first');
+require_once FT_APP . '/snapshots.php';
+check(in_array('foreverchanges', SNAPSHOT_CARDS, true), 'its card can be made again from the database');
+
 ft_test_done();
