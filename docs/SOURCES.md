@@ -314,7 +314,7 @@ cut short goes on from where it stopped, since what was asked since the button w
     looted it (Mining and Herb Gathering on a creature go to the skinning table too, as the core loots them), and
     before 2026-11-15 skinned leather went to the corpse table: such rows an earlier card applied stay where they are
     until removed by hand —, what chests, ore veins and herbs hold
-    (`gameobject_loot_template`), quest-only drops (`QuestRequired = 1`), vendor stock, trainer lists (only from NPCs
+    (`gameobject_loot_template`), quest-only drops (`QuestRequired = 1`), vendor stock, trainer lists, recipes with the skill rank they need (only from NPCs
     whose services say trainer: the recording gives bankers and innkeepers stray lists), quest givers and enders (from
     the quest's page, the NPC's and the object's), the turn-in words (`quest_offer_reward`, `quest_request_items`, for
     quests that have no row there), and the NPC services as `npcflag` bits the creature lacks (innkeeper, banker,

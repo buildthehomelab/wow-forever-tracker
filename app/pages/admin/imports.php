@@ -136,6 +136,7 @@ $leftLabels = [
     'icyveins_kept_positions' => t('NPCs and objects with positions players recorded (the locator reads them)', 'PNJ et objets aux positions enregistrées par les joueurs (le localisateur les lit)'),
     'icyveins_kept_flight_paths' => t('flight paths with their routes (kept in the mirror)', 'trajets aériens avec leurs routes (gardés dans le miroir)'),
     'icyveins_kept_zones' => t('zones with the NPCs and objects seen in them (kept in the mirror)', 'zones avec les PNJ et objets qu’on y a vus (gardées dans le miroir)'),
+    'icyveins_recipe_other_profession' => t('recipes of another profession than the trainer’s own (a stray list in the recording)', 'recettes d’un autre métier que celui de l’entraîneur (une liste égarée dans l’enregistrement)'),
     'icyveins_early_card' => t('an early card from the gaps’ answers alone, made while the rest of Icy Veins is still being read: the full card replaces it when the run ends, unless something was applied from it', 'une carte anticipée, faite des seules réponses sur les manques pendant que le reste d’Icy Veins est encore lu : la carte complète la remplace à la fin, sauf si quelque chose en a été appliqué'),
     'icyveins_lookup_limit_reached_run_again' => t('Icy Veins lookup limit of one run reached: run it again for the rest', 'limite de consultations Icy Veins d’un passage atteinte : relancez pour la suite'),
 ];
