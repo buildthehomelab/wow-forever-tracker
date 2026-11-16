@@ -243,7 +243,9 @@ check(str_contains($bg, "'/api/wowhead-crawler'") && str_contains($bg, "'/api/wo
 $zx->close();
 $crawler = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
 check(str_contains($crawler, 'root.__whcExtension') && str_contains($crawler, 'to.postMessage({ whc: \'pages\''), 'the crawler sends to its own tab when the extension loaded it');
-check(str_contains((string)file_get_contents(FT_APP . '/pages/admin/crawl.php'), 'data-scribe="wowhead_extension"'), 'the Crawl page offers the extension');
+$crawlSrc = (string)file_get_contents(FT_APP . '/pages/admin/crawl.php');
+check(str_contains($crawlSrc, 'data-scribe="wowhead_extension"'), 'the Crawl page offers the extension');
+check(str_contains($crawlSrc, "'forever-list'") && str_contains($crawlSrc, 'Last page received'), 'the Crawl page counts list pages and says when a page last came');
 // the crawler endpoint: answered before the private site's gate, GET only, and only with a key
 [$st, $out] = ft_test_request('/api/wowhead-crawler', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
 check($st === 403 && str_contains($out, 'not allowed'), 'the crawler endpoint: past the gate, refused without a key: ' . $st);

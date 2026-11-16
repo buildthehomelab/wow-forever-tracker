@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Crawl page: list pages and the last page received.** The Forge › Crawl also counts the list pages a whole
+  crawl reads first (they were kept but not shown) and says when the last page came, so a crawl that stopped shows.
+
 - **A Wowhead crawl that runs by itself: the Chrome extension.** The Forge › Crawl › *Download the Chrome extension*
   gives a zip with this tracker's address and a key of its own (made once, kept in `data/wowhead-extension.key`, so no
   setting). Loaded in Chrome, it keeps a pinned Wowhead tab, loads the crawler with the tracker's queue after every
