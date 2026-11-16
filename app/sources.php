@@ -958,20 +958,23 @@ const CLASSICDB_HOLIDAYS = [
     ]],
     // Stranglethorn Fishing Extravaganza: the realm has all three events (14 announce, 15 the contest, 62 the turn-ins)
     'fishing' => ['name' => ['Stranglethorn Fishing Extravaganza', 'Concours de pêche de Strangleronce'], 'events' => [14 => ['event' => 14], 15 => ['event' => 15], 34 => ['event' => 62]]],
-    // the yearly holidays: the realm has each under the original game's number (Harvest Festival: 11 there, 33 in the original)
+    // the yearly holidays: the realm's calendar is VMaNGOS's (core sql/custom 2026_10_17_50), mostly the original game's
+    // numbers (Harvest Festival: 11 there, 33 in the original)
     'lunar' => ['name' => ['Lunar Festival', 'Fête lunaire'], 'events' => [7 => ['event' => 7]]],
     'loveair' => ['name' => ['Love is in the Air', 'De l’amour dans l’air'], 'events' => [8 => ['event' => 8]]],
-    // the realm has no Noblegarden: event 9 is made on Forever's holiday 181, which gives a date every year (Easter) but
-    // no duration: the row's 7 days are its length (core fork PR 61 keeps them), and its start is the next date
+    // Noblegarden: the realm's is event 28 (VMaNGOS's number), which came with no dates and no holiday, so it never ran.
+    // It takes Forever's holiday 181, which gives a date every year (Easter) but no duration: the core reads the date
+    // and keeps the row's own length (core fork PR 61); the start written here is the next date, for a core without it
     'noblegarden' => ['name' => ['Noblegarden', 'Le Jardin des nobles'], 'events' => [
-        9 => ['event' => 9, 'create' => ['description' => 'Noblegarden', 'holiday' => 181, 'start' => '2027-03-29 10:00:00', 'occurence' => 525600, 'length' => 10080]],
+        9 => ['event' => 28, 'update' => ['description' => 'Noblegarden', 'set' => ['start_time' => '2027-03-29 10:00:00', 'end_time' => '2037-12-31 23:59:59', 'holiday' => 181, 'holidayStage' => 1]]],
     ]],
     'childrens' => ['name' => ['Children’s Week', 'Semaine des enfants'], 'events' => [10 => ['event' => 10]]],
     'midsummer' => ['name' => ['Midsummer Fire Festival', 'Fête du Feu du solstice d’été'], 'events' => [1 => ['event' => 1]]],
     'harvest' => ['name' => ['Harvest Festival', 'Fête des moissons'], 'events' => [33 => ['event' => 11]]],
     'hallows' => ['name' => ['Hallow’s End', 'Sanssaint'], 'events' => [12 => ['event' => 12]]],
     'winterveil' => ['name' => ['Feast of Winter Veil', 'Voile d’hiver'], 'events' => [2 => ['event' => 2]]],
-    'newyear' => ['name' => ['New Year’s Eve', 'Réveillon du Nouvel An'], 'events' => [6 => ['event' => 6]]],
+    // New Year's Eve: 34 on the realm (its 6 is the ten minutes of fireworks at midnight)
+    'newyear' => ['name' => ['New Year’s Eve', 'Réveillon du Nouvel An'], 'events' => [6 => ['event' => 34]]],
 ];
 
 /**
@@ -984,7 +987,7 @@ function classicdb_holiday_rows(string $key, array $events, array $realm, array 
 {
     $holiday = CLASSICDB_HOLIDAYS[$key] ?? null;
     if (!$holiday) return [[], ['classic_holiday_unknown' => 1]];
-    $rows = []; $left = [];
+    $rows = []; $left = []; $changes = [];
     $count = function (string $why, int $n = 1) use (&$left) { if ($n > 0) $left[$why] = ($left[$why] ?? 0) + $n; };
     $seen = ['npc' => [], 'go' => []];
     foreach ($holiday['events'] as $classic => $target) {
@@ -997,6 +1000,15 @@ function classicdb_holiday_rows(string $key, array $events, array $realm, array 
             if (!isset($realm[$event])) {
                 $rows['game_event'][] = ['eventEntry' => $event, 'start_time' => $c['start'], 'end_time' => '2035-12-31 04:00:00', 'occurence' => $c['occurence'],
                     'length' => $c['length'], 'holiday' => $c['holiday'], 'holidayStage' => 1, 'description' => $c['description'], 'world_event' => 0, 'announce' => 2];
+            }
+        } elseif (isset($target['update'])) {
+            // an event the realm has that lacks its dates: its columns are set (the Forge's "set": each statement names
+            // the value it replaces, and a rollback puts it back)
+            $u = $target['update'];
+            if (!isset($realm[$event])) { $count('classic_holiday_no_event'); continue; }
+            if (trim((string)$realm[$event]) !== $u['description']) { $count('classic_holiday_event_number_taken'); continue; }
+            foreach ($u['set'] as $column => $value) {
+                $changes[] = ['db' => 'world', 'table' => 'game_event', 'columns' => ['eventEntry', $column], 'match' => ['eventEntry'], 'set' => $column, 'rows' => [[$event, $value]]];
             }
         } elseif (!isset($realm[$event])) { $count('classic_holiday_no_event'); continue; }
         foreach ((array)($spawns['creatures'] ?? []) as $s) {
@@ -1026,7 +1038,7 @@ function classicdb_holiday_rows(string $key, array $events, array $realm, array 
             $rows['game_event_gameobject'][] = ['eventEntry' => $event, 'guid' => $guid];
         }
     }
-    return [$rows, $left];
+    return [$rows, $left, $changes];
 }
 
 /** The card of a holiday's spawns (CLASSICDB_HOLIDAYS), from the pack of format 4. */
@@ -1053,10 +1065,10 @@ function classicdb_holiday_import(string $key): array
     $templates = ['npc' => [], 'go' => []];
     if ($ids['npc']) foreach (rows('SELECT entry FROM creature_template WHERE entry IN (' . implode(',', array_keys($ids['npc'])) . ')', [], 'world') as $r) $templates['npc'][(int)$r['entry']] = true;
     if ($ids['go']) foreach (rows('SELECT entry FROM gameobject_template WHERE entry IN (' . implode(',', array_keys($ids['go'])) . ')', [], 'world') as $r) $templates['go'][(int)$r['entry']] = true;
-    [$rows, $left] = classicdb_holiday_rows($key, $pack['holidays'], $realm, $templates, (int)(meta()['client_build'] ?? 0));
+    [$rows, $left, $changes] = classicdb_holiday_rows($key, $pack['holidays'], $realm, $templates, (int)(meta()['client_build'] ?? 0));
     $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($pack['made'] ?? '')) ? (string)$pack['made'] : date('Y-m-d', (int)filemtime($path));
     $name = 'Classic database ' . $made . ': ' . $holiday['name'][0];
-    return source_card('classicdb', $name, 'classicdb-holiday-' . $key . '@' . $made, classicdb_tables($rows), $left, [], 'classicdb-holiday-' . $key);
+    return source_card('classicdb', $name, 'classicdb-holiday-' . $key . '@' . $made, classicdb_tables($rows), $left, $changes, 'classicdb-holiday-' . $key);
 }
 
 function classicdb_import(): array
