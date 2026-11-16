@@ -147,6 +147,19 @@ class VmangosPack(unittest.TestCase):
         self.assertEqual(faire['creatures'][0][7:], [180, 2.0, 1], "respawn, VMaNGOS' wander distance and movement type")
         self.assertIn(faire['creatures'][1][1], (600, 601), 'a spawn that picks among creatures keeps one of them')
 
+    def test_unreachable_givers_dropped(self):
+        out = {'creature': [{'id': 600}, {'id': 0}], 'creature_spawn_entry': [{'guid': 2, 'entry': 601}],
+               'creature_template': [{'Entry': 600, 'VendorTemplateId': 9}, {'Entry': 7747, 'VendorTemplateId': 8}],
+               'npc_vendor': [{'entry': 600, 'item': 1}, {'entry': 601, 'item': 2}, {'entry': 7747, 'item': 2413}],
+               'npc_vendor_template': [{'entry': 9, 'item': 3}, {'entry': 8, 'item': 4}, {'entry': 1279201, 'item': 16509}],
+               'quest_template': [{'entry': q, 'Title': t} for q, t in ((1, 'Call of Water'), (2, '<NYI> <TXT> Ring of the Dawn'),
+                                  (3, '<UNUSED>Infused Bandages'), (4, 'Legends of the Earth <NYI>'), (5, 'REUSE'),
+                                  (6, 'Hunter test quest'), (7, 'The Test of Righteousness'), (8, 'Test Kill Quest'))]}
+        vmangos_pack.unreachable(out)
+        self.assertEqual([r['entry'] for r in out['npc_vendor']], [600, 601], 'a vendor never spawned sells nothing')
+        self.assertEqual([r['entry'] for r in out['npc_vendor_template']], [9], 'a list only unspawned or no creatures use')
+        self.assertEqual([q['entry'] for q in out['quest_template']], [1, 7], 'a real quest with "Test" in its name stays')
+
     def test_newest_patch_up_to_1_12(self):
         rows = [{'entry': 1, 'patch': 0}, {'entry': 1, 'patch': 7}, {'entry': 1, 'patch': 11}, {'entry': 2, 'patch': 12}]
         self.assertEqual(vmangos_pack.newest(rows, ('entry',), 'patch', 10), [{'entry': 1, 'patch': 7}])

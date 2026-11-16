@@ -12,6 +12,10 @@ VMaNGOS' tables are MaNGOS' with other column names and a version on most rows. 
   - a row with patch_min / patch_max (loot, spawns, events): only if 1.12 is in its range;
   - a trainer line with build_min / build_max, a spell with build: the same, by the client build of 1.12.1 (BUILD).
 A spawn that picks among several creatures (id, id2..id5) keeps that list the way cmangos keeps one (*_spawn_entry).
+VMaNGOS also keeps what players could never reach, which classic-db leaves out; the pack drops it (unreachable()), so
+that it does not count as a way the game gave an item out: a vendor that is never spawned (World Mount Vendor,
+"[UNUSED] …", test vendors), a vendor list no spawned creature uses, a quest Blizzard's own title marks as never made
+("<NYI>", "<TXT>", "<UNUSED>", "REUSE", a test quest).
 The rows are then renamed to cmangos' columns and made into a pack by tools/classicdb_pack.py pack(): the same format,
 read by the same code (ft.classic, app/sources.php), with VMaNGOS named as its source.
 """
@@ -44,6 +48,8 @@ RENAME = {
                        'effectItemType1': 'EffectItemType1', 'effectItemType2': 'EffectItemType2', 'effectItemType3': 'EffectItemType3'},
     'creature': {'wander_distance': 'spawndist', 'movement_type': 'MovementType'},
 }
+# A quest Blizzard's title marks as never made or left over: "<NYI> …", "<TXT> …", "<UNUSED>…", "… <NYI>", "REUSE", "Hunter test quest"
+UNMADE_QUEST = re.compile(r'^\s*<|<(NYI|TXT|UNUSED)>|^\s*reuse\s*$|\btest (kill )?quest\b', re.IGNORECASE)
 # A template kept in several patches: its key columns, the newest patch up to PATCH wins
 PATCHED = {'creature_template': ('entry',), 'gameobject_template': ('entry',), 'item_template': ('entry',), 'quest_template': ('entry',)}
 
@@ -113,8 +119,21 @@ def to_cmangos(tables):
         if len(choices) > 1:
             out['creature_spawn_entry'].extend({'guid': row.get('guid'), 'entry': c} for c in choices)
             row['id'] = 0
+    unreachable(out)
     newest_migration = max((str(r.get('id') or '') for r in tables.get('migrations') or ()), default='')
     out['db_version'] = [{'version': 'VMaNGOS world database' + (f', migration {newest_migration}' if newest_migration else '') + ', patch 1.12'}]
+    return out
+
+
+def unreachable(out):
+    """Drops, in place, the givers players could never reach (see the top): vendor rows of a creature never spawned,
+    vendor list rows no spawned creature uses, quests whose title marks them as never made. A creature that is summoned
+    rather than spawned keeps its loot: only vendors, which always stand somewhere, are judged by their spawns."""
+    spawned = {whole(row.get('id')) for row in out['creature']} | {whole(row.get('entry')) for row in out['creature_spawn_entry']}
+    lists = {whole(c.get('VendorTemplateId')) for c in out['creature_template'] if whole(c.get('Entry')) in spawned}
+    out['npc_vendor'] = [row for row in out['npc_vendor'] if whole(row.get('entry')) in spawned]
+    out['npc_vendor_template'] = [row for row in out['npc_vendor_template'] if whole(row.get('entry')) in lists]
+    out['quest_template'] = [q for q in out['quest_template'] if not UNMADE_QUEST.search(str(q.get('Title') or ''))]
     return out
 
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The VMaNGOS pack leaves out what players could never reach.** VMaNGOS keeps vendors that never spawn (the World
+  Mount Vendor, test and "[UNUSED]" vendors), vendor lists no spawned NPC uses (old PvP rank gear) and quests Blizzard
+  marked as never made ("<NYI>", "<TXT>", "<UNUSED>", "REUSE", test quests). classic-db leaves these out. Counted as
+  ways the game gave an item out, they took 114 items and 24 mount spells out of *Internal / test* and put them in To
+  add. The pack now drops them. Make the pack again and send it to put those back.
+
 - **A card no longer puts back drop chances a better source set.** A card's values measured again (the `/* refresh */`
   lines) were weighed against who wrote each row only when the card was made, and applying them never kept their
   source. So a card made before a Wowhead apply put its own numbers back over Wowhead's, and any card could undo any
