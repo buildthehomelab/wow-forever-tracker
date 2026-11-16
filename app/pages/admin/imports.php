@@ -162,7 +162,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
 </nav>
 
-<?php require_once FT_APP . '/snapshots.php'; $snapshots = snapshot_latest(); ?>
+<?php require_once FT_APP . '/sources.php'; require_once FT_APP . '/snapshots.php'; $snapshots = snapshot_latest(); ?>
 <section class="block import-add" id="source-snapshots">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('Kept in this tracker’s database', 'Conservé dans la base de ce tracker')) ?></span><h2><?= e(t('What the sources said', 'Ce que disent les sources')) ?></h2></div></header>
   <p class="muted small"><?= e(t('Each import keeps what its source said (who drops, sells, teaches, gives or takes what) as a snapshot in this tracker’s own database, never in the repository: a fact is kept once, with the first and last run that said it. Below, each source’s last run against the one before.', 'Chaque import conserve ce que dit sa source (qui donne, vend, enseigne, propose ou valide quoi) comme un instantané dans la base de ce tracker, jamais dans le dépôt : un fait est gardé une fois, avec le premier et le dernier passage qui l’a dit. Ci-dessous, le dernier passage de chaque source comparé au précédent.')) ?></p>
