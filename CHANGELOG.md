@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The fishing contest card uses the realm's crew event.** It linked Riggle Bassbait and his crew to event 62,
+  which on the realm's calendar (VMaNGOS's) is an AQ War event; the realm's crew event is 40, which already has them.
+
 - **A holiday's spawn is matched against its own holiday only.** A holiday card took any spawn of the same kind
   nearby for its own, so New Year's Eve found its fireworks over Booty Bay already standing: they were Midsummer's.
   A holiday's spawn now stands already only when the server's copy is there while the holiday runs (all year, or

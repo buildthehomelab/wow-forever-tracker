@@ -970,8 +970,9 @@ const CLASSICDB_HOLIDAYS = [
         4 => ['event' => 4, 'create' => ['description' => 'Darkmoon Faire (Elwynn Forest)', 'holiday' => 263, 'start' => '2025-01-06 04:00:00', 'occurence' => 43200, 'length' => 10080]],
         5 => ['event' => 5, 'create' => ['description' => 'Darkmoon Faire (Mulgore)', 'holiday' => 264, 'start' => '2024-12-09 04:00:00', 'occurence' => 43200, 'length' => 10080]],
     ]],
-    // Stranglethorn Fishing Extravaganza: the realm has all three events (14 announce, 15 the contest, 62 the turn-ins)
-    'fishing' => ['name' => ['Stranglethorn Fishing Extravaganza', 'Concours de pêche de Strangleronce'], 'events' => [14 => ['event' => 14], 15 => ['event' => 15], 34 => ['event' => 62]]],
+    // Stranglethorn Fishing Extravaganza: the realm has all three events, on VMaNGOS's calendar (14 announce, 15 the
+    // contest, 40 "The Crew": Riggle Bassbait and his crew). 62 there is an AQ War event, not the turn-ins.
+    'fishing' => ['name' => ['Stranglethorn Fishing Extravaganza', 'Concours de pêche de Strangleronce'], 'events' => [14 => ['event' => 14], 15 => ['event' => 15], 34 => ['event' => 40]]],
     // the yearly holidays: the realm's calendar is VMaNGOS's (core sql/custom 2026_10_17_50), mostly the original game's
     // numbers (Harvest Festival: 11 there, 33 in the original)
     'lunar' => ['name' => ['Lunar Festival', 'Fête lunaire'], 'events' => [7 => ['event' => 7]]],
