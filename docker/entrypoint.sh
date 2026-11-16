@@ -113,6 +113,8 @@ pause = ${FT_WOWHEAD_PAUSE:-0.4}
 analyse = ${FT_WOWHEAD:-1}
 recheck_days = ${FT_WOWHEAD_RECHECK_DAYS:-7}
 refresh_days = ${FT_WOWHEAD_REFRESH_DAYS:-30}
+card_minutes = ${FT_WOWHEAD_CARD_MINUTES:-30}
+push_token = "${FT_WOWHEAD_PUSH_TOKEN:-}"
 
 [collector]
 auto_apply = 0

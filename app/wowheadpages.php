@@ -463,6 +463,56 @@ function wowhead_pages_merge(string $text, ?string $dir = null): array
 }
 
 /**
+ * Pages a linked crawl sent (one JSON line each) added to the cache at the end of their shelves: nothing is rewritten,
+ * so it stays quick however large the cache grows. Every reader takes the newest answer of a page, wherever it is in
+ * the file; *Send wowhead-pages.jsonl* (wowhead_pages_merge) writes a shelf sorted again. Returns the counts: pages,
+ * not_a_page.
+ */
+function wowhead_pages_append(array $lines, ?string $dir = null): array
+{
+    $dir ??= wowhead_pages_dir();
+    $counts = ['pages' => 0, 'not_a_page' => 0];
+    $out = [];
+    foreach ($lines as $line) {
+        $raw = is_string($line) ? json_decode($line, true) : null;
+        $record = is_array($raw) ? wowhead_pages_clean($raw) : null;
+        if ($record === null) { $counts['not_a_page']++; continue; }
+        if (($record['tabs'] ?? null) === []) $record['tabs'] = new stdClass();
+        $out[wowhead_pages_shelf($raw)][] = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) . "\n";
+        $counts['pages']++;
+    }
+    @mkdir($dir, 0775, true);
+    foreach ($out as $shelf => $rows) {
+        $handle = @fopen("$dir/$shelf.jsonl", 'a');
+        if (!$handle) throw new RuntimeException("cannot write $dir/$shelf.jsonl");
+        flock($handle, LOCK_EX);
+        fwrite($handle, implode('', $rows));
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+    return $counts;
+}
+
+/** After pages came from a linked crawl: the import cards made again, at most every [wowhead] card_minutes (30), so
+ *  that the cards follow the crawl. [message, card id or 0]. */
+function wowhead_pages_cards_due(bool $force = false): array
+{
+    $mark = wowhead_pages_dir() . '/.cards-made';
+    $every = max(1, (int)config('wowhead', 'card_minutes', 30)) * 60;
+    if (!$force && is_file($mark) && time() - (int)@filemtime($mark) < $every) return ['', 0];
+    @touch($mark);
+    $card = wowhead_pages_import();
+    $said = (string)($card['message'] ?? '');
+    $id = (int)($card['id'] ?? 0);
+    if (wowhead_pages_count('classic-npc') + wowhead_pages_count('classic-object')) {
+        $classic = wowhead_pages_classic_import();
+        $said .= ' ' . (string)($classic['message'] ?? '');
+        $id = $id ?: (int)($classic['id'] ?? 0);
+    }
+    return [trim($said), $id];
+}
+
+/**
  * The order the pages are worth reading in, from the gaps: ['item' => [...], 'quest' => [...]]. First the items other
  * content waits for ($waiting: the failing checks' text of quests, recipes, mounts, toys and spells, as [type, text]),
  * then the other gap items from $minItem up (below it: the original game's, nearly all test items), then the quests

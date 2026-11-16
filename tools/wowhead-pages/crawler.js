@@ -683,6 +683,7 @@
     record.key = key;
     record.fetched = Math.floor(Date.now() / 1000);
     await pages('readwrite', s => s.put(record));
+    outbox.add(key);
     let said = '';
     if (k.kind === 'list' && record.status === 'ok') said = await afterList(record, k.branch);
     // what a gap's page names comes next: the creatures and chests of an item, who gives or takes a quest
@@ -768,6 +769,8 @@
       hoursLeft: Math.round(left * 10) / 10, plan: store.get('plan', null),
       pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
       waitingFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
+      link: link.origin ? { tracker: link.origin, connected: !!(root.opener && !root.opener.closed), toSend: outbox.size, sent: link.sent, last: link.last } : null,
+      batchFiles: store.get('autosave', 0) ? { everyMinutes: store.get('autosave', 0), waiting: outbox.size } : null,
     };
   }
 
@@ -814,8 +817,103 @@
     return saved;
   }
 
+  // ------------------------------------------------------------------ the link to the tracker
+  //
+  // Opened from the tracker's Crawl page (The Forge › Crawl), the tab sends every page it reads to that page, which
+  // keeps it in the tracker: nothing to save and send by hand. Wowhead's page may not call another address (its
+  // policy upgrades every http:// request to https://), but two windows may pass messages: this tab's opener is the
+  // tracker page. What is not sent yet waits in IndexedDB (store "meta", "outbox"), so a closed tracker tab or a
+  // reload loses nothing: the next link sends it.
+  const boot = (() => { try { const b = JSON.parse(root.name || ''); return b && typeof b === 'object' ? b : {}; } catch (error) { return {}; } })();
+  const link = { origin: /^https?:\/\/[\w.:\-\[\]]+$/.test(boot.link || '') ? boot.link : store.get('link', null), sent: 0, last: '', batch: 0, inflight: null, at: 0 };
+  if (link.origin) store.set('link', link.origin);
+  const outbox = new Set();
+  let outboxReady = (async () => {
+    await ready;
+    for (const key of (await meta.get('outbox')) || []) outbox.add(key);
+    // the first link (or the first batch file): everything read so far goes to the tracker too
+    if ((link.origin || store.get('autosave', 0)) && !(await meta.get('outboxFilled'))) {
+      for (const key of await pages('readonly', s => s.getAllKeys())) outbox.add(key);
+      await meta.set('outboxFilled', true);
+    }
+  })();
+  const keepOutbox = () => meta.set('outbox', [...outbox]).catch(() => {});
+  const BATCH = 40;
+  async function send() {
+    await outboxReady;
+    if (!link.origin || !outbox.size || !root.opener || root.opener.closed) return;
+    if (link.inflight && Date.now() - link.at < 120000) return;   // an answer is awaited (two minutes at most)
+    const keys = [...outbox].slice(0, BATCH);
+    // these pages only, in one transaction (tx() hands back what .result holds once it completes)
+    const records = await pages('readonly', s => { const out = []; for (const k of keys) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
+    const lines = records.map(p => { const { key, ...rest } = p; return JSON.stringify(rest); });
+    link.inflight = ++link.batch; link.at = Date.now(); link.keys = keys;
+    root.opener.postMessage({ whc: 'pages', batch: link.inflight, lines }, link.origin);
+  }
+  if (typeof addEventListener === 'function') addEventListener('message', event => {
+    const d = event.data;
+    if (event.origin !== link.origin || !d || d.whc !== 'ack' || d.batch !== link.inflight) return;
+    for (const key of link.keys || []) outbox.delete(key);
+    link.sent += (link.keys || []).length; link.last = new Date().toLocaleTimeString() + ' ' + (d.note || '');
+    link.inflight = null; link.keys = null;
+    keepOutbox();
+    if (outbox.size) send();
+  });
+  // Batch files instead of a link (a browser that opens no window, like the Claude app's pane): every few minutes what
+  // was read since is downloaded as whc-batch-<time>-<n>.jsonl, at most `per` pages a file; a script sends the files
+  // to the tracker (tools/wowhead-pages/push.sh). A page leaves the outbox once its file is downloaded.
+  let autoTimer = null;
+  const MAX_BATCH_BYTES = 4 * 1048576;
+  async function saveBatch(per = 300) {
+    await outboxReady;
+    let files = 0, saved = 0;
+    while (outbox.size) {
+      const candidates = [...outbox].slice(0, per);
+      const records = await pages('readonly', s => { const out = []; for (const k of candidates) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
+      // at most MAX_BATCH_BYTES a file too: a server takes 8 MB a request by default, and a list page is up to 150 kB
+      const lines = [], keys = [];
+      let bytes = 0;
+      for (const p of records) {
+        const { key, ...rest } = p;
+        const line = JSON.stringify(rest);
+        if (lines.length && bytes + line.length > MAX_BATCH_BYTES) break;
+        lines.push(line); keys.push(key); bytes += line.length + 1;
+      }
+      // a page the store no longer holds leaves the outbox too
+      for (const k of candidates) if (!records.some(p => p.key === k)) outbox.delete(k);
+      if (!lines.length) continue;
+      const text = lines.join('\n') + '\n';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+      a.download = 'whc-batch-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '-' + (++files) + '.jsonl';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+      for (const k of keys) outbox.delete(k);
+      saved += lines.length;
+      await keepOutbox();
+      if (files >= 20) break;   // a large first batch goes in several turns, not twenty downloads at once
+    }
+    if (saved) note('saved ' + saved + ' pages in ' + files + ' batch file(s)');
+    return { files, pages: saved, waiting: outbox.size };
+  }
+  function autoSave(minutes = 15, per = 300) {
+    if (autoTimer) clearInterval(autoTimer);
+    autoTimer = null;
+    store.set('autosave', minutes > 0 ? minutes : 0);
+    if (!(minutes > 0)) return 'batch files off';
+    outboxReady = outboxReady.then(async () => {
+      if (!(await meta.get('outboxFilled'))) { for (const key of await pages('readonly', s => s.getAllKeys())) outbox.add(key); await meta.set('outboxFilled', true); }
+    });
+    autoTimer = setInterval(() => { saveBatch(per).catch(error => note('batch file failed: ' + error)); }, minutes * 60000);
+    return 'a batch file every ' + minutes + ' min';
+  }
+  if (store.get('autosave', 0) > 0 && typeof setInterval === 'function') autoSave(store.get('autosave', 0));
+
+  let sender = null;
+  if (link.origin && typeof setInterval === 'function') sender = setInterval(() => { send().catch(() => {}); keepOutbox(); }, 15000);
+
   root.WHC = {
-    add, full, prioritize, TIERS, status, lines, save, saveNew, state, extract, PACE,
+    add, full, prioritize, TIERS, status, send: () => send(), autoSave, saveBatch, lines, save, saveNew, state, extract, PACE,
     log: () => state.log.slice(),
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },

@@ -49,6 +49,42 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 Without the website: `python tools/wowhead_pages.py todo <the To add list as CSV>` prints the queue as
 `WHC.add(...)` lines and `python tools/wowhead_pages.py merge wowhead-pages.jsonl` fills the same cache.
 
+## A linked crawl
+
+The Forge › **Crawl** keeps every page in the tracker as the crawl reads it: nothing to save and send by hand.
+
+1. *Open Wowhead*: a tab opens on wowhead.com/forever with the crawler and its queue (the full crawl, your gaps first).
+2. In that tab's console (F12), run `(0, eval)(JSON.parse(window.name).src)` once.
+3. Keep both tabs open. Every 15 seconds the crawl sends what it read since (40 pages at most) to the Crawl tab,
+   which keeps it (`wowhead_push`: added at the end of the cache's files, nothing rewritten) and answers; only then
+   does the crawl forget it. The import cards (Wowhead, and Wowhead Classic once it has pages) are made again every
+   `[wowhead] card_minutes` (30), or by *Make the cards now*. Applying one stays your click.
+
+Why two tabs: Wowhead's page may not call this tracker (its policy turns every `http://` request into `https://`), but a
+tab may pass messages to the tab that opened it. What the crawl reads while the Crawl tab is closed waits in the Wowhead
+tab's storage (`outbox`) and is sent once a Crawl tab opened it again. The first link sends everything read before too.
+`WHC.status().link` says how much is waiting.
+
+**A normal browser only.** The page opens the Wowhead tab itself, from your click; that is how the two tabs know each
+other. A browser that opens no window a page asks for (the Claude app's own browser pane does not, even after a click)
+cannot link: there, read in a tab as before and send `WHC.saveNew()` files on the Imports page. On a computer left
+running, a normal browser with the Crawl page open crawls and keeps by itself.
+
+## Batches from a computer
+
+Where the browser cannot link a crawl (the Claude app's browser pane), a script on the computer takes the pages to the
+tracker instead:
+
+1. Give the tracker a push key: `[wowhead] push_token` (16 characters or more; `FT_WOWHEAD_PUSH_TOKEN` in Docker).
+   Without one the endpoint `api/wowhead-push` answers 403 to everyone.
+2. In the crawl tab: `WHC.autoSave(15)`. Every 15 minutes what was read since is downloaded as
+   `whc-batch-<time>-<n>.jsonl` (300 pages a file at most; the first time, everything read before too). It goes on after
+   a reload; `WHC.autoSave(0)` stops it.
+3. On the same computer: `WHC_TRACKER=http://<tracker> WHC_PUSH_TOKEN=<key> sh tools/wowhead-pages/push.sh ~/Downloads
+   --watch 300` sends each file, and moves it to `~/Downloads/whc-sent/` once the tracker kept it. A file the tracker
+   did not answer for stays and is sent at the next turn. The tracker answers as soon as the pages are kept, then makes
+   the cards again when they are due.
+
 ## What is read first
 
 A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first

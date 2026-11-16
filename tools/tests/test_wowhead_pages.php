@@ -127,6 +127,27 @@ check(wowhead_pages_listed('npcs', 'forever', [$ld]) === [7 => true, 9 => true] 
 $js2 = wowhead_pages_crawler(['item' => [3], 'quest' => [], 'npc' => [7, 9], 'object' => [31]]);
 check(str_contains($js2, 'await WHC.prioritize(["npc:7","npc:9"], "missing");') && str_contains($js2, 'await WHC.prioritize(["object:31"], "missing");') && !str_contains(strstr($js2, '// ---- queued by the tracker'), 'WHC.add('), 'creatures and objects with missing data are worth tier "missing"');
 
+// a linked crawl's pages: added at the end, nothing rewritten, the newest answer still wins
+$ap = ft_test_dir();
+file_put_contents("$ap/item.jsonl", json_encode(['id' => 5, 'fetched' => 100, 'v' => 1, 'status' => 'missing']) . "\n");
+$before = file_get_contents("$ap/item.jsonl");
+$got = wowhead_pages_append([json_encode(['kind' => 'item', 'id' => 5, 'fetched' => 200, 'v' => 1, 'status' => 'ok', 'quick' => [], 'tabs' => []]),
+    json_encode(['kind' => 'npc', 'id' => 7, 'fetched' => 200, 'v' => 1, 'status' => 'ok', 'quick' => [], 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 5, 'count' => 3, 'outof' => 30]]]]]),
+    json_encode(['kind' => 'npc', 'id' => 8, 'fetched' => 200, 'status' => 'ok', 'branch' => 'classic', 'tabs' => []]),
+    '{not json', json_encode(['kind' => 'mount', 'id' => 1, 'fetched' => 1, 'status' => 'ok']), 42], $ap);
+check($got === ['pages' => 3, 'not_a_page' => 3], 'pages kept, lines that are no page counted: ' . json_encode($got));
+check(str_starts_with(file_get_contents("$ap/item.jsonl"), $before) && wowhead_pages('item', [$ap])[5]['status'] === 'ok', 'added at the end; the newer answer wins when read');
+check(wowhead_pages('npc', [$ap])[7]['tabs']['drops']['rows'][0]['outof'] === 30 && isset(wowhead_pages('classic-npc', [$ap])[8]), 'each page on its own shelf, a Classic one apart');
+check(wowhead_pages_append([], $ap) === ['pages' => 0, 'not_a_page' => 0], 'nothing sent, nothing written');
+
+// The Forge › Crawl: for administrators, with the line to run in the Wowhead tab
+[$status, $body] = ft_test_request('/admin/crawl', "[site]\npublic = 1\n", ['ft_admin' => ['name' => 'admin', 'via' => 'local']]);
+check($status === 200 && str_contains($body, 'data-crawl-link') && str_contains($body, 'data-crawl-open') && str_contains($body, '(0, eval)(JSON.parse(window.name).src)'), 'the Crawl page: the button and the line to run');
+check(ft_test_request('/admin/crawl', "[site]\npublic = 1\n")[0] === 303, 'not for visitors');
+// the push endpoint: past the private site's gate (it has its own key), POST only
+[$st, $out] = ft_test_request('/api/wowhead-push', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
+check($st === 405 && str_contains($out, 'POST only'), 'the push endpoint answers on a private site, to a POST only');
+
 // the cache read a line at a time: the newest answer of each page, once
 $a = ft_test_dir(); $b = ft_test_dir();
 file_put_contents("$a/npc.jsonl", '{"id":1,"fetched":100,"status":"ok","tabs":{}}' . "\n" . '{"id":2,"fetched":500,"status":"missing"}' . "\n{cut\n");
