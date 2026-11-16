@@ -70,6 +70,21 @@ other. A browser that opens no window a page asks for (the Claude app's own brow
 cannot link: there, read in a tab as before and send `WHC.saveNew()` files on the Imports page. On a computer left
 running, a normal browser with the Crawl page open crawls and keeps by itself.
 
+## Batches from a computer
+
+Where the browser cannot link a crawl (the Claude app's browser pane), a script on the computer takes the pages to the
+tracker instead:
+
+1. Give the tracker a push key: `[wowhead] push_token` (16 characters or more; `FT_WOWHEAD_PUSH_TOKEN` in Docker).
+   Without one the endpoint `api/wowhead-push` answers 403 to everyone.
+2. In the crawl tab: `WHC.autoSave(15)`. Every 15 minutes what was read since is downloaded as
+   `whc-batch-<time>-<n>.jsonl` (300 pages a file at most; the first time, everything read before too). It goes on after
+   a reload; `WHC.autoSave(0)` stops it.
+3. On the same computer: `WHC_TRACKER=http://<tracker> WHC_PUSH_TOKEN=<key> sh tools/wowhead-pages/push.sh ~/Downloads
+   --watch 300` sends each file, and moves it to `~/Downloads/whc-sent/` once the tracker kept it. A file the tracker
+   did not answer for stays and is sent at the next turn. The tracker answers as soon as the pages are kept, then makes
+   the cards again when they are due.
+
 ## What is read first
 
 A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first

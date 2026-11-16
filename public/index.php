@@ -22,6 +22,13 @@ if (($parts[0] ?? '') === 'setup' || $parts === ['api', 'setup']) {
     exit;
 }
 
+// Pages the Wowhead crawler saved, sent by a script with the push key ([wowhead] push_token): no session, so it is
+// answered before the private site's gate; without the key it answers 403 like the rest of the API.
+if ($parts === ['api', 'wowhead-push']) {
+    require FT_APP . '/api/wowhead_push.php';
+    exit;
+}
+
 // Private trackers only show the login page to visitors. The API answers them 403 instead of a redirect to a page:
 // the search and the tooltips would otherwise hand out names and statuses to anyone who asks.
 if (site_private()) {

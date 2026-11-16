@@ -770,6 +770,7 @@
       pageRequests: state.pageRequests, last: state.last, secondsSinceLast: state.lastAt ? Math.round((Date.now() - state.lastAt) / 1000) : null,
       waitingFor: state.blockedUntil > Date.now() ? Math.round((state.blockedUntil - Date.now()) / 1000) + ' s' : null, note: state.note,
       link: link.origin ? { tracker: link.origin, connected: !!(root.opener && !root.opener.closed), toSend: outbox.size, sent: link.sent, last: link.last } : null,
+      batchFiles: store.get('autosave', 0) ? { everyMinutes: store.get('autosave', 0), waiting: outbox.size } : null,
     };
   }
 
@@ -830,8 +831,8 @@
   let outboxReady = (async () => {
     await ready;
     for (const key of (await meta.get('outbox')) || []) outbox.add(key);
-    // the first link: everything read so far goes to the tracker too
-    if (link.origin && !(await meta.get('outboxFilled'))) {
+    // the first link (or the first batch file): everything read so far goes to the tracker too
+    if ((link.origin || store.get('autosave', 0)) && !(await meta.get('outboxFilled'))) {
       for (const key of await pages('readonly', s => s.getAllKeys())) outbox.add(key);
       await meta.set('outboxFilled', true);
     }
@@ -858,11 +859,48 @@
     keepOutbox();
     if (outbox.size) send();
   });
+  // Batch files instead of a link (a browser that opens no window, like the Claude app's pane): every few minutes what
+  // was read since is downloaded as whc-batch-<time>-<n>.jsonl, at most `per` pages a file; a script sends the files
+  // to the tracker (tools/wowhead-pages/push.sh). A page leaves the outbox once its file is downloaded.
+  let autoTimer = null;
+  async function saveBatch(per = 300) {
+    await outboxReady;
+    let files = 0, saved = 0;
+    while (outbox.size) {
+      const keys = [...outbox].slice(0, per);
+      const records = await pages('readonly', s => { const out = []; for (const k of keys) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
+      const text = records.map(p => { const { key, ...rest } = p; return JSON.stringify(rest); }).join('\n') + '\n';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+      a.download = 'whc-batch-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '-' + (++files) + '.jsonl';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+      for (const k of keys) outbox.delete(k);
+      saved += records.length;
+      await keepOutbox();
+      if (files >= 20) break;   // a large first batch goes in several turns, not twenty downloads at once
+    }
+    if (saved) note('saved ' + saved + ' pages in ' + files + ' batch file(s)');
+    return { files, pages: saved, waiting: outbox.size };
+  }
+  function autoSave(minutes = 15, per = 300) {
+    if (autoTimer) clearInterval(autoTimer);
+    autoTimer = null;
+    store.set('autosave', minutes > 0 ? minutes : 0);
+    if (!(minutes > 0)) return 'batch files off';
+    outboxReady = outboxReady.then(async () => {
+      if (!(await meta.get('outboxFilled'))) { for (const key of await pages('readonly', s => s.getAllKeys())) outbox.add(key); await meta.set('outboxFilled', true); }
+    });
+    autoTimer = setInterval(() => { saveBatch(per).catch(error => note('batch file failed: ' + error)); }, minutes * 60000);
+    return 'a batch file every ' + minutes + ' min';
+  }
+  if (store.get('autosave', 0) > 0 && typeof setInterval === 'function') autoSave(store.get('autosave', 0));
+
   let sender = null;
   if (link.origin && typeof setInterval === 'function') sender = setInterval(() => { send().catch(() => {}); keepOutbox(); }, 15000);
 
   root.WHC = {
-    add, full, prioritize, TIERS, status, send: () => send(), lines, save, saveNew, state, extract, PACE,
+    add, full, prioritize, TIERS, status, send: () => send(), autoSave, saveBatch, lines, save, saveNew, state, extract, PACE,
     log: () => state.log.slice(),
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },

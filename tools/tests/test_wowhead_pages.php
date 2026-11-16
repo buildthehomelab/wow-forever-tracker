@@ -144,6 +144,9 @@ check(wowhead_pages_append([], $ap) === ['pages' => 0, 'not_a_page' => 0], 'noth
 [$status, $body] = ft_test_request('/admin/crawl', "[site]\npublic = 1\n", ['ft_admin' => ['name' => 'admin', 'via' => 'local']]);
 check($status === 200 && str_contains($body, 'data-crawl-link') && str_contains($body, 'data-crawl-open') && str_contains($body, '(0, eval)(JSON.parse(window.name).src)'), 'the Crawl page: the button and the line to run');
 check(ft_test_request('/admin/crawl', "[site]\npublic = 1\n")[0] === 303, 'not for visitors');
+// the push endpoint: past the private site's gate (it has its own key), POST only
+[$st, $out] = ft_test_request('/api/wowhead-push', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
+check($st === 405 && str_contains($out, 'POST only'), 'the push endpoint answers on a private site, to a POST only');
 
 // the cache read a line at a time: the newest answer of each page, once
 $a = ft_test_dir(); $b = ft_test_dir();
