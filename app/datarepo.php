@@ -116,8 +116,22 @@ function datarepo_sources(array $log): array
     return array_keys($names);
 }
 
+/** For a holiday's spawns ($events: the events that bring them in), the condition that a server spawn `x` is there
+ *  while they are (imports.php import_spot_shares): one of these events brings it in, or it stands all year and none of
+ *  them hides it. Another holiday's spawn of the same kind is not the same spawn. '' for other spawns. */
+function datarepo_same_event(string $table, array $events): string
+{
+    $events = array_values(array_unique(array_filter(array_map('intval', $events), fn($e) => $e > 0)));
+    if (!$events) return '';
+    $links = $table === 'creature' ? '`game_event_creature`' : '`game_event_gameobject`';
+    $in = implode(', ', $events); $out = implode(', ', array_map(fn($e) => -$e, $events));
+    return " AND (EXISTS (SELECT 1 FROM $links e WHERE e.`guid` = x.`guid` AND e.`eventEntry` IN ($in))"
+        . " OR (NOT EXISTS (SELECT 1 FROM $links e WHERE e.`guid` = x.`guid` AND e.`eventEntry` > 0)"
+        . " AND NOT EXISTS (SELECT 1 FROM $links e WHERE e.`guid` = x.`guid` AND e.`eventEntry` IN ($out))))";
+}
+
 /** Stage, filter and insert one table's rows; $rows are read from the world database (column => value). */
-function datarepo_block(string $table, array $rows, string $file, string $note, ?int $guidBase = null, float $same = DATAREPO_SAME_SPAWN): array
+function datarepo_block(string $table, array $rows, string $file, string $note, ?int $guidBase = null, float $same = DATAREPO_SAME_SPAWN, array $events = []): array
 {
     $types = datarepo_columns($table);
     $columns = array_keys($types);
@@ -137,7 +151,7 @@ function datarepo_block(string $table, array $rows, string $file, string $note, 
     if ($guidBase !== null) {
         // a spawn: same creature or object within a few yards on the same map = already there, and the guid must be free
         $d = $same * $same;
-        $out[] = "DELETE s FROM $stage s JOIN `$table` x ON x.`id` = s.`id` AND x.`map` = s.`map` AND (x.`position_x` - s.`position_x`) * (x.`position_x` - s.`position_x`) + (x.`position_y` - s.`position_y`) * (x.`position_y` - s.`position_y`) <= $d;";
+        $out[] = "DELETE s FROM $stage s JOIN `$table` x ON x.`id` = s.`id` AND x.`map` = s.`map` AND (x.`position_x` - s.`position_x`) * (x.`position_x` - s.`position_x`) + (x.`position_y` - s.`position_y`) * (x.`position_y` - s.`position_y`) <= $d" . datarepo_same_event($table, $events) . ';';
         $out[] = "DELETE s FROM $stage s JOIN `$table` x ON x.`guid` = s.`guid`;";
     } elseif ($primary) {
         $out[] = "DELETE s FROM $stage s JOIN `$table` x ON " . implode(' AND ', array_map(fn($c) => "x.`$c` <=> s.`$c`", $primary)) . ';';
@@ -196,10 +210,13 @@ function datarepo_export(int $logId): array
     }
     $base = DATAREPO_GUID_BASE + (int)$log['id'] * DATAREPO_GUID_STEP;
     // a holiday's spawns (all of a table's spawns linked to a game event by this operation) are matched farther
-    $holiday = ['creature' => [], 'gameobject' => []];
+    $holiday = ['creature' => [], 'gameobject' => []]; $holidayEvents = ['creature' => [], 'gameobject' => []];
     foreach (['game_event_creature' => 'creature', 'game_event_gameobject' => 'gameobject'] as $links => $spawnTable) {
         if (!isset($dependent[$links]) || !table_exists($links, 'world')) continue;
-        foreach ($dependent[$links] as $where) foreach (rows('SELECT guid FROM ' . forge_ident($links) . ' WHERE eventEntry > 0 AND (' . $where . ')', [], 'world') as $r) $holiday[$spawnTable][(int)$r['guid']] = true;
+        foreach ($dependent[$links] as $where) foreach (rows('SELECT guid, eventEntry FROM ' . forge_ident($links) . ' WHERE eventEntry > 0 AND (' . $where . ')', [], 'world') as $r) {
+            $holiday[$spawnTable][(int)$r['guid']] = true;
+            $holidayEvents[$spawnTable][(int)$r['eventEntry']] = true;
+        }
     }
     $renumbered = ['creature' => [], 'gameobject' => []]; $within = [];   // [table => [guid on the realm => guid in this file]]
     foreach ($changes['spawns'] as $table => $guids) {
@@ -213,8 +230,8 @@ function datarepo_export(int $logId): array
         unset($r);
         $linked = isset($holiday[$table]) && !array_diff(array_keys($renumbered[$table]), array_keys($holiday[$table]));
         $same = $linked ? max(DATAREPO_SAME_SPAWN, IMPORT_SAME_HOLIDAY_SPAWN[$table]) : DATAREPO_SAME_SPAWN;
-        if ($same != DATAREPO_SAME_SPAWN) $within[] = sprintf('%g for a holiday\'s %s', $same, $table === 'creature' ? 'creature' : 'object');
-        $blocks[] = datarepo_block($table, $found, $file, $note, $base, $same);
+        if ($same != DATAREPO_SAME_SPAWN) $within[] = sprintf('%g for a holiday\'s %s, against one there all year or brought in by the same event', $same, $table === 'creature' ? 'creature' : 'object');
+        $blocks[] = datarepo_block($table, $found, $file, $note, $base, $same, $linked ? array_keys($holidayEvents[$table]) : []);
         $count += count($found);
     }
     foreach ($dependent as $table => $wheres) {

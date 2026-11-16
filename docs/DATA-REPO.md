@@ -39,7 +39,7 @@ NN 900 keeps Forge files after the other files of the same day; the operation nu
   what other files or the core added before it. A spawn is skipped when the same creature or object already stands
   within 5 yards on the same map (the test realm's own copy included), or when its guid is taken. When every spawn of
   a table in the operation is linked to a game event (a holiday's), the distance is the import's for holidays: 30
-  yards for a creature, 10 for an object.
+  yards for a creature, 10 for an object, against a spawn there all year or brought in by the same event.
 - **Every added row is recorded** in `everlake_import_rows` (table, key, file, `Forge #<operation>`), when the table's
   key is at most four numbers.
 - **A deployed file is never edited**: the updater would run it, and every later custom file, again. A later fix is a

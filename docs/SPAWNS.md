@@ -213,7 +213,8 @@ What the merge does:
 - spawns (`@CGUID+n`, `@OGUID+n` or plain guids) get **new guids** after the server's highest; a spawn whose creature
   or object already stands within 3 yards on the same map is left out, with its `creature_addon` and other rows
   that depend on its guid. A spawn the file links to a game event (a holiday's) is matched farther: 30 yards for a
-  creature, 10 for an object, since another database places the same holiday NPC a few yards off. The worldserver must be stopped to add spawns (it hands out guids itself);
+  creature, 10 for an object, since another database places the same holiday NPC a few yards off; and only against a
+  spawn there while the holiday runs (all year, or brought in by the same event). The worldserver must be stopped to add spawns (it hands out guids itself);
 - loot works at once: a creature whose `creature_template_difficulty.LootID` is 0 gets its own loot table
   (filled only where it is 0; the rollback empties it again);
 - columns your core does not have are dropped, tables it does not have are listed and left out;
