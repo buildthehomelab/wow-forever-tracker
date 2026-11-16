@@ -320,6 +320,7 @@ function wowhead_pages_classic_import(): array
     [$forever] = wowhead_pages_evidence($foreverItems, [], $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), $keep);
     [$ev, $newest] = wowhead_pages_classic_evidence($forever, $foreverItems, $gaps['items'], wowhead_pages_each('classic-npc'), wowhead_pages_each('classic-object'), $keep);
     $date = date('Y-m-d', $newest ?: time());
+    snapshot_try('wowheadclassic', $date, $ev, 'gaps');
     $label = 'Wowhead Classic ' . $date;
     [$tables, $left] = source_tables($ev, $label, $gaps);
     [$changes, $moved] = source_refresh($ev, 'wowheadclassic');
@@ -364,6 +365,7 @@ function wowhead_pages_import(): array
     if ($unread) $ev['left']['wowhead_item_not_read'] = $unread;
     if ($unreadQuests) $ev['left']['wowhead_quest_not_read'] = $unreadQuests;
     $date = date('Y-m-d', $newest ?: time());
+    snapshot_try('wowhead', $date, $ev, 'gaps');   // npc and object pages give only the drops worth a row (wowhead_pages_keep)
     $label = 'Wowhead ' . $date;
     [$tables, $left] = source_tables($ev, $label, $gaps);
     [$changes, $moved] = source_refresh($ev, 'wowhead');

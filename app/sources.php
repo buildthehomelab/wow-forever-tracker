@@ -24,6 +24,7 @@
 require_once FT_APP . '/imports.php';
 require_once FT_APP . '/collector.php';
 require_once FT_APP . '/wowhead.php';
+require_once FT_APP . '/snapshots.php';
 
 /** Profession names as trainers show them, to skill lines. */
 const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' => 333, 'Engineering' => 202, 'Herbalism' => 182,
@@ -930,6 +931,7 @@ function classicdb_import(): array
     $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['made'] ?? '')) ? (string)$result['made'] : date('Y-m-d', (int)filemtime($pack));
     $label = 'Classic database ' . $made;
     $ev = classicdb_evidence($result);
+    snapshot_try('classicdb', $made, $ev, 'gaps');   // the pack is asked only about recipes nobody can learn
     $gaps = source_gaps();
     // a creature Classic trains at that is no trainer here gets a list of its own; the others' lines go the usual way
     [$own, $ownLeft, $ev['train']] = classicdb_trainer_rows($ev['train'], classicdb_trainer_state($ev['train'], $gaps), (int)(meta()['client_build'] ?? 0));
@@ -999,7 +1001,9 @@ function foreverchanges_import(): array
     }
     $retrieved = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['retrieved'] ?? '')) ? (string)$result['retrieved'] : date('Y-m-d', (int)filemtime($pack));
     $label = 'ForeverChanges ' . $retrieved;
-    [$tables, $left] = source_tables(foreverchanges_evidence($result), $label, source_gaps());
+    $ev = foreverchanges_evidence($result);
+    snapshot_try('foreverchanges', (string)$retrieved, $ev);
+    [$tables, $left] = source_tables($ev, $label, source_gaps());
     // where its maps show NPCs, rares and books nobody spawned here: kept for the locator, which prefers a reported
     // place to a looked-up one (the Spawns page, after the next "Locate")
     $places = foreverchanges_places($result);
@@ -1044,6 +1048,7 @@ function eglink_import(): array
     $r = eglink_evidence();
     if (empty($r['ev'])) return $r;
     $label = 'EG Link ' . substr($r['commit'], 0, 8);
+    snapshot_try('eglink', $r['commit'], $r['ev']);
     [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
     [$changes, $moved] = source_refresh($r['ev'], 'eglink');
     // the quests the server already has, read again from the newest recording of the live game
@@ -1136,6 +1141,7 @@ function foreverdb_import(): array
     $r = foreverdb_evidence();
     if (empty($r['ev'])) return $r;
     $label = 'ForeverDB.net ' . $r['version'];
+    snapshot_try('foreverdb', $r['version'], $r['ev']);
     [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
     [$changes, $moved] = source_refresh($r['ev'], 'foreverdb');
     return source_card('foreverdb', $label, 'foreverdb@' . $r['version'], $tables, $left + $moved, $changes);
