@@ -26,16 +26,18 @@ four seconds lengthens it, and it eases back after a run of quick answers. What 
 the next run. A 401, 403 or 451, a Cloudflare challenge, or three throttles or failures in a row stop the run:
 nothing is retried around a refusal and no script is dressed up as a browser.
 
-The order is what the tracker lacks first (`wanted`, from the analysis' gaps), as the Wowhead crawler's tiers:
+Only what the tracker lacks is read (`wanted`, from the analysis' gaps): the project's decision of 2026-11-16 to look
+up its gaps, never to mirror the site. In this order:
 
-  0 the three sitemaps and robots.txt (every run: what is new on the site)
-  1 the two continents' map data files (small; quest givers by id)
-  2 the quests without a giver or an ender, and the items other content waits for
-  3 Forever's own quests (an id from 76000), then the other gap items, then the other maps' data files (a dungeon's
-    or a battleground's map has three of the twelve), then Forever's own items (from 200000)
-  4 the dungeons and the topic pages
-  5 Classic's quests and items
-  then again whatever was read longer ago than `older` days, in the same order, oldest first.
+  0 the three sitemaps and robots.txt (every run: they say where a gap's page is)
+  1 the two continents' map data files (24 files; who starts a quest, by id)
+  2 the quests without a giver or an ender, the items other content waits for, then the other items players cannot
+    get, as `wanted` lists them
+  then again whichever of those was read longer ago than `older` days, in the same order, oldest first.
+
+Nothing else is asked for: not Forever's own quests and items outside the gaps, not the other maps' files, the
+dungeons, the topic pages or Classic's pages. Files an earlier visit kept stay where they are and still go into the
+pack; they are not read again.
 
 `limit` bounds a run; the next one goes on where the order left off.
 
@@ -68,11 +70,6 @@ AGENT = 'ForeverTracker/1.1 (private server admin tool; one request at a time)'
 FORMAT = 'foreverchanges-pack/1'
 SITEMAPS = ('/sitemap.xml', '/quest/sitemap.xml', '/item/sitemap.xml')
 MAP_FILES = ('manifest', 'quest-givers', 'npcs', 'rares', 'commerce', 'books', 'quests', 'creatures', 'services', 'nodes', 'convergences', 'pins')
-NEW_QUEST, NEW_ITEM = 76000, 200000          # Forever's own ids start here: what no Classic source has
-LANGUAGES = ('fr', 'de', 'es', 'ru', 'zh-tw', 'zh-cn')
-# pages with nothing a card reads and nothing the tracker lacks: class guides, calculators, account pages
-LEFT_OUT = LANGUAGES + ('bis', 'builds', 'talents', 'spellbook', 'class', 'gear-planner', 'transmog', 'tier-list', 'name-reservation',
-                        'server-status', 'downrank-calculator', 'map')
 SLUG = re.compile(r'[a-z0-9][a-z0-9-]{0,80}')
 CONTINENTS = {'eastern-kingdoms': 0, 'kalimdor': 1}
 PINS = {'rares.json': 'rare', 'commerce.json': 'commerce', 'books.json': 'book'}
@@ -258,7 +255,8 @@ def locs(sitemap):
 # What to read, in what order ----------------------------------------------------------------------------------------
 
 def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
-    """[(tier, path on the site, file kept)], most valuable first (the tiers at the top of this file)."""
+    """[(tier, path on the site, file kept)] of what the gaps ask about, most valuable first (the top of this file).
+    Without `wanted` that is the continents' map files only."""
     wanted = wanted or {}
     gap_quests = {int(q) for q in wanted.get('quests') or []}
     first_items = {int(i) for i in wanted.get('items_first') or []}
@@ -268,15 +266,11 @@ def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
         parts = [p for p in path.split('/') if p]
         if not parts or not all(SLUG.fullmatch(p) for p in parts):
             continue
-        if parts[0] == 'map' and len(parts) == 2 and parts[1] not in maps:
+        if parts[0] == 'map' and len(parts) == 2 and parts[1] in CONTINENTS and parts[1] not in maps:
             maps.append(parts[1])
-        elif parts[0] == 'dungeons' and len(parts) == 2:
-            out.append((40, path, f'dungeons/{parts[1]}.html.gz'))
-        elif len(parts) <= 2 and parts[0] not in LEFT_OUT and parts[0] not in ('quest', 'item', 'dungeons'):
-            out.append((41, path, 'page/' + '--'.join(parts) + '.html.gz'))
-    for slug in sorted(maps, key=lambda s: (s not in CONTINENTS, s)):
-        for name in MAP_FILES:      # a dungeon's or a battleground's map has three of these files: after the gaps
-            out.append((10 if slug in CONTINENTS else 33, f'/map/{slug}/{name}.json', f'map/{slug}/{name}.json'))
+    for slug in sorted(maps, key=lambda s: CONTINENTS[s]):
+        for name in MAP_FILES:      # who starts a quest, by id: what a quest without a giver is looked up in
+            out.append((10, f'/map/{slug}/{name}.json', f'map/{slug}/{name}.json'))
     for kind, text in (('quest', quest_sitemap), ('item', item_sitemap)):
         pages = {}
         for path in locs(text):
@@ -285,10 +279,11 @@ def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
                 pages.setdefault(int(m.group(1)), path)
         for number, path in pages.items():
             if kind == 'quest':
-                tier = 20 if number in gap_quests else 30 if number >= NEW_QUEST else 50
+                tier = 20 if number in gap_quests else None
             else:
-                tier = 21 if number in first_items else 31 if number in gap_items else 34 if number >= NEW_ITEM else 51
-            out.append((tier, path, f'{kind}/{number}.html.gz', number))
+                tier = 21 if number in first_items else 31 if number in gap_items else None
+            if tier is not None:            # a page no gap asks about is never read
+                out.append((tier, path, f'{kind}/{number}.html.gz', number))
     seen = set()
     out = [row for row in out if not (row[2] in seen or seen.add(row[2]))]
     # within a tier: the maps in the order above, the quests and items by id

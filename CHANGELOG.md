@@ -7,6 +7,15 @@
   apart from the applied ones. They now fold under Applied; the earlier group keeps only cards with something not
   applied, which the source's newest card offers.
 
+- **ForeverChanges needs a second source.** A row only ForeverChanges states is no longer put on its card, so it is
+  never applied by itself nor exported: Wowhead, ForeverDB.net or EG Link (their last snapshots; EG Link's quest texts
+  for turn-in and progress texts) must state the same thing. What is left is listed on the card as hints about the gaps.
+
+- **ForeverChanges: only the gaps' pages.** A visit of foreverchanges.pro now asks for the sitemaps, the two
+  continents' map files and the page of each quest or item the last analysis lacks, and nothing else: no more
+  Forever's own pages outside the gaps, other maps, dungeons, topic pages or Classic's pages, and no rereading of
+  them. Files an earlier visit kept stay in `data/` and still go into the card. Its cards are made as before.
+
 - **ForeverDB.net is read into the world facts.** `python tools/tracker.py world facts foreverdb` reads what its
   players recorded on Forever (the vendors and trainers they saw, those vendors' stock, boss loot measured over kills,
   who gives and takes the quests they saw) and leaves its Classic rows out. Its pin is the version its manifest names

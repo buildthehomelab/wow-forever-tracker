@@ -6,8 +6,9 @@
     python tools/foreverchanges_pull.py pack [--data DIR] [--out pack.fcpack]
     python tools/foreverchanges_pull.py status [--data DIR]
 
-`pull` is one visit: the site's sitemaps, then up to --limit files, what the tracker lacks first (--wanted: the gaps
-the website writes, {"quests": [...], "items_first": [...], "items": [...]}), then what is older than --older days.
+`pull` is one visit: the site's sitemaps, then up to --limit files of what the tracker lacks and nothing else (the
+continents' map files, then --wanted: the gaps the website writes, {"quests": [...], "items_first": [...], "items":
+[...]}), first what was never read, then what is older than --older days.
 It writes the pack at the end. `pack` writes it again from what is kept, with no network. The website runs both
 (The Forge > Imports > Read the site; the container every FT_FOREVERCHANGES_EVERY_HOURS).
 """
