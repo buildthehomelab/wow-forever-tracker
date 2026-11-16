@@ -123,7 +123,7 @@ Two more kinds go there:
   an item of its own stays on the list.
 - **Original spells nobody ever learned:** an original spell nothing on the realm teaches (no trainer list, quest,
   item or conversation) that the original game taught nowhere either: no trainer, quest or conversation of the
-  Classic database pack (`data/classicdb/pack.cdbpack`, Imports › Classic database) teaches it or a spell leading to
+  Classic database or VMaNGOS pack (`data/classicdb/pack.cdbpack`, `data/vmangos/pack.cdbpack`, Imports) teaches it or a spell leading to
   it. These are procs, form and stance passives, old talent ranks and what an item casts. Without a pack they stay
   on the list.
 - **What the original game never gave out:** an original item players cannot get that the original game gave out

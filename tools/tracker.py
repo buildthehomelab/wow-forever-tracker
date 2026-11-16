@@ -268,18 +268,27 @@ RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
 def classic_facts(path=None):
-    """(the spells the original game teaches anywhere, the items it gave out nowhere), from the Classic database pack
-    the website keeps (data/classicdb/pack.cdbpack); (None, set()) without a pack, or with one that cannot be read."""
+    """(the spells the original game teaches anywhere, the items it gave out nowhere), from the packs of the original
+    game's database the website keeps (data/vmangos/pack.cdbpack, data/classicdb/pack.cdbpack); (None, set()) without a
+    pack, or with none that can be read. With both: a spell either teaches counts as taught, and an item is given out
+    nowhere only when neither gives it out, so that one database's gap never hides what the other knows."""
     from ft import classic
-    path = path or os.path.join(DATA, 'classicdb', 'pack.cdbpack')
-    if not os.path.isfile(path):
+    paths = [path] if path else [os.path.join(DATA, source, 'pack.cdbpack') for source in ('vmangos', 'classicdb')]
+    taught, never = None, None
+    for one in paths:
+        if not os.path.isfile(one):
+            continue
+        try:
+            pack = classic.load(one)
+            spells, items = classic.taught(pack), set(pack.get('never_given') or ())
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            log(f'original game pack {one} not read ({error})')
+            continue
+        taught = spells if taught is None else taught | spells
+        never = items if never is None else never & items
+    if taught is None:
         return None, set()
-    try:
-        pack = classic.load(path)
-        return classic.taught(pack), set(pack.get('never_given') or ())
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        log(f'classic database pack not read ({error}): spells nothing teaches stay listed')
-        return None, set()
+    return taught, never
 
 
 def classic_teachers(args):

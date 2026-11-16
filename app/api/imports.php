@@ -34,12 +34,17 @@ if ($upload) {
         json_out($card);
     }
     if (preg_match('/\.cdbpack$/i', $name)) {
-        // a pack of the original game's database (tools/classicdb_pack.py): kept as the one pack, and read at once
+        // a pack of the original game's database (tools/vmangos_pack.py or tools/classicdb_pack.py): kept as that
+        // source's one pack, and read at once. The pack names its source.
         require_once FT_APP . '/sources.php';
-        $pack = classicdb_pack();
+        $raw = (string)@file_get_contents($file['tmp_name']);
+        $made = substr($raw, 0, 2) === "\x1f\x8b" ? json_decode((string)@gzdecode($raw), true) : null;
+        if (!is_array($made)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/vmangos_pack.py or tools/classicdb_pack.py.', 'Ce n’est pas un paquet créé par tools/vmangos_pack.py ou tools/classicdb_pack.py.')]);
+        $source = classicdb_pack_source($made);
+        $pack = classicdb_pack($source);
         @mkdir(dirname($pack), 0775, true);
-        if ((string)@file_get_contents($file['tmp_name'], false, null, 0, 2) !== "\x1f\x8b" || !move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('That is not a pack made by tools/classicdb_pack.py.', 'Ce n’est pas un paquet créé par tools/classicdb_pack.py.')]);
-        json_out(classicdb_import());
+        if (!move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]);
+        json_out(classicdb_import($source));
     }
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);
     $target = $dir . '/' . date('Ymd-His') . '-' . $name;
@@ -50,7 +55,8 @@ if ($upload) {
 $id = (int)($input['id'] ?? 0);
 // a table, or "table.column": a column whose values a source measured again
 $tables = array_values(array_filter((array)($input['tables'] ?? []), fn($t) => is_string($t) && preg_match('/^\w+(\.\w+)?$/', $t)));
-switch ((string)($input['action'] ?? '')) {
+$action = (string)($input['action'] ?? '');
+switch ($action) {
     case 'import':
         $file = basename((string)($input['file'] ?? ''));
         if ($file === '' || !is_file("$dir/$file")) json_out(['ok' => false, 'message' => t('File not found.', 'Fichier introuvable.')]);
@@ -139,12 +145,14 @@ switch ((string)($input['action'] ?? '')) {
         require_once FT_APP . '/sources.php';
         json_out(source_start('foreverchanges'));
     case 'source_classicdb':
+    case 'source_vmangos':
         require_once FT_APP . '/sources.php';
-        json_out(classicdb_import());
+        json_out(classicdb_import($action === 'source_vmangos' ? 'vmangos' : 'classicdb'));
     case 'source_classicdb_holiday':
+    case 'source_vmangos_holiday':
         // a holiday's spawns from the pack (CLASSICDB_HOLIDAYS): the button names the holiday
         require_once FT_APP . '/sources.php';
-        json_out(classicdb_holiday_import((string)($input['source'] ?? '')));
+        json_out(classicdb_holiday_import((string)($input['source'] ?? ''), $action === 'source_vmangos_holiday' ? 'vmangos' : 'classicdb'));
     case 'source_atlasloot':
         // a few seconds (EG Link's first download longer); the same lock as the container's check, so they never overlap
         require_once FT_APP . '/atlasloot.php';
