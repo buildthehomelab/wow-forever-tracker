@@ -381,13 +381,13 @@ def blue_posts(folder):
 
 def days(folder):
     """{day: {'blizzard': {'sections': [{'name', 'lines'}], 'urls': [...]}, 'posts': [ids of the blue posts of that day],
-    'foreverchanges': the note's id or None}}: every day something was written about, from both sources. A hotfix post's
+    'icyveins': [ids of Icy Veins' hotfix articles of that day], 'foreverchanges': the note's id or None}}: every day something was written about, from both sources. A hotfix post's
     days are the days its text names (Blizzard edits its first post to hold every day, and posts each day again as a
     reply: a line is kept once); any other post counts on the day it was posted (UTC)."""
     out = {}
 
     def at(day):
-        return out.setdefault(day, {'blizzard': {'sections': [], 'urls': []}, 'posts': [], 'foreverchanges': None})
+        return out.setdefault(day, {'blizzard': {'sections': [], 'urls': []}, 'posts': [], 'icyveins': [], 'foreverchanges': None})
     for post in blue_posts(folder):
         if post.get('hotfixes'):
             for named in post.get('days') or []:
@@ -403,10 +403,119 @@ def days(folder):
                     into['lines'].extend(line for line in section['lines'] if line['text'] not in seen)
         if post.get('date'):
             at(post['date'][:10])['posts'].append(post['id'])
+    for article in icyveins_notes(folder):
+        for named in article.get('days') or []:
+            at(named['day'])['icyveins'].append(article['id'])
+        if not article.get('days') and article.get('day'):
+            at(article['day'])['icyveins'].append(article['id'])
     for note in load(folder):
         if note.get('kind') == 'hotfix' and note.get('day'):
             at(note['day'])['foreverchanges'] = note['id']
     return out
+
+
+# ------------------------------------------------------------------ Icy Veins' hotfix news
+# Icy Veins writes an article for each of WoW: Forever's hotfix days ("... WoW Forever Hotfixes, November 13th"), with
+# Blizzard's notes quoted in blocks of their own. Its site runs WordPress, whose JSON API lists the articles of its
+# WoW: Forever category with their whole text (the site's pages themselves sit behind a bot check). Read: the quoted
+# blocks only, a day at a time; the article's own words are Icy Veins' and stay on its site.
+ICYVEINS_API = 'https://wp-prod.icy-veins.com/wp-json/wp/v2'
+ICYVEINS_NEWS = 'https://www.icy-veins.com/wow-forever/news'
+ICYVEINS_FILE = 'icyveins.json'
+ICYVEINS = 'Icy Veins'
+ICYVEINS_CATEGORY = 'wow-forever'
+HOTFIX_TITLE = re.compile(r'hotf+ix|patch notes|class tuning|development notes|maintenance', re.I)
+TITLE_DAY = re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December) (\d{1,2})(?:st|nd|rd|th)?\b')
+QUOTE = re.compile(r'<div class="blizzard-blue-post-content">(.*?)</div>\s*</div>', re.S)
+
+
+def _title_day(title, posted):
+    """The day an article's title names ("November 13th"), in the year it was posted; the day it was posted when the
+    title names none, or a day still to come (an announcement: "... Coming to WoW Forever - November 10th")."""
+    found = TITLE_DAY.search(title)
+    if not found or len(posted) < 10:
+        return posted[:10]
+    try:
+        day = datetime.date(int(posted[:4]), MONTHS[found.group(1)], int(found.group(2))).isoformat()
+    except ValueError:
+        return posted[:10]
+    return day if day <= posted[:10] else posted[:10]
+
+
+def fetch_icyveins(folder, get=None, pause=1.0, log=print):
+    """Reads Icy Veins' WoW: Forever hotfix articles and stores the notes they quote in <folder>/icyveins.json.
+    Returns {'code': 0 stored | 3 unchanged | 2 not read, 'notes', 'message'}. get: url -> parsed JSON (tests)."""
+    get = get or _json
+    try:
+        found = get(f'{ICYVEINS_API}/categories?slug={ICYVEINS_CATEGORY}')
+        category = found[0]['id']
+    except (OSError, urllib.error.URLError, ValueError, RuntimeError, IndexError, KeyError, TypeError) as error:
+        return {'code': 2, 'notes': 0, 'message': f'Icy Veins could not be read ({error}): nothing stored'}
+    articles = []
+    for page in range(1, 30):
+        url = (f'{ICYVEINS_API}/posts?categories={category}&per_page=100&page={page}&orderby=date&order=desc'
+               '&_fields=id,date_gmt,modified_gmt,slug,title,content')
+        try:
+            batch = get(url)
+        except urllib.error.HTTPError as error:
+            if error.code == 400:      # past the last page
+                break
+            return {'code': 2, 'notes': 0, 'message': f'Icy Veins: {url} answered {error.code}: nothing stored'}
+        except (OSError, urllib.error.URLError, ValueError, RuntimeError) as error:
+            return {'code': 2, 'notes': 0, 'message': f'Icy Veins could not be read ({error}): nothing stored'}
+        if not batch:
+            break
+        articles.extend(batch)
+        if len(batch) < 100:
+            break
+        if pause:
+            time.sleep(pause)
+    found = []
+    for article in articles:
+        title = text((article.get('title') or {}).get('rendered') or '')
+        if not HOTFIX_TITLE.search(title):
+            continue
+        posted = article.get('date_gmt') or ''
+        day = _title_day(title, posted)
+        days = []
+        for quote in QUOTE.finditer((article.get('content') or {}).get('rendered') or ''):
+            days.extend(post_days(quote.group(1), day))
+        # one day the title names: every quoted block is of that day, unless a block names its own
+        merged = {}
+        for named in days:
+            into = merged.setdefault(named['day'], [])
+            for section in named['sections']:
+                same = next((x for x in into if x['name'] == section['name']), None)
+                if same is None:
+                    into.append({'name': section['name'], 'lines': list(section['lines'])})
+                else:
+                    seen = {line['text'] for line in same['lines']}
+                    same['lines'].extend(line for line in section['lines'] if line['text'] not in seen)
+        found.append({'source': ICYVEINS, 'id': article.get('id'), 'kind': 'hotfix', 'day': day, 'title': title, 'posted': posted,
+                      'url': f"{ICYVEINS_NEWS}/{article.get('slug')}/", 'days': [{'day': k, 'sections': v} for k, v in sorted(merged.items())]})
+    if not found:
+        return {'code': 2, 'notes': 0, 'message': "Icy Veins: no WoW: Forever hotfix article found: nothing stored"}
+    found.sort(key=lambda n: (n['posted'], n['id'] or 0))
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, ICYVEINS_FILE)
+    try:
+        with open(path, encoding='utf-8') as handle:
+            if json.load(handle).get('notes') == found:
+                return {'code': 3, 'notes': len(found), 'message': f'Icy Veins: {len(found)} hotfix articles, unchanged'}
+    except (OSError, ValueError, AttributeError):
+        pass
+    with open(f'{path}.{os.getpid()}.tmp', 'w', encoding='utf-8') as handle:
+        json.dump({'source': ICYVEINS, 'url': ICYVEINS_NEWS, 'read': datetime.date.today().isoformat(), 'notes': found}, handle, ensure_ascii=False, indent=1)
+    os.replace(f'{path}.{os.getpid()}.tmp', path)
+    return {'code': 0, 'notes': len(found), 'message': f'Icy Veins: {len(found)} hotfix articles stored'}
+
+
+def icyveins_notes(folder):
+    try:
+        with open(os.path.join(folder, ICYVEINS_FILE), encoding='utf-8') as handle:
+            return [n for n in json.load(handle).get('notes') or [] if isinstance(n, dict)]
+    except (OSError, ValueError, AttributeError):
+        return []
 
 
 def _json(url):

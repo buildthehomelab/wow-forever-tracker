@@ -126,5 +126,38 @@ class Blizzard(unittest.TestCase):
         self.assertEqual(by_day['2026-11-08']['foreverchanges'], 'hotfix-2026-11-08')
 
 
+class IcyVeins(unittest.TestCase):
+    QUOTED = ('<p>Blizzard posted hotfixes.</p><div class="blizzard-blue-post"><div class="d-flex"><a class="source-link" href="x">Source</a></div>'
+              '<hr class="blizzard-line" /><h3></h3><div class="blizzard-blue-post-content">'
+              '<p><strong>Classes</strong></p><ul>\n<li><strong>Druid</strong>\n<ul>\n<li>Wild Growth heals more.</li>\n</ul>\n</li>\n</ul>\n    </div>\n</div>'
+              '<h2>What we think</h2><ul><li>An opinion of the site, not a note.</li></ul>')
+
+    def test_the_day_a_title_names(self):
+        self.assertEqual(notes._title_day('Class Changes: WoW Forever Hotfixes, November 13th', '2026-11-14T01:58:00'), '2026-11-13')
+        self.assertEqual(notes._title_day('First Class Tuning Pass Coming to WoW Forever - November 10th', '2026-11-06T21:16:00'), '2026-11-06')
+        self.assertEqual(notes._title_day('Dungeon Kill XP Is Back!', '2026-11-08T20:00:00'), '2026-11-08')
+
+    def test_the_quoted_notes_of_the_hotfix_articles_only(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        articles = [
+            {'id': 2, 'date_gmt': '2026-11-14T01:58:21', 'slug': 'hotfixes-november-13th', 'title': {'rendered': 'Class Changes: WoW Forever Hotfixes, November 13th'},
+             'content': {'rendered': self.QUOTED}},
+            {'id': 1, 'date_gmt': '2026-11-05T13:03:00', 'slug': 'launch', 'title': {'rendered': 'WoW Forever Launch Avoids the Usual Queue'}, 'content': {'rendered': '<p>Fun.</p>'}}]
+
+        def get(url):
+            if '/categories?' in url:
+                return [{'id': 2910, 'slug': 'wow-forever'}]
+            self.assertIn('categories=2910', url)
+            return articles if 'page=1&' in url else []
+        result = notes.fetch_icyveins(folder, get=get, pause=0, log=lambda *_: None)
+        self.assertEqual((result['code'], result['notes']), (0, 1))
+        stored = notes.icyveins_notes(folder)
+        self.assertEqual([(n['id'], n['day'], n['url']) for n in stored], [(2, '2026-11-13', f'{notes.ICYVEINS_NEWS}/hotfixes-november-13th/')])
+        self.assertEqual(stored[0]['days'], [{'day': '2026-11-13', 'sections': [{'name': 'Classes', 'lines': [{'text': 'Druid: Wild Growth heals more.', 'mark': ''}]}]}])
+        self.assertEqual(notes.days(folder)['2026-11-13']['icyveins'], [2])
+        self.assertEqual(notes.fetch_icyveins(folder, get=get, pause=0, log=lambda *_: None)['code'], 3)
+
+
 if __name__ == '__main__':
     unittest.main()

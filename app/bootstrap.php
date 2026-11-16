@@ -210,8 +210,10 @@ function hotfix_name(array $update, ?array $window = null): string
 }
 /**
  * What was written about the game day by day (tools/ft/notes.py, docs/CLIENT.md): Blizzard's blue posts first (its
- * hotfix notes, a day at a time, and its other posts), then ForeverChanges' patch notes where Blizzard posted none.
- * ['days' => [day => ['blizzard' => ['sections', 'urls'], 'posts' => [ids], 'fc' => note]], 'builds' => [build => note],
+ * hotfix notes, a day at a time, and its other posts), then Icy Veins' hotfix articles, then ForeverChanges' patch
+ * notes where neither has the day.
+ * ['days' => [day => ['blizzard' => ['sections', 'urls'], 'posts' => [ids], 'iv' => [['title', 'url', 'sections']],
+ *   'fc' => note]], 'builds' => [build => note],
  * 'posts' => [id => post]]
  */
 function timeline_notes(?string $folder = null): array
@@ -222,7 +224,7 @@ function timeline_notes(?string $folder = null): array
     $read = fn(string $file) => json_decode((string)@file_get_contents($folder . '/' . $file), true) ?: [];
     $notes = ['days' => [], 'builds' => [], 'posts' => []];
     $day = function (string $at) use (&$notes) {
-        $notes['days'][$at] ??= ['blizzard' => ['sections' => [], 'urls' => []], 'posts' => [], 'fc' => null];
+        $notes['days'][$at] ??= ['blizzard' => ['sections' => [], 'urls' => []], 'posts' => [], 'iv' => [], 'fc' => null];
     };
     foreach ((array)($read('blizzard.json')['posts'] ?? []) as $post) {
         if (!is_array($post) || empty($post['id'])) continue;
@@ -247,6 +249,18 @@ function timeline_notes(?string $folder = null): array
             unset($into);
         }
     }
+    // Icy Veins' hotfix articles: Blizzard's notes as Icy Veins quoted them, a day at a time
+    foreach ((array)($read('icyveins.json')['notes'] ?? []) as $article) {
+        if (!is_array($article) || empty($article['day'])) continue;
+        $named = (array)($article['days'] ?? []) ?: [['day' => $article['day'], 'sections' => []]];
+        foreach ($named as $one) {
+            $at = (string)($one['day'] ?? ''); if ($at === '') continue;
+            $day($at);
+            $sections = [];
+            foreach ((array)($one['sections'] ?? []) as $section) $sections[(string)$section['name']] = (array)$section['lines'];
+            $notes['days'][$at]['iv'][] = ['title' => (string)($article['title'] ?? ''), 'url' => (string)($article['url'] ?? ''), 'sections' => $sections];
+        }
+    }
     foreach ((array)($read('foreverchanges.json')['notes'] ?? []) as $note) {
         if (!is_array($note)) continue;
         if (($note['kind'] ?? '') === 'build' && !empty($note['build'])) $notes['builds'][(int)$note['build']] = $note;
@@ -263,13 +277,26 @@ function hotfix_days(array $update): array
     if ($from === '') return [];
     return array_values(array_filter(array_keys(timeline_notes()['days']), fn($d) => $d >= $from && $d <= $until));
 }
-/** A day's notes as sections [name => [['text', 'mark']]]: Blizzard's when it posted them, else ForeverChanges'. */
+/** Which source a day's notes come from: 'blizzard', 'iv' (Icy Veins), 'fc' (ForeverChanges) or '' when none has lines. */
+function day_source(string $day): string
+{
+    $entry = timeline_notes()['days'][$day] ?? null;
+    if (!$entry) return '';
+    if ($entry['blizzard']['sections']) return 'blizzard';
+    foreach ($entry['iv'] as $article) if ($article['sections']) return 'iv';
+    return $entry['fc'] ? 'fc' : '';
+}
+/** A day's notes as sections [name => [['text', 'mark']]]: Blizzard's when it posted them, else Icy Veins', else ForeverChanges'. */
 function day_sections(string $day): array
 {
     $entry = timeline_notes()['days'][$day] ?? null;
     if (!$entry) return [];
     if ($entry['blizzard']['sections']) return $entry['blizzard']['sections'];
     $out = [];
+    foreach ($entry['iv'] as $article) foreach ($article['sections'] as $name => $lines) {
+        foreach ($lines as $line) if (!in_array($line['text'] ?? '', array_column($out[$name] ?? [], 'text'), true)) $out[$name][] = $line;
+    }
+    if ($out) return $out;
     foreach ((array)($entry['fc']['sections'] ?? []) as $section) $out[(string)$section['name']] = (array)$section['lines'];
     return $out;
 }

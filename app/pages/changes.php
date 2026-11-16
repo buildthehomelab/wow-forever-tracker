@@ -160,8 +160,10 @@ $dayPosts = function (string $day) use ($written) {
     return array_values(array_filter(array_map(fn($id) => $written['posts'][$id] ?? null, $written['days'][$day]['posts'] ?? []),
         fn($p) => $p && empty($p['hotfixes'])));
 };
+$buildArticles = $buildDay !== '' ? ($written['days'][$buildDay]['iv'] ?? []) : [];
+$ivLines = (bool)array_filter($buildArticles, fn($a) => $a['sections']);   // Icy Veins comes before ForeverChanges
 $changedNames = [];
-if ($noteDays || $buildNote) {
+if ($noteDays || $buildNote || $buildArticles) {
     foreach (rows('SELECT DISTINCT c.name FROM ft_changes c WHERE c.build = ?' . hotfix_is($hotfix, 'c.'), [$build]) as $x) {
         $n = mb_strtolower(trim((string)$x['name']));
         if (mb_strlen($n) >= 5) $changedNames[$n] = true;
@@ -184,12 +186,14 @@ $lineHtml = function (array $line) use ($inClient, $changedNames): string {
 <section class="block day-notes">
   <header class="block-head"><div><span class="eyebrow"><?= e(t('What was written', 'Ce qui a été écrit')) ?></span><h2><?= e(sprintf(t('%d hotfix days', '%d jours de correctifs'), count($noteDays))) ?></h2></div></header>
   <?php $w = hotfix_window($update); if (!empty($w['from'])): ?><p class="muted small"><?= e(sprintf(t('Dated from Blizzard’s builds: the changes below were in no client before %s and were baked into build %s. Blizzard’s cache does not say on which day each came: the days are those Blizzard’s notes name in that time.', 'Daté à partir des builds de Blizzard : les changements ci-dessous n’étaient dans aucun client avant le %s et ont été intégrés au build %s. Le cache de Blizzard ne dit pas quel jour chacun est arrivé : les jours sont ceux que nomment les notes de Blizzard dans cette période.'), date(t('M j', 'd/m'), strtotime((string)$w['from'])), $w['next'] ? (string)$w['next'] : t('none yet', 'aucun encore'))) ?></p><?php endif; ?>
-  <?php foreach ($noteDays as $day): $entry = $written['days'][$day]; $fromBlizzard = (bool)$entry['blizzard']['sections']; $sections = day_sections($day); $posts = $dayPosts($day); ?>
+  <?php foreach ($noteDays as $day): $entry = $written['days'][$day]; $from = day_source($day); $sections = day_sections($day); $posts = $dayPosts($day); ?>
   <article class="day-note">
     <h3><time datetime="<?= e($day) ?>"><?= e(date(t('l, F j', 'l j F'), strtotime($day))) ?></time>
-      <?php if ($fromBlizzard): ?><span class="source is-blizzard">Blizzard</span><?php foreach ($entry['blizzard']['urls'] as $u): ?> <a class="link small" href="<?= e($u) ?>" target="_blank" rel="noopener"><?= e(t('post', 'message')) ?> ↗</a><?php endforeach; ?>
-      <?php elseif ($entry['fc']): ?><span class="source" title="<?= e(t('Blizzard posted no notes for this day: ForeverChanges fills the gap', 'Blizzard n’a publié aucune note pour ce jour : ForeverChanges comble le manque')) ?>">ForeverChanges</span> <a class="link small" href="<?= e((string)$entry['fc']['url']) ?>" target="_blank" rel="noopener"><?= e(t('source', 'source')) ?> ↗</a><?php endif; ?></h3>
-    <?php if (!$fromBlizzard && !empty($entry['fc']['summary'])): ?><p class="muted"><?= e(implode(' ', (array)$entry['fc']['summary'])) ?></p><?php endif; ?>
+      <?php if ($from === 'blizzard'): ?><span class="source is-blizzard">Blizzard</span><?php foreach ($entry['blizzard']['urls'] as $u): ?> <a class="link small" href="<?= e($u) ?>" target="_blank" rel="noopener"><?= e(t('post', 'message')) ?> ↗</a><?php endforeach; ?>
+      <?php elseif ($from === 'iv'): ?><span class="source" title="<?= e(t('Blizzard’s notes as Icy Veins quoted them', 'Les notes de Blizzard telles qu’Icy Veins les cite')) ?>">Icy Veins</span>
+      <?php elseif ($from === 'fc'): ?><span class="source" title="<?= e(t('Neither Blizzard nor Icy Veins wrote about this day: ForeverChanges fills the gap', 'Ni Blizzard ni Icy Veins n’ont écrit sur ce jour : ForeverChanges comble le manque')) ?>">ForeverChanges</span> <a class="link small" href="<?= e((string)$entry['fc']['url']) ?>" target="_blank" rel="noopener"><?= e(t('source', 'source')) ?> ↗</a><?php endif; ?>
+      <?php foreach ($entry['iv'] as $article): if ($article['url'] === '') continue; ?> <a class="link small" href="<?= e($article['url']) ?>" target="_blank" rel="noopener" title="<?= e($article['title']) ?>">Icy Veins ↗</a><?php endforeach; ?></h3>
+    <?php if ($from === 'fc' && !empty($entry['fc']['summary'])): ?><p class="muted"><?= e(implode(' ', (array)$entry['fc']['summary'])) ?></p><?php endif; ?>
     <?php foreach ($sections as $name => $lines): ?>
       <h4><?= e($name) ?></h4><ul class="note-lines"><?php foreach ($lines as $line) echo $lineHtml($line); ?></ul>
     <?php endforeach; ?>
@@ -197,13 +201,17 @@ $lineHtml = function (array $line) use ($inClient, $changedNames): string {
   </article>
   <?php endforeach; ?>
 </section>
-<?php elseif (!$note && ($buildNote || ($buildDay !== '' && $dayPosts($buildDay)))): ?>
+<?php elseif (!$note && ($buildNote || $buildArticles || ($buildDay !== '' && $dayPosts($buildDay)))): ?>
 <section class="block day-notes">
-  <header class="block-head"><div><span class="eyebrow"><?= e($buildNote ? 'ForeverChanges' : 'Blizzard') ?></span><h2><?= e(t('About this build', 'À propos de ce build')) ?></h2></div><?php if ($buildNote): ?><a class="link" href="<?= e((string)$buildNote['url']) ?>" target="_blank" rel="noopener"><?= e(t('Source', 'Source')) ?> ↗</a><?php endif; ?></header>
+  <header class="block-head"><div><span class="eyebrow"><?= e($ivLines ? 'Icy Veins' : ($buildNote ? 'ForeverChanges' : 'Blizzard')) ?></span><h2><?= e(t('About this build', 'À propos de ce build')) ?></h2></div><?php if ($buildNote): ?><a class="link" href="<?= e((string)$buildNote['url']) ?>" target="_blank" rel="noopener"><?= e(t('Source', 'Source')) ?> ↗</a><?php endif; ?></header>
   <?php if ($buildNote): ?>
     <?php if (!empty($buildNote['summary'])): ?><p><?= e(implode(' ', (array)$buildNote['summary'])) ?></p><?php endif; ?>
-    <?php foreach ((array)$buildNote['sections'] as $section): ?><h4><?= e((string)$section['name']) ?></h4><ul class="note-lines"><?php foreach ((array)$section['lines'] as $line) echo $lineHtml($line); ?></ul><?php endforeach; ?>
+    <?php foreach ($ivLines ? [] : (array)$buildNote['sections'] as $section): ?><h4><?= e((string)$section['name']) ?></h4><ul class="note-lines"><?php foreach ((array)$section['lines'] as $line) echo $lineHtml($line); ?></ul><?php endforeach; ?>
   <?php endif; ?>
+  <?php foreach ($buildArticles as $article): ?>
+    <h4><a href="<?= e($article['url']) ?>" target="_blank" rel="noopener">Icy Veins: <?= e($article['title']) ?> ↗</a></h4>
+    <?php foreach ($article['sections'] as $name => $lines): ?><h4><?= e($name) ?></h4><ul class="note-lines"><?php foreach ($lines as $line) echo $lineHtml($line); ?></ul><?php endforeach; ?>
+  <?php endforeach; ?>
   <?php foreach ($buildDay !== '' ? $dayPosts($buildDay) : [] as $p): ?><p class="blue-post"><a href="<?= e((string)$p['url']) ?>" target="_blank" rel="noopener"><strong><?= e((string)$p['topic']) ?></strong></a> <small class="muted"><?= e((string)$p['author']) ?></small><br><span class="muted"><?= e((string)$p['excerpt']) ?></span></p><?php endforeach; ?>
 </section>
 <?php endif; ?>

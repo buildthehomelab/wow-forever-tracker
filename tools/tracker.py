@@ -92,14 +92,14 @@ NOTES = os.path.join(DATA, 'notes')
 
 def hotfix_note_days():
     """The days written notes name as hotfix days (Blizzard's hotfix posts, ForeverChanges): they date the windows."""
-    return sorted(day for day, entry in notes.days(NOTES).items() if entry['blizzard']['sections'] or entry['foreverchanges'])
+    return sorted(day for day, entry in notes.days(NOTES).items() if entry['blizzard']['sections'] or entry['icyveins'] or entry['foreverchanges'])
 
 
 def fetch_notes():
-    """Blizzard's blue posts, then ForeverChanges' notes (ft.notes): {'code': 0 when either stored something new}."""
-    first = notes.fetch_blizzard(NOTES, log=log)
-    second = notes.fetch(NOTES, log=log)
-    return {'code': 0 if 0 in (first['code'], second['code']) else 3, 'message': f"{first['message']}; {second['message']}"}
+    """Blizzard's blue posts, Icy Veins' hotfix articles, then ForeverChanges' notes (ft.notes), in the order they are
+    trusted: {'code': 0 when one of them stored something new}."""
+    results = [notes.fetch_blizzard(NOTES, log=log), notes.fetch_icyveins(NOTES, log=log), notes.fetch(NOTES, log=log)]
+    return {'code': 0 if any(r['code'] == 0 for r in results) else 3, 'message': '; '.join(r['message'] for r in results)}
 
 
 def notes_command(_args):
@@ -761,7 +761,7 @@ def main():
     fetch = sub.add_parser('fetch', help="store the live client build's tables from Blizzard's CDN when it is newer than the newest snapshot")
     fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
     fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
-    sub.add_parser('notes', help="store Blizzard's blue posts (its hotfix notes and announcements) and ForeverChanges' patch notes, for the timeline (docs/CLIENT.md)")
+    sub.add_parser('notes', help="store Blizzard's blue posts (its hotfix notes and announcements), Icy Veins' hotfix articles and ForeverChanges' patch notes, for the timeline (docs/CLIENT.md)")
     sub.add_parser('hotfixes', help="store Blizzard's live hotfixes with the snapshot of their build (the public cache, [client] hotfix_cache)")
     again = sub.add_parser('refresh', help="what the newest recording of the live game would change in the server's quests (for the EG Link import card)")
     again.add_argument('what', choices=['quests'])

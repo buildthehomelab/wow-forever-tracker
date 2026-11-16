@@ -239,12 +239,16 @@ no client built in between (the cache keeps the current value only). The days co
   from the forums' own JSON (the "Blizzard tracker" list, then each post's whole text, once). The hotfix posts are read
   a day at a time ("November 13, 2026", then its topics and lines); the other posts (maintenance, known issues, "Dungeon
   XP adjustment") are kept as they are posted. They tell of changes made on the servers, which no client file shows.
+- **Icy Veins' hotfix news** (`icyveins.json`): its WoW: Forever articles about hotfixes, patch notes and development
+  notes, from its WordPress JSON API (category `wow-forever`; the site's own pages sit behind a bot check). Only the
+  blocks where it quotes Blizzard are read, a day at a time, dated by the day the title names. Used where Blizzard's
+  forum has no notes for a day, and linked from every day it covers.
 - **ForeverChanges' patch notes** (`foreverchanges.json`, https://foreverchanges.pro/patch-notes): a line for every build
-  and every hotfix day since the beta. Used only where Blizzard posted nothing, to fill gaps until the tracker's own
+  and every hotfix day since the beta. Used only where neither Blizzard nor Icy Veins has the day, to fill gaps until the tracker's own
   sources say as much; shown under its name, and it never changes a value of the official list.
 
 A hotfix entry of the timeline covers the days of its window and is named after them ("Hotfixes of Nov 10–12"); its
-page lists each day's notes, Blizzard's first. A line that names something the entry changed in the client's data is
+page lists each day's notes: Blizzard's, else Icy Veins', else ForeverChanges'. A line that names something the entry changed in the client's data is
 marked "In the client data", any other "Server side". A window that changed nothing in the client's data but has notes
 still gets its entry ("Server-side changes only").
 
@@ -255,6 +259,6 @@ A step can be turned back into data a test realm loads: [CHECKOUT.md](CHECKOUT.m
 - **The day of a hotfix inside its window, and replaced values.** See "Hotfixes back to the beta" above. A resource
   that exists by hotfix alone is in no build's tables, so nothing says when it appeared: it is not listed as added
   (the changelog says how many there are), and it counts as known since the first build.
-- **Wowhead and Icy Veins as notes.** Neither has a dated list of WoW: Forever's hotfixes to read today.
+- **Wowhead as notes.** It has no dated list of WoW: Forever's hotfixes to read today.
 - **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
   copy.
