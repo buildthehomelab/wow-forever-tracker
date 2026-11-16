@@ -484,10 +484,62 @@ function wowhead_pages_order(array $gapItems, array $waiting, array $quests, arr
     $quests = array_keys($quests);
     sort($quests);
     $unread = fn(string $kind, array $ids) => array_values(array_filter($ids, fn($id) => !isset($read[$kind][$id])));
-    return ['item' => $unread('item', array_merge(array_keys($first), $rest)), 'quest' => $unread('quest', $quests)];
+    // 'blocking': how many of the items, from the first, are ones other content waits for (the crawler's tier 1)
+    return ['item' => $unread('item', array_merge(array_keys($first), $rest)), 'quest' => $unread('quest', $quests), 'blocking' => count($unread('item', array_keys($first)))];
 }
 
-/** The pages this tracker wants next, from the last analysis (wowhead_pages_order). */
+/** The ids a branch's whole list pages name ('npcs', 'objects', ...): [id => true], or null when none was read. Read a
+ *  line at a time: the item lists are large. */
+function wowhead_pages_listed(string $list, string $branch = 'forever', ?array $dirs = null): ?array
+{
+    $ids = null;
+    foreach ($dirs ?? wowhead_pages_dirs() as $dir) {
+        $handle = @fopen("$dir/$branch-list.jsonl", 'r');
+        if (!$handle) continue;
+        while (($line = fgets($handle)) !== false) {
+            if (!str_contains($line, '"query":"' . $list)) continue;
+            $page = json_decode($line, true);
+            if (!is_array($page) || !empty($page['truncated']) || strtok((string)($page['query'] ?? ''), '?') !== $list) continue;
+            $ids ??= [];
+            foreach ((array)($page['rows'] ?? []) as $row) if (is_int($row['id'] ?? null)) $ids[$row['id']] = true;
+        }
+        fclose($handle);
+    }
+    return $ids;
+}
+
+/**
+ * The creatures and objects of the server whose data is missing, the ones a page would fill first: vendors that sell
+ * nothing, trainers that teach nothing, chests that hold nothing, creatures without loot (those with no service first:
+ * the ones players fight). Only those Wowhead's Forever lists name, when they were read: ['npc' => [...], 'object' =>
+ * [...]], in that order.
+ */
+function wowhead_pages_missing_data(): array
+{
+    $ids = fn(string $sql) => array_map(fn($r) => (int)reset($r), rows($sql, [], 'world'));
+    // spawned creatures with the id their loot is kept under, and whether that loot exists: joins against lists made
+    // once (a correlated lookup per creature takes minutes on a world of every expansion)
+    $creatures = "SELECT ct.entry, ct.npcflag, IF(IFNULL(d.LootID, 0) = 0, ct.entry, d.LootID) loot FROM creature_template ct
+        JOIN (SELECT DISTINCT id FROM creature) c ON c.id = ct.entry
+        LEFT JOIN creature_template_difficulty d ON d.Entry = ct.entry AND d.DifficultyID = 0";
+    $lootless = "SELECT x.entry FROM ($creatures) x LEFT JOIN (SELECT DISTINCT Entry FROM creature_loot_template) l ON l.Entry = x.loot WHERE l.Entry IS NULL";
+    $npc = array_merge(
+        $ids("SELECT x.entry FROM ($creatures) x LEFT JOIN (SELECT DISTINCT entry FROM npc_vendor) v ON v.entry = x.entry WHERE x.npcflag & 128 AND v.entry IS NULL ORDER BY x.entry"),
+        $ids("SELECT x.entry FROM ($creatures) x LEFT JOIN (SELECT DISTINCT CreatureID FROM creature_trainer) t ON t.CreatureID = x.entry WHERE x.npcflag & 16 AND t.CreatureID IS NULL ORDER BY x.entry"),
+        $ids("$lootless AND x.npcflag = 0 ORDER BY x.entry"),
+        $ids("$lootless AND x.npcflag <> 0 ORDER BY x.entry"));
+    $object = $ids('SELECT g.entry FROM gameobject_template g JOIN (SELECT DISTINCT id FROM gameobject) s ON s.id = g.entry
+        LEFT JOIN (SELECT DISTINCT Entry FROM gameobject_loot_template) l ON l.Entry = g.Data1 WHERE g.type = 3 AND (g.Data1 = 0 OR l.Entry IS NULL) ORDER BY g.entry');
+    $out = ['npc' => array_values(array_unique($npc)), 'object' => $object];
+    foreach (['npc' => 'npcs', 'object' => 'objects'] as $kind => $list) {
+        $listed = wowhead_pages_listed($list);
+        if ($listed !== null) $out[$kind] = array_values(array_filter($out[$kind], fn($id) => isset($listed[$id])));
+    }
+    return $out;
+}
+
+/** The pages this tracker wants next, from the last analysis (wowhead_pages_order), and the creatures and objects
+ *  whose data is missing (wowhead_pages_missing_data): their pages are moved up in a running crawl. */
 function wowhead_pages_queue(): array
 {
     $gaps = source_gaps();
@@ -499,17 +551,38 @@ function wowhead_pages_queue(): array
     foreach (['item', 'quest'] as $kind) {
         foreach (wowhead_pages($kind) as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
     }
-    return wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
+    $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
+    foreach (wowhead_pages_missing_data() as $kind => $list) {
+        $have = [];
+        foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
+        $queue[$kind] = array_values(array_filter($list, fn($id) => !isset($have[$id])));
+    }
+    return $queue;
 }
 
-/** crawler.js with the queue added and started: what the browser tab runs. $full: the whole database too
- *  (WHC.full(): every list of Forever and Classic first, then the pages they name, after the queue). */
+/**
+ * crawler.js with the queue added and started: what the browser tab runs. Each page goes in with what it is worth
+ * (the crawler's TIERS, most first): the quests without a giver or an ender and the items other content waits for
+ * ('gap'), the creatures and objects of the server whose data is missing ('missing'), the items that only lack a source
+ * ('gapOther'). In a crawl that already queued them they move up. $full: the whole database too (WHC.full(): every
+ * list of Forever and Classic first, then the pages they name, after these).
+ */
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($queue[$k]) . " $k pages", array_keys($queue)))];
+    $counted = array_filter($queue, 'is_array');
+    $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))];
     $lines[] = '(async () => {';
-    foreach ($queue as $kind => $ids) if ($ids) $lines[] = '  await WHC.add(' . json_encode($kind) . ', ' . json_encode(array_values($ids)) . ');';
+    $put = function (string $kind, array $ids, string $tier) use (&$lines) {
+        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids))) . ', ' . json_encode($tier) . ');';
+    };
+    $items = array_values($queue['item'] ?? []);
+    $blocking = (int)($queue['blocking'] ?? count($items));
+    $put('quest', $queue['quest'] ?? [], 'gap');
+    $put('item', array_slice($items, 0, $blocking), 'gap');
+    $put('npc', $queue['npc'] ?? [], 'missing');
+    $put('object', $queue['object'] ?? [], 'missing');
+    $put('item', array_slice($items, $blocking), 'gapOther');
     if ($full) $lines[] = '  await WHC.full();';
     $lines[] = '  WHC.start();';
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";
