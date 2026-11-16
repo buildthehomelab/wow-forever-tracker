@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 
 from . import db2, hotfixes
 from .config import BUILDS, CONFIG, SCHEMA
@@ -31,6 +32,8 @@ CLASS_CATEGORY, RACIAL_CATEGORY = 7, 12
 PLAYER_SPELLS = ('class', 'profession', 'racial', 'talent', 'mount', 'pet', 'rune', 'petability')
 SCRIPT_EFFECTS, SCRIPT_AURAS = {3, 77}, {4, 226}
 EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL = 24, 36
+# Blizzard's "do not translate" mark on a name that is not for players ("Test Profession [DNT]")
+DO_NOT_TRANSLATE = re.compile(r'\[DNT\]|\(DNT\)|\bDNT\b')
 
 
 # The table whose row is the resource itself: a resource whose row there exists by hotfix alone is in no build's tables.
@@ -157,6 +160,8 @@ def official(folder, read=None):
         line = skill_lines.get(a['SkillLine'], {})
         category = line.get('CategoryID')
         line_en = skill_lines_en.get(a['SkillLine'], {}).get('DisplayName', '')
+        if DO_NOT_TRANSLATE.search(line_en or line.get('DisplayName', '') or ''):
+            continue   # a skill line Blizzard marks as not for players ("Test Profession [DNT]"): its spells are no spellbook line
         if line_en == 'Beast Training' or line_en.startswith('Pet -'):
             spell_category.setdefault(a['Spell'], 'petability')  # hunter pet abilities: learned by taming and pet training
         elif category == CLASS_CATEGORY:

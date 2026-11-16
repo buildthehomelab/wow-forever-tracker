@@ -236,5 +236,12 @@ class ConversationEvidence(unittest.TestCase):
             self.assertFalse(classic.spoken(bad), bad)
 
 
+class Taught(unittest.TestCase):
+    def test_every_spell_the_original_game_teaches(self):
+        pack = {'trainers': [[1, 10843, 0, 129, 0, 0]], 'quests': [[5, 0, 11522], [6, 3, 0]], 'gossip': [[2, 22814]],
+                'talk': [['go', 179552, 'x', 22864, []]]}
+        self.assertEqual(classic.taught(pack), {10843, 11522, 3, 22814, 22864})
+
+
 if __name__ == '__main__':
     unittest.main()

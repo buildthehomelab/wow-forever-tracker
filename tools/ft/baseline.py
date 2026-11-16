@@ -46,6 +46,12 @@ class Baseline:
         instances are not in the Classic Era client, and the original ones sit below the 'new' cut-off."""
         return map_id in UNRELEASED_MAPS or (map_id >= NEW_FROM['dungeon'] and self.has('Map', map_id) is True)
 
+    def season(self, kind, entity_id):
+        """A spell or item the Classic Era client gained after the original game (Season of Discovery's runes, recipes and
+        patterns, the anniversary mounts): above the 'new' cut-off and in the Classic Era client. Forever's own are not in
+        that client, the original ones sit below the cut-off."""
+        return entity_id >= NEW_FROM.get(kind, 10 ** 9) and self.has(TABLE.get(kind, ''), entity_id) is True
+
     def is_new(self, kind, entity_id, entity):
         if entity_id < NEW_FROM.get(kind, 10 ** 9):
             return False
