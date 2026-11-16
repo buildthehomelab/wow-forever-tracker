@@ -140,9 +140,11 @@ check(str_starts_with(file_get_contents("$ap/item.jsonl"), $before) && wowhead_p
 check(wowhead_pages('npc', [$ap])[7]['tabs']['drops']['rows'][0]['outof'] === 30 && isset(wowhead_pages('classic-npc', [$ap])[8]), 'each page on its own shelf, a Classic one apart');
 check(wowhead_pages_append([], $ap) === ['pages' => 0, 'not_a_page' => 0], 'nothing sent, nothing written');
 
-// The Forge › Crawl: for administrators, with the line to run in the Wowhead tab
-[$status, $body] = ft_test_request('/admin/crawl', "[site]\npublic = 1\n", ['ft_admin' => ['name' => 'admin', 'via' => 'local']]);
-check($status === 200 && str_contains($body, 'data-crawl-link') && str_contains($body, 'data-crawl-open') && str_contains($body, '(0, eval)(JSON.parse(window.name).src)'), 'the Crawl page: the button and the line to run');
+// The Forge › Crawl: in the site's layout (its script makes the button work; the layout needs the database, which these
+// tests do not have, so the page's source is read), with the line to run in the Wowhead tab
+$crawlPage = (string)file_get_contents(FT_APP . '/pages/admin/crawl.php');
+check(str_contains($crawlPage, 'page_start(') && str_contains($crawlPage, 'page_end()') && str_contains($crawlPage, 'data-crawl-open') && str_contains($crawlPage, '(0, eval)(JSON.parse(window.name).src)'),
+    'the Crawl page: in the layout, the button and the line to run');
 check(ft_test_request('/admin/crawl', "[site]\npublic = 1\n")[0] === 303, 'not for visitors');
 // the push endpoint: past the private site's gate (it has its own key), POST only
 [$st, $out] = ft_test_request('/api/wowhead-push', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
