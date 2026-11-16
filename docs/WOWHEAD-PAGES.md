@@ -65,6 +65,11 @@ tab may pass messages to the tab that opened it. What the crawl reads while the 
 tab's storage (`outbox`) and is sent once a Crawl tab opened it again. The first link sends everything read before too.
 `WHC.status().link` says how much is waiting.
 
+**A normal browser only.** The page opens the Wowhead tab itself, from your click; that is how the two tabs know each
+other. A browser that opens no window a page asks for (the Claude app's own browser pane does not, even after a click)
+cannot link: there, read in a tab as before and send `WHC.saveNew()` files on the Imports page. On a computer left
+running, a normal browser with the Crawl page open crawls and keeps by itself.
+
 ## What is read first
 
 A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first
