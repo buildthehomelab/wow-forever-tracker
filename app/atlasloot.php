@@ -69,7 +69,9 @@ function atlasloot_tables(string $zipPath): array
     $files = [];
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $name = str_replace('\\', '/', (string)$zip->getNameIndex($i));
+        // the loot addon's files by their own path, every other file as "../<addon>/<path>"
         if (str_starts_with($name, ATLASLOOT_LOOT_ADDON . '/')) $files[substr($name, strlen(ATLASLOOT_LOOT_ADDON) + 1)] = $i;
+        elseif (str_starts_with($name, 'AtlasLootClassic_')) $files["../$name"] = $i;
     }
     $read = function (string $name) use ($zip, $files): string {
         if (!isset($files[$name])) return '';
@@ -79,15 +81,26 @@ function atlasloot_tables(string $zipPath): array
     try {
         $toc = $read(ATLASLOOT_LOOT_ADDON . '_Forever.toc');
         if ($toc === '') throw new RuntimeException('no ' . ATLASLOOT_LOOT_ADDON . '_Forever.toc in the zip');
-        $out = ['bosses' => [], 'rates' => []];
-        foreach (preg_split('/\R/', $toc) as $line) {
-            $line = str_replace('\\', '/', trim($line));
-            if ($line === '' || $line[0] === '#' || !str_ends_with($line, '.lua')) continue;
+        $out = ['bosses' => [], 'rates' => [], 'lists' => []];
+        foreach (atlasloot_toc_files($toc) as $line) {
             $text = $read($line);
             if (basename($line) === 'droprate.lua') { $out['rates'] = atlasloot_rates($text); continue; }
-            // a table that only loads from The Burning Crusade on
-            if (preg_match('/GameVersion_LT\(AtlasLoot\.BC_VERSION_NUM\)\s*then\s*return\s+end/', $text)) continue;
-            if (str_contains($text, 'ItemDB:Add(')) array_push($out['bosses'], ...atlasloot_bosses($text));
+            if (atlasloot_later_only($text)) continue;
+            if (!str_contains($text, 'ItemDB:Add(')) continue;
+            array_push($out['bosses'], ...atlasloot_bosses($text));
+            // vendor stock (a row with a price) is no drop: kept as a list row
+            foreach (atlasloot_lists($text, 'DungeonsAndRaids') as $row) if ($row[6] !== '') $out['lists'][] = $row;
+        }
+        // the other parts the Forever addon loads (crafting, factions, PvP, collections): no creature is named, so
+        // nothing on the server is made from them; they are kept as lists to compare with the other sources
+        foreach (ATLASLOOT_LIST_ADDONS as $module) {
+            $prefix = "AtlasLootClassic_$module/";
+            $toc = $read("../{$prefix}AtlasLootClassic_{$module}_Forever.toc");
+            foreach ($toc === '' ? [] : atlasloot_toc_files($toc) as $line) {
+                $text = $read("../$prefix$line");
+                if ($text === '' || atlasloot_later_only($text) || !str_contains($text, 'ItemDB:Add(')) continue;
+                array_push($out['lists'], ...atlasloot_lists($text, $module));
+            }
         }
     } finally {
         $zip->close();
@@ -105,6 +118,73 @@ function atlasloot_rates(string $text): array
         foreach ($r as [, $item, $chance]) $rates[(int)$npc][(int)$item] = (float)$chance;
     }
     return $rates;
+}
+
+/** The .lua files a .toc loads, in order, with / for \\. */
+function atlasloot_toc_files(string $toc): array
+{
+    $out = [];
+    foreach (preg_split('/\R/', $toc) as $line) {
+        $line = str_replace('\\', '/', trim($line));
+        if ($line !== '' && $line[0] !== '#' && str_ends_with($line, '.lua')) $out[] = $line;
+    }
+    return $out;
+}
+
+/** A file that switches itself off below The Burning Crusade (its lists are not Forever's). */
+function atlasloot_later_only(string $text): bool
+{
+    return (bool)preg_match('/GameVersion_LT\(AtlasLoot\.BC_VERSION_NUM\)\s*then\s*return\s+end/', $text);
+}
+
+/** The AtlasLoot parts read as lists, besides the dungeons and raids. */
+const ATLASLOOT_LIST_ADDONS = ['Crafting', 'Factions', 'PvP', 'Collections'];
+
+/**
+ * Every row of every list of a data file, as AtlasLoot shows it: [id, "module/table/list[/side]", module, table, list,
+ * side, price, faction, standing]. The id is a spell in Crafting (what a profession makes), an item elsewhere. side
+ * is the list's difficulty when it is a faction's (ALLIANCE_DIFF, HORDE_DIFF), price the row's price text
+ * ("money:1500", honor and marks), faction and standing those of a reputation list ("f529rep8": Argent Dawn,
+ * exalted; or the table's FactionID). Set tables (set numbers, not items) and blocks for a later version are left out.
+ */
+function atlasloot_lists(string $text, string $module): array
+{
+    $out = [];
+    $table = ''; $faction = 0; $depth = 0; $itemsDepth = -1; $list = null; $side = ''; $standing = 0; $listFaction = 0; $skipTable = false;
+    foreach (preg_split('/\R/', $text) as $line) {
+        $code = preg_replace('/--.*$/', '', preg_replace('/"(?:[^"\\\\]|\\\\.)*"/', '""', $line));
+        if ($depth === 0 && preg_match('/^data\["([^"]+)"\]\s*=\s*\{/', $line, $m)) { $table = $m[1]; $faction = 0; $itemsDepth = -1; $skipTable = false; }
+        if ($table !== '' && $depth === 1) {
+            if ($itemsDepth < 0 && preg_match('/^\s*items\s*=\s*\{/', $code)) $itemsDepth = 2;
+            if (preg_match('/^\s*FactionID\s*=\s*(\d+)/', $code, $m)) $faction = (int)$m[1];
+            if (preg_match('/^\s*TableType\s*=\s*SET_ITTYPE/', $code)) $skipTable = true;
+        }
+        $opens = substr_count($code, '{'); $closes = substr_count($code, '}');
+        if ($itemsDepth > 0 && $depth === $itemsDepth && $opens > $closes) {
+            $later = preg_match('/GameVersion_GE\(\s*AtlasLoot\.(\w+)/', $code, $v) && $v[1] !== 'CLASSIC_VERSION_NUM';
+            $list = ['name' => '', 'skip' => $later];
+        } elseif ($list !== null && $depth === $itemsDepth + 1) {
+            if ($list['name'] === '' && preg_match('/^\s*name\s*=\s*[^"]*"([^"]+)"/', $line, $m)) $list['name'] = $m[1];
+            if (preg_match('/^\s*TableType\s*=\s*SET_ITTYPE/', $code)) $list['skip'] = true;
+            if (preg_match('/^\s*\[(\w+)\]\s*=\s*\{/', $code, $m)) {
+                $side = in_array($m[1], ['ALLIANCE_DIFF', 'HORDE_DIFF'], true) ? strtolower(substr($m[1], 0, -5)) : '';
+                $standing = 0; $listFaction = $faction;
+            }
+        } elseif ($list !== null && !$list['skip'] && !$skipTable && $depth === $itemsDepth + 2 && preg_match('/^\s*\{\s*\d+\s*,/', $code)) {
+            if (preg_match('/^\s*\{\s*\d+\s*,\s*"f(\d+)rep(\d+)"/', $line, $m)) { $listFaction = (int)$m[1]; $standing = (int)$m[2]; }
+            $price = preg_match('/\[PRICE_EXTRA_ITTYPE\]\s*=\s*"([^"]+)"/', $line, $p) ? $p[1] : '';
+            $ids = preg_match('/^\s*\{\s*\d+\s*,\s*(\d+)\s*[,}]/', $code, $m) ? [(int)$m[1]] : [];
+            if (preg_match_all('/\[ATLASLOOT_IT_(?:HORDE|ALLIANCE)\]\s*=\s*(\d+)/', $code, $f)) $ids = array_merge($ids, array_map('intval', $f[1]));
+            $name = $list['name'] !== '' ? $list['name'] : '?';
+            foreach (array_unique($ids) as $id) if ($id > 0) {
+                $out[] = [$id, implode('/', array_filter([$module, $table, $name, $side])), $module, $table, $name, $side, $price, $listFaction, $standing];
+            }
+        }
+        $depth += $opens - $closes;
+        if ($list !== null && $depth <= $itemsDepth) $list = null;
+        if ($depth <= 0) { $depth = 0; $table = ''; $itemsDepth = -1; }
+    }
+    return $out;
 }
 
 /**
@@ -167,8 +247,19 @@ function atlasloot_key(string $name): string { return mb_strtolower(trim($name))
  */
 function atlasloot_sources(array $tables): array
 {
-    $out = []; $left = [];
+    $out = []; $left = []; $kept = ['al_reward' => [], 'al_trash' => [], 'al_named' => []];
     $leave = function (string $why, int $n) use (&$left) { $left[$why] = ($left[$why] ?? 0) + $n; };
+    $mapOf = [];
+    // a list no creature takes is kept as it is (atlasloot_kind), and counted as left out of the card
+    $keep = function (string $instance, string $name, array $items) use (&$kept, &$mapOf, $leave) {
+        $kind = atlasloot_kind($name);
+        $leave(['al_reward' => 'atlasloot_quest_reward', 'al_trash' => 'atlasloot_trash', 'al_named' => 'atlasloot_no_creature'][$kind], count($items));
+        foreach (array_keys($items) as $item) $kept[$kind][] = match ($kind) {
+            'al_reward' => [(int)$item, 0, $name, $instance],
+            'al_trash' => [(int)$item, $instance, (int)($mapOf[$instance] ?? 0)],
+            default => [(int)$item, "$instance / $name", $instance, $name],
+        };
+    };
     $names = $ids = [];
     foreach ($tables['bosses'] as [, $name, $npcs]) {
         if (!$npcs && $name !== '') $names[$name] = true;
@@ -199,7 +290,6 @@ function atlasloot_sources(array $tables): array
         if (!$npcs) foreach (['npc', 'go'] as $kind) foreach ($byName[$kind][atlasloot_key($name)] ?? [] as $entryMaps) $maps += $entryMaps;
         foreach (array_keys($maps) as $map) $votes[$instance][$map][$name] = true;
     }
-    $mapOf = [];
     foreach ($votes as $instance => $maps) {
         uasort($maps, fn($a, $b) => count($b) <=> count($a));
         $best = array_key_first($maps);
@@ -231,14 +321,15 @@ function atlasloot_sources(array $tables): array
             if (!$shared && !$unheaded && !array_filter($items, fn($h) => $h !== '')) {
                 $unheaded = array_values(array_filter($npcs, fn($npc) => array_intersect_key($lootOf[$npc] ?? [], $items) !== []));
             }
-            $parts = [];
+            $parts = []; $unsure = [];
             foreach ($items as $item => $heading) {
                 $to = $byHeading[atlasloot_key($heading)] ?? null;
                 if ($to !== null && array_filter($to, fn($npc) => isset($vendor[$npc]))) { $leave('atlasloot_vendor', 1); continue; }
                 $to ??= $shared ? $npcs : $unheaded;
-                if (!$to) { $leave('atlasloot_several_creatures', 1); continue; }
+                if (!$to) { $leave('atlasloot_several_creatures', 1); $unsure[$item] = $heading; continue; }
                 foreach ($to as $npc) $parts[$npc][$item] = $heading;
             }
+            if ($unsure) { foreach (array_keys($unsure) as $item) $kept['al_named'][] = [(int)$item, "$instance / $name", $instance, $name]; $unsure = []; }
             foreach ($parts as $npc => $list) $out[] = ['npc', $npc, $list, true];
             continue;
         }
@@ -250,10 +341,64 @@ function atlasloot_sources(array $tables): array
             if (count($candidates) === 1) { $found = [$kind, (int)array_key_first($candidates)]; break; }
             if ($candidates) break;   // several: the name is not enough
         }
-        if (!$found) { $leave('atlasloot_no_creature', count($items)); continue; }
+        if (!$found) { $keep($instance, $name, $items); continue; }
         $out[] = [$found[0], $found[1], $items, false];
     }
-    return [$out, $left];
+    // the quests of the reward lists, by title: one quest of that title, or one of the side the list names
+    $titles = [];
+    foreach ($kept['al_reward'] as $row) if ($row[1] === 0 && $row[2] !== '') $titles[atlasloot_quest_title($row[2])[0]] = true;
+    $quests = [];
+    foreach (array_chunk(array_keys($titles), 500) as $chunk) {
+        $marks = implode(',', array_fill(0, count($chunk), '?'));
+        foreach (rows("SELECT ID, LogTitle, AllowableRaces FROM quest_template WHERE LogTitle IN ($marks)", $chunk, 'world') as $r) $quests[atlasloot_key($r['LogTitle'])][(int)$r['ID']] = (int)$r['AllowableRaces'];
+    }
+    foreach ($kept['al_reward'] as &$row) {
+        [$title, $side] = atlasloot_quest_title($row[2]);
+        // the quest's number once found, else the list's name: one fact per list either way
+        $row[1] = atlasloot_pick_quest($quests[atlasloot_key($title)] ?? [], $side) ?: $row[2];
+    }
+    unset($row);
+    return [$out, $left, $kept];
+}
+
+/**
+ * The quest a reward list names: [title, 'horde'|'alliance'|''], from "Blood Red Bandanas (Horde Quest)" or "Quest
+ * Rewards (Eye of Mugg)". A list that names no quest ("Alliance Only Quest Rewards") gives ''.
+ */
+function atlasloot_quest_title(string $name): array
+{
+    $side = preg_match('/\bhorde\b/i', $name) ? 'horde' : (preg_match('/\balliance\b/i', $name) ? 'alliance' : '');
+    if (preg_match('/^\s*quest\s+rewards?\s*\((.+)\)\s*$/i', $name, $m)) return [trim($m[1]), $side];
+    if (preg_match('/^(.+?)\s*\((?:horde|alliance)?\s*quest\)\s*$/i', $name, $m)) return [trim($m[1]), $side];
+    return ['', $side];
+}
+
+/** Races of each side (AllowableRaces bits): orc, undead, tauren, troll / human, dwarf, night elf, gnome. */
+const ATLASLOOT_SIDES = ['horde' => 2 | 16 | 32 | 128, 'alliance' => 1 | 4 | 8 | 64];
+
+/** One quest out of [id => AllowableRaces] with that title: the only one, else the only one open to $side; else 0. */
+function atlasloot_pick_quest(array $candidates, string $side): int
+{
+    if (count($candidates) === 1) return (int)array_key_first($candidates);
+    if ($side === '' || !$candidates) return 0;
+    $mask = ATLASLOOT_SIDES[$side];
+    $open = array_filter($candidates, fn($races) => $races === 0 || $races === -1 || ($races & $mask));
+    $only = array_filter($open, fn($races) => $races > 0 && !($races & ATLASLOOT_SIDES[$side === 'horde' ? 'alliance' : 'horde']));
+    if (count($only) === 1) return (int)array_key_first($only);
+    return count($open) === 1 ? (int)array_key_first($open) : 0;
+}
+
+/**
+ * What a list that went to no creature is: a quest's rewards, the instance's trash, or a list under a name (a boss
+ * this server has not spawned, a chest, a shared list such as "All bosses" or "Class books"). Kept as AtlasLoot said it,
+ * as rows: al_reward [item, quest (its list name while no quest is found), list name, instance], al_trash [item, instance, map], al_named
+ * [item, "instance / list name", instance, list name].
+ */
+function atlasloot_kind(string $name): string
+{
+    if (preg_match('/\bquests?\b/i', $name)) return 'al_reward';
+    if (preg_match('/\btrash\b/i', $name)) return 'al_trash';
+    return 'al_named';
 }
 
 /**
@@ -264,8 +409,12 @@ function atlasloot_sources(array $tables): array
  */
 function atlasloot_evidence(array $tables, array $measured = []): array
 {
-    [$sources, $left] = atlasloot_sources($tables);
-    $ev = ['drop' => [], 'left' => $left];
+    [$sources, $left, $kept] = atlasloot_sources($tables);
+    $ev = ['drop' => [], 'left' => $left] + $kept;
+    // what AtlasLoot holds besides the drops it ties to a creature, kept as it said it (atlasloot_lists)
+    $ev['al_list'] = $tables['lists'] ?? [];
+    $ev['al_rate'] = [];
+    foreach ($tables['rates'] ?? [] as $npc => $items) foreach ($items as $item => $chance) $ev['al_rate'][] = [(int)$npc, (int)$item, (float)$chance];
     $guess = filter_var(config('atlasloot', 'guess', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
     foreach ($sources as [$kind, $id, $items, $several]) {
         foreach (array_keys($items) as $item) {
@@ -326,10 +475,55 @@ function atlasloot_card(array $ev, string $version, string $file, array $gaps): 
 {
     $label = 'AtlasLoot ' . $version;
     [$cards, $left] = source_tables($ev, $label, $gaps);
+    [$changes, $rewardLeft] = atlasloot_reward_changes($ev['al_reward'] ?? []);
+    foreach ($rewardLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
     // gap items whose chance is an even share (an upper bound: drops the server already has are left out later)
     $guessed = count(array_filter($ev['drop'], fn($d) => !empty($d[4]) && isset($gaps['items'][$d[2]])));
     $name = $label . ($guessed && $cards ? ' (' . sprintf(t('up to %d chances are an even share', 'jusqu’à %d chances en part égale'), $guessed) . ')' : '');
-    return source_card('atlasloot', $name, 'atlasloot@' . $file, $cards, $left);
+    return source_card('atlasloot', $name, 'atlasloot@' . $file, $cards, array_filter($left), $changes);
+}
+
+/**
+ * Rewards for the quests of AtlasLoot's reward lists that give no item at all on this server: Forge "set" operations
+ * on quest_template, each naming the 0 it replaces. A quest that already rewards anything is left as it is (Wowhead
+ * and Questie, more trusted, fill rewards through the quest refresh). Several items are a choice, one item is given.
+ */
+function atlasloot_reward_changes(array $rewards): array
+{
+    $lists = [];
+    foreach ($rewards as $row) if (is_int($row[1] ?? null) && $row[1] > 0) $lists[$row[1]][(int)$row[0]] = true;
+    if (!$lists || !table_exists('quest_template', 'world')) return [[], []];
+    $columns = [];
+    for ($i = 1; $i <= 6; $i++) $columns[] = "RewardChoiceItemID$i";
+    for ($i = 1; $i <= 4; $i++) $columns[] = "RewardItem$i";
+    $have = [];
+    foreach (array_chunk(array_keys($lists), 500) as $chunk) {
+        foreach (rows('SELECT ID, ' . implode(',', $columns) . ' FROM quest_template WHERE ID IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
+            $have[(int)$r['ID']] = array_sum(array_map(fn($c) => (int)$r[$c] > 0 ? 1 : 0, $columns));
+        }
+    }
+    [$sets, $left] = atlasloot_reward_sets($lists, $have);
+    $changes = [];
+    foreach ($sets as $column => $list) $changes[] = ['db' => 'world', 'table' => 'quest_template', 'columns' => ['ID', $column], 'match' => ['ID'], 'set' => $column, 'rows' => $list];
+    return [$changes, $left];
+}
+
+/**
+ * The columns to set, from [quest => [item => true]] and [quest => how many reward items it has now]: [column => [[quest,
+ * value], …]] and what was left out. Up to six items are a choice (RewardChoiceItemID/Quantity); one item is
+ * RewardItem1/RewardAmount1; a quest the server lacks, or one that already rewards something, gets nothing.
+ */
+function atlasloot_reward_sets(array $lists, array $have): array
+{
+    $sets = []; $left = [];
+    foreach ($lists as $quest => $items) {
+        if (!isset($have[$quest])) { $left['atlasloot_quest_not_on_server'] = ($left['atlasloot_quest_not_on_server'] ?? 0) + count($items); continue; }
+        if ($have[$quest] > 0) { $left['atlasloot_quest_has_rewards'] = ($left['atlasloot_quest_has_rewards'] ?? 0) + count($items); continue; }
+        $items = array_slice(array_keys($items), 0, 6);
+        if (count($items) === 1) { $sets['RewardItem1'][] = [$quest, $items[0]]; $sets['RewardAmount1'][] = [$quest, 1]; continue; }
+        foreach ($items as $i => $item) { $sets['RewardChoiceItemID' . ($i + 1)][] = [$quest, $item]; $sets['RewardChoiceItemQuantity' . ($i + 1)][] = [$quest, 1]; }
+    }
+    return [$sets, $left];
 }
 
 /** Drops of the last downloaded AtlasLoot (no download), for NorgannonDB's second-source check. */

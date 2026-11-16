@@ -232,14 +232,24 @@ website runs.
   (`data-tbc.lua`) is not Forever's, nor are blocks wrapped for a later version, instances marked `IgnoreAsSource`
   and rows with a price (vendor stock). A boss without a creature number (Forever's new dungeons) or a chest is found
   by name on the map where the instance's other bosses are spawned: exactly one spawned creature, else exactly one
-  spawned object; lists such as *Trash* or *Sets* match none and are left out. A list naming several creatures (the
+  spawned object. A list no creature takes is kept as facts all the same (it never makes a server row by itself):
+  `al_trash` (an instance's trash), `al_named` (a boss this server has not spawned yet, a chest it lacks, a shared list
+  such as *All bosses* or *Class books*, and items of a several-creature list that fit none of them) and `al_reward`
+  (a quest's rewards, matched to the server's quest by title, and by side when the list names one). A quest that
+  rewards no item at all on the server gets that list as its rewards: up to six items as a choice, one item as
+  `RewardItem1`; a quest that already rewards something is left as it is (Wowhead and Questie fill rewards through the
+  quest refresh). A list naming several creatures (the
   Guzzler, the Twin Emperors) splits at its heading rows: what sits under a creature's name goes to that creature;
   the rest goes to all of them only when the list's own name names them all (*Fel Steed / Shadow Charger*). A vendor
   (Lokhtos Darkbargainer) gets nothing: its list is its stock. The chance is AtlasLoot's measured one (`droprate.lua`,
   not for lists of several creatures), else the best a live Forever recording (EG Link, ForeverDB.net, Icy Veins'
   cache) measured for that creature or chest and item, else an even share of one drop over the list (counting at least
   three items, so 33 % at most): the card's name says how many at most; `[atlasloot] guess = 0`
-  (`FT_ATLASLOOT_GUESS=0`) leaves those out.
+  (`FT_ATLASLOOT_GUESS=0`) leaves those out. The rest of what the Forever addon loads is kept as facts too, to compare
+  with the other sources: `al_list` rows `[id, "module/table/list[/side]", module, table, list, side, price, faction,
+  standing]` from Crafting (the id is the spell a profession makes, Forever's new recipes included), Factions and PvP
+  (reputation rewards with their faction and standing), Collections (mounts, pets, tabards, holiday items) and the
+  dungeons' vendor rows with a price; `al_rate` rows `[creature, item, chance]` are `droprate.lua` as it is.
 - **NorgannonDB needs a second source for vendors and loot**: it mixes Classic databases with what its players saw, so
   alone it would bring Classic test vendors (unreleased mounts, the Panda Collar, soul shards for sale) and quest-only
   items. A NorgannonDB vendor or drop is kept only when EG Link, ForeverDB.net or Icy Veins (answers already fetched)
