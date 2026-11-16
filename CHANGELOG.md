@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The crawl reads the items with no source before the creatures with missing data.** The items that only lacked a
+  source were the crawler's tier 4, behind more than 2,000 creature pages of tier 3 (about a day of reading at its
+  pace). They are now tier 3, what their pages name tier 4, and the server's creatures and objects whose data is
+  missing tier 5. A crawl that is already running (the Chrome extension's) is put in the new order once, the next
+  time it loads the crawler.
+
 - **The VMaNGOS pack leaves out what players could never reach.** VMaNGOS keeps vendors that never spawn (the World
   Mount Vendor, test and "[UNUSED]" vendors), vendor lists no spawned NPC uses (old PvP rank gear) and quests Blizzard
   marked as never made ("<NYI>", "<TXT>", "<UNUSED>", "REUSE", test quests). classic-db leaves these out. Counted as
