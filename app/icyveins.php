@@ -134,38 +134,71 @@ function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, st
     return $new;
 }
 
-/** Every id Icy Veins lists for $kind, from its list pages (kept a day in data/icyveins/<kind>.ids.json). When a page
- *  does not answer, the list kept last time is used, and the ids already in the mirror without one. */
+/**
+ * Every id Icy Veins lists for $kind, from its list pages (kept a day in data/icyveins/<kind>.ids.json). Without an
+ * API key the API gives the first 10,000 rows of a list and answers HTTP 400 beyond them ("narrow the filters or
+ * sort"): the list is read from both ends (dir=desc), which covers 20,000 rows. Items are more (about 32,000): the
+ * ones neither end reaches are added from what the mirror's NPCs, objects and quests name (icyveins_named_items).
+ * When a page does not answer, the list kept last time is used, and the ids already in the mirror without one.
+ */
 function icyveins_ids(string $kind, int &$asked, int &$failures, string &$lastFailure): array
 {
     $file = icyveins_dir() . "/$kind.ids.json";
     $kept = is_file($file) ? (json_decode((string)file_get_contents($file), true) ?: []) : [];
     if ($kept && time() - (int)($kept['fetched'] ?? 0) < 86400 && (int)($kept['fetched'] ?? 0) >= source_refresh_epoch()) return array_map('intval', (array)$kept['ids']);
-    $ids = []; $pages = 1;
-    for ($page = 1; $page <= $pages; $page++) {
-        if ($asked >= icyveins_max()) { $ids = null; break; }
-        $asked++;
-        [$status, $body] = icyveins_request("$kind?limit=" . ICYVEINS_LIST_LIMIT . "&page=$page", $failures);
-        $list = $status === 200 ? json_decode($body, true) : null;
-        if (!is_array($list) || !isset($list['rows'])) {
-            $failures++;
-            $lastFailure = "$kind list page $page: " . ($status ? "HTTP $status" : 'no answer');
-            if ($failures >= ICYVEINS_MAX_FAILURES) throw new IcyVeinsStopped($lastFailure);
-            $page--;   // the same page again, after the back-off
-            continue;
+    $ids = []; $total = null;
+    foreach (['', '&dir=desc'] as $order) {
+        if ($total !== null && count($ids) >= $total) break;   // the first end gave all of it
+        $pages = 1;
+        for ($page = 1; $page <= $pages; $page++) {
+            if ($asked >= icyveins_max()) { $ids = null; break 2; }
+            $asked++;
+            [$status, $body] = icyveins_request("$kind?limit=" . ICYVEINS_LIST_LIMIT . "&page=$page$order", $failures);
+            $list = $status === 200 ? json_decode($body, true) : null;
+            if ($status === 400 && $page > 1) { $failures = 0; break; }   // the 10,000-row cap: this end is done
+            if (!is_array($list) || !isset($list['rows'])) {
+                $failures++;
+                $lastFailure = "$kind list page $page: " . ($status ? "HTTP $status" : 'no answer');
+                if ($failures >= ICYVEINS_MAX_FAILURES) throw new IcyVeinsStopped($lastFailure);
+                $page--;   // the same page again, after the back-off
+                continue;
+            }
+            $failures = 0;
+            $pages = max(1, (int)($list['pages'] ?? 1));
+            $total = (int)($list['total'] ?? 0);
+            foreach ((array)$list['rows'] as $r) if ((int)($r['id'] ?? 0) > 0) $ids[(int)$r['id']] = true;
+            if (count($ids) >= $total) break 2;   // the two ends met
         }
-        $failures = 0;
-        $pages = max(1, (int)($list['pages'] ?? 1));
-        foreach ((array)$list['rows'] as $r) if ((int)($r['id'] ?? 0) > 0) $ids[] = (int)$r['id'];
     }
     if ($ids === null) {   // the run's lookups ran out half way: the list kept last time, else what the mirror has
         if ($kept) return array_map('intval', (array)$kept['ids']);
         return icyveins_mirrored($kind);
     }
-    $ids = array_values(array_unique($ids));
+    $ids = array_keys($ids);
     @mkdir(icyveins_dir(), 0775, true);
-    file_put_contents($file, json_encode(['fetched' => time(), 'ids' => $ids]));
+    file_put_contents($file, json_encode(['fetched' => time(), 'ids' => $ids, 'total' => $total]));
     return $ids;
+}
+
+/** The items the mirror's NPCs, objects and quests name: what they drop, sell, hold, ask for or give. */
+function icyveins_named_items(array $mirror): array
+{
+    $items = [];
+    $add = function ($id) use (&$items) { if ((int)$id > 0) $items[(int)$id] = true; };
+    foreach ($mirror['npc'] ?? [] as $id) {
+        $r = (array)((icyveins_cached('npc', (int)$id) ?? [])['relations'] ?? []);
+        foreach (['addon_drops', 'addon_sells'] as $rel) foreach ((array)($r[$rel] ?? []) as $x) $add($x['item_id'] ?? 0);
+    }
+    foreach ($mirror['gameobject'] ?? [] as $id) {
+        $r = (array)((icyveins_cached('gameobject', (int)$id) ?? [])['relations'] ?? []);
+        foreach (['addon_contains', 'addon_gathers'] as $rel) foreach ((array)($r[$rel] ?? []) as $x) $add($x['item_id'] ?? 0);
+    }
+    foreach ($mirror['quest'] ?? [] as $id) {
+        $r = (array)((icyveins_cached('quest', (int)$id) ?? [])['relations'] ?? []);
+        foreach ((array)($r['rewards'] ?? []) as $x) $add($x['item_id'] ?? 0);
+        foreach (['quest_items', 'started_by_items'] as $rel) foreach ((array)($r[$rel] ?? []) as $x) $add($x['id'] ?? 0);
+    }
+    return array_keys($items);
 }
 
 /** The ids of $kind the mirror holds an answer for. */
@@ -420,6 +453,9 @@ function icyveins_import(?callable $progress = null): array
         if ($progress) $progress($early);
         foreach (ICYVEINS_KINDS as $kind) {
             $mirror[$kind] = icyveins_ids($kind, $asked, $failures, $lastFailure);
+            // items are listed only in part (the API's 10,000-row cap, from both ends): the rest come from what the
+            // NPCs, objects and quests read before them name
+            if ($kind === 'item') $mirror[$kind] = array_values(array_unique(array_merge($mirror[$kind], icyveins_named_items($mirror))));
             if ($progress) $progress(sprintf('%s: %d listed', $kind, count($mirror[$kind])));
             foreach ($mirror[$kind] as $id) $get($kind, (int)$id);
             $mirror[$kind] = array_values(array_unique(array_merge($mirror[$kind], array_map('intval', $first[$kind] ?? []))));

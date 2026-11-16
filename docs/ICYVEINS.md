@@ -4,6 +4,10 @@ An audit of [db.icy-veins.com/wow-forever](https://db.icy-veins.com/wow-forever)
 tracker does with each part. The site's pages are built from a JSON API, which is what the tracker reads:
 
 - `GET /api/catalog/wowf/<kind>?limit=200&page=N` lists a kind (200 per page at most): `{total, pages, rows: [{id, name}]}`.
+  Without an API key only the first 10,000 rows of a list are given (HTTP 400 "page N is beyond the first 10,000
+  rows; narrow the filters or sort, or use an API key", seen 2026-11-15). `&dir=desc` lists from the other end, so
+  every kind up to 20,000 rows is listed whole; items (about 32,000) are completed from what the NPCs, objects and
+  quests name.
 - `GET /api/catalog/wowf/<kind>/<id>` is one answer: `entity` (the client's row), `children`, `relations`, plus link
   metadata, tooltips and a change history.
 - `GET /api/catalog/wowf/types` lists the kinds and how many of each.
