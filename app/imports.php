@@ -89,6 +89,52 @@ function import_schema(): void
         imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, admin VARCHAR(190) NOT NULL DEFAULT '', counts JSON, ignored JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     db()->query("CREATE TABLE IF NOT EXISTS ft_import_items (item INT NOT NULL, import_id INT NOT NULL, kind VARCHAR(8) NOT NULL, source INT NOT NULL,
         PRIMARY KEY (item, import_id, kind, source), KEY ix_import (import_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // when a card was last applied, and when nothing on it was missing from the server any more (cards made before
+    // these columns have neither until their next apply or preview)
+    static $columns = false;
+    if (!$columns) {
+        $have = array_column(rows("SELECT COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ft_imports'"), 'c');
+        if (!in_array('applied_at', $have, true)) db()->query('ALTER TABLE ft_imports ADD COLUMN applied_at DATETIME NULL');
+        if (!in_array('done_at', $have, true)) db()->query('ALTER TABLE ft_imports ADD COLUMN done_at DATETIME NULL');
+        $columns = true;
+    }
+}
+
+/**
+ * Notes what an apply or a preview of card $id found. $wrote: an operation was written from it. $done: nothing on it
+ * is missing from the server any more, for the tables it was asked about (a table left unticked counts as declined).
+ * A card is built against the server as it was then, so a done card stays done until one of its operations is rolled
+ * back (import_reopen) or a newer card of its source comes.
+ */
+function import_mark(int $id, bool $wrote, bool $done): void
+{
+    if (!$wrote && !$done) return;
+    import_schema();
+    $set = array_merge($wrote ? ['applied_at = NOW()'] : [], $done ? ['done_at = NOW()'] : []);
+    rows('UPDATE ft_imports SET ' . implode(', ', $set) . ' WHERE id = ?', [$id]);
+}
+
+/** A rolled-back operation's cards ($items: its items, as the history keeps them) have something to apply again. */
+function import_reopen(array $items): void
+{
+    $ids = array_values(array_unique(array_map(fn($i) => (int)$i['id'], array_filter($items, fn($i) => ($i['type'] ?? '') === 'import'))));
+    if (!$ids || !table_exists('ft_imports')) return;
+    import_schema();
+    rows('UPDATE ft_imports SET done_at = NULL WHERE id IN (' . implode(',', $ids) . ')');
+}
+
+/** [open, done, earlier] ids of the cards ($imports: rows of ft_imports with id, file, done_at): the cards with
+ *  something left to apply, the ones with nothing left, and a source's earlier cards a newer one stands above. */
+function import_groups(array $imports): array
+{
+    $earlier = array_flip(import_earlier($imports));
+    $open = []; $done = [];
+    foreach ($imports as $s) {
+        $id = (int)$s['id'];
+        if (isset($earlier[$id])) continue;
+        if (!empty($s['done_at'])) $done[] = $id; else $open[] = $id;
+    }
+    return [$open, $done, array_keys($earlier)];
 }
 
 // ------------------------------------------------------------------ parsing
@@ -573,7 +619,7 @@ function import_newer_values(string $database, string $table, array $columns, ar
 }
 
 /** $stopped: the administrator confirmed "I have stopped the worldserver" (asked when no remote console can tell). */
-function import_apply(int $id, array $only = [], array $items = [], bool $stopped = false): array
+function import_apply(int $id, array $only = [], array $items = [], bool $stopped = false, bool $whole = true): array
 {
     forge_schema();
     require_once FT_APP . '/spawns.php';
@@ -589,10 +635,14 @@ function import_apply(int $id, array $only = [], array $items = [], bool $stoppe
         }
     }
     $result = forge_commit($built, 'import');
-    if ($result['ok'] && (int)($result['log'] ?? 0)) {
+    $wrote = $result['ok'] && (int)($result['log'] ?? 0);
+    if ($wrote) {
         try { import_origin_record($built['origins'] ?? [], $id); }
         catch (Throwable $e) { error_log('Forever Tracker: who wrote the rows of import #' . $id . ' could not be kept: ' . $e->getMessage()); }
     }
+    // the whole card asked (not some of its items, nor all but the spawns held back): written in full, or nothing missing
+    try { import_mark($id, $wrote, $whole && !$items && ($wrote || !(int)$built['rows'])); }
+    catch (Throwable $e) { error_log('Forever Tracker: import #' . $id . ' could not be marked: ' . $e->getMessage()); }
     return $result;
 }
 
@@ -615,7 +665,7 @@ function import_auto_apply(array $card): array
         $only = array_values(array_diff($only, $held));
     }
     try {
-        $applied = $only ? import_apply($id, $only, [], false) : ['ok' => false, 'message' => ''];
+        $applied = $only ? import_apply($id, $only, [], false, !$kept) : ['ok' => false, 'message' => ''];
     } catch (Throwable $e) {
         error_log('Forever Tracker: import #' . $id . ' could not be applied on its own: ' . $e->getMessage());
         $applied = ['ok' => false, 'message' => $e->getMessage()];
