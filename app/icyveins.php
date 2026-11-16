@@ -352,6 +352,27 @@ function icyveins_service_changes(array $services): array
     return [$changes, $left];
 }
 
+/**
+ * The card of the gaps' answers alone (items players cannot get, quests without giver, ender or turn-in words, the
+ * server's trainers), made when they are all asked, before the rest of the mirror. Returns the log line that says
+ * so. A failure here is logged and the run goes on: the full card comes at the end either way.
+ */
+function icyveins_early_card(array $first, array $gaps): string
+{
+    try {
+        $ev = icyveins_evidence(['npc' => $first['npc'] ?? [], 'item' => $first['item'] ?? [], 'quest' => $first['quest'] ?? [], 'gameobject' => [], 'zone' => [], 'flight-path' => []]);
+        $label = 'Icy Veins ' . date('Y-m-d') . ' (gaps)';
+        [$tables, $left] = source_tables($ev, $label, $gaps);
+        [$flags, $flagsLeft] = icyveins_service_changes($ev['service']);
+        $left['icyveins_early_card'] = 1;
+        $card = source_card('icyveins', $label, 'icyveins@' . date('Y-m-d') . '-gaps', $tables, $left + $flagsLeft, $flags);
+        return $card['ok'] ? sprintf('early card #%d from the gaps: %s', $card['id'], strip_tags((string)$card['message'])) : 'no early card: ' . strip_tags((string)$card['message']);
+    } catch (Throwable $e) {
+        error_log('Forever Tracker: the early Icy Veins card could not be made: ' . $e->getMessage());
+        return 'no early card (' . mb_substr($e->getMessage(), 0, 200) . '); the run goes on';
+    }
+}
+
 function icyveins_import(?callable $progress = null): array
 {
     if ($e = source_check()) return $e;
@@ -376,6 +397,10 @@ function icyveins_import(?callable $progress = null): array
         // what the gaps need first, so that a run cut short has already asked what matters most
         foreach ($first as $kind => $ids) foreach ($ids as $id) $get($kind, (int)$id);
         $say('gaps asked');
+        // a card now, from the gaps' answers alone: the whole mirror takes hours more. The full card at the end
+        // replaces it unless something was applied from it (source_supersede)
+        $early = icyveins_early_card($first, $gaps);
+        if ($progress) $progress($early);
         foreach (ICYVEINS_KINDS as $kind) {
             $mirror[$kind] = icyveins_ids($kind, $asked, $failures, $lastFailure);
             if ($progress) $progress(sprintf('%s: %d listed', $kind, count($mirror[$kind])));

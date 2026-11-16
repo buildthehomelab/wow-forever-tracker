@@ -77,4 +77,7 @@ check(!icyveins_fresh(['entity' => [], 'fetched' => time() - 15 * 86400]), 'a wh
 check(ICYVEINS_KINDS[0] === 'npc' && in_array('item', ICYVEINS_KINDS, true) && in_array('flight-path', ICYVEINS_KINDS, true), 'the mirror holds NPCs, objects, quests, items, zones and flight paths');
 check(SOURCE_LOOT_TABLES['skin'] === 'skinning_loot_template' && SOURCE_LOOT_TABLES['pick'] === 'pickpocketing_loot_template', 'skinning and pick pocketing have their own tables');
 
+check(source_stale_cards('icyveins', [31 => 'icyveins@2026-11-15-gaps', 32 => 'atlasloot@1'], []) === [31], 'the early card is an Icy Veins card: the full one replaces it when nothing was applied from it');
+check(source_stale_cards('icyveins', [31 => 'icyveins@2026-11-15-gaps'], [['items' => json_encode([['type' => 'import', 'id' => 31]]), 'state' => 'applied']]) === [], 'an early card something was applied from stays');
+
 ft_test_done();
