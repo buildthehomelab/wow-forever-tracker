@@ -1194,7 +1194,7 @@ function foreverchanges_pull(?callable $say = null): array
     @mkdir($dir, 0775, true);
     $wanted = foreverchanges_wanted(source_gaps(), wowhead_pages_waiting());
     file_put_contents("$dir/wanted.json", json_encode($wanted));
-    $say(sprintf('asking first about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
+    $say(sprintf('asking only about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
     $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/foreverchanges_pull.py') . ' pull --wanted ' . escapeshellarg("$dir/wanted.json")
         . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 1500)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))

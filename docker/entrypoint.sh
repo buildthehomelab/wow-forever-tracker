@@ -314,7 +314,7 @@ atlasloot_watch() {
 atlasloot_watch &
 
 # ForeverChanges (foreverchanges.pro): every FT_FOREVERCHANGES_EVERY_HOURS (0 = never) a visit of the site reads up
-# to [foreverchanges] limit files, what the last analysis lacks first, and makes a card from everything kept (nothing
+# to [foreverchanges] limit files of what the last analysis lacks (nothing else), and makes a card from everything kept (nothing
 # is applied). It waits while an analysis runs, or while the website runs a visit (the same lock): the command then
 # exits 3. A visit the site stopped (a refusal) is said in the log and tried again at the next turn, not sooner.
 foreverchanges_watch() {

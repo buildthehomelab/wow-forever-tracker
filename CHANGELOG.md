@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **ForeverChanges: only the gaps' pages.** A visit of foreverchanges.pro now asks for the sitemaps, the two
+  continents' map files and the page of each quest or item the last analysis lacks, and nothing else: no more
+  Forever's own pages outside the gaps, other maps, dungeons, topic pages or Classic's pages, and no rereading of
+  them. Files an earlier visit kept stay in `data/` and still go into the card. Its cards are made as before.
+
 - **VMaNGOS is a source, just above the Classic database.** `tools/vmangos_pack.py` makes a pack from the world
   database of VMaNGOS' `db_latest` release (GPL-2.0), patch 1.12 only, in the Classic database pack's format; send it
   on the Imports page (a pack names its source). It answers the same questions (trainers, quest turn-in spells,
