@@ -39,7 +39,7 @@ const SOURCES = [
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
-    'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14)'],
+    'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14; a row needs a second source since 2026-11-16)'],
     'wowheadclassic' => ['Wowhead Classic', 'drop counts from the pages of wowhead.com/classic, for creatures and chests Forever kept whose Forever pages count too few (no text; no licence stated: credited)'],
     'vmangos' => ['VMaNGOS', 'VMaNGOS world database (vmangos/core), GPL-2.0: the original game at patch 1.12, asked before the Classic database'],
     'classicdb' => ['Classic database', 'cmangos classic-db, GPL-3.0: the original game, asked last'],
@@ -1194,7 +1194,7 @@ function foreverchanges_pull(?callable $say = null): array
     @mkdir($dir, 0775, true);
     $wanted = foreverchanges_wanted(source_gaps(), wowhead_pages_waiting());
     file_put_contents("$dir/wanted.json", json_encode($wanted));
-    $say(sprintf('asking first about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
+    $say(sprintf('asking only about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
     $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/foreverchanges_pull.py') . ' pull --wanted ' . escapeshellarg("$dir/wanted.json")
         . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 1500)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))
@@ -1261,13 +1261,107 @@ function foreverchanges_import(): array
     return foreverchanges_card($ev, $retrieved, source_gaps(), count($places));
 }
 
+/** The hints that point at a gap: a vendor or a drop of an item players cannot get, a giver of a quest without one,
+ *  an ender of a quest without one; every text (the card decides which quest windows are empty). */
+function foreverchanges_gap_hints(array $hints, array $gaps): array
+{
+    return array_values(array_filter($hints, fn($h) => match ($h[0]) {
+        'vendor', 'drop' => isset($gaps['items'][(int)$h[3]]),
+        'giver' => isset($gaps['noGiver'][(int)$h[3]]),
+        'ender' => isset($gaps['noEnder'][(int)$h[3]]),
+        default => true,
+    }));
+}
+
+/** The sources whose word makes a ForeverChanges row count (the project's decision of 2026-11-16): the client and
+ *  Blizzard's CDN, Wowhead, ForeverDB.net, EG Link. The client holds no vendor, drop, giver or turn-in text, so for
+ *  what ForeverChanges gives the witnesses are the last snapshots of the other three, and EG Link's quest texts. */
+const FOREVERCHANGES_WITNESSES = ['wowhead', 'foreverdb', 'eglink'];
+/** How many unconfirmed rows a card lists as hints; the rest are counted. */
+const FOREVERCHANGES_HINTS = 500;
+
+/**
+ * Keeps the rows of ForeverChanges' evidence that a second source states too, and returns the others as hints:
+ * [evidence, hints]. A vendor or a drop needs the same creature selling or dropping the same item in $witnesses (the
+ * evidence of FOREVERCHANGES_WITNESSES); a giver or an ender the same creature or object giving or taking the same
+ * quest; a turn-in or progress text the same quest window recorded ($texts: ["quest:moment" => true]). A hint is
+ * [what, kind or moment, id, target] (what: vendor, drop, giver, ender, text): it never becomes a row.
+ */
+function foreverchanges_confirmed(array $ev, array $witnesses, array $texts): array
+{
+    $seen = [];
+    foreach ($witnesses as $w) {
+        foreach ($w['sell'] ?? [] as $r) if (is_array($r) && count($r) >= 2) $seen['sell:' . (int)$r[0] . ':' . (int)$r[1]] = true;
+        foreach ($w['drop'] ?? [] as $r) if (is_array($r) && count($r) >= 3) $seen['drop:' . $r[0] . ':' . (int)$r[1] . ':' . (int)$r[2]] = true;
+        foreach (['start', 'end'] as $role) foreach ($w[$role] ?? [] as $r) if (is_array($r) && count($r) >= 3) $seen["$role:" . $r[0] . ':' . (int)$r[1] . ':' . (int)$r[2]] = true;
+    }
+    $hints = [];
+    $keys = [
+        'sell' => fn($r) => "sell:$r[0]:$r[1]", 'drop' => fn($r) => "drop:$r[0]:$r[1]:$r[2]",
+        'start' => fn($r) => "start:$r[0]:$r[1]:$r[2]", 'end' => fn($r) => "end:$r[0]:$r[1]:$r[2]",
+    ];
+    $names = ['sell' => 'vendor', 'drop' => 'drop', 'start' => 'giver', 'end' => 'ender'];
+    foreach ($keys as $kind => $key) {
+        $kept = [];
+        foreach ($ev[$kind] ?? [] as $r) {
+            if (isset($seen[$key($r)])) { $kept[] = $r; continue; }
+            $hints[] = $kind === 'sell' ? ['vendor', 'npc', $r[0], $r[1]] : [$names[$kind], $r[0], $r[1], $r[2]];
+        }
+        $ev[$kind] = $kept;
+    }
+    $kept = [];
+    foreach ($ev['text'] ?? [] as $r) {
+        if (isset($texts["$r[0]:$r[1]"])) { $kept[] = $r; continue; }
+        $hints[] = ['text', $r[1], $r[0], 0];
+    }
+    if (isset($ev['text'])) $ev['text'] = $kept;
+    return [$ev, $hints];
+}
+
+/** The second sources' word, from the database: [the last snapshot's evidence of each FOREVERCHANGES_WITNESSES source
+ *  that has one, EG Link's quest windows (["quest:moment" => true]) from the world build's facts, the sources that had
+ *  nothing to say ([source, ...])]. */
+function foreverchanges_witnesses(array $quests): array
+{
+    require_once FT_APP . '/snapshots.php';
+    $latest = snapshot_latest();
+    $evidence = $missing = [];
+    foreach (FOREVERCHANGES_WITNESSES as $source) {
+        if (isset($latest[$source])) $evidence[] = snapshot_evidence((int)$latest[$source]['id']);
+        else $missing[] = $source;
+    }
+    $texts = [];
+    $quests = array_values(array_unique(array_map('intval', $quests)));
+    if ($quests && table_exists('ft_world_facts')) {
+        foreach (array_chunk($quests, 1000) as $chunk) {
+            foreach (rows("SELECT subject, data FROM ft_world_facts WHERE source = 'eglink' AND kind = 'text' AND subject_kind = 'quest' AND subject IN (" . implode(',', $chunk) . ')') as $r) {
+                foreach (array_keys(json_decode((string)$r['data'], true) ?: []) as $moment) $texts[(int)$r['subject'] . ':' . $moment] = true;
+            }
+        }
+    } else if ($quests) $missing[] = 'eglink texts';
+    return [$evidence, $texts, $missing];
+}
+
 /** The card of ForeverChanges' evidence against these gaps (from a visit, or from its last snapshot). $places: how
- *  many things nobody spawned got a reported place, which the card mentions. */
-function foreverchanges_card(array $ev, string $retrieved, array $gaps, int $places = 0): array
+ *  many things nobody spawned got a reported place, which the card mentions. Only what a second source confirms
+ *  becomes a row (foreverchanges_confirmed); the rest are the card's hints. $witnesses: [evidence list, texts], read
+ *  from the database when not given. */
+function foreverchanges_card(array $ev, string $retrieved, array $gaps, int $places = 0, ?array $witnesses = null): array
 {
     $label = 'ForeverChanges ' . $retrieved;
+    $missing = [];
+    if ($witnesses === null) [$evidence, $texts, $missing] = foreverchanges_witnesses(array_column($ev['text'] ?? [], 0));
+    else [$evidence, $texts] = $witnesses;
+    foreach ($missing as $source) $ev['left']['report_witness_missing_' . preg_replace('/[^a-z]+/', '_', $source)] = 1;
+    [$ev, $hints] = foreverchanges_confirmed($ev, $evidence, $texts);
+    $hints = foreverchanges_gap_hints($hints, $gaps);
+    foreach ($hints as $h) $ev['left']["report_no_second_source_$h[0]"] = ($ev['left']["report_no_second_source_$h[0]"] ?? 0) + 1;
     [$tables, $left] = source_tables($ev, $label, $gaps);
     $card = source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
+    if ($hints) {
+        $card['hints'] = array_slice($hints, 0, FOREVERCHANGES_HINTS);
+        $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d row(s) only ForeverChanges states are left as hints: no second source (Wowhead, ForeverDB.net, EG Link) confirms them.', '%d ligne(s) que seul ForeverChanges affirme restent des indices : aucune seconde source (Wowhead, ForeverDB.net, EG Link) ne les confirme.'), count($hints)));
+    }
     if ($places) {
         $card['places'] = $places;
         $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d creature(s) or object(s) nobody spawned now have a reported place: run the locator (Spawns) to use them.', '%d créature(s) ou objet(s) que personne n’a placés ont maintenant un lieu signalé : lancez le localisateur (Placements) pour les utiliser.'), $places));

@@ -55,25 +55,20 @@ class Order(unittest.TestCase):
         self.assertFalse(site.allowed('/spell/1/x', closed))
         self.assertTrue(site.allowed('/quest/1/x', closed))
 
-    def test_plan_puts_what_the_tracker_lacks_first(self):
+    def test_plan_reads_only_what_the_gaps_ask_about(self):
         steps = site.plan(SITEMAP, QUESTS, ITEMS, {'quests': [5000], 'items_first': [6000], 'items': [40]})
         order = paths(steps)
-        files = [s[2] for s in steps]
-        first_map = order.index('/map/kalimdor/manifest.json')
-        self.assertLess(first_map, order.index('/quest/5000/q5000'), 'the continents\' map files first')
-        self.assertLess(order.index('/quest/5000/q5000'), order.index('/item/6000/i6000'))
-        self.assertLess(order.index('/item/6000/i6000'), order.index('/quest/99001/q99001'), 'the gaps before Forever\'s own')
-        self.assertLess(order.index('/quest/99001/q99001'), order.index('/item/40/i40'))
-        self.assertLess(order.index('/item/40/i40'), order.index('/map/deadmines/manifest.json'), 'other maps after the gaps')
-        self.assertLess(order.index('/map/deadmines/manifest.json'), order.index('/item/274000/i274000'))
-        self.assertLess(order.index('/item/274000/i274000'), order.index('/item/280000/i280000'), 'by id within a tier')
-        self.assertLess(order.index('/dungeons/deadmines'), order.index('/quest/2/q2'), 'Classic\'s last')
-        self.assertIn('page/rares.html.gz', files)
-        self.assertIn('page/quests--mulgore.html.gz', files)
-        for left_out in ('/fr/rares', '/talents/warrior', '/map/kalimdor/ashenvale', '/map'):
-            self.assertNotIn(left_out, order)
+        self.assertEqual(order[:12], [f'/map/kalimdor/{name}.json' for name in site.MAP_FILES], 'the continents\' map files first')
+        self.assertEqual(order[12:], ['/quest/5000/q5000', '/item/6000/i6000', '/item/40/i40'], 'then the gaps, in the order asked')
+        for never in ('/quest/99001/q99001', '/quest/2/q2', '/item/274000/i274000', '/item/280000/i280000', '/map/deadmines/manifest.json',
+                      '/dungeons/deadmines', '/rares', '/library-books', '/quests/mulgore', '/fr/rares', '/talents/warrior', '/map'):
+            self.assertNotIn(never, order, 'no gap asks about it')
         self.assertFalse(any('..' in p for p in order))
-        self.assertEqual(len(files), len(set(files)))
+        self.assertEqual(len(steps), len({s[2] for s in steps}))
+
+    def test_without_gaps_only_the_continents_map_files(self):
+        self.assertEqual({s[1].split('/')[2] for s in site.plan(SITEMAP, QUESTS, ITEMS)}, {'kalimdor'})
+        self.assertEqual(len(site.plan(SITEMAP, QUESTS, ITEMS, {})), len(site.MAP_FILES))
 
     def test_due_reads_the_new_first_then_the_old(self):
         steps = [(10, '/a', 'a'), (20, '/b', 'b'), (30, '/c', 'c'), (30, '/d', 'd')]
@@ -137,7 +132,7 @@ class Pull(unittest.TestCase):
 
     def pull(self, **kw):
         lines = []
-        out = site.pull(self.data, kw.pop('wanted', None), kw.pop('pause', 1.0), kw.pop('limit', 100), get=self.get, clock=lambda: self.now[0],
+        out = site.pull(self.data, kw.pop('wanted', {'quests': [99001], 'items': [274000]}), kw.pop('pause', 1.0), kw.pop('limit', 100), get=self.get, clock=lambda: self.now[0],
                         sleep=lambda s: self.now.__setitem__(0, self.now[0] + s), log=lines.append)
         return out, lines
 
@@ -163,7 +158,8 @@ class Pull(unittest.TestCase):
         self.now[0] += 15 * 86400
         self.asked.clear()
         done, _ = self.pull()
-        self.assertEqual(done['same'], 7, 'what was read again and did not change')
+        self.assertEqual(done['same'], 6, 'what was read again and did not change')
+        self.assertNotIn('/rares', self.asked, 'a page no gap asks about is never read')
         self.assertEqual(self.asked.count('/map/kalimdor/manifest.json'), 1)
         self.assertNotIn('/map/kalimdor/services.json', self.asked, 'a 404 is asked again four times less often')
 
@@ -193,9 +189,9 @@ class Pull(unittest.TestCase):
 
     def test_wanted_and_limit(self):
         self.pages['/quest/sitemap.xml'] = (200, {}, f'<url><loc>{B}/quest/99001/q</loc></url><url><loc>{B}/quest/5000/q</loc></url>'.encode())
-        done, _ = self.pull(wanted={'quests': [5000]}, limit=13)
+        done, _ = self.pull(wanted={'quests': [5000, 99001]}, limit=13)
         self.assertEqual(self.asked[-1], '/quest/5000/q', 'the gap quest right after the continent\'s twelve map files')
-        self.assertEqual(done['left'], 3)
+        self.assertEqual(done['left'], 1, 'the other gap quest, next visit; the item no gap asks about is not counted')
 
     def test_closed_paths_are_never_asked(self):
         self.pages['/item/sitemap.xml'] = (200, {}, b'')
