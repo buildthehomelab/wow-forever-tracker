@@ -119,6 +119,14 @@ switch ((string)($input['action'] ?? '')) {
         json_out(['ok' => true, 'file' => base64_encode(wowhead_pages_crawler($queue, $full)), 'name' => $full ? 'wowhead-crawler-full.js' : 'wowhead-crawler.js', 'type' => 'text/javascript',
                   'message' => sprintf(t('%d item page(s) and %d quest page(s) queued, %d npc and %d object page(s) with missing data first.', '%d page(s) d’objets et %d page(s) de quêtes en file, %d pages de PNJ et %d d’objets du monde aux données manquantes en premier.'), count($queue['item']), count($queue['quest']), count($queue['npc'] ?? []), count($queue['object'] ?? []))
                       . ($full ? ' ' . t('Then every list of Forever and Classic, and the pages they name.', 'Puis toutes les listes de Forever et Classic, et les pages qu’elles nomment.') : '')]);
+    case 'wowhead_push':
+        // pages a crawl in a linked tab sent (The Forge › Crawl): kept, and the cards made again when due
+        require_once FT_APP . '/wowheadpages.php';
+        $lines = array_slice(array_values(array_filter((array)($input['lines'] ?? []), 'is_string')), 0, 500);
+        try { $got = wowhead_pages_append($lines); }
+        catch (RuntimeException $e) { json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]); }
+        [$said, $card] = $got['pages'] ? wowhead_pages_cards_due(!empty($input['card'])) : ['', 0];
+        json_out(['ok' => true, 'pages' => $got['pages'], 'not_a_page' => $got['not_a_page'], 'card' => $card, 'message' => $said]);
     case 'source_wowhead':
         // the pages kept in the cache (tools/wowhead-pages): nothing is asked of Wowhead here
         require_once FT_APP . '/wowheadpages.php';

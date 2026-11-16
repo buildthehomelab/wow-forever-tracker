@@ -406,6 +406,40 @@
       if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_wowheadclassic' || action === 'source_atlasloot' || action === 'snapshot_card' || action === 'snapshot_cards') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
+  // The Forge › Crawl: opens Wowhead with the crawler in it, and keeps what that tab reads (docs/WOWHEAD-PAGES.md)
+  $$('[data-crawl-link]').forEach((box) => {
+    const wowhead = box.dataset.wowhead;
+    const origin = new URL(wowhead).origin;
+    const state = box.querySelector('[data-crawl-state]');
+    const last = box.querySelector('[data-crawl-last]');
+    let received = 0, batches = 0;
+    box.querySelector('[data-crawl-open]').addEventListener('click', () => {
+      // opened now, in the click, so that the browser lets it open; filled once the crawler has come
+      const tab = window.open('about:blank', 'whc-crawl');
+      if (!tab) return toast(esc(L('The browser blocked the new tab: allow pop-ups for this site.', 'Le navigateur a bloqué le nouvel onglet : autorisez les fenêtres pour ce site.')), 'error');
+      importApi({ action: 'wowhead_crawler_full' }).then((data) => {
+        if (!data.ok) { tab.close(); return toast(esc(data.message || 'Error'), 'error'); }
+        const src = new TextDecoder().decode(Uint8Array.from(atob(data.file), (c) => c.charCodeAt(0)));
+        tab.name = JSON.stringify({ src, link: location.origin });
+        tab.location.href = wowhead;
+        toast(esc(data.message || ''));
+      }).catch((e) => { tab.close(); toast(esc(e.message), 'error'); });
+    });
+    box.querySelector('[data-crawl-cards]').addEventListener('click', () => importApi({ action: 'wowhead_push', lines: [], card: 1 })
+      .then((data) => toast(esc(data.message || L('Nothing new to make a card of: the cards are made when pages come.', 'Rien de neuf pour une carte : les cartes sont faites quand des pages arrivent.')))));
+    window.addEventListener('message', (event) => {
+      const d = event.data;
+      if (event.origin !== origin || !d || d.whc !== 'pages' || !Array.isArray(d.lines)) return;
+      importApi({ action: 'wowhead_push', lines: d.lines }).then((data) => {
+        if (!data.ok) throw new Error(data.message || 'Error');
+        received += data.pages; batches++;
+        state.textContent = fmt(L('Linked: %d page(s) kept from the crawl in %d batch(es) since this tab opened.', 'Lié : %d page(s) du parcours conservée(s) en %d envoi(s) depuis l’ouverture de cet onglet.'), received, batches);
+        if (data.message) last.textContent = new Date().toLocaleTimeString() + ' · ' + data.message;
+        // only now: the crawl sends this batch again when no answer comes
+        event.source.postMessage({ whc: 'ack', batch: d.batch, note: data.card ? 'card #' + data.card : '' }, event.origin);
+      }).catch((e) => { state.textContent = L('Linked, but the last batch was not kept: ', 'Lié, mais le dernier envoi n’a pas été conservé : ') + e.message; });
+    });
+  });
   $$('[data-import-upload] input[type=file]').forEach((upload) => upload.addEventListener('change', () => {
     if (!upload.files.length) return;
     const form = new FormData(); form.append('file', upload.files[0]); form.append('csrf', FT.csrf);

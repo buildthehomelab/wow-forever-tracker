@@ -305,6 +305,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   </ol>
   <p class="muted small"><?= e(sprintf(t('Pages kept: %s item, %s quest, %s npc and %s object pages of Forever; %s npc and %s object pages of Classic.', 'Pages conservées : %s pages d’objets, %s de quêtes, %s de PNJ et %s d’objets du monde de Forever ; %s de PNJ et %s d’objets du monde de Classic.'), number($whPages['item']), number($whPages['quest']), number($whPages['npc']), number($whPages['object']), number($whPages['classic-npc']), number($whPages['classic-object']))) ?></p>
   <div class="btn-row">
+    <a class="btn is-small is-gold" href="<?= e(url('admin/crawl')) ?>"><i class="fas fa-spider"></i> <?= e(t('Crawl in a linked tab', 'Parcourir dans un onglet lié')) ?></a>
     <button class="btn is-small" type="button" data-scribe="wowhead_crawler"><i class="fas fa-download"></i> <?= e(t('Download the crawler', 'Télécharger le crawler')) ?></button>
     <button class="btn is-small" type="button" data-scribe="wowhead_crawler_full" title="<?= e(t('The same, then the whole database of Forever and Classic: days of pages', 'Le même, puis toute la base de Forever et Classic : des jours de pages')) ?>"><i class="fas fa-database"></i> <?= e(t('Download the full crawl', 'Télécharger le crawl complet')) ?></button>
     <form class="import-upload" data-import-upload><label class="btn is-small"><i class="fas fa-file-arrow-up"></i> <?= e(t('Send wowhead-pages.jsonl', 'Envoyer wowhead-pages.jsonl')) ?><input type="file" accept=".jsonl" hidden></label></form>
