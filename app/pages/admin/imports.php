@@ -368,8 +368,8 @@ page_start(t('Imports', 'Imports'), 'admin');
   <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-file-import"></i></div><p><?= e(t('No file imported yet.', 'Aucun fichier importé pour le moment.')) ?></p></div>
 <?php endif; ?>
 <?php
-// open cards first; then, folded, the ones with nothing left to apply and a source's earlier cards (its newest card
-// says all they said and is still true)
+// open cards first; then, folded, the ones with nothing left to apply (earlier or not) and a source's earlier cards
+// with something left (its newest card says all they said and is still true)
 [$openIds, $doneIds, $earlierList] = import_groups($imports);
 $byId = array_column($imports, null, 'id');
 $sections = ['open' => $openIds, 'done' => $doneIds, 'earlier' => $earlierList];
@@ -386,7 +386,7 @@ foreach ($ordered as $s): $counts = json_decode((string)$s['counts'], true) ?: [
 <?php else: ?>
 <details class="import-earlier">
   <summary><i class="fas fa-clock-rotate-left"></i> <?= e(sprintf(t('Earlier cards of sources that have a newer one (%d)', 'Cartes précédentes de sources qui en ont une plus récente (%d)'), count($earlierList))) ?>
-    <small class="muted"><?= e(t('Kept because something was applied from them. The newest card of each source, above, is the one to apply.', 'Conservées car quelque chose en a été appliqué. La carte la plus récente de chaque source, ci-dessus, est celle à appliquer.')) ?></small></summary>
+    <small class="muted"><?= e(t('Something on them was not applied. The newest card of each source offers what is still missing and is the one to apply.', 'Quelque chose n’en a pas été appliqué. La carte la plus récente de chaque source propose ce qui manque encore et est celle à appliquer.')) ?></small></summary>
 <?php endif; ?>
 <?php endif; ?>
 <article class="block import-card" data-import="<?= (int)$s['id'] ?>">

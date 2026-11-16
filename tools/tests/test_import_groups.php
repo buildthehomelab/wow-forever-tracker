@@ -1,6 +1,7 @@
 <?php
 // The Imports page's cards (app/imports.php, import_groups): the ones with something left to apply count and come
-// first; a card with nothing left, and a source's earlier card a newer one stands above, fold away.
+// first; a card with nothing left folds under Applied, earlier or not; a source's earlier card with something left
+// folds under the earlier ones.
 require __DIR__ . '/helpers.php';
 ft_test_boot();
 require_once FT_APP . '/imports.php';
@@ -15,9 +16,8 @@ $cards = [
 ];
 [$open, $done, $earlier] = import_groups($cards);
 check($open === [124, 99], 'cards with something left to apply: the newest of each source, and files imported by hand');
-check($done === [120, 106], 'a card with nothing left folds under Applied');
-sort($earlier);
-check($earlier === [102, 110], 'an earlier card of a source stays with the earlier ones, done or not');
+check($done === [120, 106, 102], 'a card with nothing left folds under Applied, also when a newer card of its source stands above');
+check($earlier === [110], 'an earlier card of a source with something left stays with the earlier ones');
 check(import_groups([]) === [[], [], []], 'no card');
 
 ft_test_done();

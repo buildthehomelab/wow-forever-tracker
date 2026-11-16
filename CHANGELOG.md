@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **An applied card is Applied, also when its source has a newer one.** The Imports page put every earlier card of a
+  source in its own group, so cards with nothing left to add (most of them, now that cards apply themselves) sat
+  apart from the applied ones. They now fold under Applied; the earlier group keeps only cards with something not
+  applied, which the source's newest card offers.
+
 - **ForeverDB.net is read into the world facts.** `python tools/tracker.py world facts foreverdb` reads what its
   players recorded on Forever (the vendors and trainers they saw, those vendors' stock, boss loot measured over kills,
   who gives and takes the quests they saw) and leaves its Classic rows out. Its pin is the version its manifest names
