@@ -863,20 +863,33 @@
   // was read since is downloaded as whc-batch-<time>-<n>.jsonl, at most `per` pages a file; a script sends the files
   // to the tracker (tools/wowhead-pages/push.sh). A page leaves the outbox once its file is downloaded.
   let autoTimer = null;
+  const MAX_BATCH_BYTES = 4 * 1048576;
   async function saveBatch(per = 300) {
     await outboxReady;
     let files = 0, saved = 0;
     while (outbox.size) {
-      const keys = [...outbox].slice(0, per);
-      const records = await pages('readonly', s => { const out = []; for (const k of keys) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
-      const text = records.map(p => { const { key, ...rest } = p; return JSON.stringify(rest); }).join('\n') + '\n';
+      const candidates = [...outbox].slice(0, per);
+      const records = await pages('readonly', s => { const out = []; for (const k of candidates) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; });
+      // at most MAX_BATCH_BYTES a file too: a server takes 8 MB a request by default, and a list page is up to 150 kB
+      const lines = [], keys = [];
+      let bytes = 0;
+      for (const p of records) {
+        const { key, ...rest } = p;
+        const line = JSON.stringify(rest);
+        if (lines.length && bytes + line.length > MAX_BATCH_BYTES) break;
+        lines.push(line); keys.push(key); bytes += line.length + 1;
+      }
+      // a page the store no longer holds leaves the outbox too
+      for (const k of candidates) if (!records.some(p => p.key === k)) outbox.delete(k);
+      if (!lines.length) continue;
+      const text = lines.join('\n') + '\n';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
       a.download = 'whc-batch-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '-' + (++files) + '.jsonl';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 120000);
       for (const k of keys) outbox.delete(k);
-      saved += records.length;
+      saved += lines.length;
       await keepOutbox();
       if (files >= 20) break;   // a large first batch goes in several turns, not twenty downloads at once
     }
