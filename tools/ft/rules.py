@@ -202,6 +202,7 @@ def evaluate_all(content, ctx):
                 classic_taught.add(target)
                 todo.append(target)
     season = ctx.get('season') or (lambda kind, entity_id: False)
+    never_given = ctx.get('classic_never_given') or set()   # items the original game gave out nowhere (Classic database pack)
     # What a spell that cannot be learned yet is waiting for, by the realm's own data: the quest that rewards it (itself or
     # the spell that teaches it) and cannot be done yet, the trainer that lists it and is not spawned.
     reward_quests = {}
@@ -303,6 +304,10 @@ def evaluate_all(content, ctx):
                         and spell_id not in classic_taught:
                     how.append(L('Not learned: nothing teaches it, and the original game taught it nowhere either (Classic database).',
                                  'Non appris : rien ne l’enseigne, et le jeu d’origine ne l’enseignait nulle part non plus (base Classic).'))
+                elif items and not season('spell', spell_id) and spell_id < NEW_FROM['spell'] and spell_id not in (classic_taught or ()) \
+                        and all(item in never_given for item in items):
+                    how.append(L('Not learned: only items the original game never gave out teach it (Classic database).',
+                                 'Non appris : seuls des objets que le jeu d’origine ne donnait nulle part l’enseignent (base Classic).'))
                 if how:
                     granted.add(spell_id)
             waiting = None if how else waiting_for(spell_id, items)

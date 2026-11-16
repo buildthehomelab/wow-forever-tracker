@@ -243,5 +243,64 @@ class Taught(unittest.TestCase):
         self.assertEqual(classic.taught(pack), {10843, 11522, 3, 22814, 22864})
 
 
+
+class Loot(unittest.TestCase):
+    """Drops and vendors of the items that teach, as the pack carries them (classicdb_pack.loot_chances,
+    drops_and_sells, never_given) and as the tracker asks about them (classic.item_sources)."""
+
+    def tables(self, **rows):
+        tables = {name: [] for name in classicdb_pack.WANTED}
+        tables.update(rows)
+        return tables
+
+    def loot(self, entry, item, chance, group=0, ref=0, condition=0):
+        return {'entry': entry, 'item': item, 'ChanceOrQuestChance': chance, 'groupid': group, 'mincountOrRef': ref or 1, 'condition_id': condition}
+
+    def test_groups_and_references(self):
+        rows = {1: [self.loot(1, 100, 5.0),                       # its own chance
+                    self.loot(1, 200, 0, group=1), self.loot(1, 201, 0, group=1), self.loot(1, 202, 50.0, group=1),   # 25 / 25 / 50
+                    self.loot(1, 0, 10.0, ref=-7),                # a reference rolled one time in ten
+                    self.loot(1, 300, -100.0),                    # quest only
+                    self.loot(1, 301, 100.0, condition=5),        # a condition
+                    self.loot(1, 302, 0)]}                        # no chance, no group: nothing
+        refs = {7: [self.loot(7, 400, 0, group=1), self.loot(7, 401, 0, group=1)]}
+        found = classicdb_pack.loot_chances(rows, refs, 1)
+        self.assertEqual(found, {100: 5.0, 200: 25.0, 201: 25.0, 202: 50.0, 400: 5.0, 401: 5.0})
+
+    def test_drops_vendors_and_world_drops(self):
+        creatures = {n: {'Entry': n, 'LootId': 50 if n <= 20 else n, 'VendorTemplateId': 9 if n == 30 else 0} for n in list(range(1, 21)) + [30]}
+        tables = self.tables(
+            creature_loot_template=[self.loot(50, 900, 0.5), self.loot(30, 901, 4.0)],    # 900: twenty creatures share it, a world drop
+            gameobject_template=[{'entry': 77, 'type': 3, 'data1': 88}],
+            gameobject_loot_template=[self.loot(88, 902, 100.0)],
+            npc_vendor=[{'entry': 30, 'item': 903, 'maxcount': 1, 'condition_id': 0}, {'entry': 31, 'item': 903, 'maxcount': 0, 'condition_id': 0}],
+            npc_vendor_template=[{'entry': 9, 'item': 904, 'maxcount': 0, 'condition_id': 0}])
+        drops, sells, world = classicdb_pack.drops_and_sells(tables, creatures, {900, 901, 902, 903, 904})
+        self.assertEqual(drops, [['go', 77, 902, 100.0], ['npc', 30, 901, 4.0]])
+        self.assertEqual(sells, [[30, 903, 1], [30, 904, 0]])   # 31 is no creature of the dump
+        self.assertEqual(world, [900])
+
+    def test_never_given(self):
+        tables = self.tables(item_loot_template=[self.loot(1, 10, 5.0)], npc_vendor=[{'entry': 2, 'item': 11}],
+                             quest_template=[{'entry': 3, 'RewChoiceItemId2': 12, 'SrcItemId': 13}],
+                             spell_template=[{'Id': 4, 'Effect1': 0, 'Effect2': 24, 'EffectItemType2': 14}])
+        self.assertEqual(classicdb_pack.never_given(tables, {10, 11, 12, 13, 14, 15}), [15])
+
+    def test_the_tracker_asks_about_items_players_cannot_get(self):
+        pack = {'drops': [['npc', 9028, 11610, 100.0], ['npc', 1, 5, 2.0]], 'sells': [[3, 11610, 0], [3, 6, 0]], 'world_drops': [12816, 7]}
+        drops, sells, left = classic.item_sources(pack, {11610, 12816})
+        self.assertEqual((drops, sells, left), ([['npc', 9028, 11610, 100.0]], [[3, 11610, 0]], {'classic_world_drop': 1}))
+
+    def test_a_pack_of_format_3_loads_and_keeps_good_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'p.cdbpack')
+            with gzip.open(path, 'wt', encoding='utf-8') as out:
+                json.dump({'format': 3, 'trainers': [], 'quests': [], 'gossip': [], 'talk': [],
+                           'drops': [['npc', 1, 2, 3.5], ['npc', 1, 2, 300], ['boss', 1, 2, 3]], 'sells': [[1, 2, 0], [0, 2, 0]],
+                           'never_given': [5, -1, 'x'], 'world_drops': [6]}, out)
+            pack = classic.load(path)
+        self.assertEqual((pack['drops'], pack['sells'], pack['never_given'], pack['world_drops']), ([['npc', 1, 2, 3.5]], [[1, 2, 0]], [5], [6]))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -160,5 +160,25 @@ class Leftovers(unittest.TestCase):
         self.assertIsNone(output.item_internal(1, self.ITEMS, self.SEASON))
 
 
+class NeverGiven(unittest.TestCase):
+    """An original item players cannot get that the original game gave out nowhere either is listed as internal."""
+
+    def test_internal_rows(self):
+        content = {'item': {842: {'name': 'Horn of the Gray Wolf', 'name_en': 'Horn of the Gray Wolf', 'quality': 1},
+                            13517: {'name': "Recipe: Alchemist's Stone", 'name_en': "Recipe: Alchemist's Stone", 'quality': 3},
+                            1134: {'name': 'Horn of the Gray Wolf', 'name_en': 'Horn of the Gray Wolf', 'quality': 1}}}
+        results = {('item', 842): ('partial', 50, []), ('item', 13517): ('partial', 50, []), ('item', 1134): ('ok', 100, [])}
+        ctx = {'quests': {}, 'quest_fr': {}, 'quest_level': {}, 'classic_never_given': {842, 1134}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'import.sql')
+            output.write_sql(path, [], content, [], results, {}, {}, {}, {}, ctx, 0, {}, [])
+            with open(path, encoding='utf-8') as handle:
+                text = handle.read()
+        internal = lambda i: int(re.search(rf"\('item',{i},.*?\)(?=,\n|;\n)", text).group(0).split(',')[8])
+        self.assertEqual(internal(842), 1)     # never given out, and players cannot get it here
+        self.assertEqual(internal(13517), 0)   # the original game gave it out
+        self.assertEqual(internal(1134), 0)    # players can get it here after all
+
+
 if __name__ == '__main__':
     unittest.main()

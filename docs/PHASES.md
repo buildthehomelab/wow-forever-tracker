@@ -126,6 +126,9 @@ Two more kinds go there:
   Classic database pack (`data/classicdb/pack.cdbpack`, Imports › Classic database) teaches it or a spell leading to
   it. These are procs, form and stance passives, old talent ranks and what an item casts. Without a pack they stay
   on the list.
+- **What the original game never gave out:** an original item players cannot get that the original game gave out
+  nowhere (no loot table, vendor, quest or spell of the Classic database pack, format 3), and an original spell only
+  such items teach: removed mounts, promotional pets, plans and patterns never released.
 
 Spells of a skill line Blizzard marks as not for players (`[DNT]`, "Test Profession [DNT]") are not read as spells
 of a player's skill line at all.

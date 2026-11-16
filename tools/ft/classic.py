@@ -20,7 +20,7 @@ own learn effects say which recipe that is.
 import gzip
 import json
 
-FORMATS = (1, 2)   # 2 adds the conversation lines (talk)
+FORMATS = (1, 2, 3)   # 2 adds the conversation lines (talk); 3 the drops, vendors and never-given items
 TERMS = {'skill': 3, 'quest': 2, 'rep': 3, 'level': 2, 'knows': 2, 'lacks': 2}   # a term's kind and its length
 NEVER_LEARNED = 3   # SkillLineAbility.AcquireMethod
 
@@ -36,6 +36,11 @@ def load(path):
         if not isinstance(rows, list) or any(not isinstance(r, list) or len(r) != width or any(not isinstance(v, int) or v < 0 for v in r) for r in rows):
             raise ValueError(f'the pack\'s {key} are not what tools/classicdb_pack.py writes')
     pack['talk'] = [line for line in pack.get('talk') or [] if spoken(line)]
+    pack['drops'] = [r for r in pack.get('drops') or [] if isinstance(r, list) and len(r) == 4 and r[0] in ('npc', 'go')
+                     and all(isinstance(v, int) and v > 0 for v in r[1:3]) and isinstance(r[3], (int, float)) and 0 < r[3] <= 100]
+    pack['sells'] = [r for r in pack.get('sells') or [] if isinstance(r, list) and len(r) == 3 and all(isinstance(v, int) and v >= 0 for v in r) and r[0] and r[1]]
+    pack['never_given'] = [i for i in pack.get('never_given') or [] if isinstance(i, int) and i > 0]
+    pack['world_drops'] = [i for i in pack.get('world_drops') or [] if isinstance(i, int) and i > 0]
     return pack
 
 
@@ -45,6 +50,16 @@ def taught(pack):
     spells = {row[1] for row in pack['trainers']} | {s for row in pack['quests'] for s in row[1:] if s}
     spells |= {row[1] for row in pack['gossip']} | {line[3] for line in pack.get('talk') or []}
     return spells - {0}
+
+
+def item_sources(pack, gaps):
+    """What the original game says about items players cannot get: (drops [[kind, entry, item, chance]], vendors [[npc,
+    item, stock]], {left out: count}). gaps: the item IDs. Only items that teach (recipes, items learned on use) are in
+    a pack; a world drop of one is left out and counted."""
+    drops = [row for row in pack.get('drops') or [] if row[2] in gaps]
+    sells = [row for row in pack.get('sells') or [] if row[1] in gaps]
+    left = {'classic_world_drop': len(set(pack.get('world_drops') or ()) & set(gaps))}
+    return drops, sells, {why: n for why, n in left.items() if n}
 
 
 def spoken(line):
