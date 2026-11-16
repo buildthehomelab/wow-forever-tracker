@@ -45,4 +45,28 @@ check($wanted === ['quests' => [5000, 99001], 'items_first' => [12, 280000], 'it
 require_once FT_APP . '/snapshots.php';
 check(in_array('foreverchanges', SNAPSHOT_CARDS, true), 'its card can be made again from the database');
 
+// a row only ForeverChanges states is a hint, never a row: a second source (Wowhead, ForeverDB.net, EG Link) must say it
+$said = ['sell' => [[102, 159, 0], [102, 160, 0]], 'drop' => [['npc', 103, 159, 7.5], ['npc', 103, 161, 20.0]],
+         'start' => [['npc', 100, 7], ['go', 9000, 8]], 'end' => [['npc', 101, 7]],
+         'text' => [[7, 'complete', 'Well done.'], [7, 'progress', 'Still out there?'], [8, 'complete', 'Thanks.']], 'left' => ['report_name_unknown' => 3]];
+$witnesses = [
+    ['sell' => [[102, 159, 0]], 'drop' => [['npc', 999, 161, 5.0]]],              // Wowhead: the vendor; another creature's drop
+    ['drop' => [['npc', 103, 159, 6.0]], 'start' => [['go', 9000, 8]]],            // ForeverDB.net
+    ['end' => [['npc', 101, 7]], 'start' => [['npc', 100, 8]]],                    // EG Link: the ender; a giver of another quest
+];
+[$kept, $hints] = foreverchanges_confirmed($said, $witnesses, ['7:complete' => true]);
+check($kept['sell'] === [[102, 159, 0]] && $kept['drop'] === [['npc', 103, 159, 7.5]], 'a vendor or a drop: the same creature and item said by a second source');
+check($kept['start'] === [['go', 9000, 8]] && $kept['end'] === [['npc', 101, 7]], 'a giver or an ender: the same creature or object and quest');
+check($kept['text'] === [[7, 'complete', 'Well done.']], 'a text: the same quest window recorded by EG Link');
+check($hints === [['vendor', 'npc', 102, 160], ['drop', 'npc', 103, 161], ['giver', 'npc', 100, 7], ['text', 'progress', 7, 0], ['text', 'complete', 8, 0]],
+    'the rest are hints, each pointing at what it is about');
+check($kept['left'] === ['report_name_unknown' => 3], 'its own counts stay; hints are counted on the card, against the gaps');
+[$none, $all] = foreverchanges_confirmed($said, [], []);
+check($none['sell'] === [] && $none['drop'] === [] && $none['start'] === [] && $none['end'] === [] && $none['text'] === [] && count($all) === 10,
+    'with no second source at all, nothing becomes a row');
+check(FOREVERCHANGES_WITNESSES === ['wowhead', 'foreverdb', 'eglink'], 'the second sources are the ones the project named');
+$gaps = ['items' => [160 => true], 'noGiver' => [], 'noEnder' => [7 => true]];
+check(foreverchanges_gap_hints([['vendor', 'npc', 102, 160], ['drop', 'npc', 103, 161], ['giver', 'npc', 100, 7], ['ender', 'npc', 5, 7], ['text', 'progress', 7, 0]], $gaps)
+    === [['vendor', 'npc', 102, 160], ['ender', 'npc', 5, 7], ['text', 'progress', 7, 0]], 'only hints about a gap are kept');
+
 ft_test_done();
