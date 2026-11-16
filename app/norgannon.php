@@ -53,10 +53,15 @@ function norgannon_whole(string $name, string $body): bool
     return true;
 }
 
-/** The pinned data files, downloaded once into data/norgannondb/<commit>/. Returns the folder, or an error string. */
+/** The pinned commit, every file of it kept once (app/store.php) in data/norgannondb/<commit>/: its data folder at the
+ *  top, the rest under _repo/. Returns the folder, or an error string. */
 function norgannon_fetch(string $commit): array
 {
     $dir = FT_ROOT . "/data/norgannondb/$commit";
+    [$files, $problem] = store_github_files(NORGANNON_REPO, $commit, store_place_data('data'));
+    if ($problem === '') [, , $problem] = store_fill($dir, $files);
+    if ($problem !== '') error_log('Forever Tracker: NorgannonDB ' . $commit . ' not kept whole: ' . $problem);
+    // the files read below, whole or downloaded again one by one
     foreach (NORGANNON_FILES as $name) {
         $path = "$dir/$name.lua";
         if (is_file($path)) {

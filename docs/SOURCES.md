@@ -301,7 +301,7 @@ cut short goes on from where it stopped, since what was asked since the button w
   Imports page reads, instead of printing them.
 - AtlasLoot by itself: the container checks CurseForge every `FT_ATLASLOOT_EVERY_HOURS` (6; `0` = never), 15 minutes
   after start and never while an analysis runs, and makes a card when a new version is out. Its last log line shows on
-  the Imports page. The last three downloads stay in `data/atlasloot/`. A new analysis alone makes no new card: press
+  the Imports page. Every download stays in `data/atlasloot/` (`[atlasloot] keep` limits how many). A new analysis alone makes no new card: press
   *Import AtlasLoot* after one.
 - Icy Veins runs in the background and keeps a **mirror of its whole WoW Forever database**: every NPC, object,
   quest, item, zone, flight path and map it lists (about 67,000 answers, read from its list pages 200 at a time),
