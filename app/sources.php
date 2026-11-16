@@ -283,13 +283,15 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
  *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
- *  (Wowhead Classic, the original game's database) comes after everything recorded on Forever. */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,wowheadclassic,classicdb';
+ *  (Wowhead Classic, the original game's database) comes after everything recorded on Forever. A file imported by hand
+ *  ("sniff": WowPacketParser's format; "scribe": ForeverScribe's notes) comes after the Forever sources and before
+ *  Classic's. The core's own rows, which no import wrote, rank below all of them ([sources] change_core). */
+const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -306,6 +308,13 @@ function source_trust(?string $configured = null): array
     return array_values(array_unique(array_merge(['client'], $order)));
 }
 
+/** Who wrote a row, from its Comment: the source it names (source_named), 'hand' for a Forge note that names none
+ *  (an administrator's own fix), or null (the core's own data). */
+function source_origin(?string $text): ?string
+{
+    return source_named($text) ?? (preg_match('/\bForge #\d+/', (string)$text) ? 'hand' : null);
+}
+
 /** The source a Comment or a note names first ("Icy Veins 2026-11-14" -> icyveins), or null: no import wrote it. */
 function source_named(?string $text): ?string
 {
@@ -318,10 +327,15 @@ function source_named(?string $text): ?string
     return $found;
 }
 
-/** May $source change a row that $origin wrote? 'yes'; 'core' (no import wrote it); 'trusted' (a more trusted source did). */
-function source_may_change(string $source, ?string $origin, ?array $trust = null): string
+/**
+ * May $source change a row that $origin wrote? 'yes'; 'core' (no import wrote it, and [sources] change_core = 0);
+ * 'trusted' (a more trusted source did, or an administrator by hand: origin 'hand'). The core's own rows rank below
+ * every source: a newer word from any of them replaces them, unless [sources] change_core = 0.
+ */
+function source_may_change(string $source, ?string $origin, ?array $trust = null, ?bool $core = null): string
 {
-    if ($origin === null) return 'core';
+    if ($origin === 'hand') return 'trusted';
+    if ($origin === null) return ($core ?? filter_var(config('sources', 'change_core', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true) ? (in_array($source, $trust ?? source_trust(), true) ? 'yes' : 'trusted') : 'core';
     $trust ??= source_trust();
     $mine = array_search($source, $trust, true); $theirs = array_search($origin, $trust, true);
     if ($mine === false) return 'trusted';
@@ -348,7 +362,7 @@ function source_drop_changes(string $source, array $measured, array $current, fl
         if (!isset($current[$key]) || $chance <= 0) continue;
         $new = round(min(100, max(0.01, (float)$chance)), 2);
         if (!source_chance_moved((float)$current[$key]['Chance'], $new, $percent)) { $left['drop_same']++; continue; }
-        $may = source_may_change($source, source_named($current[$key]['Comment'] ?? ''), $trust);
+        $may = source_may_change($source, source_origin($current[$key]['Comment'] ?? ''), $trust);
         if ($may !== 'yes') { $left['drop_differs_' . $may]++; continue; }
         [$table, $entry, $item] = explode(':', $key);
         $rows[$table][] = [(int)$entry, 0, (int)$item, $new];

@@ -22,6 +22,60 @@ const IMPORT_GUID_KIND = ['creature_addon' => 'npc', 'gameobject_addon' => 'go',
 
 function import_dir(): string { return FT_ROOT . '/data/imports'; }
 
+// ------------------------------------------------------------------ who wrote a row
+/**
+ * ft_row_origin: the source that last wrote a server row through an import (inserted it, or gave it a new value), so
+ * a later import knows whether its word may replace it ([sources] trust). A row it does not list is the core's own,
+ * unless its Comment names a source (loot rows). Kept by row key: "guid" for a spawn, the primary key otherwise.
+ */
+function import_origin_schema(): void
+{
+    db()->query("CREATE TABLE IF NOT EXISTS ft_row_origin (db VARCHAR(16) NOT NULL, tbl VARCHAR(64) NOT NULL, row_key VARCHAR(190) NOT NULL,
+        source VARCHAR(32) NOT NULL, import_id INT NOT NULL, written_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (db, tbl, row_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+function import_origin_key(array $values): string { return mb_substr(implode('|', array_map(fn($v) => (string)$v, $values)), 0, 190); }
+
+/** [row key => source] of the rows of a table an import wrote, among $keys. */
+function import_origins(string $database, string $table, array $keys): array
+{
+    import_origin_schema();
+    $found = [];
+    foreach (array_chunk(array_values(array_unique($keys)), 500) as $chunk) {
+        $marks = implode(',', array_fill(0, count($chunk), '?'));
+        foreach (rows("SELECT row_key, source FROM ft_row_origin WHERE db = ? AND tbl = ? AND row_key IN ($marks)", array_merge([$database, $table], $chunk)) as $r) $found[$r['row_key']] = $r['source'];
+    }
+    return $found;
+}
+
+/** Records who wrote the rows an apply wrote: $origins [[db, table, row key, source], …]. */
+function import_origin_record(array $origins, int $importId): void
+{
+    if (!$origins) return;
+    import_origin_schema();
+    foreach (array_chunk($origins, 500) as $chunk) {
+        $values = []; $params = [];
+        foreach ($chunk as [$database, $table, $key, $source]) { $values[] = '(?, ?, ?, ?, ?)'; array_push($params, $database, $table, $key, $source, $importId); }
+        rows('REPLACE INTO ft_row_origin (db, tbl, row_key, source, import_id) VALUES ' . implode(',', $values), $params);
+    }
+}
+
+/** The source of an import card: the one its file names ("icyveins@…", "classicdb-holiday-…@…", Wowhead's quest
+ *  enders), 'scribe' for ForeverScribe's notes, 'sniff' for a file in WowPacketParser's format. */
+function import_source(int $id): string
+{
+    import_schema();
+    $card = rows('SELECT name, file FROM ft_imports WHERE id = ?', [$id])[0] ?? ['name' => '', 'file' => ''];
+    $file = (string)$card['file'];
+    if ($file === 'wowhead-quest-enders') return 'wowhead';
+    if (preg_match('/^([a-z][a-z0-9-]*)@/', $file, $m)) {
+        foreach (array_keys(SOURCE_MARKS) as $source) if ($m[1] === $source || str_starts_with($m[1], $source . '-')) return $source;
+        return $m[1];
+    }
+    if (str_starts_with((string)$card['name'], 'ForeverScribe') || preg_match('/\.lua$/i', $file)) return 'scribe';
+    return 'sniff';
+}
+
 function import_schema(): void
 {
     db()->query("CREATE TABLE IF NOT EXISTS ft_imports (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL, file VARCHAR(255) NOT NULL,
@@ -239,6 +293,15 @@ function import_build(int $id, array $only = [], array $items = []): array
         // only what makes these items obtainable: their loot rows, vendor rows and the quests that reward them
         $tables = array_intersect_key($tables, array_flip(['creature_loot_template', 'gameobject_loot_template', 'skinning_loot_template', 'pickpocketing_loot_template', 'npc_vendor', 'quest_template']));
     }
+    // the newer word wins: rows the server already has take this card's values, and spawns it places a few yards off
+    // are moved there, wherever the row's writer (ft_row_origin, a loot row's Comment, else the core) is not more
+    // trusted than this card's source ([sources] trust). Only the whole card does it, and [sources] refresh = 0 stops it.
+    require_once FT_APP . '/sources.php';
+    $source = import_source($id); $trust = source_trust();
+    $refresh = $itemSet === null && filter_var(config('sources', 'refresh', '1'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== false;
+    $tolerance = (float)(config('sources', 'chance_tolerance', 10) ?: 10);
+    $radius = max(0.0, (float)config('imports', 'spawn_move_yards', 40));
+    $origins = []; $moved = 0; $updated = 0; $kept = 0;
 
     // new guids for spawns, and the spawns that already exist close by
     $guidMap = ['npc' => [], 'go' => []]; $next = [];
@@ -249,7 +312,19 @@ function import_build(int $id, array $only = [], array $items = []): array
         foreach ($tables[$table]['groups'] as $group) foreach ($group['rows'] as $row) { $r = array_combine($group['columns'], $row); if (is_int($r['id'] ?? null)) $entries[$r['id']] = true; }
         $existing = [];
         foreach (array_chunk(array_keys($entries), 1000) as $chunk) {
-            foreach (rows("SELECT id, map, position_x x, position_y y FROM `$table` WHERE id IN (" . implode(',', $chunk) . ')', [], 'world') as $e) $existing[$e['id'] . ':' . $e['map']][] = [(float)$e['x'], (float)$e['y']];
+            foreach (rows("SELECT guid, id, map, position_x x, position_y y FROM `$table` WHERE id IN (" . implode(',', $chunk) . ')', [], 'world') as $e) $existing[$e['id'] . ':' . $e['map']][] = [(float)$e['x'], (float)$e['y'], (int)$e['guid']];
+        }
+        // a spawn the card also places (within 3 yards) is confirmed: never moved to another of the card's places
+        $confirmed = []; $spawnOrigin = [];
+        if ($refresh && $radius > 0) {
+            foreach ($tables[$table]['groups'] as $group) foreach ($group['rows'] as $row) {
+                $r = array_combine($group['columns'], $row);
+                foreach ($existing[($r['id'] ?? 0) . ':' . ($r['map'] ?? 0)] ?? [] as [$x, $y, $guid]) {
+                    if (is_numeric($r['position_x'] ?? null) && hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < 3.0) $confirmed[$guid] = true;
+                }
+            }
+            $guids = []; foreach ($existing as $list) foreach ($list as $e) $guids[] = (string)$e[2];
+            $spawnOrigin = import_origins('world', $table, $guids);
         }
         $templates = $kind === 'npc' ? 'creature_template' : 'gameobject_template';
         $known = [];
@@ -266,9 +341,36 @@ function import_build(int $id, array $only = [], array $items = []): array
                     if (hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < 3.0) { $close = true; break; }
                 }
                 if ($close) { $nearby++; continue; }
+                // the same creature or object a few yards off, that the card does not place where it stands: it moved
+                if ($refresh && $radius > 0 && !isset($guidMap[$kind][$original])) {
+                    $best = null; $bestAt = $radius;
+                    foreach ($existing[$r['id'] . ':' . $r['map']] ?? [] as $i => [$x, $y, $guid]) {
+                        if (!$guid || isset($confirmed[$guid])) continue;
+                        $d = hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']);
+                        if ($d < $bestAt) { $best = $i; $bestAt = $d; }
+                    }
+                    if ($best !== null) {
+                        $guid = $existing[$r['id'] . ':' . $r['map']][$best][2];
+                        if (source_may_change($source, $spawnOrigin[(string)$guid] ?? null, $trust) === 'yes') {
+                            foreach (['position_x', 'position_y', 'position_z', 'orientation'] as $c) {
+                                if (is_int($r[$c] ?? null) || is_float($r[$c] ?? null)) forge_merge($ops, ['db' => 'world', 'table' => $table, 'columns' => ['guid', $c], 'match' => ['guid'], 'set' => $c, 'rows' => [[$guid, (float)$r[$c]]]]);
+                            }
+                            $confirmed[$guid] = true;
+                            $existing[$r['id'] . ':' . $r['map']][$best] = [(float)$r['position_x'], (float)$r['position_y'], $guid];
+                            $guidMap[$kind][$original] = $guid;   // its addon, formation… rows go with the spawn that stands
+                            $origins[] = ['world', $table, (string)$guid, $source];
+                            $moved++;
+                            continue;
+                        }
+                        // a more trusted source placed it there: its word stands, and no second one is added beside it
+                        $kept++;
+                        continue;
+                    }
+                }
                 $guidMap[$kind][$original] ??= ++$next[$kind];
                 $r['guid'] = $guidMap[$kind][$original];
-                $existing[$r['id'] . ':' . $r['map']][] = [(float)$r['position_x'], (float)$r['position_y']];
+                $existing[$r['id'] . ':' . $r['map']][] = [(float)$r['position_x'], (float)$r['position_y'], 0];
+                $origins[] = ['world', $table, (string)$r['guid'], $source];
                 $keepRows[] = array_values($r);
             }
             $group['rows'] = $keepRows;
@@ -316,6 +418,12 @@ function import_build(int $id, array $only = [], array $items = []): array
             if (!$rows) continue;
             $match = $primary && !array_diff($primary, $columns) ? $primary : $columns;
             forge_merge($ops, ['db' => $database, 'table' => $table, 'columns' => $columns, 'match' => $match, 'rows' => $rows]);
+            if ($refresh && $match !== $columns && !isset(IMPORT_SPAWN_TABLES[$table]) && !isset(IMPORT_GUID_TABLES[$table])) {
+                [$sets, $written, $held] = import_newer_values($database, $table, $columns, $match, $rows, $source, $trust, $tolerance);
+                foreach ($sets as $op) { forge_merge($ops, $op); $updated += count($op['rows']); }
+                foreach ($written as $key) $origins[] = [$database, $table, $key, $source];
+                $kept += $held;
+            }
         }
     }
     // a creature drops a loot table only when its template points to it: fill LootID where it is still 0
@@ -342,11 +450,59 @@ function import_build(int $id, array $only = [], array $items = []): array
     // only the whole card changes values: "the sources of these items" (the Items page) adds what is missing, no more
     if ($itemSet === null) foreach ($changes as $op) forge_merge($ops, $op);
     if ($nearby) $warnings[] = sprintf(t('%d spawn(s) already stand at the same place on the server and were left out.', '%d placement(s) existent déjà au même endroit sur le serveur et ont été écartés.'), $nearby);
+    if ($moved) $warnings[] = sprintf(t('%d spawn(s) stood a few yards off and are moved to where this source places them.', '%d placement(s) se trouvaient à quelques mètres et sont déplacés là où cette source les place.'), $moved);
+    if ($updated) $warnings[] = sprintf(t('%d value(s) of rows the server already has differ: this source\'s newer word replaces them.', '%d valeur(s) de lignes que le serveur a déjà diffèrent : le mot plus récent de cette source les remplace.'), $updated);
+    if ($kept) $warnings[] = sprintf(t('%d row(s) or spawn(s) a more trusted source wrote differ and were left as they are.', '%d ligne(s) ou placement(s) écrits par une source plus fiable diffèrent et ont été laissés tels quels.'), $kept);
     if ($unknown) $warnings[] = sprintf(t('%d row(s) were left out: unknown template or a value the importer could not read.', '%d ligne(s) écartées : modèle inconnu ou valeur illisible.'), $unknown);
     $built = forge_plan($ops, [], $warnings);
     $built['items'] = [['type' => 'import', 'id' => $id, 'kind' => 'import']];
     $built['spawns'] = (bool)array_intersect(array_keys($tables), array_keys(IMPORT_SPAWN_TABLES));
+    $built['origins'] = $origins;
     return $built;
+}
+
+/**
+ * The newer values a card gives for rows the server already has: [set operations, row keys it writes (new or
+ * changed), rows left alone because a more trusted source wrote them]. Every column the card gives is compared but
+ * the key, VerifiedBuild and Comment; a drop chance only counts as moved past [sources] chance_tolerance.
+ */
+function import_newer_values(string $database, string $table, array $columns, array $match, array $rows, string $source, array $trust, float $tolerance): array
+{
+    $known = import_columns($database, $table);
+    $compare = array_values(array_diff($columns, $match, ['VerifiedBuild', 'Comment']));
+    $hasComment = in_array('Comment', $known, true);
+    $at = array_flip($columns);
+    $byKey = [];
+    foreach ($rows as $row) $byKey[import_origin_key(array_map(fn($c) => $row[$at[$c]], $match))] ??= $row;
+    $current = [];
+    foreach (array_chunk(array_values($byKey), 500) as $chunk) {
+        $tuples = array_map(fn($row) => array_map(fn($c) => $row[$at[$c]], $match), $chunk);
+        $select = implode(',', array_map('forge_ident', array_merge($match, $compare, $hasComment ? ['Comment'] : [])));
+        foreach (rows("SELECT $select FROM " . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $r) {
+            $current[import_origin_key(array_map(fn($c) => $r[$c], $match))] = $r;
+        }
+    }
+    $written = []; $sets = []; $held = 0;
+    $origin = $current ? import_origins($database, $table, array_keys($current)) : [];
+    foreach ($byKey as $key => $row) {
+        if (!isset($current[$key])) { $written[] = $key; continue; }   // a new row: the insert writes it
+        $now = $current[$key];
+        $changed = [];
+        foreach ($compare as $c) {
+            $new = $row[$at[$c]];
+            if ($new === null || is_array($new)) continue;
+            $old = $now[$c];
+            $differs = $c === 'Chance' && is_numeric($old) && is_numeric($new) ? source_chance_moved((float)$old, (float)$new, $tolerance) : ($old === null || !forge_same_value(is_float($new) ? (float)$old : $old, $new));
+            if ($differs) $changed[$c] = $new;
+        }
+        if (!$changed) continue;
+        if (source_may_change($source, $origin[$key] ?? ($hasComment ? source_origin($now['Comment'] ?? '') : null), $trust) !== 'yes') { $held++; continue; }
+        foreach ($changed as $c => $new) $sets[$c][] = array_merge(array_map(fn($m) => $row[$at[$m]], $match), [$new]);
+        $written[] = $key;
+    }
+    $ops = [];
+    foreach ($sets as $c => $list) $ops[] = ['db' => $database, 'table' => $table, 'columns' => array_merge($match, [$c]), 'match' => $match, 'set' => $c, 'rows' => $list];
+    return [$ops, $written, $held];
 }
 
 /** $stopped: the administrator confirmed "I have stopped the worldserver" (asked when no remote console can tell). */
@@ -365,7 +521,12 @@ function import_apply(int $id, array $only = [], array $items = [], bool $stoppe
             return ['ok' => false, 'confirm_stopped' => true, 'message' => t('This import adds spawns.', 'Cet import ajoute des placements.') . ' ' . spawn_world_unknown_message() . ' ' . t('Or leave the creature and gameobject tables out.', 'Ou écartez les tables creature et gameobject.')];
         }
     }
-    return forge_commit($built, 'import');
+    $result = forge_commit($built, 'import');
+    if ($result['ok'] && (int)($result['log'] ?? 0)) {
+        try { import_origin_record($built['origins'] ?? [], $id); }
+        catch (Throwable $e) { error_log('Forever Tracker: who wrote the rows of import #' . $id . ' could not be kept: ' . $e->getMessage()); }
+    }
+    return $result;
 }
 
 /**
@@ -397,7 +558,7 @@ function import_auto_apply(array $card): array
     $said = $only && !(int)($applied['log'] ?? 0) && ($applied['ok'] || !(int)($applied['rows'] ?? 0))
         ? trim(t('Nothing on it is missing from the server any more.', 'Plus rien n’y manque au serveur.') . ' ' . implode(' ', (array)($applied['warnings'] ?? [])))
         : ($applied['ok']
-        ? sprintf(t('Applied at once: %s row(s) (history #%d).', 'Appliqué aussitôt : %s ligne(s) (historique #%d).'), number((int)($applied['rows'] ?? 0)), (int)($applied['log'] ?? 0))
+        ? trim(sprintf(t('Applied at once: %s row(s) (history #%d).', 'Appliqué aussitôt : %s ligne(s) (historique #%d).'), number((int)($applied['rows'] ?? 0)), (int)($applied['log'] ?? 0)) . ' ' . implode(' ', (array)($applied['warnings'] ?? [])))
         : ($only ? t('Not applied on its own:', 'Pas appliqué automatiquement :') . ' ' . strip_tags((string)($applied['message'] ?? '')) : ''));
     if ($kept) $said .= ' ' . sprintf(t('Spawns left on the card (%s): stop the worldserver, then press Apply.', 'Placements laissés sur la carte (%s) : arrêtez le worldserver, puis appliquez.'), implode(', ', $kept));
     $card['message'] = trim(trim((string)($card['message'] ?? '')) . ' ' . trim($said));
