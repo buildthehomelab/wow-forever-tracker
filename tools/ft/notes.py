@@ -404,6 +404,8 @@ def days(folder):
         if post.get('date'):
             at(post['date'][:10])['posts'].append(post['id'])
     for article in icyveins_notes(folder):
+        if article.get('kind') == 'build':
+            continue       # a build's notes: shown with the build, not as a hotfix day
         for named in article.get('days') or []:
             at(named['day'])['icyveins'].append(article['id'])
         if not article.get('days') and article.get('day'):
@@ -425,6 +427,8 @@ ICYVEINS_FILE = 'icyveins.json'
 ICYVEINS = 'Icy Veins'
 ICYVEINS_CATEGORY = 'wow-forever'
 HOTFIX_TITLE = re.compile(r'hotf+ix|patch notes|class tuning|development notes|maintenance', re.I)
+BUILD_TITLE = re.compile(r'development notes|patch notes', re.I)    # the notes of a build, not of a hotfix day
+ROUND_UP = re.compile(r'\bweekly\b', re.I)                          # a round-up of the week across games
 TITLE_DAY = re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December) (\d{1,2})(?:st|nd|rd|th)?\b')
 QUOTE = re.compile(r'<div class="blizzard-blue-post-content">(.*?)</div>\s*</div>', re.S)
 
@@ -473,7 +477,7 @@ def fetch_icyveins(folder, get=None, pause=1.0, log=print):
     found = []
     for article in articles:
         title = text((article.get('title') or {}).get('rendered') or '')
-        if not HOTFIX_TITLE.search(title):
+        if not HOTFIX_TITLE.search(title) or ROUND_UP.search(title):
             continue
         posted = article.get('date_gmt') or ''
         day = _title_day(title, posted)
@@ -491,7 +495,7 @@ def fetch_icyveins(folder, get=None, pause=1.0, log=print):
                 else:
                     seen = {line['text'] for line in same['lines']}
                     same['lines'].extend(line for line in section['lines'] if line['text'] not in seen)
-        found.append({'source': ICYVEINS, 'id': article.get('id'), 'kind': 'hotfix', 'day': day, 'title': title, 'posted': posted,
+        found.append({'source': ICYVEINS, 'id': article.get('id'), 'kind': 'build' if BUILD_TITLE.search(title) else 'hotfix', 'day': day, 'title': title, 'posted': posted,
                       'url': f"{ICYVEINS_NEWS}/{article.get('slug')}/", 'days': [{'day': k, 'sections': v} for k, v in sorted(merged.items())]})
     if not found:
         return {'code': 2, 'notes': 0, 'message': "Icy Veins: no WoW: Forever hotfix article found: nothing stored"}

@@ -224,7 +224,7 @@ function timeline_notes(?string $folder = null): array
     $read = fn(string $file) => json_decode((string)@file_get_contents($folder . '/' . $file), true) ?: [];
     $notes = ['days' => [], 'builds' => [], 'posts' => []];
     $day = function (string $at) use (&$notes) {
-        $notes['days'][$at] ??= ['blizzard' => ['sections' => [], 'urls' => []], 'posts' => [], 'iv' => [], 'fc' => null];
+        $notes['days'][$at] ??= ['blizzard' => ['sections' => [], 'urls' => []], 'posts' => [], 'iv' => [], 'ivBuild' => [], 'fc' => null];
     };
     foreach ((array)($read('blizzard.json')['posts'] ?? []) as $post) {
         if (!is_array($post) || empty($post['id'])) continue;
@@ -258,7 +258,8 @@ function timeline_notes(?string $folder = null): array
             $day($at);
             $sections = [];
             foreach ((array)($one['sections'] ?? []) as $section) $sections[(string)$section['name']] = (array)$section['lines'];
-            $notes['days'][$at]['iv'][] = ['title' => (string)($article['title'] ?? ''), 'url' => (string)($article['url'] ?? ''), 'sections' => $sections];
+            // development and patch notes are a build's notes: shown with the build released that day, not as a hotfix day
+            $notes['days'][$at][($article['kind'] ?? '') === 'build' ? 'ivBuild' : 'iv'][] = ['title' => (string)($article['title'] ?? ''), 'url' => (string)($article['url'] ?? ''), 'sections' => $sections];
         }
     }
     foreach ((array)($read('foreverchanges.json')['notes'] ?? []) as $note) {
@@ -275,7 +276,10 @@ function hotfix_days(array $update): array
     $window = hotfix_window($update);
     $from = (string)($window['from'] ?? $update['released'] ?? ''); $until = (string)($window['until'] ?? $from);
     if ($from === '') return [];
-    return array_values(array_filter(array_keys(timeline_notes()['days']), fn($d) => $d >= $from && $d <= $until));
+    $days = timeline_notes()['days'];
+    // a day counts when something was written about it as such: a build's own notes alone do not make a hotfix day
+    return array_values(array_filter(array_keys($days), fn($d) => $d >= $from && $d <= $until
+        && ($days[$d]['blizzard']['sections'] || $days[$d]['iv'] || $days[$d]['fc'] || $days[$d]['posts'])));
 }
 /** Which source a day's notes come from: 'blizzard', 'iv' (Icy Veins), 'fc' (ForeverChanges) or '' when none has lines. */
 function day_source(string $day): string
@@ -305,7 +309,7 @@ function notes_topics(array $days): array
 {
     $count = [];
     foreach ($days as $day) foreach (day_sections($day) as $name => $lines) {
-        // "Druid: Feral: ..." lines under Classes count for their class
+        if ($name === 'Notes' || mb_strlen((string)$name) > 32) continue;   // no topic: a heading-less post, a sentence in bold
         $count[$name] = ($count[$name] ?? 0) + count($lines);
     }
     arsort($count);

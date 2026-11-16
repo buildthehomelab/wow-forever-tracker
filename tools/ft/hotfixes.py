@@ -252,7 +252,22 @@ def history(folder):
                 entries = keep(folder, blob, _read_day(folder, newest), len(records), entries)
     except (OSError, CacheError):
         pass
-    return entries
+    return one_a_day(entries)
+
+
+def one_a_day(entries):
+    """The caches the tracker downloaded, one a day: the day's last. The container may read the mirror several times a
+    day; the timeline has one entry a day. Caches written from another (ft.dating: 'rebuilt') are never merged."""
+    out = []
+    for entry in entries:
+        if out and not entry.get('rebuilt') and not out[-1].get('rebuilt') and out[-1].get('read') and out[-1].get('read') == entry.get('read'):
+            kept = dict(entry)
+            if out[-1].get('window') and not kept.get('window'):
+                kept['window'] = out[-1]['window']
+            out[-1] = kept
+        else:
+            out.append(entry)
+    return out
 
 
 def _read_day(folder, path):
@@ -347,11 +362,11 @@ def summary(folder):
     return ', '.join(parts)
 
 
-def fetch(builds_folder, known_builds, url=None, get=None):
+def fetch(builds_folder, known_builds, url=None, get=None, day=None):
     """Downloads the live cache and keeps it with the snapshot of its build.
 
     Returns {'code': 0 stored | 3 unchanged | 2 not usable, 'build', 'records', 'message'}. known_builds: the builds
-    that have a snapshot. get: a function url -> bytes (tests)."""
+    that have a snapshot. get: a function url -> bytes; day: the day it counts as read (both for tests)."""
     url = url or MIRROR
     try:
         blob = (get or _download)(url)
@@ -382,7 +397,7 @@ def fetch(builds_folder, known_builds, url=None, get=None):
             info = json.load(handle)
     except (OSError, ValueError):
         info = {}
-    today = datetime.date.today().isoformat()
+    today = day or datetime.date.today().isoformat()
     info['hotfixes'] = {'read': today, 'records': len(records), 'source': url}
     with open(meta, 'w', encoding='utf-8') as handle:
         json.dump(info, handle, ensure_ascii=False, indent=1)

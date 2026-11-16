@@ -224,13 +224,13 @@ class History(unittest.TestCase):
         self.first = cache(70938, [(5, ITEM, 1, 1, item('x'))])
         self.second = cache(70938, [(5, ITEM, 1, 1, item('x')), (6, ITEM, 2, 1, item('y'))])
 
-    def fetch(self, blob):
-        return hotfixes.fetch(self.folder.name, {70938}, get=lambda url: blob)
+    def fetch(self, blob, day='2026-11-14'):
+        return hotfixes.fetch(self.folder.name, {70938}, get=lambda url: blob, day=day)
 
     def test_each_new_cache_is_kept_oldest_first(self):
         self.fetch(self.first)
         self.fetch(self.first)       # the same again: not kept twice
-        self.fetch(self.second)
+        self.fetch(self.second, '2026-11-15')
         kept = hotfixes.history(self.build)
         self.assertEqual([entry['records'] for entry in kept], [1, 2])
         self.assertTrue(all(os.path.isfile(os.path.join(self.build, hotfixes.HISTORY, entry['file'])) for entry in kept))
@@ -239,12 +239,21 @@ class History(unittest.TestCase):
         with open(os.path.join(self.build, hotfixes.FILE), 'wb') as handle:
             handle.write(self.first)
         self.assertEqual([entry['records'] for entry in hotfixes.history(self.build)], [1])
-        self.fetch(self.second)
+        self.fetch(self.second, '2099-01-01')
         self.assertEqual([entry['records'] for entry in hotfixes.history(self.build)], [1, 2])
+
+    def test_one_entry_a_day_the_days_last(self):
+        third = cache(70938, [(5, ITEM, 1, 1, item('x')), (6, ITEM, 2, 1, item('y')), (7, ITEM, 3, 1, item('z'))])
+        self.fetch(self.first, '2026-11-14')
+        self.fetch(self.second, '2026-11-15')
+        self.fetch(third, '2026-11-15')       # read again the same day: one entry for the day, the last cache
+        self.assertEqual([(e['read'], e['records']) for e in hotfixes.history(self.build)], [('2026-11-14', 1), ('2026-11-15', 3)])
+        rebuilt = [{'file': 'a', 'read': '2026-11-13', 'rebuilt': 'base'}, {'file': 'b', 'read': '2026-11-13'}]
+        self.assertEqual(hotfixes.one_a_day(rebuilt), rebuilt)   # a cache written from another is never merged
 
     def test_a_kept_cache_can_stand_over_the_build(self):
         self.fetch(self.first)
-        self.fetch(self.second)
+        self.fetch(self.second, '2026-11-15')
         first, _second = hotfixes.history(self.build)
         hotfixes.pin(self.build, first)
         self.assertEqual(set(hotfixes.cached(self.build)[0][ITEM]), {1})

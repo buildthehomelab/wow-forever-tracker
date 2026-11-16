@@ -143,7 +143,9 @@ class IcyVeins(unittest.TestCase):
         articles = [
             {'id': 2, 'date_gmt': '2026-11-14T01:58:21', 'slug': 'hotfixes-november-13th', 'title': {'rendered': 'Class Changes: WoW Forever Hotfixes, November 13th'},
              'content': {'rendered': self.QUOTED}},
-            {'id': 1, 'date_gmt': '2026-11-05T13:03:00', 'slug': 'launch', 'title': {'rendered': 'WoW Forever Launch Avoids the Usual Queue'}, 'content': {'rendered': '<p>Fun.</p>'}}]
+            {'id': 1, 'date_gmt': '2026-11-05T13:03:00', 'slug': 'launch', 'title': {'rendered': 'WoW Forever Launch Avoids the Usual Queue'}, 'content': {'rendered': '<p>Fun.</p>'}},
+            {'id': 3, 'date_gmt': '2026-11-02T20:00:00', 'slug': 'dev-notes', 'title': {'rendered': 'Massive WoW Forever Development Notes'}, 'content': {'rendered': self.QUOTED}},
+            {'id': 4, 'date_gmt': '2026-09-28T20:00:00', 'slug': 'weekly', 'title': {'rendered': 'Forever Class Changes, Midnight Patch Notes: WoW Weekly'}, 'content': {'rendered': self.QUOTED}}]
 
         def get(url):
             if '/categories?' in url:
@@ -151,9 +153,11 @@ class IcyVeins(unittest.TestCase):
             self.assertIn('categories=2910', url)
             return articles if 'page=1&' in url else []
         result = notes.fetch_icyveins(folder, get=get, pause=0, log=lambda *_: None)
-        self.assertEqual((result['code'], result['notes']), (0, 1))
-        stored = notes.icyveins_notes(folder)
+        self.assertEqual((result['code'], result['notes']), (0, 2))     # no round-up of the week
+        stored = [n for n in notes.icyveins_notes(folder) if n['kind'] == 'hotfix']
         self.assertEqual([(n['id'], n['day'], n['url']) for n in stored], [(2, '2026-11-13', f'{notes.ICYVEINS_NEWS}/hotfixes-november-13th/')])
+        self.assertEqual([n['id'] for n in notes.icyveins_notes(folder) if n['kind'] == 'build'], [3])   # a build's notes
+        self.assertNotIn('2026-11-02', notes.days(folder))
         self.assertEqual(stored[0]['days'], [{'day': '2026-11-13', 'sections': [{'name': 'Classes', 'lines': [{'text': 'Druid: Wild Growth heals more.', 'mark': ''}]}]}])
         self.assertEqual(notes.days(folder)['2026-11-13']['icyveins'], [2])
         self.assertEqual(notes.fetch_icyveins(folder, get=get, pause=0, log=lambda *_: None)['code'], 3)

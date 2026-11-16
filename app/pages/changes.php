@@ -160,7 +160,13 @@ $dayPosts = function (string $day) use ($written) {
     return array_values(array_filter(array_map(fn($id) => $written['posts'][$id] ?? null, $written['days'][$day]['posts'] ?? []),
         fn($p) => $p && empty($p['hotfixes'])));
 };
-$buildArticles = $buildDay !== '' ? ($written['days'][$buildDay]['iv'] ?? []) : [];
+// a build's notes: Icy Veins' development and patch notes of its day or the day before (they are often posted as the
+// build goes out, a day ahead of the date the CDN gives it)
+$buildArticles = [];
+if ($buildDay !== '') {
+    $dayBefore = date('Y-m-d', strtotime($buildDay . ' -1 day'));
+    $buildArticles = array_merge($written['days'][$dayBefore]['ivBuild'] ?? [], $written['days'][$buildDay]['ivBuild'] ?? [], $written['days'][$buildDay]['iv'] ?? []);
+}
 $ivLines = (bool)array_filter($buildArticles, fn($a) => $a['sections']);   // Icy Veins comes before ForeverChanges
 $changedNames = [];
 if ($noteDays || $buildNote || $buildArticles) {
