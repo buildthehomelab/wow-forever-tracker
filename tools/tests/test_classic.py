@@ -326,6 +326,17 @@ class Holidays(unittest.TestCase):
         self.assertEqual([c[0] for c in found['34']['creatures']], [2])
         self.assertEqual(found['34']['name'], 'Fishing Extravaganza Turn-in')
 
+    def test_a_random_entry_becomes_one_for_good(self):
+        tables = {name: [] for name in classicdb_pack.WANTED}
+        egg = {'map': 0, 'position_x': 1, 'position_y': 2, 'position_z': 3, 'orientation': 0, 'spawntimesecsmin': 60}
+        tables.update(
+            game_event=[{'entry': 9, 'description': 'Noblegarden'}],
+            game_event_gameobject=[{'guid': g, 'event': 9} for g in (20, 21, 22, 23)],
+            gameobject=[dict(egg, guid=20, id=0), dict(egg, guid=21, id=0), dict(egg, guid=22, id=113772), dict(egg, guid=23, id=0)],
+            gameobject_spawn_entry=[{'guid': g, 'entry': e} for g in (20, 21, 22) for e in (113771, 113768, 113769, 113770)])
+        found = classicdb_pack.holidays(tables)['9']['objects']
+        self.assertEqual([(o[0], o[1]) for o in found], [(20, 113768), (21, 113769), (22, 113772), (23, 0)])
+
 
 if __name__ == '__main__':
     unittest.main()
