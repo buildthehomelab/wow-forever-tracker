@@ -142,6 +142,8 @@ class Pins(unittest.TestCase):
         if url == 'https://wago.tools/api/builds':
             return {'wowf': [{'version': '1.60.1.70888'}, {'version': '1.60.1.70938', 'created_at': '2026-11-13 01:36:09'},
                              {'version': '1.60.1.9999'}], 'wow': [{'version': '12.0.0.99999'}]}
+        if url == 'https://foreverdb.net/downloads/addon-manifest.json':
+            return {'addon': {'version': '0.62.1'}, 'data': {'version': '2026-11-16.4ee95f5b', 'files': []}}
         raise OSError('unreachable ' + url)
 
     def digest(self, url):
@@ -208,13 +210,19 @@ class Pins(unittest.TestCase):
         found = self.resolve({'type': 'url', 'url': 'https://example.invalid/DBCache.bin'})
         self.assertEqual((found['version'], found['size']), ('c' * 16, 5300000))
 
+    def test_a_manifest_is_pinned_by_the_version_it_names(self):
+        self.assertEqual(self.resolve(layers.load().source('foreverdb')['pin']), {'version': '2026-11-16.4ee95f5b'})
+        for answer in ({'data': {'version': '../../etc'}}, {'data': {}}, {'version': '1'}, []):
+            with self.assertRaises(LookupError):
+                layers.resolve({'type': 'manifest', 'url': 'https://example.invalid/m.json'}, lambda url: answer)
+
     def test_nothing_to_look_up(self):
         self.assertIsNone(self.resolve({'type': 'none'}))
         self.assertIsNone(self.resolve({'type': 'replay'}))
 
     def test_shipped_pins_resolve_against_the_recorded_answers(self):
         registry = layers.load()
-        for sid in ('eglink', 'vmangos', 'karrz', 'atlasloot', 'client'):
+        for sid in ('eglink', 'vmangos', 'karrz', 'atlasloot', 'client', 'foreverdb'):
             self.assertTrue(self.resolve(registry.source(sid)['pin'])['version'], sid)
 
     def test_lock_keeps_the_previous_pin_of_an_unreachable_source(self):

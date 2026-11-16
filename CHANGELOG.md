@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **ForeverDB.net is read into the world facts.** `python tools/tracker.py world facts foreverdb` reads what its
+  players recorded on Forever (the vendors and trainers they saw, those vendors' stock, boss loot measured over kills,
+  who gives and takes the quests they saw) and leaves its Classic rows out. Its pin is the version its manifest names
+  (`world pin foreverdb`). It counts as a second witness beside EG Link or QuestieDB, never as a live recording alone.
+
 - **VMaNGOS is a source, just above the Classic database.** `tools/vmangos_pack.py` makes a pack from the world
   database of VMaNGOS' `db_latest` release (GPL-2.0), patch 1.12 only, in the Classic database pack's format; send it
   on the Imports page (a pack names its source). It answers the same questions (trainers, quest turn-in spells,

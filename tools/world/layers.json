@@ -81,9 +81,10 @@
     {
       "id": "foreverdb", "name": "ForeverDB.net", "layer": "live", "group": "foreverdb",
       "licence": "GPL-3.0", "use": "public",
-      "credit": "Data from ForeverDB.net, GPL-3.0.",
+      "credit": "Data from ForeverDB.net (https://foreverdb.net), GPL-3.0.",
+      "note": "Read: what its players' addons recorded on Forever (vendors and their stock, boss loot measured over kills, who gives and takes a quest). Its Classic rows are CMaNGOS classic-db's and are not read. A file names the client build it was made on, not the build each row was recorded on, so it is not marked as a live recording: it is a second witness.",
       "url": "https://foreverdb.net",
-      "pin": {"type": "none"}
+      "pin": {"type": "manifest", "url": "https://foreverdb.net/downloads/addon-manifest.json"}
     },
     {
       "id": "questie", "name": "QuestieDB", "layer": "live", "group": "questie",
