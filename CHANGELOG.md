@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Holiday cards stop adding second copies.** The realm's holiday spawns come from VMaNGOS, and the holiday cards
+  from cmangos classic-db, which places the same NPC a few yards off: matched at 3 yards, the cards gave the realm a
+  second Silas Darkmoon, Lunar Festival Elders and Love is in the Air perfume sellers. A spawn a card links to a game
+  event now stands already when the server has one of its kind within 30 yards (an object within 10), and the server's
+  stays where it is; the card's own spawns are still told apart at 3 yards, so a crowd stays whole. The world data
+  export uses the same distances for an operation's holiday spawns.
+
 - **Imports apply themselves.** A card is now applied as soon as an import makes it, from a button, an upload, a
   background run (Icy Veins, ForeverChanges) or Wowhead's quest enders, so the next analysis counts it without a
   click on Apply. The card's message says how many rows went in and the history number to roll them back. Spawn

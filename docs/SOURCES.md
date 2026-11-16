@@ -306,7 +306,9 @@ Spawns: a creature or object the card places where none of its kind stands, with
 within `[imports] spawn_move_yards` (40 by default, 0: never) that the card does not also place, is that spawn moved:
 the nearest one gets the card's position and facing, keeping its guid (its addon, formation and pool rows stay). A
 spawn a more trusted source placed is left where it is, and no second one is added beside it. Like every spawn, moves
-are written only while the worldserver is stopped.
+are written only while the worldserver is stopped. A holiday's spawn (one the card links to a game event) with one of
+its kind within 30 yards (an object within 10) is that one, which stays where it is: the realm's holiday spawns come
+from VMaNGOS, and a holiday card from another database moves nothing that close.
 
 A file imported by hand counts as the source `sniff` (WowPacketParser's format) or `scribe` (ForeverScribe's notes).
 Both come after the Forever sources and before Classic's in the default order.
