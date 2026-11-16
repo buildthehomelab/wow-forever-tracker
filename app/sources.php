@@ -117,10 +117,19 @@ function source_loot_entries(array $npcs, array $objects): array
     return [$entryOf, $known];
 }
 
-/** Whether a trainer list whose rows count [skill line => rows] (0: class spells, riding...) may take a spell of
- *  $line: a list with no rows takes anything; otherwise the line most of its rows have must be $line. */
-function source_trainer_fits(array $kinds, int $line): bool
+/**
+ * Whether a trainer list may take a spell of skill line $line (0: a class spell, a pet skill, a profession's rank).
+ * $kinds counts the list's rows by skill line, $type is its `trainer`.Type (2: a profession; null: no such row).
+ * A profession list takes a recipe when it holds no other profession's recipes (its own ranks have line 0), and no
+ * class spell; any other list takes no recipe. A list without a type: an empty one takes anything, else the line most
+ * of its rows have must be $line.
+ */
+function source_trainer_fits(array $kinds, int $line, ?int $type = null): bool
 {
+    if ($type !== null) {
+        if ($type !== CLASSICDB_TRADESKILL) return $line === 0;
+        return $line > 0 && !array_diff(array_keys(array_filter($kinds)), [0, $line]);
+    }
     if (!$kinds) return true;
     arsort($kinds);
     return (int)array_key_first($kinds) === $line;
@@ -212,6 +221,8 @@ function source_tables(array $ev, string $label, array $gaps): array
         if ((int)$r['ReqLevel'] > 0) $levels[(int)$r['SpellId']] = (int)$r['ReqLevel'];
         if ((int)$r['ReqAbility1'] > 0) $needsOf[(int)$r['SpellId']] = array_values(array_filter([(int)$r['ReqAbility1'], (int)$r['ReqAbility2'], (int)$r['ReqAbility3']]));
     }
+    $types = [];
+    if ($teach && table_exists('trainer', 'world')) foreach (rows('SELECT Id, Type FROM trainer', [], 'world') as $r) $types[(int)$r['Id']] = (int)$r['Type'];
     $done = [];
     foreach ($teach as $npc => $spells) {
         if (empty($trainerOf[$npc])) { $left['trainer_not_on_server'] += count($spells); continue; }
@@ -221,7 +232,7 @@ function source_tables(array $ev, string $label, array $gaps): array
             if (isset($taught["$trainer:$spell"])) { $left['trainer_known']++; continue; }
             // one creature may open several trainer lists, and one list serve several creatures: a spell goes only to
             // a list that already teaches its kind (the same profession's skill line, or class spells: line 0)
-            if (!source_trainer_fits($kinds[$trainer] ?? [], (int)$line)) { $left['trainer_other_kind']++; continue; }
+            if (!source_trainer_fits($kinds[$trainer] ?? [], (int)$line, $types[$trainer] ?? null)) { $left['trainer_other_kind']++; continue; }
             if (isset($gaps['later']['spells'][$spell])) { $left['trainer_phase_not_open']++; continue; }   // a trainer would teach it before its phase
             if (!$line) { $level = (int)$level ?: ($levels[$spell] ?? 0) ?: ($levels[$spell] = wowhead_spell_level($spell)); if (!$level) { $left['trainer_level_unknown']++; continue; } }
             if ($needs === null) {

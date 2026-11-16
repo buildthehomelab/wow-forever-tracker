@@ -98,5 +98,9 @@ check(source_trainer_fits([], 197) && source_trainer_fits([], 0), 'a trainer lis
 check(source_trainer_fits([164 => 40, 0 => 2], 164) && !source_trainer_fits([164 => 40, 0 => 2], 129), 'a blacksmithing list takes blacksmithing recipes, not a bandage');
 check(source_trainer_fits([0 => 30], 0) && !source_trainer_fits([0 => 30], 197), 'a class list takes class spells, not recipes');
 check(!source_trainer_fits([197 => 12], 0), 'a tailoring list takes no class spell');
+check(source_trainer_fits([0 => 4], 165, 2), 'a profession list holding only its ranks (line 0) takes recipes');
+check(source_trainer_fits([0 => 4, 165 => 2], 165, 2) && !source_trainer_fits([0 => 4, 164 => 9], 165, 2), 'a profession list takes its own recipes, not another profession\'s');
+check(!source_trainer_fits([0 => 4], 0, 2), 'a profession list takes no class spell');
+check(source_trainer_fits([0 => 30], 0, 0) && !source_trainer_fits([], 197, 0) && !source_trainer_fits([0 => 3], 129, 3), 'a class or pet list takes class spells, no recipe');
 
 ft_test_done();
