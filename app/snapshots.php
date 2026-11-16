@@ -19,6 +19,10 @@ const SNAPSHOT_FACTS = [
     'end' => 'a creature or object takes a quest',
     'train' => 'a creature teaches a spell; value: the cost',
 ];
+/** What a source's evidence holds besides SNAPSHOT_FACTS, kept too so that a card can be made again from the database:
+ *  lists of rows ([id, a second id or a word, ...]: Icy Veins' quest texts and services) and maps of "kind:id:item"
+ *  keys (its drops that are quest items only). Counters ('left', 'kept') go with the snapshot itself. */
+const SNAPSHOT_COUNTERS = ['left', 'kept'];
 
 function snapshot_schema(): void
 {
@@ -27,9 +31,12 @@ function snapshot_schema(): void
         facts INT NOT NULL DEFAULT 0, added INT NOT NULL DEFAULT 0, changed INT NOT NULL DEFAULT 0, gone INT NOT NULL DEFAULT 0, left_out JSON,
         KEY ix_source (source, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     db()->query("CREATE TABLE IF NOT EXISTS ft_source_facts (id BIGINT AUTO_INCREMENT PRIMARY KEY, source VARCHAR(32) NOT NULL,
-        fact VARCHAR(8) NOT NULL, kind VARCHAR(4) NOT NULL DEFAULT '', entity INT NOT NULL, target INT NOT NULL, value DOUBLE NULL, extra TEXT NULL,
+        fact VARCHAR(16) NOT NULL, kind VARCHAR(4) NOT NULL DEFAULT '', entity INT NOT NULL, target INT NOT NULL, value DOUBLE NULL, extra TEXT NULL,
         first_snapshot INT NOT NULL, last_snapshot INT NOT NULL,
         KEY ix_open (source, last_snapshot), KEY ix_target (fact, target), KEY ix_entity (fact, kind, entity)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // the first tables (2026-11-15) took only the five shared kinds of fact
+    $width = rows("SELECT CHARACTER_MAXIMUM_LENGTH w FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ft_source_facts' AND COLUMN_NAME = 'fact'")[0]['w'] ?? 16;
+    if ((int)$width < 16) db()->query('ALTER TABLE ft_source_facts MODIFY fact VARCHAR(16) NOT NULL');
 }
 
 /**
@@ -53,7 +60,57 @@ function snapshot_facts(array $ev): array
     foreach ($ev['sell'] ?? [] as $s) $put('sell', 'npc', $s[0] ?? 0, $s[1] ?? 0, $s[2] ?? null, array_slice($s, 3));
     foreach (['start', 'end'] as $role) foreach ($ev[$role] ?? [] as $r) $put($role, (string)$r[0], $r[1] ?? 0, $r[2] ?? 0, null, array_slice($r, 3));
     foreach ($ev['train'] ?? [] as $t) $put('train', 'npc', $t[0] ?? 0, $t[1] ?? 0, $t[2] ?? null, array_slice($t, 3));
+    // everything else a source gave: a row is kept whole; its first id and its second (a word is numbered) are its key
+    foreach ($ev as $name => $list) {
+        if (isset(SNAPSHOT_FACTS[$name]) || in_array($name, SNAPSHOT_COUNTERS, true) || !is_array($list) || !preg_match('/^[a-z_]{1,16}$/', (string)$name)) continue;
+        foreach ($list as $key => $row) {
+            if (is_string($key) && preg_match('/^(npc|go):(\d+):(\d+)$/', $key, $m)) {   // a map: "kind:id:item" => true
+                $out["$name|{$m[1]}|{$m[2]}|{$m[3]}"] = [$name, $m[1], (int)$m[2], (int)$m[3], null, null];
+                continue;
+            }
+            if (!is_array($row) || !array_is_list($row) || !is_numeric($row[0] ?? null) || (int)$row[0] <= 0) continue;
+            $second = $row[1] ?? 0;
+            $target = is_numeric($second) ? max(1, (int)$second) : (crc32((string)$second) & 0x7fffffff ?: 1);
+            $out["$name|-|" . (int)$row[0] . "|$target"] = [$name, '-', (int)$row[0], $target, null, json_encode($row, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION)];
+        }
+    }
     return $out;
+}
+
+/** The evidence a snapshot holds, as its import made it (snapshot_facts the other way round), with 'version'. */
+function snapshot_evidence(int $snapshot): array
+{
+    snapshot_schema();
+    $s = rows('SELECT source, version, left_out FROM ft_source_snapshots WHERE id = ?', [$snapshot])[0] ?? null;
+    if (!$s) return [];
+    $counters = json_decode((string)$s['left_out'], true) ?: [];
+    // the first snapshots kept 'left' alone
+    if (!isset($counters['left']) && !isset($counters['kept'])) $counters = ['left' => $counters];
+    $result = db()->query(sprintf("SELECT fact, kind, entity, target, value, extra FROM ft_source_facts WHERE source = '%s' AND first_snapshot <= %d AND last_snapshot >= %d",
+        db()->real_escape_string($s['source']), $snapshot, $snapshot), MYSQLI_USE_RESULT);
+    $rows = (function () use ($result) { while ($r = $result->fetch_assoc()) yield $r; $result->free(); })();
+    return snapshot_rows_evidence($rows, $counters, (string)$s['version']);
+}
+
+/** Evidence from fact rows as ft_source_facts holds them (fact, kind, entity, target, value, extra). */
+function snapshot_rows_evidence(iterable $rows, array $counters = [], string $version = ''): array
+{
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => (array)($counters['left'] ?? []), 'kept' => (array)($counters['kept'] ?? []), 'version' => $version];
+    foreach ($rows as $r) {
+        $extra = $r['extra'] === null ? [] : (json_decode($r['extra'], true) ?? []);
+        $value = $r['value'] === null ? null : (float)$r['value'];
+        [$fact, $kind, $entity, $target] = [$r['fact'], $r['kind'], (int)$r['entity'], (int)$r['target']];
+        switch ($fact) {
+            case 'drop': $ev['drop'][] = array_merge([$kind, $entity, $target, $value], $extra); break;
+            case 'sell': $ev['sell'][] = array_merge([$entity, $target, (int)$value], $extra); break;
+            case 'start': case 'end': $ev[$fact][] = array_merge([$kind, $entity, $target], $extra); break;
+            case 'train': $ev['train'][] = array_merge([$entity, $target, (int)$value], $extra); break;
+            default:
+                if ($kind === '-') $ev[$fact][] = $extra;              // a row kept whole
+                else $ev[$fact]["$kind:$entity:$target"] = true;     // a key of a map
+        }
+    }
+    return $ev;
 }
 
 /**
@@ -68,7 +125,9 @@ function snapshot_keep(string $source, string $version, array $ev, string $scope
     snapshot_schema();
     $facts = snapshot_facts($ev);
     $before = (int)(rows('SELECT MAX(id) m FROM ft_source_snapshots WHERE source = ?', [$source])[0]['m'] ?? 0);
-    rows('INSERT INTO ft_source_snapshots (source, version, scope, left_out) VALUES (?, ?, ?, ?)', [$source, mb_substr($version, 0, 190), $scope, json_encode($ev['left'] ?? new stdClass())]);
+    $counters = [];
+    foreach (SNAPSHOT_COUNTERS as $c) if (!empty($ev[$c])) $counters[$c] = $ev[$c];
+    rows('INSERT INTO ft_source_snapshots (source, version, scope, left_out) VALUES (?, ?, ?, ?)', [$source, mb_substr($version, 0, 190), $scope, json_encode($counters ?: new stdClass())]);
     $id = (int)db()->insert_id;
     $open = [];
     if ($before) {
@@ -147,5 +206,55 @@ function snapshot_changes(int $snapshot, int $limit = 200): array
     if ($before && $s['scope'] === 'all') $out['gone'] = rows("SELECT f.fact, f.kind, f.entity, f.target, f.value, f.extra FROM ft_source_facts f WHERE f.source = ? AND f.last_snapshot = ?
         AND NOT EXISTS (SELECT 1 FROM ft_source_facts n WHERE n.source = f.source AND n.first_snapshot = ? AND n.fact = f.fact AND n.kind = f.kind AND n.entity = f.entity AND n.target = f.target)
         ORDER BY f.fact, f.target LIMIT " . (int)$limit, [$s['source'], $before, $snapshot]);
+    return $out;
+}
+
+/** The sources whose card can be made from the database. ForeverChanges and the original game's database are read
+ *  from a pack you sent, kept in data/: their *Read the pack again* needs no network either. */
+const SNAPSHOT_CARDS = ['wowhead', 'wowheadclassic', 'eglink', 'foreverdb', 'icyveins', 'atlasloot', 'norgannondb'];
+
+/**
+ * A source's import card made from its last snapshot instead of from the source: nothing is downloaded or asked, so
+ * it takes seconds where Icy Veins takes hours. Made against the gaps and the server as they are now, as every card
+ * is: after a new analysis, every source's card again without asking any of them. NorgannonDB's second sources are EG
+ * Link's and ForeverDB.net's last snapshots.
+ */
+function snapshot_card(string $source): array
+{
+    if ($e = source_check()) return $e;
+    if (!in_array($source, SNAPSHOT_CARDS, true)) return ['ok' => false, 'message' => sprintf(t('%s is read from its pack: use Read the pack again.', '%s se lit depuis son paquet : utilisez Relire le paquet.'), SOURCES[$source][0] ?? $source)];
+    $snap = snapshot_latest()[$source] ?? null;
+    if (!$snap) return ['ok' => false, 'message' => sprintf(t('%s has no snapshot yet: import it once from the source.', '%s n’a pas encore d’instantané : importez-le une fois depuis la source.'), SOURCES[$source][0] ?? $source)];
+    $ev = snapshot_evidence((int)$snap['id']);
+    $version = (string)$ev['version'];
+    unset($ev['version']);
+    $gaps = source_gaps();
+    switch ($source) {
+        case 'wowhead': case 'wowheadclassic':
+            require_once FT_APP . '/wowheadpages.php';
+            $card = wowhead_pages_card($source, $ev, $version, $version . '-snapshot' . $snap['id'], $gaps); break;
+        case 'icyveins':
+            require_once FT_APP . '/icyveins.php';
+            $card = icyveins_card($ev, $version, $gaps); break;
+        case 'eglink': $card = eglink_card($ev, $version, $gaps); break;
+        case 'foreverdb': $card = foreverdb_card($ev, $version, $gaps); break;
+        case 'atlasloot':
+            require_once FT_APP . '/atlasloot.php';
+            $card = atlasloot_card($ev, $version, 'snapshot' . $snap['id'], $gaps); break;
+        default:
+            require_once FT_APP . '/norgannon.php';
+            $live = [];
+            foreach (['eglink', 'foreverdb'] as $w) { $ws = snapshot_latest()[$w] ?? null; $live[$w] = $ws ? snapshot_evidence((int)$ws['id']) : null; }
+            $card = norgannon_card($ev, $version, $gaps, $live);
+    }
+    $card['message'] = ($card['message'] ?? '') . ' ' . sprintf(t('(from the database: its run of %s)', '(depuis la base : son passage du %s)'), substr((string)$snap['made'], 0, 16));
+    return $card;
+}
+
+/** Every source's card made again from the database, one after the other: [source => card]. */
+function snapshot_cards(): array
+{
+    $out = [];
+    foreach (array_keys(snapshot_latest()) as $source) if (in_array($source, SNAPSHOT_CARDS, true)) $out[$source] = snapshot_card($source);
     return $out;
 }

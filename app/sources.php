@@ -1047,9 +1047,16 @@ function eglink_import(): array
     if ($e = source_check()) return $e;
     $r = eglink_evidence();
     if (empty($r['ev'])) return $r;
-    $label = 'EG Link ' . substr($r['commit'], 0, 8);
     snapshot_try('eglink', $r['commit'], $r['ev']);
-    [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
+    return eglink_card($r['ev'], $r['commit'], source_gaps());
+}
+
+/** The card of EG Link's evidence at $commit, with its quests read again. Also made from the database (snapshot_card). */
+function eglink_card(array $ev, string $commit, array $gaps): array
+{
+    $label = 'EG Link ' . substr($commit, 0, 8);
+    $r = ['ev' => $ev, 'commit' => $commit];
+    [$tables, $left] = source_tables($r['ev'], $label, $gaps);
     [$changes, $moved] = source_refresh($r['ev'], 'eglink');
     // the quests the server already has, read again from the newest recording of the live game
     [$questChanges, $questLeft] = source_quest_refresh($r['commit']);
@@ -1140,11 +1147,17 @@ function foreverdb_import(): array
     if ($e = source_check()) return $e;
     $r = foreverdb_evidence();
     if (empty($r['ev'])) return $r;
-    $label = 'ForeverDB.net ' . $r['version'];
     snapshot_try('foreverdb', $r['version'], $r['ev']);
-    [$tables, $left] = source_tables($r['ev'], $label, source_gaps());
-    [$changes, $moved] = source_refresh($r['ev'], 'foreverdb');
-    return source_card('foreverdb', $label, 'foreverdb@' . $r['version'], $tables, $left + $moved, $changes);
+    return foreverdb_card($r['ev'], $r['version'], source_gaps());
+}
+
+/** The card of ForeverDB.net's evidence. Also made from the database (snapshot_card). */
+function foreverdb_card(array $ev, string $version, array $gaps): array
+{
+    $label = 'ForeverDB.net ' . $version;
+    [$tables, $left] = source_tables($ev, $label, $gaps);
+    [$changes, $moved] = source_refresh($ev, 'foreverdb');
+    return source_card('foreverdb', $label, 'foreverdb@' . $version, $tables, $left + $moved, $changes);
 }
 
 /** What ForeverDB.net's players saw on Forever: ['ev' => evidence, 'version'], or ['ok' => false, 'message']. */

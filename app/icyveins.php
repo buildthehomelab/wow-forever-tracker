@@ -433,11 +433,18 @@ function icyveins_import(?callable $progress = null): array
     }
     if ($progress) $progress('reading the mirror');
     $ev = icyveins_evidence($mirror);
+    if ($asked >= icyveins_max()) $ev['left']['icyveins_lookup_limit_reached_run_again'] = 1;
     snapshot_try('icyveins', date('Y-m-d'), $ev);
-    $label = 'Icy Veins ' . date('Y-m-d');
+    return icyveins_card($ev, date('Y-m-d'), $gaps);
+}
+
+/** The card of Icy Veins' evidence: rows, drops measured again, the service flags its NPCs show. Also made from the
+ *  database (snapshot_card). */
+function icyveins_card(array $ev, string $date, array $gaps): array
+{
+    $label = 'Icy Veins ' . $date;
     [$tables, $left] = source_tables($ev, $label, $gaps);
-    if ($asked >= icyveins_max()) $left['icyveins_lookup_limit_reached_run_again'] = 1;
     [$changes, $moved] = source_refresh($ev, 'icyveins');
-    [$flags, $flagsLeft] = icyveins_service_changes($ev['service']);
-    return source_card('icyveins', $label, 'icyveins@' . date('Y-m-d'), $tables, $left + $moved + $flagsLeft + $ev['kept'], array_merge($changes, $flags));
+    [$flags, $flagsLeft] = icyveins_service_changes($ev['service'] ?? []);
+    return source_card('icyveins', $label, 'icyveins@' . $date, $tables, $left + $moved + $flagsLeft + ($ev['kept'] ?? []), array_merge($changes, $flags));
 }

@@ -392,7 +392,7 @@
   $$('[data-scribe]').forEach((button) => button.addEventListener('click', () => {
     const action = button.dataset.scribe;
     button.disabled = true; button.classList.add('is-busy');
-    importApi({ action }).then((data) => {
+    importApi(button.dataset.source ? { action, source: button.dataset.source } : { action }).then((data) => {
       // a source with nothing new still replaced its earlier cards that were never applied: show the list as it is now
       if (!data.ok) { if (data.replaced) setTimeout(() => location.reload(), 2500); return toast(esc(data.message || 'Error'), 'error'); }
       if (data.zip || data.file) {
@@ -403,7 +403,7 @@
         return;
       }
       toast(esc(data.message || ''));
-      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_wowheadclassic' || action === 'source_atlasloot') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
+      if (action === 'refresh_sources' || (action === 'sync' && (data.report || []).length) || ((action === 'norgannon' || action === 'wowhead_quests' || action === 'source_eglink' || action === 'source_foreverdb' || action === 'source_foreverchanges' || action === 'source_classicdb' || action === 'source_wowhead' || action === 'source_wowheadclassic' || action === 'source_atlasloot' || action === 'snapshot_card' || action === 'snapshot_cards') && (data.id || data.replaced))) setTimeout(() => location.reload(), 1500);
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; button.classList.remove('is-busy'); });
   }));
   $$('[data-import-upload] input[type=file]').forEach((upload) => upload.addEventListener('change', () => {

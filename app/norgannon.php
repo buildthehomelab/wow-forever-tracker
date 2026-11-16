@@ -134,15 +134,28 @@ function norgannon_import(): array
     [$dir, $error] = norgannon_fetch($commit);
     if (!$dir) return ['ok' => false, 'message' => $error];
     $gaps = source_gaps();
-    $label = 'NorgannonDB ' . substr($commit, 0, 8);
-    // vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins (its cache) saw on live Forever,
-    // or (drops) AtlasLoot's boss tables
-    $witnesses = [icyveins_cached_items($gaps['items']), icyveins_cached_quests($gaps['noGiver'] + $gaps['noEnder'])];
     $ev = norgannon_evidence($dir, $gaps);
     snapshot_try('norgannondb', $commit, $ev, 'gaps');   // what it says, before the live recordings vote on it
+    $live = [];
     foreach (['eglink', 'foreverdb'] as $source) {
         $w = ($source . '_evidence')();
-        if (!empty($w['ev'])) $witnesses[] = $w['ev'];
+        $live[$source] = $w['ev'] ?? null;
+    }
+    return norgannon_card($ev, $commit, $gaps, $live);
+}
+
+/**
+ * The card of NorgannonDB's evidence. Vendors and drops need a second source: what EG Link, ForeverDB.net or Icy Veins
+ * (its cache) saw on live Forever, or (drops) AtlasLoot's boss tables. $live: EG Link's and ForeverDB.net's evidence
+ * ([source => evidence, or null when it could not be read]). Also made from the database (snapshot_card), with their
+ * last snapshots.
+ */
+function norgannon_card(array $ev, string $commit, array $gaps, array $live): array
+{
+    $label = 'NorgannonDB ' . substr($commit, 0, 8);
+    $witnesses = [icyveins_cached_items($gaps['items']), icyveins_cached_quests($gaps['noGiver'] + $gaps['noEnder'])];
+    foreach (['eglink', 'foreverdb'] as $source) {
+        if (!empty($live[$source])) $witnesses[] = $live[$source];
         else $ev['left']["witness_{$source}_unreachable"] = 1;
     }
     require_once FT_APP . '/atlasloot.php';
