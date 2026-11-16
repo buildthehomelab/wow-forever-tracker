@@ -393,8 +393,9 @@ function import_auto_apply(array $card): array
         $applied = ['ok' => false, 'message' => $e->getMessage()];
     }
     $card['applied'] = $applied;
-    $said = $only && !(int)($applied['log'] ?? 0) && ($applied['ok'] || (!(int)($applied['rows'] ?? 0) && !($applied['warnings'] ?? [])))
-        ? t('Nothing on it is missing from the server any more.', 'Plus rien n’y manque au serveur.')
+    // nothing written: everything on it is already there (spawns that already stand at the same place included)
+    $said = $only && !(int)($applied['log'] ?? 0) && ($applied['ok'] || !(int)($applied['rows'] ?? 0))
+        ? trim(t('Nothing on it is missing from the server any more.', 'Plus rien n’y manque au serveur.') . ' ' . implode(' ', (array)($applied['warnings'] ?? [])))
         : ($applied['ok']
         ? sprintf(t('Applied at once: %s row(s) (history #%d).', 'Appliqué aussitôt : %s ligne(s) (historique #%d).'), number((int)($applied['rows'] ?? 0)), (int)($applied['log'] ?? 0))
         : ($only ? t('Not applied on its own:', 'Pas appliqué automatiquement :') . ' ' . strip_tags((string)($applied['message'] ?? '')) : ''));
