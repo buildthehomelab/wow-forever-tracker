@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A Wowhead crawl that runs by itself: the Chrome extension.** The Forge › Crawl › *Download the Chrome extension*
+  gives a zip with this tracker's address and a key of its own (made once, kept in `data/wowhead-extension.key`, so no
+  setting). Loaded in Chrome, it keeps a pinned Wowhead tab, loads the crawler with the tracker's queue after every
+  load (`GET api/wowhead-crawler`), opens the tab again after a close or a restart of Chrome (checked every 5
+  minutes), and sends each batch to `api/wowhead-push`; no console, no tracker tab. Its popup shows the queue, the
+  pace and what was sent, and pauses it. `api/wowhead-push` takes the extension's key as well as `[wowhead]
+  push_token`. The crawler sends to the extension's script in its own tab when the extension loaded it.
+
 - **ForeverChanges read from the site, regularly.** foreverchanges.pro was rebuilt and the data files the old pack
   was made from are gone, so the tracker now reads the site itself (`tools/foreverchanges_pull.py`): robots.txt
   obeyed, one request at a time with a pause that grows when the site asks, what the last analysis lacks first, up

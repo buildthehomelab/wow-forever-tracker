@@ -1,0 +1,4 @@
+{
+  "tracker": "http://tracker.example:8090",
+  "key": "the tracker's [wowhead] push_token, or the key in its data/wowhead-extension.key"
+}

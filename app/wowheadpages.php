@@ -647,3 +647,60 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $lines[] = '})();';
     return $js . implode("\n", $lines) . "\n";
 }
+
+// ---------------------------------------------------------------- the Chrome extension (tools/wowhead-pages/extension)
+//
+// The extension keeps a Wowhead tab open in Chrome, loads the crawler this tracker builds into it after every load, and
+// sends what it reads to api/wowhead-push: a crawl that starts and goes on by itself (docs/WOWHEAD-PAGES.md). It sends
+// a key of its own, made the first time it is downloaded and kept in data/, so it needs no setting.
+
+function wowhead_extension_key_file(): string { return FT_ROOT . '/data/wowhead-extension.key'; }
+
+/** The extension's key ('' while none was made); $make: made now when there is none. */
+function wowhead_extension_key(bool $make = false, ?string $file = null): string
+{
+    $file ??= wowhead_extension_key_file();
+    $key = is_file($file) ? trim((string)file_get_contents($file)) : '';
+    if ($key === '' && $make) {
+        $key = bin2hex(random_bytes(20));
+        if (@file_put_contents($file, $key . "\n", LOCK_EX) === false) throw new RuntimeException('the data folder cannot be written to');
+        @chmod($file, 0600);
+    }
+    return $key;
+}
+
+/** Whether a key sent to api/wowhead-push or api/wowhead-crawler is one this tracker takes: [wowhead] push_token
+ *  (a script's), or the extension's. Each counts only with 16 characters or more. */
+function wowhead_push_allowed(string $given, ?string $keyFile = null): bool
+{
+    foreach ([(string)config('wowhead', 'push_token', ''), wowhead_extension_key(false, $keyFile)] as $key) {
+        if (strlen($key) >= 16 && hash_equals($key, $given)) return true;
+    }
+    return false;
+}
+
+/** The address the extension calls this tracker at: the one this request came to (an administrator's browser). */
+function wowhead_extension_origin(): ?string
+{
+    $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+    if (!preg_match('/^[\w.\-]+(:\d{1,5})?$|^\[[0-9a-f:.]+\](:\d{1,5})?$/i', $host)) return null;
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+    return ($https ? 'https' : 'http') . '://' . $host . rtrim(base_path(), '/');
+}
+
+/** The extension as a zip (one folder, wowhead-crawl/), with this tracker's address and key in config.json. */
+function wowhead_extension_zip(string $tracker, string $key, ?string $dir = null): string
+{
+    $dir ??= FT_ROOT . '/tools/wowhead-pages/extension';
+    $tmp = tempnam(sys_get_temp_dir(), 'whx');
+    $zip = new ZipArchive();
+    if ($zip->open($tmp, ZipArchive::OVERWRITE) !== true) throw new RuntimeException('the zip cannot be made');
+    foreach (scandir($dir) ?: [] as $file) {
+        if ($file[0] !== '.' && !str_starts_with($file, 'config') && is_file("$dir/$file")) $zip->addFile("$dir/$file", "wowhead-crawl/$file");
+    }
+    $zip->addFromString('wowhead-crawl/config.json', json_encode(['tracker' => $tracker, 'key' => $key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    $zip->close();
+    $bytes = (string)file_get_contents($tmp);
+    @unlink($tmp);
+    return $bytes;
+}

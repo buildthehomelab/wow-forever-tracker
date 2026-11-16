@@ -215,4 +215,37 @@ check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap");') && str_cont
 
 check(str_contains(wowhead_pages_crawler(['item' => [3]], true), "await WHC.full();\n  WHC.start();") && !str_contains($js, 'WHC.full'), 'the full crawl download also starts the whole database');
 
+// the Chrome extension: a key of its own, made once; the push and crawler endpoints take it as well as push_token
+$kd = ft_test_dir();
+check(wowhead_extension_key(false, "$kd/x.key") === '' && !is_file("$kd/x.key"), 'no extension key until one is asked for');
+$xk = wowhead_extension_key(true, "$kd/x.key");
+check(strlen($xk) === 40 && wowhead_extension_key(true, "$kd/x.key") === $xk, 'the extension key: made once, then the same');
+check(wowhead_push_allowed($xk, "$kd/x.key") && !wowhead_push_allowed('', "$kd/x.key") && !wowhead_push_allowed(substr($xk, 1), "$kd/x.key") && !wowhead_push_allowed('', "$kd/none.key"),
+    'the extension key opens the push, nothing else does');
+// its zip: the extension's files, and a config.json with this tracker's address and the key (never the example)
+$zipFile = "$kd/x.zip";
+file_put_contents($zipFile, wowhead_extension_zip('http://tracker.example:8090', $xk));
+$zx = new ZipArchive();
+$zx->open($zipFile);
+$names = [];
+for ($i = 0; $i < $zx->numFiles; $i++) $names[] = $zx->getNameIndex($i);
+sort($names);
+$zconf = json_decode((string)$zx->getFromName('wowhead-crawl/config.json'), true);
+$manifest = json_decode((string)$zx->getFromName('wowhead-crawl/manifest.json'), true);
+check($names === ['wowhead-crawl/background.js', 'wowhead-crawl/bridge.js', 'wowhead-crawl/config.json', 'wowhead-crawl/manifest.json', 'wowhead-crawl/popup.html', 'wowhead-crawl/popup.js'],
+    'the extension zip: its files and config.json only: ' . implode(' ', $names));
+check($zconf === ['tracker' => 'http://tracker.example:8090', 'key' => $xk], 'config.json: the tracker and the key');
+check(($manifest['manifest_version'] ?? 0) === 3 && ($manifest['background']['service_worker'] ?? '') === 'background.js' && in_array('https://www.wowhead.com/*', $manifest['host_permissions'] ?? [], true),
+    'the manifest: version 3, the worker, Wowhead');
+$bg = (string)$zx->getFromName('wowhead-crawl/background.js');
+check(str_contains($bg, "'/api/wowhead-crawler'") && str_contains($bg, "'/api/wowhead-push'") && str_contains($bg, "world: 'MAIN'") && str_contains($bg, '__whcExtension = true'),
+    'the worker loads the tracker\'s crawler into the page, flagged, and sends to the push endpoint');
+$zx->close();
+$crawler = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
+check(str_contains($crawler, 'root.__whcExtension') && str_contains($crawler, 'to.postMessage({ whc: \'pages\''), 'the crawler sends to its own tab when the extension loaded it');
+check(str_contains((string)file_get_contents(FT_APP . '/pages/admin/crawl.php'), 'data-scribe="wowhead_extension"'), 'the Crawl page offers the extension');
+// the crawler endpoint: answered before the private site's gate, GET only, and only with a key
+[$st, $out] = ft_test_request('/api/wowhead-crawler', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
+check($st === 403 && str_contains($out, 'not allowed'), 'the crawler endpoint: past the gate, refused without a key: ' . $st);
+
 ft_test_done();
