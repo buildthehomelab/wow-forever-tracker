@@ -67,6 +67,61 @@ function import_origin_record(array $origins, int $importId): void
     }
 }
 
+/**
+ * The rows a script's refresh statements set (forge_set_statement): [[table, row key], …], in the script's order.
+ * Only keys of numbers, which is what the loot and quest tables' are.
+ */
+function import_refresh_keys(string $sql): array
+{
+    $found = [];
+    $re = '/^UPDATE `(\w+)` SET `(\w+)` = \S+ WHERE ((?:`\w+` = -?\d+(?: AND )?)+) AND (?:ABS\(`\2`|`\2` (?:IS NULL|<=>)).*' . preg_quote(FORGE_SET_MARK, '/') . ';$/m';
+    preg_match_all($re, $sql, $m, PREG_SET_ORDER);
+    foreach ($m as [, $table, , $where]) {
+        preg_match_all('/`\w+` = (-?\d+)/', $where, $values);
+        $found[] = [$table, import_origin_key($values[1])];
+    }
+    return $found;
+}
+
+/**
+ * Who wrote the rows the applied imports refreshed before their source was kept (fork 1ec0f477 and earlier kept it
+ * only for rows a card inserted or changed in its tables, not for its values measured again): read back once from
+ * the History, the newest apply of a row winning. A writer kept at a later apply stays.
+ */
+function import_origin_backfill(): void
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    $mark = import_dir() . '/origins-refreshed';
+    if (is_file($mark)) return;
+    require_once FT_APP . '/forge.php';
+    import_origin_schema(); forge_schema();
+    $found = [];
+    foreach (rows("SELECT id, created_at, items, sql_apply FROM ft_forge_log WHERE kind = 'import' AND state = 'applied' ORDER BY id DESC") as $log) {
+        $card = 0;
+        foreach ((array)json_decode((string)$log['items'], true) as $item) if (($item['type'] ?? '') === 'import') { $card = (int)$item['id']; break; }
+        if (!$card) continue;
+        $source = null;
+        foreach ((array)json_decode((string)$log['sql_apply'], true) as $database => $script) {
+            foreach (array_reverse(import_refresh_keys((string)$script)) as [$table, $key]) {
+                if (isset($found["$database\t$table\t$key"])) continue;
+                $found["$database\t$table\t$key"] = [$database, $table, $key, $source ??= import_source($card), $card, (string)$log['created_at']];
+            }
+        }
+    }
+    foreach (array_chunk(array_values($found), 500) as $chunk) {
+        $values = []; $params = [];
+        foreach ($chunk as $row) { $values[] = '(?, ?, ?, ?, ?, ?)'; array_push($params, ...$row); }
+        // a writer kept at an apply after this one stays
+        rows('INSERT INTO ft_row_origin (db, tbl, row_key, source, import_id, written_at) VALUES ' . implode(',', $values) . '
+            ON DUPLICATE KEY UPDATE source = IF(written_at < VALUES(written_at), VALUES(source), source),
+            import_id = IF(written_at < VALUES(written_at), VALUES(import_id), import_id), written_at = GREATEST(written_at, VALUES(written_at))', $params);
+    }
+    @mkdir(dirname($mark), 0775, true);
+    @file_put_contents($mark, date('c') . ' ' . count($found) . "\n");
+}
+
 /** The source of an import card: the one its file names ("icyveins@…", "classicdb-holiday-…@…", Wowhead's quest
  *  enders), 'scribe' for ForeverScribe's notes, 'sniff' for a file in WowPacketParser's format. */
 function import_source(int $id): string
@@ -561,7 +616,13 @@ function import_build(int $id, array $only = [], array $items = []): array
         forge_merge($ops, ['db' => 'world', 'table' => 'creature_template_difficulty', 'columns' => ['Entry', 'DifficultyID', $column], 'match' => ['Entry', 'DifficultyID'], 'fill' => $column, 'rows' => $fill]);
     }
     // only the whole card changes values: "the sources of these items" (the Items page) adds what is missing, no more
-    if ($itemSet === null) foreach ($changes as $op) forge_merge($ops, $op);
+    // the card's values measured again were weighed when it was made; who wrote each row since is weighed again here
+    if ($itemSet === null && $changes) {
+        [$sets, $written, $held] = import_trusted_changes($changes, $source, $trust, $tolerance);
+        foreach ($sets as $op) forge_merge($ops, $op);
+        foreach ($written as [$database, $table, $key]) $origins[] = [$database, $table, $key, $source];
+        $kept += $held;
+    }
     if ($nearby) $warnings[] = sprintf(t('%d spawn(s) already stand at the same place on the server and were left out.', '%d placement(s) existent déjà au même endroit sur le serveur et ont été écartés.'), $nearby);
     if ($moved) $warnings[] = sprintf(t('%d spawn(s) stood a few yards off and are moved to where this source places them.', '%d placement(s) se trouvaient à quelques mètres et sont déplacés là où cette source les place.'), $moved);
     if ($updated) $warnings[] = sprintf(t('%d value(s) of rows the server already has differ: this source\'s newer word replaces them.', '%d valeur(s) de lignes que le serveur a déjà diffèrent : le mot plus récent de cette source les remplace.'), $updated);
@@ -572,6 +633,64 @@ function import_build(int $id, array $only = [], array $items = []): array
     $built['spawns'] = (bool)array_intersect(array_keys($tables), array_keys(IMPORT_SPAWN_TABLES));
     $built['origins'] = $origins;
     return $built;
+}
+
+/**
+ * A card's values measured again (its "changes": set operations made when the card was), weighed against the server
+ * as it is now: [the set operations still to apply, [db, table, row key] of each row they write, rows held because a
+ * more trusted source (or an administrator) wrote them since]. A value the server already holds, or one within
+ * [sources] chance_tolerance of a drop chance, is left out. Without this a card made before a better source's apply
+ * put that source's numbers back, and the next card of the better source put its own back again.
+ */
+function import_trusted_changes(array $changes, string $source, array $trust, float $tolerance): array
+{
+    import_origin_backfill();
+    $sets = []; $written = []; $held = 0;
+    foreach ($changes as $op) {
+        $database = (string)($op['db'] ?? 'world'); $table = (string)$op['table']; $column = (string)$op['set'];
+        $match = array_values((array)$op['match']);
+        if (!$match || !table_exists($table, $database)) continue;
+        $hasComment = in_array('Comment', import_columns($database, $table), true);
+        $at = array_flip((array)$op['columns']);
+        $current = [];
+        foreach (array_chunk(array_values($op['rows']), 500) as $chunk) {
+            $tuples = array_map(fn($row) => array_map(fn($c) => $row[$at[$c]], $match), $chunk);
+            $select = implode(',', array_map('forge_ident', array_merge($match, [$column], $hasComment ? ['Comment'] : [])));
+            foreach (rows("SELECT $select FROM " . forge_ident($table) . ' WHERE ' . forge_in($match, $tuples, $database), [], $database) as $r) {
+                $current[import_origin_key(array_map(fn($c) => $r[$c], $match))] = ['value' => $r[$column], 'comment' => $hasComment ? (string)$r['Comment'] : null];
+            }
+        }
+        $origin = $current ? import_origins($database, $table, array_keys($current)) : [];
+        [$rows, $keys, $h] = import_weigh_changes($op, $current, $origin, $source, $trust, $tolerance);
+        $held += $h;
+        if (!$rows) continue;
+        $sets[] = ['rows' => $rows] + $op;
+        foreach ($keys as $key) $written[] = [$database, $table, $key];
+    }
+    return [$sets, $written, $held];
+}
+
+/**
+ * The rows of one set operation that may still be applied: [rows, their row keys, rows held]. $current: [row key =>
+ * ['value' => the server's, 'comment' => its Comment or null]]; $origin: [row key => source] (ft_row_origin). A row
+ * the server no longer has is left out.
+ */
+function import_weigh_changes(array $op, array $current, array $origin, string $source, array $trust, float $tolerance): array
+{
+    $at = array_flip((array)$op['columns']); $column = (string)$op['set'];
+    $rows = []; $keys = []; $held = 0;
+    foreach ($op['rows'] as $row) {
+        $key = import_origin_key(array_map(fn($c) => $row[$at[$c]], (array)$op['match']));
+        if (!isset($current[$key])) continue;
+        $old = $current[$key]['value']; $new = $row[$at[$column]];
+        $moved = $column === 'Chance' && is_numeric($old) && is_numeric($new) ? source_chance_moved((float)$old, (float)$new, $tolerance)
+            : ($old === null || !forge_same_value(is_float($new) ? (float)$old : $old, $new));
+        if (!$moved) continue;
+        $writer = $origin[$key] ?? ($current[$key]['comment'] !== null ? source_origin($current[$key]['comment']) : null);
+        if (source_may_change($source, $writer, $trust) !== 'yes') { $held++; continue; }
+        $rows[] = $row; $keys[] = $key;
+    }
+    return [$rows, $keys, $held];
 }
 
 /**
