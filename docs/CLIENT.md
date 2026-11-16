@@ -202,15 +202,63 @@ The changelog gets a step for each kept cache:
 
 Each step is worked out once and kept next to its cache (`<cache>.changelog.json`). The double check replays the
 hotfix steps with the builds, so the original game plus every build and every day's hotfixes must give today's game.
-Hotfixes from before the tracker kept them cannot be had again: the history starts the first day a cache is kept.
+
+### Hotfixes back to the beta, dated from the builds
+
+Today's cache holds every hotfix Blizzard still sends, back to the beta: about 750 pushes over some 57,000 rows (and
+one push per item for the 5,000 items that exist by hotfix alone). It says nothing of when each came, and its push
+numbers are not in that order. The builds do: Blizzard writes a build's hotfixes into the next client it ships. With
+every build since the beta stored, `ft/dating.py` dates each row of the cache by the build that carries its value after
+the last build that did not:
+
+| the row                                  | its window                                                 |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| the same in every build                  | sent again, changes nothing: in every build's cache        |
+| first carried by build B                 | a hotfix to the build before B, live until B shipped       |
+| carried by no build yet                  | a hotfix to the newest build                               |
+| a record no build has at all             | there by hotfix alone: in every build's cache, never "added" |
+
+A build Blizzard shipped with the very tables of the one before (a program-only build) does not end a window: the
+window belongs to the first build of such a run, and the builds of the run carry its hotfixes. Each build then gets
+two caches, written from today's cache with its own number in the header: the build as it shipped, and the build as
+its window left it. The second is a hotfix entry of the timeline; the next build is compared with it, so what that
+build only baked in is not counted twice. The newest build gets the build as it shipped first, then the caches the
+tracker downloaded itself.
+
+The work (minutes: every row against every build's table) is done at the analysis when the cache or the builds
+changed, and kept in the newest build's `hotfixes/dated.json`; new notes only re-date the windows.
+
+What the builds cannot give: the day inside a window, and a value a hotfix had before a later hotfix replaced it with
+no client built in between (the cache keeps the current value only). The days come from the written notes.
+
+## Notes: what Blizzard wrote, and the changes made on the servers
+
+`tracker.py notes` (also part of every client check) stores, in `data/notes/`:
+
+- **Blizzard's blue posts** (`blizzard.json`): every post of Blizzard staff in WoW: Forever's forums since August 2026,
+  from the forums' own JSON (the "Blizzard tracker" list, then each post's whole text, once). The hotfix posts are read
+  a day at a time ("November 13, 2026", then its topics and lines); the other posts (maintenance, known issues, "Dungeon
+  XP adjustment") are kept as they are posted. They tell of changes made on the servers, which no client file shows.
+- **Icy Veins' hotfix news** (`icyveins.json`): its WoW: Forever articles about hotfixes, patch notes and development
+  notes, from its WordPress JSON API (category `wow-forever`; the site's own pages sit behind a bot check). Only the
+  blocks where it quotes Blizzard are read, a day at a time, dated by the day the title names. Used where Blizzard's
+  forum has no notes for a day, and linked from every day it covers.
+- **ForeverChanges' patch notes** (`foreverchanges.json`, https://foreverchanges.pro/patch-notes): a line for every build
+  and every hotfix day since the beta. Used only where neither Blizzard nor Icy Veins has the day, to fill gaps until the tracker's own
+  sources say as much; shown under its name, and it never changes a value of the official list.
+
+A hotfix entry of the timeline covers the days of its window and is named after them ("Hotfixes of Nov 10–12"); its
+page lists each day's notes: Blizzard's, else Icy Veins', else ForeverChanges'. A line that names something the entry changed in the client's data is
+marked "In the client data", any other "Server side". A window that changed nothing in the client's data but has notes
+still gets its entry ("Server-side changes only").
 
 A step can be turned back into data a test realm loads: [CHECKOUT.md](CHECKOUT.md).
 
 ## What it does not do yet
 
-- **Hotfixes before the history.** The hotfixes of a build from before its first kept cache are part of the
-  difference between two builds. A resource that exists by hotfix alone is in no build's tables, so nothing says when
-  it appeared: compared with a build whose hotfixes were never stored it is not listed as added (the changelog says how
-  many there are), and it counts as known since that build.
+- **The day of a hotfix inside its window, and replaced values.** See "Hotfixes back to the beta" above. A resource
+  that exists by hotfix alone is in no build's tables, so nothing says when it appeared: it is not listed as added
+  (the changelog says how many there are), and it counts as known since the first build.
+- **Wowhead as notes.** It has no dated list of WoW: Forever's hotfixes to read today.
 - **Other locales.** The enUS tables and the enUS cache are read; a French snapshot still comes from the server's own
   copy.

@@ -262,7 +262,7 @@ def calm(log):
     return lambda text: log(str(text).replace('Error', 'error').replace('Traceback', 'traceback'))
 
 
-def check(fetch_client, fetch_hotfixes, log=print, fetch_history=None):
+def check(fetch_client, fetch_hotfixes, log=print, fetch_history=None, fetch_notes=None):
     """The live build, then Blizzard's hotfixes, then the builds before: True when one of them stored something the
     analysis has not seen.
 
@@ -302,7 +302,16 @@ def check(fetch_client, fetch_hotfixes, log=print, fetch_history=None):
             before = result['code'] == FETCHED
         except (RuntimeError, OSError, LookupError, StopIteration, ValueError) as error:
             say(f'earlier builds: the list of builds could not be read ({error}): asked again at the next check')
-    return new or stored or before
+    written = False
+    if fetch_notes:
+        # the notes date the hotfixes: new ones are a reason to work the timeline out again
+        try:
+            result = fetch_notes()
+            say('notes: ' + result['message'])
+            written = result['code'] == 0
+        except (RuntimeError, OSError, LookupError, ValueError) as error:
+            say(f'notes: could not be read ({error}): asked again at the next check')
+    return new or stored or before or written
 
 
 def store(build, version, tables, still, numbers, source, day=None, more=None):

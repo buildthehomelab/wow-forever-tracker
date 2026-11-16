@@ -138,10 +138,12 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
       <a href="<?= e(url('changes', ['build' => (int)$b['build'], 'hotfix' => $fix])) ?>">
         <span class="tl-dot"></span>
         <strong><?= e(hotfix_name($b)) ?></strong>
-        <small><?= e(sprintf(t('After build %s', 'Après le build %s'), $b['version'])) ?></small>
+        <?php $days = hotfix_days($b); $topics = array_slice(array_keys(notes_topics($days)), 0, 3); ?>
+        <small><?= e(sprintf(t('After build %s', 'Après le build %s'), $b['version'])) ?><?= count($days) > 1 ? ' · ' . e(sprintf(t('%d days', '%d jours'), count($days))) : '' ?></small>
         <span class="tl-tags"><em class="tag is-hotfix"><?= e(t('Hotfix', 'Correctif')) ?></em></span>
         <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
-        <?php else: ?><span class="tl-counts"><em><?= e(t('Nothing the tracker compares', 'Rien de ce que le tracker compare')) ?></em></span><?php endif; ?>
+        <?php else: ?><span class="tl-counts"><em><?= e($days ? t('Server-side changes only', 'Changements côté serveur seulement') : t('Nothing the tracker compares', 'Rien de ce que le tracker compare')) ?></em></span><?php endif; ?>
+        <?php if ($topics): ?><span class="tl-topics"><?= e(implode(' · ', $topics)) ?></span><?php endif; ?>
       </a>
     </li>
     <?php continue; endif; ?>
@@ -154,7 +156,7 @@ $fixCount = table_exists('ft_fixes') ? (int)value('SELECT COUNT(*) FROM ft_fixes
         <?php if ($c): ?><span class="tl-counts"><b class="is-added">+<?= number($c['added'] ?? 0) ?></b><b class="is-modified">~<?= number($c['modified'] ?? 0) ?></b><b class="is-removed">−<?= number($c['removed'] ?? 0) ?></b></span>
         <?php elseif (build_is_vanilla($b)): $held = array_sum(array_map('intval', (array)(json_decode((string)$b['counts'], true) ?: []))); ?>
         <span class="tl-counts"><?php if ($held): ?><b class="is-added">+<?= number($held) ?></b><?php endif; ?><em><?= e(t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog')) ?></em></span>
-        <?php else: ?><span class="tl-counts"><em><?= e(build_is_vanilla($b) ? t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog') : ($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : t('No data change', 'Aucune donnée modifiée'))) ?></em></span><?php endif; ?>
+        <?php else: $before = $builds[$index + 1] ?? null; ?><span class="tl-counts"><em><?= e(build_is_vanilla($b) ? t('The original game: where the changelog starts', 'Le jeu d’origine : le début du changelog') : ($index === count($builds) - 1 ? t('Reference build', 'Build de référence') : ($before ? sprintf(t('Same game data as %s', 'Mêmes données que %s'), $before['version']) : t('No data change', 'Aucune donnée modifiée')))) ?></em></span><?php endif; ?>
       </a>
     </li>
   <?php endforeach; ?>

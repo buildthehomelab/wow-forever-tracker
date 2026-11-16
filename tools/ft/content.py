@@ -610,10 +610,12 @@ def changelog(build_list, log=lambda text: None, read=None, own=None, origin=Non
                         del loaded[at]
                     forget(b['dir'])
                 steps.append((b['build'], step))   # the replay follows every step, one that changed nothing too
-                if not step.get('changes'):
-                    continue   # a new cache that changed nothing the tracker compares: no entry of its own
+                if not step.get('changes') and not (entry.get('window') or {}).get('days'):
+                    continue   # a new cache that changed nothing the tracker compares, on days nobody wrote about: no entry
                 hotfix_steps.append({'build': b['build'], 'hotfix': number, 'version': b.get('version', ''), 'date': entry.get('read'),
-                                     'records': entry.get('records', 0), 'counts': step['counts'], 'source': 'hotfix'})
+                                     'records': entry.get('records', 0), 'counts': step['counts'], 'source': 'hotfix',
+                                     # the days it covers, when ft.dating worked them out from the builds
+                                     'window': entry.get('window')})
                 for kind, entity_id, change, fields, name in step.get('changes') or []:
                     if change == 'added':
                         first_seen.setdefault((kind, entity_id), b['build'])
