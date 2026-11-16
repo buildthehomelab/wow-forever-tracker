@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Season of Discovery items Forever kept: Wowhead Classic's item pages.** The Forever client still carries Season of
+  Discovery's items, and Forever brought some of them back (the Tarnished Undermine Real), but Wowhead's Forever pages
+  often know no source for them yet. For a gap item that is Season's (id 190000 and up, in the Classic Era client), the
+  crawler now also reads its Classic item page, right after the Forever page and in the same tier, unless the Forever
+  page names a drop, a chest or a vendor. The Wowhead Classic card takes their drops (Dropped by, Contained in), with
+  Forever's counts still winning where Forever has them. A Season currency (an item with a *Currency for* tab) is no
+  world drop however many bosses drop it: each boss gets a row, as Season of Discovery had it; other Season items many
+  creatures drop stay out. Vendors are not taken from Classic: Forever cut those vendors' stock, and Forever's own npc
+  pages give it (counted on the card). Stock paid with the Tarnished Undermine Real still has no row: neither the
+  client nor its hotfixes (build 70938) hold an extended cost paid in it.
+
 - **Crawl page: list pages and the last page received.** The Forge › Crawl also counts the list pages a whole
   crawl reads first (they were kept but not shown) and says when the last page came, so a crawl that stopped shows.
 

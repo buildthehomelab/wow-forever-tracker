@@ -110,6 +110,40 @@ check(source_named('Wowhead Classic 2026-11-15') === 'wowheadclassic' && source_
 $trust = source_trust('');
 check(array_search('wowheadclassic', $trust, true) > array_search('atlasloot', $trust, true) && array_search('wowheadclassic', $trust, true) < array_search('classicdb', $trust, true)
     && source_may_change('wowheadclassic', 'wowhead', $trust) === 'trusted' && source_may_change('wowheadclassic', 'classicdb', $trust) === 'yes', 'Classic\'s counts rank after every Forever recording, before the original game\'s database');
+
+// ---- Season of Discovery items Forever kept: Classic's item page where Forever's names no source
+$sb = ft_test_dir() . '/era.json';
+file_put_contents($sb, json_encode(['build' => 'x', 'tables' => ['ItemSparse' => [[1, 25000], [226400, 226410], [230000, 230005]]]]));
+check(wowhead_pages_season_items([5000, 226404, 226411, 230001, 250000], $sb) === [226404 => true, 230001 => true], 'Season items: from 190000 up and in the Classic Era client');
+$sForever = [
+    226404 => ['id' => 226404, 'fetched' => 1, 'status' => 'ok', 'tabs' => []],                                                            // Forever knows no source
+    230001 => ['id' => 230001, 'fetched' => 1, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 9, 'count' => 5, 'outof' => 50]])]],   // Forever has one
+];
+check(wowhead_pages_season_queue([250000, 226404, 230001, 230002, 230003], $sForever, [230003 => true], $sb) === [226404, 230002],
+    'the Classic pages queued: Season items whose Forever page names no source or is not read, not read on Classic yet');
+$js3 = wowhead_pages_crawler(['item' => [226404, 250000], 'blocking' => 1, 'classic/item' => [226404, 230002], 'classicBlocking' => 1]);
+check(str_contains($js3, 'await WHC.prioritize(["classic/item:226404"], "gap");') && str_contains($js3, 'await WHC.prioritize(["classic/item:230002"], "gapOther");')
+    && strpos($js3, '"item:226404"') < strpos($js3, '"classic/item:226404"'), 'a Season item\'s Classic page, in its tier, after its Forever page');
+$bosses = array_map(fn($i) => ['id' => 600 + $i, 'count' => 40, 'outof' => 200], range(1, 20));
+$sClassic = [
+    // a currency twenty bosses drop: a row each
+    226404 => ['id' => 226404, 'fetched' => 6000, 'status' => 'ok', 'branch' => 'classic', 'tabs' => ['dropped-by' => $tab($bosses, 133),
+        'currency-for' => ['template' => 'item', 'rows' => [['id' => 226500]]], 'sold-by' => $tab([['id' => 14921, 'stock' => -1, 'cost' => [100]]])]],
+    // a Season world drop: still one
+    230002 => ['id' => 230002, 'fetched' => 6000, 'status' => 'ok', 'branch' => 'classic', 'tabs' => ['dropped-by' => $tab($bosses, 133)]],
+    230001 => ['id' => 230001, 'fetched' => 6000, 'status' => 'ok', 'branch' => 'classic', 'tabs' => ['dropped-by' => $tab([['id' => 8, 'count' => 50, 'outof' => 100]])]],
+    5000 => ['id' => 5000, 'fetched' => 6000, 'status' => 'ok', 'branch' => 'classic', 'tabs' => ['dropped-by' => $tab([['id' => 8, 'count' => 50, 'outof' => 100]])]],
+];
+$sTaken = wowhead_pages_classic_items($sForever, $sClassic, $sb);
+check(array_keys($sTaken) === [226404, 230002], 'Classic item pages taken: Season items whose Forever page names no source');
+$sGaps = array_fill_keys([226404, 230001, 230002], true);
+[$sev] = wowhead_pages_classic_evidence([], $sForever, $sGaps, [], [], $sGaps, $sTaken);
+$sDrops = array_values(array_filter($sev['drop'], fn($d) => $d[2] === 226404));
+check(count($sDrops) === 20 && $sDrops[0] === ['npc', 601, 226404, 20.0] && !array_filter($sev['drop'], fn($d) => $d[2] === 230002),
+    'a Season currency: each boss a row of its own; a Season world drop stays out: ' . json_encode(array_slice($sev['drop'], 0, 2)));
+check($sev['sell'] === [] && ($sev['left']['wowhead_classic_season_vendor'] ?? 0) === 1 && ($sev['left']['wowhead_drop_world'] ?? 0) === 20,
+    'no vendor from Classic\'s Season item pages, counted: ' . json_encode($sev['left']));
+
 $cnt = ft_test_dir();
 file_put_contents("$cnt/npc.jsonl", "{\"id\":1}\n{\"id\":2}\n");
 check(wowhead_pages_count('npc', [$cnt]) === 2 && wowhead_pages_count('classic-npc', [$cnt]) === 0, 'a shelf counted by its lines');

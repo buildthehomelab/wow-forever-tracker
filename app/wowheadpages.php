@@ -111,9 +111,10 @@ function wowhead_pages_first_cost($cost)
  * row: the gaps and the items of drops an import brought, which are measured again. What was left out is counted for
  * the items of $gapItems only ([id => true]), since the others are no question the card answers. $itemFacts
  * ([item => how many creatures drop it]) are item pages read elsewhere (Forever's, for Classic's pages): they tell a
- * world drop as the item's own page would.
+ * world drop as the item's own page would. $notWorldDrop ([item => true]): items whose many creatures each get a row
+ * of their own (a Season of Discovery currency every boss of a level drops, as Season of Discovery had it).
  */
-function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null, array $itemFacts = []): array
+function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null, array $itemFacts = [], array $notWorldDrop = []): array
 {
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => []];
     $left = ['wowhead_item_unknown' => 0, 'wowhead_no_source' => 0, 'wowhead_only_other_source' => 0, 'wowhead_drop_world' => 0,
@@ -191,7 +192,7 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
     foreach ($drops as [$kind, $id, $item, $count, $outof]) {
         $gap = isset($gapItems[$item]);
         // many creatures drop it: a world drop, which belongs to the shared tables no page describes
-        if ($kind === 'npc' && max($droppers[$item] ?? 0, $npcDroppers[$item] ?? 0) >= WOWHEAD_PAGES_WORLD_DROP) { if ($gap) $left['wowhead_drop_world']++; continue; }
+        if ($kind === 'npc' && !isset($notWorldDrop[$item]) && max($droppers[$item] ?? 0, $npcDroppers[$item] ?? 0) >= WOWHEAD_PAGES_WORLD_DROP) { if ($gap) $left['wowhead_drop_world']++; continue; }
         // a creature's drop of a gap item, from the creature's page only: until every npc page is read, only the item's
         // own page tells a world drop from a creature's own loot
         if ($kind === 'npc' && $gap && !isset($itemRead[$item])) { $left['wowhead_drop_item_page_not_read']++; continue; }
@@ -287,12 +288,26 @@ function wowhead_pages_item_facts(array $items): array
  * Classic's pages as evidence for Forever: [evidence, the newest page's time]. Only drops: Classic's players looted
  * the same creatures and chests far more often, but Forever moved vendors and quests, so those are not taken. A drop
  * is taken only where Forever's pages ($forever, its evidence) give no counted chance of their own, and Forever's item
- * pages ($foreverItems) tell a world drop. The crawler reads a Classic page only for an id Forever has too, whose
- * Forever page lacks counts (crawler.js richEnough).
+ * pages ($foreverItems) tell a world drop. The crawler reads a Classic npc or object page only for an id Forever has
+ * too, whose Forever page lacks counts (crawler.js richEnough).
+ *
+ * $classicItems ([id => record]): Classic's item pages of the Season of Discovery items Forever kept, read where the
+ * Forever page names no source (wowhead_pages_season_queue). Their Dropped by and Contained in tabs count as an item
+ * page of Forever's would; one that pays for other items (a Currency for tab: the Tarnished Undermine Real) is no world
+ * drop however many creatures drop it. Their Sold by tab is not taken: Forever cut those vendors' stock (Forever's
+ * own npc pages give it), and is counted.
  */
-function wowhead_pages_classic_evidence(array $forever, array $foreverItems, array $gapItems, iterable $npcs, iterable $objects, ?array $keep = null): array
+function wowhead_pages_classic_evidence(array $forever, array $foreverItems, array $gapItems, iterable $npcs, iterable $objects, ?array $keep = null, array $classicItems = []): array
 {
-    [$ev, $newest] = wowhead_pages_evidence([], [], $gapItems, $npcs, $objects, $keep, wowhead_pages_item_facts($foreverItems));
+    $facts = wowhead_pages_item_facts($foreverItems);
+    $currencies = []; $vendors = 0;
+    foreach ($classicItems as $item => $page) {
+        if (($page['status'] ?? '') !== 'ok') continue;
+        unset($facts[(int)$item]);   // the Classic page says how many creatures drop it
+        if (!empty($page['tabs']['currency-for']['rows'])) $currencies[(int)$item] = true;
+        if (!empty($page['tabs']['sold-by']['rows']) && isset($gapItems[(int)$item])) $vendors++;
+    }
+    [$ev, $newest] = wowhead_pages_evidence($classicItems, [], $gapItems, $npcs, $objects, $keep, $facts, $currencies);
     $counted = [];
     foreach ($forever['drop'] ?? [] as $d) $counted["{$d[0]}:{$d[1]}:{$d[2]}"] = true;
     $drops = []; $known = 0;
@@ -302,7 +317,17 @@ function wowhead_pages_classic_evidence(array $forever, array $foreverItems, arr
     }
     $left = array_intersect_key($ev['left'], array_flip(['wowhead_drop_world', 'wowhead_drop_few', 'wowhead_drop_not_counted', 'wowhead_drop_item_page_not_read', 'wowhead_other_loot']));
     if ($known) $left['wowhead_classic_forever_counted'] = $known;
+    if ($vendors) $left['wowhead_classic_season_vendor'] = $vendors;
     return [['sell' => [], 'drop' => $drops, 'start' => [], 'end' => [], 'train' => [], 'left' => $left], $newest];
+}
+
+/** Classic's item pages worth taking: those of Season of Discovery items Forever kept whose Forever page ($forever)
+ *  names no source. A Forever page that does is the one taken. */
+function wowhead_pages_classic_items(array $forever, ?array $classic = null, ?string $baseline = null): array
+{
+    $classic ??= wowhead_pages('classic-item');
+    $season = wowhead_pages_season_items(array_keys($classic), $baseline);
+    return array_filter($classic, fn($page, $id) => isset($season[(int)$id]) && !wowhead_pages_has_source($forever[(int)$id] ?? null), ARRAY_FILTER_USE_BOTH);
 }
 
 /** Classic's pages in the cache as an import card: drops of the last analysis' gaps that Forever's pages count too
@@ -311,12 +336,13 @@ function wowhead_pages_classic_import(): array
 {
     if ($e = source_check()) return $e;
     $has = fn(string $shelf) => is_file(wowhead_pages_dir() . "/$shelf.jsonl") || is_file(FT_ROOT . "/tools/wowhead-pages/cache/$shelf.jsonl");
-    if (!$has('classic-npc') && !$has('classic-object')) return ['ok' => false, 'message' => t('No Classic page has been read yet: the full crawl reads them after Forever\'s (docs/WOWHEAD-PAGES.md).', 'Aucune page Classic n’a encore été lue : le crawl complet les lit après celles de Forever (docs/WOWHEAD-PAGES.md).')];
+    if (!$has('classic-npc') && !$has('classic-object') && !$has('classic-item')) return ['ok' => false, 'message' => t('No Classic page has been read yet: the full crawl reads them after Forever\'s (docs/WOWHEAD-PAGES.md).', 'Aucune page Classic n’a encore été lue : le crawl complet les lit après celles de Forever (docs/WOWHEAD-PAGES.md).')];
     $gaps = source_gaps();
     $keep = wowhead_pages_keep($gaps['items']);
     $foreverItems = wowhead_pages('item');
     [$forever] = wowhead_pages_evidence($foreverItems, [], $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), $keep);
-    [$ev, $newest] = wowhead_pages_classic_evidence($forever, $foreverItems, $gaps['items'], wowhead_pages_each('classic-npc'), wowhead_pages_each('classic-object'), $keep);
+    [$ev, $newest] = wowhead_pages_classic_evidence($forever, $foreverItems, $gaps['items'], wowhead_pages_each('classic-npc'), wowhead_pages_each('classic-object'), $keep,
+        wowhead_pages_classic_items($foreverItems));
     $date = date('Y-m-d', $newest ?: time());
     snapshot_try('wowheadclassic', $date, $ev, 'gaps');
     return wowhead_pages_card('wowheadclassic', $ev, $date, $date . '-' . $newest, $gaps);
@@ -504,7 +530,7 @@ function wowhead_pages_cards_due(bool $force = false): array
     $card = wowhead_pages_import();
     $said = (string)($card['message'] ?? '');
     $id = (int)($card['id'] ?? 0);
-    if (wowhead_pages_count('classic-npc') + wowhead_pages_count('classic-object')) {
+    if (wowhead_pages_count('classic-npc') + wowhead_pages_count('classic-object') + wowhead_pages_count('classic-item')) {
         $classic = wowhead_pages_classic_import();
         $said .= ' ' . (string)($classic['message'] ?? '');
         $id = $id ?: (int)($classic['id'] ?? 0);
@@ -536,6 +562,56 @@ function wowhead_pages_order(array $gapItems, array $waiting, array $quests, arr
     $unread = fn(string $kind, array $ids) => array_values(array_filter($ids, fn($id) => !isset($read[$kind][$id])));
     // 'blocking': how many of the items, from the first, are ones other content waits for (the crawler's tier 1)
     return ['item' => $unread('item', array_merge(array_keys($first), $rest)), 'quest' => $unread('quest', $quests), 'blocking' => count($unread('item', array_keys($first)))];
+}
+
+/**
+ * Which of these items are Season of Discovery's: an id from 190000 up that the Classic Era client has too
+ * (tools/baseline/classic-era.json, the same test as tools/ft/baseline.py season()). Forever kept some of them (the
+ * Tarnished Undermine Real, say): Wowhead's Forever pages often know no source for them yet, its Classic pages do.
+ * [id => true]. $baseline: another file (the tests).
+ */
+function wowhead_pages_season_items(array $ids, ?string $baseline = null): array
+{
+    static $spans = [];
+    $baseline ??= FT_ROOT . '/tools/baseline/classic-era.json';
+    if (!isset($spans[$baseline])) {
+        $data = is_file($baseline) ? json_decode((string)file_get_contents($baseline), true) : null;
+        $spans[$baseline] = array_values(array_filter((array)($data['tables']['ItemSparse'] ?? []), 'is_array'));
+    }
+    $out = [];
+    foreach ($ids as $id) {
+        $id = (int)$id;
+        if ($id < 190000) continue;
+        // the spans are sorted [start, end] pairs: a binary search
+        [$lo, $hi] = [0, count($spans[$baseline]) - 1];
+        while ($lo <= $hi) {
+            $mid = intdiv($lo + $hi, 2);
+            [$start, $end] = $spans[$baseline][$mid];
+            if ($id < $start) $hi = $mid - 1;
+            elseif ($id > $end) $lo = $mid + 1;
+            else { $out[$id] = true; break; }
+        }
+    }
+    return $out;
+}
+
+/** Whether an item page names a source the import can use: a creature or chest it drops from, a vendor. */
+function wowhead_pages_has_source(?array $page): bool
+{
+    if (!$page || ($page['status'] ?? '') !== 'ok') return false;
+    foreach (array_merge(array_keys(WOWHEAD_PAGES_DROP_TABS), ['sold-by']) as $tab) if (!empty($page['tabs'][$tab]['rows'])) return true;
+    return false;
+}
+
+/**
+ * The Classic item pages worth reading for the Season of Discovery items Forever kept: of $items (the queue's gap
+ * items, in order), the Season ones whose Forever page was not read yet or names no source ($forever: [id => record]),
+ * and whose Classic page is not in the cache ($classicRead: [id => true]). In the order of $items.
+ */
+function wowhead_pages_season_queue(array $items, array $forever, array $classicRead, ?string $baseline = null): array
+{
+    $season = wowhead_pages_season_items($items, $baseline);
+    return array_values(array_filter($items, fn($id) => isset($season[(int)$id]) && !isset($classicRead[(int)$id]) && !wowhead_pages_has_source($forever[(int)$id] ?? null)));
 }
 
 /** The ids a branch's whole list pages name ('npcs', 'objects', ...): [id => true], or null when none was read. Read a
@@ -606,10 +682,19 @@ function wowhead_pages_queue(): array
     $gaps = source_gaps();
     $waiting = wowhead_pages_waiting();
     $read = [];
-    foreach (['item', 'quest'] as $kind) {
-        foreach (wowhead_pages($kind) as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
+    $pages = [];
+    foreach (['item', 'quest', 'classic-item'] as $kind) {
+        $pages[$kind] = wowhead_pages($kind);
+        foreach ($pages[$kind] as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
     }
     $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
+    // Season of Discovery items Forever kept: their Classic page where Forever's names no source (read in the same
+    // tier as the Forever page, right after it)
+    $all = wowhead_pages_order($gaps['items'], $waiting, [], [], (int)config('wowhead', 'crawl_min_item', 190000));
+    $season = wowhead_pages_season_queue($all['item'], $pages['item'], $read['classic-item'] ?? []);
+    $blocking = array_flip(array_slice($all['item'], 0, $all['blocking']));
+    $queue['classic/item'] = $season;
+    $queue['classicBlocking'] = count(array_filter($season, fn($id) => isset($blocking[$id])));   // in front: $all['item'] has the blocking items first
     foreach (wowhead_pages_missing_data() as $kind => $list) {
         $have = [];
         foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
@@ -631,16 +716,22 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $counted = array_filter($queue, 'is_array');
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))];
     $lines[] = '(async () => {';
+    // $kind may carry a branch: 'classic/item'
     $put = function (string $kind, array $ids, string $tier) use (&$lines) {
-        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids))) . ', ' . json_encode($tier) . ');';
+        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids)), JSON_UNESCAPED_SLASHES) . ', ' . json_encode($tier) . ');';
     };
     $items = array_values($queue['item'] ?? []);
     $blocking = (int)($queue['blocking'] ?? count($items));
+    // the Classic pages of Season of Discovery items Forever kept, each after its Forever page (same tier)
+    $season = array_values($queue['classic/item'] ?? []);
+    $seasonBlocking = (int)($queue['classicBlocking'] ?? 0);
     $put('quest', $queue['quest'] ?? [], 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
+    $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
     $put('npc', $queue['npc'] ?? [], 'missing');
     $put('object', $queue['object'] ?? [], 'missing');
     $put('item', array_slice($items, $blocking), 'gapOther');
+    $put('classic/item', array_slice($season, $seasonBlocking), 'gapOther');
     if ($full) $lines[] = '  await WHC.full();';
     $lines[] = '  WHC.start();';
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";
