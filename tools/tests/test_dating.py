@@ -86,7 +86,7 @@ class Dating(unittest.TestCase):
         self.assertEqual(result['windows'], {1: 0, 2: 1, 4: 0})     # build 2's window, not build 3's
         second = hotfixes.history_kept(self.chain[1]['dir'])
         self.assertEqual([e.get('rebuilt') for e in second], ['base', 'window'])
-        self.assertEqual(second[1]['window'], {'from': '2026-10-11', 'until': '2026-10-15', 'days': ['2026-10-11', '2026-10-15'], 'rows': 1, 'next': 4})
+        self.assertEqual(second[1]['window'], {'from': '2026-10-10', 'until': '2026-10-19', 'days': ['2026-10-11', '2026-10-15'], 'rows': 1, 'next': 4})
         # the program-only build is live with build 2's hotfixes: it does not undo them
         twin = hotfixes.history_kept(self.chain[2]['dir'])
         self.assertEqual([e.get('rebuilt') for e in twin], ['carried'])
@@ -126,7 +126,7 @@ class Dating(unittest.TestCase):
     def test_window_days(self):
         b, after = {'date': '2026-11-10'}, {'date': '2026-11-13'}
         self.assertEqual(dating._days(b, after, ['2026-11-09', '2026-11-11', '2026-11-12', '2026-11-13']),
-                         ('2026-11-11', '2026-11-12', ['2026-11-11', '2026-11-12']))
+                         ('2026-11-10', '2026-11-12', ['2026-11-11', '2026-11-12']))
         self.assertEqual(dating._days(b, after, []), ('2026-11-10', '2026-11-12', []))
         same_day = {'date': '2026-11-07'}
         self.assertEqual(dating._days(same_day, {'date': '2026-11-07'}, []), ('2026-11-07', '2026-11-07', []))

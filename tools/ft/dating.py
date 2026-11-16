@@ -36,7 +36,7 @@ from . import db2, hotfixes
 FILE = 'dated.json'        # in the newest build's hotfixes/ folder: the window of each row, with what it was worked out from
 REBUILT = 'rebuilt'        # the mark of the caches written here, in a build's hotfixes/index.json
 KINDS = 'base', 'window', 'newest'
-_VERSION = 1
+_VERSION = 2
 
 
 def _row_key(build_folder, table_name):
@@ -182,13 +182,15 @@ def write_cache(blob, build, keep):
 
 
 def _days(b, after, notes_days):
-    """(first day, last day) of a build's window: from its release to the day before the next build; the first day is
-    the first hotfix day the notes name in it (the window's own date when they name none)."""
+    """(first day, last day, the hotfix days the notes name in it) of a build's window: from the build's release to the
+    day before the next build (the day the next build came, when it came the same day); to today for the newest."""
     start = b.get('date') or ''
     end = (after or {}).get('date') or datetime.date.today().isoformat()
     named = sorted(day for day in notes_days if start <= day < end) if start else []
-    last = named[-1] if named else (end if after is None else max(start, _day_before(end)))
-    return (named[0] if named else start or end), last, named
+    if not start:
+        return (named[0] if named else end), (named[-1] if named else end), named
+    last = end if after is None else max(start, _day_before(end))
+    return start, last, named
 
 
 def _day_before(day):
