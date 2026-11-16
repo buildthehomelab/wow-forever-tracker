@@ -5,6 +5,7 @@
 require_once FT_APP . '/wowheadpages.php';
 $shelves = ['item', 'quest', 'npc', 'object', 'classic-npc', 'classic-object'];
 $kept = array_combine($shelves, array_map('wowhead_pages_count', $shelves));
+page_start(t('Crawl Wowhead', 'Parcourir Wowhead'), 'admin');
 ?>
 <section class="page-head">
   <div class="page-title"><span class="page-icon is-gold"><i class="fas fa-spider"></i></span>
@@ -26,3 +27,4 @@ $kept = array_combine($shelves, array_map('wowhead_pages_count', $shelves));
   <p class="muted small"><?= e(sprintf(t('Kept so far: %s item, %s quest, %s npc and %s object pages of Forever; %s npc and %s object pages of Classic.', 'Conservées : %s pages d’objets, %s de quêtes, %s de PNJ et %s d’objets du monde de Forever ; %s de PNJ et %s d’objets du monde de Classic.'),
       number($kept['item']), number($kept['quest']), number($kept['npc']), number($kept['object']), number($kept['classic-npc']), number($kept['classic-object']))) ?></p>
 </section>
+<?php page_end();
