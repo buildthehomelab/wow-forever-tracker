@@ -124,6 +124,9 @@ A whole crawl is days of pages, so the queue is always in the order of what a pa
 | 6 | the rest of Forever | measures again what the server already has |
 | 8 | Classic | only where Forever's counts are thin |
 
+The Classic item page of a Season of Discovery item Forever kept goes in the tier of its Forever page, right after
+it ([below](#season-of-discovery-items)).
+
 *Download the crawler* hands each page its tier from the last analysis and the world database
 (`wowhead_pages_queue`: the tracker's gaps, and `wowhead_pages_missing_data` for tier 3, only the ids Wowhead's Forever
 lists name once they were read). In a crawl that already queued a page it moves up, never down; a page read is not
@@ -176,6 +179,25 @@ chests far more often than Forever's have so far, so their counts fill in where 
   the original game's database's.
 
 Each row's `Comment` is `Wowhead Classic <date>`.
+
+## Season of Discovery items
+
+The Forever client still carries every item Season of Discovery added, and Forever brought some back (the Tarnished
+Undermine Real, item 226404, and the trinkets, belts and idols it buys). Wowhead's Forever pages often show no source
+for them yet; its Classic pages, which hold Season of Discovery's data, do (the Undermine Real: 133 creatures).
+
+- **Which items**: the gap items from id 190000 up that the Classic Era client has too (`tools/baseline/classic-era.json`,
+  as `tools/ft/baseline.py` tells a Season addition). Those Wowhead's Forever tooltip marks "May not be in WoW: Forever"
+  are internal, so no gap, and are never asked.
+- **The queue**: `classic/item:<id>` for each, in the tier of its Forever page (`gap` or `gapOther`), unless the
+  Forever page was read and names a drop, a chest or a vendor, or the Classic page is in the cache already.
+- **The import** (the *Wowhead Classic* card): the Classic page's *Dropped by* and *Contained in* rows, with the same
+  counts as any page (at least 10 loots, seen twice). Forever's own count wins where it has one. An item with a
+  *Currency for* tab (it pays for other items) is no world drop: each creature that drops it gets a row of its own, as
+  Season of Discovery had it; any other item fifteen or more creatures drop stays out.
+- **Vendors**: never from Classic. Forever cut the Season vendors' stock (Wowhead's Forever guide lists 37 of the 194 items
+  Classic's page says the Undermine Real buys), so only Forever's own npc pages give it, and stock paid with an item or a currency needs an extended
+  cost the client knows. Neither the client nor its hotfixes (build 70938) hold one paid in the Undermine Real yet.
 
 ## The pace
 
