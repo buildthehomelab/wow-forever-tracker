@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **ForeverChanges read from the site, regularly.** foreverchanges.pro was rebuilt and the data files the old pack
+  was made from are gone, so the tracker now reads the site itself (`tools/foreverchanges_pull.py`): robots.txt
+  obeyed, one request at a time with a pause that grows when the site asks, what the last analysis lacks first, up
+  to 1,500 files a visit, then again what is older than two weeks. Every file is kept privately in `data/`, once,
+  with its history; each visit's evidence is a snapshot, so its card can be made again from the database. New: the
+  quest givers its map names by id, from the rows its players saw, become rows with no name to match, and the NPCs
+  and pins of every map are read, not only the two continents'. The Imports page's *Read the site* starts a visit in
+  the background, and the container visits every `FT_FOREVERCHANGES_EVERY_HOURS` (24). The `.fcpack` upload and
+  `tools/foreverchanges_pack.py` are gone.
+
 - **A checkout finds the server's build as the analysis does.** Without `[server] build` (or `build_file`) in
   config.ini, it takes the client build the realms accept (`auth.realmlist`), as the analysis already did, instead of
   stopping.

@@ -306,6 +306,33 @@ atlasloot_watch() {
 }
 atlasloot_watch &
 
+# ForeverChanges (foreverchanges.pro): every FT_FOREVERCHANGES_EVERY_HOURS (0 = never) a visit of the site reads up
+# to [foreverchanges] limit files, what the last analysis lacks first, and makes a card from everything kept (nothing
+# is applied). It waits while an analysis runs, or while the website runs a visit (the same lock): the command then
+# exits 3. A visit the site stopped (a refusal) is said in the log and tried again at the next turn, not sooner.
+foreverchanges_watch() {
+    case "${FT_FOREVERCHANGES_EVERY_HOURS:-24}" in ''|*[!0-9]*|?????*) say "FT_FOREVERCHANGES_EVERY_HOURS must be a whole number up to 9999: no ForeverChanges visit"; return ;; esac
+    hours="$(expr "${FT_FOREVERCHANGES_EVERY_HOURS:-24}" + 0 || true)"
+    if [ "$hours" -eq 0 ]; then say "FT_FOREVERCHANGES_EVERY_HOURS=0: no ForeverChanges visit"; return; fi
+    log="$DATA/source-foreverchanges.log"
+    sleep 1800
+    while :; do
+        nap=$((hours * 3600))
+        if analysis_running; then
+            nap=900
+        else
+            if as_www php "$ROOT/tools/source-import.php" foreverchanges --log >/dev/null 2>&1; then rc=0; else rc=$?; fi
+            if [ "$rc" -eq 3 ]; then
+                say "ForeverChanges: another visit is running: tried again in 15 minutes"
+                nap=900
+            else
+                tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] ForeverChanges: /'
+            fi
+        fi
+        sleep "$nap"
+    done
+}
+
 # The official client from Blizzard's own servers (docs/CLIENT.md): every FT_CLIENT_EVERY_HOURS (0 = never) the version
 # server is asked which build is live. A newer build than the newest snapshot is read from the CDN and stored, and so
 # is the stored build again once a key it was waiting for is published (unreleased content opens with time). Then the
@@ -366,5 +393,6 @@ client_watch() {
     done
 }
 client_watch &
+foreverchanges_watch &
 
 exec docker-php-entrypoint "$@"

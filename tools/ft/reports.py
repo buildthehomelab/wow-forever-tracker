@@ -1,7 +1,7 @@
 """Players' reports as evidence: who gives and takes a quest, who sells an item, what drops it (docs/SOURCES.md).
 
 ForeverChanges (foreverchanges.pro) collects what its players' addon saw on live WoW Forever, over a base of Classic's
-data. A pack of its quest and item lists (tools/foreverchanges_pack.py) is read here and turned into the evidence
+data. A pack of what the site states (tools/foreverchanges_pull.py reads the site) is read here and turned into the evidence
 every source gives the website (app/sources.php): `start`, `end`, `sell`, `drop`.
 
 Two things set it apart from the other sources:
@@ -203,6 +203,35 @@ def places(pack, known, spawned, named=None, area_map=None):
     return [[kind, entry, name, points] for (kind, entry), (name, points) in sorted(found.items()) if points], dict(left)
 
 
+def givers(pack, known, spawned):
+    """Who starts a quest as the site's map names them, by id (its quest-givers files): ([[kind, entry, quest]],
+    places, left). No name is matched: the id is the site's. Only what its players saw ("seen") counts; the rest is
+    QuestieDB's, which the tracker reads itself.
+
+    known: {('npc'|'go', entry)} the server has a template of; spawned: those that stand somewhere. One nobody
+    spawned still gives the quest (players took it from them on live), and its place is kept for the locator."""
+    rows, found, left = set(), {}, collections.Counter()
+    for giver in (pack or {}).get('givers') or []:
+        if not isinstance(giver, dict) or giver.get('kind') not in ('npc', 'go') or not isinstance(giver.get('entry'), int) or isinstance(giver.get('entry'), bool):
+            continue
+        if not giver.get('seen'):
+            left['report_giver_not_seen'] += 1
+            continue
+        who = (giver['kind'], giver['entry'])
+        if who not in known:
+            left['report_giver_unknown_entry'] += 1
+            continue
+        for quest_id in giver.get('quests') or []:
+            if isinstance(quest_id, int) and not isinstance(quest_id, bool) and quest_id > 0:
+                rows.add((who[0], who[1], quest_id))
+        if who not in spawned and isinstance(giver.get('map'), int) and isinstance(giver.get('x'), (int, float)) and isinstance(giver.get('y'), (int, float)):
+            points = found.setdefault(who, [str(giver.get('name') or ''), []])[1]
+            point = {'m': giver['map'], 'x': round(float(giver['x']), 1), 'y': round(float(giver['y']), 1)}
+            if point not in points and len(points) < 20:
+                points.append(point)
+    return [list(row) for row in sorted(rows)], [[kind, entry, name, points] for (kind, entry), (name, points) in sorted(found.items())], dict(left)
+
+
 MARKS = {'‹name›': '$N', '‹class›': '$C', '‹race›': '$R'}       # how the site writes what the server holds as a placeholder
 CLASSES = ('warrior', 'paladin', 'hunter', 'rogue', 'priest', 'shaman', 'mage', 'warlock', 'druid')
 PEOPLES = ('human', 'orc', 'dwarf', 'night elf', 'undead', 'tauren', 'gnome', 'troll')
@@ -302,7 +331,7 @@ def texts(pack, recorded=None):
 
 def load(path):
     """A pack from its file: gzipped JSON, or a zip that holds it as pack.json beside the rest of the site's data
-    (tools/foreverchanges_pack.py writes the second; an earlier version wrote the first)."""
+    (tools/foreverchanges_pull.py writes the second; an earlier tool wrote the first)."""
     import gzip
     import json
     import zipfile
@@ -321,7 +350,7 @@ def evidence(pack, npcs, objects=None):
     entry, quest]], 'end': the same, 'sell': [[npc, item, 0]], 'drop': [['npc', entry, item, chance %]]}.
     """
     if not isinstance(pack, dict) or pack.get('format') != FORMAT:
-        raise ValueError(f'not a {FORMAT} file (tools/foreverchanges_pack.py makes one)')
+        raise ValueError(f'not a {FORMAT} file (tools/foreverchanges_pull.py makes one)')
     ev = {'start': [], 'end': [], 'sell': [], 'drop': [], 'place': []}
     left = collections.Counter()
     placed = {}

@@ -1085,13 +1085,54 @@ function classicdb_import(): array
     return source_card('classicdb', $label, 'classicdb@' . $made, $tables, $left, array_merge(classicdb_changes($result), $talkChanges));
 }
 
-// ------------------------------------------------------------------ ForeverChanges (players' reports, from a file)
+// ------------------------------------------------------------------ ForeverChanges (players' reports, from the site)
 // foreverchanges.pro collects what its players' addon saw on live WoW Forever, over a base of Classic's data. The
-// tracker never asks the site: it reads a pack made from a copy of it (tools/foreverchanges_pack.py), sent through
-// this page. The site names NPCs and places them on a map; tools/tracker.py matches those to the server's creatures
-// (ft.reports) and hands back the same evidence every other source gives.
+// tracker reads the site slowly (tools/foreverchanges_pull.py: robots.txt obeyed, one request at a time, what the
+// gaps ask about first), keeps every file privately under data/, and makes of it a pack. The site names NPCs and
+// places them on a map; tools/tracker.py matches those to the server's creatures (ft.reports), takes the quest givers
+// the site's map names by id as they are, and hands back the same evidence every other source gives.
 
 function foreverchanges_pack(): string { return FT_ROOT . '/data/foreverchanges/pack.fcpack'; }
+
+/** What the pull should read first, from the gaps: {"quests": [...], "items_first": [...], "items": [...]}. The
+ *  quests without a giver or an ender, the items other content waits for, then the other items players cannot get. */
+function foreverchanges_wanted(array $gaps, array $waiting): array
+{
+    require_once FT_APP . '/wowheadpages.php';
+    $order = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], [], 0);
+    $blocking = (int)$order['blocking'];
+    return ['quests' => $order['quest'], 'items_first' => array_slice($order['item'], 0, $blocking), 'items' => array_slice($order['item'], $blocking)];
+}
+
+/**
+ * A visit of the site (tools/foreverchanges_pull.py pull), then the card from everything kept. $say gets the pull's
+ * lines. A visit the site stopped (a refusal, too many throttles) still makes the card from what is kept, and says so.
+ */
+function foreverchanges_pull(?callable $say = null): array
+{
+    if ($e = source_check()) return $e;
+    require_once FT_APP . '/wowheadpages.php';
+    $say ??= function (string $m) {};
+    $dir = dirname(foreverchanges_pack());
+    @mkdir($dir, 0775, true);
+    $wanted = foreverchanges_wanted(source_gaps(), wowhead_pages_waiting());
+    file_put_contents("$dir/wanted.json", json_encode($wanted));
+    $say(sprintf('asking first about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
+    $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/foreverchanges_pull.py') . ' pull --wanted ' . escapeshellarg("$dir/wanted.json")
+        . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 1500)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))
+        . ' --older ' . max(1, (int)config('foreverchanges', 'older', 14)) . ' 2>&1';
+    $code = 1; $last = '';
+    $pipe = function_exists('popen') ? @popen($command, 'r') : false;
+    if ($pipe) {
+        while (($line = fgets($pipe)) !== false) { $last = trim($line); if ($last !== '') $say($last); }
+        $code = pclose($pipe);
+    }
+    if (!is_file(foreverchanges_pack())) return ['ok' => false, 'message' => t('ForeverChanges could not be read: ', 'ForeverChanges n’a pas pu être lu : ') . ($last ?: t('the pull did not start (is Python installed?)', 'la lecture n’a pas démarré (Python est-il installé ?)'))];
+    $card = foreverchanges_import();
+    if ($code === 2) $card['message'] = trim(($card['message'] ?? '') . ' ' . t('The site stopped the visit: the card is made from what was kept; see the log.', 'Le site a arrêté la visite : la carte est faite de ce qui a été conservé ; voir le journal.'));
+    return $card;
+}
 
 /** The evidence tools/tracker.py made from a pack, checked: every row whole numbers of the right shape, the kinds
  *  'npc' and 'go', a chance between 0 and 100. Anything else is dropped. */
@@ -1120,7 +1161,7 @@ function foreverchanges_import(): array
 {
     if ($e = source_check()) return $e;
     $pack = foreverchanges_pack();
-    if (!is_file($pack)) return ['ok' => false, 'message' => t('No ForeverChanges pack yet: make one with tools/foreverchanges_pack.py and send the .fcpack file here.', 'Pas encore de paquet ForeverChanges : créez-en un avec tools/foreverchanges_pack.py et envoyez le fichier .fcpack ici.')];
+    if (!is_file($pack)) return ['ok' => false, 'message' => t('Nothing read from ForeverChanges yet: use Read the site.', 'Rien n’a encore été lu sur ForeverChanges : utilisez Lire le site.')];
     $out = dirname($pack) . '/evidence.json';
     @unlink($out);
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
@@ -1131,21 +1172,28 @@ function foreverchanges_import(): array
     @unlink($out);
     if (!is_array($result)) {
         error_log('Forever Tracker: the ForeverChanges pack could not be read: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
-        return ['ok' => false, 'message' => t('The ForeverChanges pack could not be read (see the PHP error log). Is it a .fcpack file made by tools/foreverchanges_pack.py?', 'Le paquet ForeverChanges n’a pas pu être lu (voir le journal d’erreurs PHP). Est-ce un fichier .fcpack créé par tools/foreverchanges_pack.py ?')];
+        return ['ok' => false, 'message' => t('What was read from ForeverChanges could not be matched (see the PHP error log).', 'Ce qui a été lu sur ForeverChanges n’a pas pu être rapproché (voir le journal d’erreurs PHP).')];
     }
     $retrieved = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['retrieved'] ?? '')) ? (string)$result['retrieved'] : date('Y-m-d', (int)filemtime($pack));
-    $label = 'ForeverChanges ' . $retrieved;
     $ev = foreverchanges_evidence($result);
-    snapshot_try('foreverchanges', (string)$retrieved, $ev);
-    [$tables, $left] = source_tables($ev, $label, source_gaps());
+    snapshot_try('foreverchanges', $retrieved, $ev);
     // where its maps show NPCs, rares and books nobody spawned here: kept for the locator, which prefers a reported
     // place to a looked-up one (the Spawns page, after the next "Locate")
     $places = foreverchanges_places($result);
     if ($places) collector_positions($places);
+    return foreverchanges_card($ev, $retrieved, source_gaps(), count($places));
+}
+
+/** The card of ForeverChanges' evidence against these gaps (from a visit, or from its last snapshot). $places: how
+ *  many things nobody spawned got a reported place, which the card mentions. */
+function foreverchanges_card(array $ev, string $retrieved, array $gaps, int $places = 0): array
+{
+    $label = 'ForeverChanges ' . $retrieved;
+    [$tables, $left] = source_tables($ev, $label, $gaps);
     $card = source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
     if ($places) {
-        $card['places'] = count($places);
-        $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d creature(s) or object(s) nobody spawned now have a reported place: run the locator (Spawns) to use them.', '%d créature(s) ou objet(s) que personne n’a placés ont maintenant un lieu signalé : lancez le localisateur (Placements) pour les utiliser.'), count($places)));
+        $card['places'] = $places;
+        $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d creature(s) or object(s) nobody spawned now have a reported place: run the locator (Spawns) to use them.', '%d créature(s) ou objet(s) que personne n’a placés ont maintenant un lieu signalé : lancez le localisateur (Placements) pour les utiliser.'), $places));
         $card['ok'] = true;   // the places are kept even when the card has nothing new
     }
     return $card;

@@ -416,6 +416,23 @@ def player_reports(args):
     # and the quest givers, enders and vendors nobody spawned, where the reports place them
     have = {(kind, entry) for kind, entry, _name, _points in spots}
     spots += [row for row in ev.pop('place', []) if (row[0], row[1]) not in have]
+    # the quest givers the site's map names by id: rows without a name to match (pack 'givers', from the site itself)
+    by_id = {'npc': set(), 'go': set()}
+    for giver in pack.get('givers') or []:
+        if isinstance(giver, dict) and giver.get('seen') and giver.get('kind') in by_id and isinstance(giver.get('entry'), int):
+            by_id[giver['kind']].add(giver['entry'])
+    known_ids, standing_ids = set(), set()
+    for kind, table, spawn_table in (('npc', 'creature_template', 'creature'), ('go', 'gameobject_template', 'gameobject')):
+        entries = sorted(by_id[kind])
+        for start in range(0, len(entries), 1000):
+            chunk = ','.join(map(str, entries[start:start + 1000]))
+            known_ids |= {(kind, int(v)) for v in sqlio.column(f'SELECT entry FROM `{table}` WHERE entry IN ({chunk})')}
+            standing_ids |= {(kind, int(v)) for v in sqlio.column(f'SELECT DISTINCT id FROM `{spawn_table}` WHERE id IN ({chunk})')}
+    given, given_spots, given_left = reports.givers(pack, known_ids, standing_ids)
+    ev['start'] = [list(row) for row in sorted({tuple(row) for row in ev['start']} | {tuple(row) for row in given})]
+    left.update(given_left)
+    have = {(kind, entry) for kind, entry, _name, _points in spots}
+    spots += [row for row in given_spots if (row[0], row[1]) not in have]
     # what the NPC says at the turn-in. EG Link's recording of the same window keeps the server's own placeholders:
     # where it has one wording, that is the text; the site's, with its marks turned back, is for the rest
     recorded = {}
@@ -768,7 +785,7 @@ def main():
     again.add_argument('--eglink', required=True, metavar='COMMIT', help='the EG Link commit to read')
     again.add_argument('--out', required=True, metavar='FILE', help='where the changes are written, as JSON')
     told = sub.add_parser('reports', help="players' reports (a ForeverChanges pack) as evidence for the website's import card")
-    told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pack.py made')
+    told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pull.py made')
     told.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
     old_game = sub.add_parser('classic', help="the original game's teachers of recipes nobody can learn yet (a classic-db pack) as evidence for the website's import card")
     old_game.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/classicdb_pack.py made')
