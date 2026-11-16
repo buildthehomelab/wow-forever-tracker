@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Applied import cards fold away.** A card kept its place on the Imports page after it was applied, and the Imports
+  badge counted every card ever made. Each card now records when it was last applied and when nothing on it was
+  missing any more (an apply that wrote it all, or a preview or apply that found nothing to add). Those cards fold
+  under "Applied: nothing left to add", and both Imports badges count only the cards with something left. Rolling one
+  of a card's operations back puts it back on top. A table left unticked counts as declined; an apply of chosen items
+  only, or one that held the spawns back, leaves the card open. Cards made before this are marked at their next
+  preview or apply.
+
 - **VMaNGOS is a source, just above the Classic database.** `tools/vmangos_pack.py` makes a pack from the world
   database of VMaNGOS' `db_latest` release (GPL-2.0), patch 1.12 only, in the Classic database pack's format; send it
   on the Imports page (a pack names its source). It answers the same questions (trainers, quest turn-in spells,

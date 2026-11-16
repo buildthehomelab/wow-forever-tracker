@@ -431,7 +431,10 @@ function forge_rollback(int $logId): array
     } else {
         [$ok, $message] = forge_run($plans, 'rollback');
     }
-    if ($ok) rows("UPDATE ft_forge_log SET state = 'rolled_back', rolled_back_at = NOW() WHERE id = ?", [$logId]);
+    if ($ok) {
+        rows("UPDATE ft_forge_log SET state = 'rolled_back', rolled_back_at = NOW() WHERE id = ?", [$logId]);
+        if ($log['kind'] === 'import') { require_once FT_APP . '/imports.php'; import_reopen(json_decode((string)$log['items'], true) ?: []); }
+    }
     return ['ok' => $ok, 'message' => $message];
 }
 

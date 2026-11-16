@@ -124,7 +124,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
     <a class="<?= $tab === $key ? 'is-active' : '' ?>" href="<?= e(url('admin', ['tab' => $key])) ?>"><i class="fas <?= $icon ?>"></i><?= e($label) ?><em><?= number($tabCounts[$key] ?? 0) ?></em></a>
   <?php endforeach; ?>
   <a href="<?= e(url('admin/spawns')) ?>"><i class="fas fa-location-crosshairs"></i><?= e(t('Spawns', 'Placements')) ?><?php if (table_exists('ft_spawns')): ?><em><?= number((int)value("SELECT COUNT(*) FROM ft_spawns WHERE state IN ('ready','manual')")) ?></em><?php endif; ?></a>
-  <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><?php if (table_exists('ft_imports')): ?><em><?= number((int)value('SELECT COUNT(*) FROM ft_imports')) ?></em><?php endif; ?></a>
+  <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><?php if (table_exists('ft_imports')): require_once FT_APP . '/imports.php'; import_schema(); ?><em><?= number(count(import_groups(rows('SELECT id, file, done_at FROM ft_imports'))[0])) ?></em><?php endif; ?></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
   <a href="<?= e(url('admin/checkout')) ?>"><i class="fas fa-code-branch"></i><?= e(t('Checkout', 'Checkout')) ?></a>
