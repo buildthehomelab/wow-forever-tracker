@@ -34,6 +34,7 @@ later. Only long lists of positions are cut to MAX_POSITIONS (the fact then says
 This module reads no configuration and no database, so it can be imported and tested alone.
 """
 import collections
+import hashlib
 import http.client
 import json
 import os
@@ -614,8 +615,206 @@ def fetch_rxpguides(commit, folder, fetch=http_bytes, log=lambda message: None):
     return downloaded
 
 
-READERS = {'eglink': eglink, 'questie': questie, 'rxpguides': rxpguides}
-FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie, 'rxpguides': fetch_rxpguides}
+# ------------------------------------------------------------------ ForeverDB.net
+# ForeverDB.net's addon data (GPL-3.0 with an attribution term: "Data from ForeverDB.net (https://foreverdb.net)").
+# Each file labels where a row comes from: seen in Forever (what its players' addons recorded and uploaded) or Classic
+# (CMaNGOS classic-db). Only what its players saw is read:
+#   NPCs.lua          ns.npcs[npc] = {name, title, uiMap, x, y, side A/H, seen in Forever 1/0}; ns.sold[item] = {npc,
+#                     price in copper, stack, limited supply, npc, ...}: the stock of the vendors seen in Forever
+#   Loot.lua          ns.lootDB.inst[].bosses[] = {npc, loot = "item:pct:src[:h[:kills[:seen]]]"}: src f measured in
+#                     Forever (pct over `kills` looted kills, 0 unknown; `seen` drops players saw; h 1 hidden, 2 revealed)
+#   QuestForever.lua  ns.qfQuests[quest] = "title|level|min level|objective|starts|ends|players who saw it|new in
+#                     Forever|previous quest|lowest level seen completing it|side": starts and ends are n<creature> and
+#                     o<object> lists; a quest no player saw is not read
+#   Meta.lua          ns.meta.build: the client build the files were made on, the build of every fact
+# The file's build is when the data was put together, not when each row was recorded (rows add up over builds).
+# A vendor's stock is cut short for items many vendors sell (ns.soldCount): a missing listing says nothing.
+FOREVERDB = 'https://foreverdb.net/'
+FOREVERDB_MANIFEST = FOREVERDB + 'downloads/addon-manifest.json'
+FOREVERDB_FILES = ('Data/Meta.lua', 'Data/NPCs.lua', 'Data/Loot.lua', 'Data/QuestForever.lua')
+FOREVERDB_HEADER = b'-- Data: ForeverDB.net (https://foreverdb.net)'
+FOREVERDB_URL = re.compile(r'downloads/[\w.\-/]+\.lua(?:\?v=\w+)?')
+FOREVERDB_VERSION = re.compile(r'[\w.\-]{1,64}')
+FOREVERDB_SIDES = {'A': 'Alliance', 'H': 'Horde'}
+
+
+def _foreverdb_tables(folder, name, wanted):
+    """{table: value} of the tables of one ForeverDB file that are named in `wanted` (`ns.npcs` read as `npcs`)."""
+    path = os.path.join(folder, name)
+    try:
+        with open(path, encoding='utf-8') as handle:
+            read = luadata.tables(handle.read())
+    except (OSError, ValueError) as error:
+        raise SourceError(f'{path} cannot be read ({error}): delete it and run again') from None
+    found = {table.rpartition('.')[2]: value for table, value in read.items() if table.rpartition('.')[2] in wanted}
+    missing = [table for table in wanted if table not in found]
+    if missing or read.get('_skipped'):
+        raise SourceError(f"{path} is not written the way this reader knows ({'; '.join(read.get('_skipped') or ['no ' + ', '.join(missing)])[:200]})")
+    return found
+
+
+def _as_dict(table):
+    """A Lua table keyed by ids: the parser gives a list when the ids happen to be 1, 2, 3 ..."""
+    return {str(i): value for i, value in enumerate(table, 1)} if isinstance(table, list) else _dict(table)
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _foreverdb_npcs(build, tables, skipped):
+    seen, listings = {}, collections.OrderedDict()
+    for key, record in _as_dict(tables['npcs']).items():
+        npc = _id(key)
+        if npc is None or not isinstance(record, list) or len(record) < 7:
+            skipped['NPCs.lua'] += 1
+            continue
+        if record[6] != 1:                       # a Classic place: CMaNGOS', not seen in Forever
+            continue
+        name, title, uimap, x, y, side = record[:6]
+        seen[npc] = name if isinstance(name, str) else ''
+        data = {'name': seen[npc], 'title': title if isinstance(title, str) else '', 'side': FOREVERDB_SIDES.get(side, '')}
+        if _id(uimap) is not None and _number(x) is not None and _number(y) is not None:
+            data['positions'] = [{'uiMap': uimap, 'mapX': x, 'mapY': y}]      # in percent of the map, as the source gives it
+        yield Fact('talked', 'npc', npc, 0, build, 0, data)
+    names = _as_dict(tables['soldNames'])
+    for key, row in _as_dict(tables['sold']).items():
+        item = _id(key)
+        if item is None or not isinstance(row, list) or len(row) % 4:
+            skipped['NPCs.lua'] += 1
+            continue
+        for at in range(0, len(row), 4):
+            npc, price, stack, limited = row[at:at + 4]
+            if _id(npc) is None or _number(price) is None or _number(stack) is None or _number(limited) is None:
+                skipped['NPCs.lua'] += 1
+                continue
+            if npc not in seen:                  # Classic stock of a vendor nobody saw in Forever
+                continue
+            listing = {'itemId': item, 'price': price, 'stack': stack}
+            if names.get(str(item)):
+                listing['name'] = names[str(item)]
+            if limited > 0:
+                listing.update(limited=True, stockMax=limited)
+            listings.setdefault((npc, item), []).append(listing)
+    for (npc, item), entries in listings.items():
+        yield Fact('sells', 'npc', npc, item, build, 0, {'listings': entries})
+
+
+def _foreverdb_loot(build, tables, skipped):
+    for instance in _as_dict(tables['lootDB'].get('inst') if isinstance(tables['lootDB'], dict) else None).values():
+        if not isinstance(instance, dict):
+            skipped['Loot.lua'] += 1
+            continue
+        for boss in _as_dict(instance.get('bosses')).values():
+            npc = _id(boss.get('npc')) if isinstance(boss, dict) else None
+            if npc is None or not isinstance(boss.get('loot'), str):
+                skipped['Loot.lua'] += int(not isinstance(boss, dict) or boss.get('npc') is not None)    # a chest or a list has no npc
+                continue
+            for part in boss['loot'].split(';'):
+                fields = part.split(':')
+                item = _id(fields[0]) if len(fields) >= 3 else None
+                if item is None:
+                    skipped['Loot.lua'] += int(bool(part))
+                    continue
+                if fields[2] != 'f':             # Classic's chance
+                    continue
+                numbers = [float(f) if re.fullmatch(r'\d+(?:\.\d+)?', f) else None for f in fields[3:6]] + [None] * 3
+                hidden, kills, drops = (int(n) if n is not None else None for n in numbers[:3])
+                percent = float(fields[1]) if re.fullmatch(r'\d+(?:\.\d+)?', fields[1]) else 0.0
+                data = {'instance': instance.get('id'), 'boss': boss.get('name') if isinstance(boss.get('name'), str) else ''}
+                if percent > 0:
+                    data['percent'] = percent
+                if kills:
+                    data['kills'] = kills
+                if drops:
+                    data['seen'] = drops
+                if hidden:
+                    data['hidden'] = hidden
+                yield Fact('drops', 'npc', npc, item, build, kills or 0, data)
+
+
+def _foreverdb_quests(build, tables, skipped):
+    for key, line in _as_dict(tables['qfQuests']).items():
+        quest = _id(key)
+        fields = line.split('|') if isinstance(line, str) else []
+        if quest is None or len(fields) < 7:
+            skipped['QuestForever.lua'] += 1
+            continue
+        players = int(fields[6]) if fields[6].isascii() and fields[6].isdecimal() else 0
+        if players < 1:                          # no player saw it: the client's and the game cache's word only
+            continue
+        data = {'title': fields[0], 'players': players}
+        if fields[1].isascii() and fields[1].isdecimal():
+            data['level'] = int(fields[1])
+        if len(fields) > 7 and fields[7] == '1':
+            data['new'] = True
+        for at, kind in ((4, 'gives'), (5, 'takes')):
+            for one in filter(None, fields[at].split(',')):
+                found = re.fullmatch(r'([no])(\d+)', one)
+                subject = _id(found.group(2)) if found else None
+                if subject is None:
+                    skipped['QuestForever.lua'] += 1
+                    continue
+                yield Fact(kind, 'npc' if found.group(1) == 'n' else 'object', subject, quest, build, players, data)
+
+
+def foreverdb(folder, skipped=None):
+    """The facts of a ForeverDB.net download (`folder` holds Meta.lua, NPCs.lua, Loot.lua and QuestForever.lua).
+
+    talked: a vendor or trainer its players saw in Forever (name, title, side, where it stands in percent of a uiMap);
+    sells: that vendor's stock, each listing as given (price in copper, stack, limited supply); drops: boss loot
+    measured in Forever (percent, kills, drops seen, hidden; `samples` the kills); gives, takes: who offers and takes a
+    quest players saw (`samples` the players who saw it). Classic rows are not read. Every fact has the build Meta.lua
+    names. A missing file, or one written another way, stops the reading."""
+    skipped = collections.Counter() if skipped is None else skipped
+    meta = _foreverdb_tables(folder, 'Meta.lua', ('meta',))['meta']
+    found = VERSION.fullmatch(str(_dict(meta).get('build', '')))
+    if not found:
+        raise SourceError(f"{os.path.join(folder, 'Meta.lua')} names no client build")
+    build = int(found.group(1))
+    yield from _foreverdb_npcs(build, _foreverdb_tables(folder, 'NPCs.lua', ('npcs', 'sold', 'soldNames')), skipped)
+    yield from _foreverdb_loot(build, _foreverdb_tables(folder, 'Loot.lua', ('lootDB',)), skipped)
+    yield from _foreverdb_quests(build, _foreverdb_tables(folder, 'QuestForever.lua', ('qfQuests',)), skipped)
+
+
+def fetch_foreverdb(version, folder, fetch=http_bytes, log=lambda message: None):
+    """Downloads the files the reader needs of ForeverDB.net's addon data into `folder`, each checked against the
+    manifest's sha256. ForeverDB serves only its current version: when it has moved on since the pin, nothing is
+    fetched and the pin must be taken again. Files already in the folder are kept (the website's own ForeverDB import
+    uses the same folder). Returns how many it downloaded."""
+    if not FOREVERDB_VERSION.fullmatch(version or ''):
+        raise SourceError(f'ForeverDB.net is pinned by its manifest version, not {version!r}')
+    wanted = [path for path in FOREVERDB_FILES if not os.path.isfile(os.path.join(folder, os.path.basename(path)))]
+    if not wanted:
+        return 0
+    downloaded = 0
+    try:
+        listing = _dict(_dict(json.loads(fetch(FOREVERDB_MANIFEST))).get('data'))
+        if listing.get('version') != version:
+            raise ValueError(f"it serves version {str(listing.get('version'))[:64]!r} now, pinned {version!r}: "
+                             'python tools/tracker.py world pin foreverdb')
+        files = {f.get('path'): f for f in listing.get('files') or [] if isinstance(f, dict)}
+        for path in wanted:
+            about = files.get(path)
+            if not about or not FOREVERDB_URL.fullmatch(str(about.get('url', ''))) or not re.fullmatch(r'[0-9a-f]{64}', str(about.get('sha256', ''))):
+                raise ValueError(f'the manifest lists no {path} this reader can follow')
+            body = fetch(FOREVERDB + about['url'])
+            if hashlib.sha256(body).hexdigest() != about['sha256'] or not body.startswith(FOREVERDB_HEADER):
+                raise ValueError(f'{path} did not download whole')
+            target = os.path.join(folder, os.path.basename(path))
+            os.makedirs(folder, exist_ok=True)
+            with open(target + '.part', 'wb') as handle:
+                handle.write(body)
+            os.replace(target + '.part', target)
+            downloaded += 1
+            log(f'ForeverDB.net {path}')
+    except (OSError, ValueError, http.client.HTTPException) as error:
+        raise SourceError(f'ForeverDB.net could not be downloaded ({error})') from None
+    return downloaded
+
+
+READERS = {'eglink': eglink, 'questie': questie, 'rxpguides': rxpguides, 'foreverdb': foreverdb}
+FETCHERS = {'eglink': fetch_eglink, 'questie': fetch_questie, 'rxpguides': fetch_rxpguides, 'foreverdb': fetch_foreverdb}
 
 
 # ------------------------------------------------------------------ storing

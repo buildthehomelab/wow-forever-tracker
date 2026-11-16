@@ -11,6 +11,11 @@
   Forever's own pages outside the gaps, other maps, dungeons, topic pages or Classic's pages, and no rereading of
   them. Files an earlier visit kept stay in `data/` and still go into the card. Its cards are made as before.
 
+- **ForeverDB.net is read into the world facts.** `python tools/tracker.py world facts foreverdb` reads what its
+  players recorded on Forever (the vendors and trainers they saw, those vendors' stock, boss loot measured over kills,
+  who gives and takes the quests they saw) and leaves its Classic rows out. Its pin is the version its manifest names
+  (`world pin foreverdb`). It counts as a second witness beside EG Link or QuestieDB, never as a live recording alone.
+
 - **The Chrome extension takes a new crawler every hour.** It loaded the tracker's crawler only when its tab had
   none, so a tab that crawled for days kept the queue and code it started with: the new order of the crawl did not
   reach it. Extension 1.1.0 reloads the tab for a new crawler once the one it runs is an hour old (and at once for one
