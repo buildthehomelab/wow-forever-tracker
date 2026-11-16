@@ -363,6 +363,53 @@
     return Object.values(record.tabs || {}).some(tab => (tab.rows || []).some(row => typeof row.outof === 'number' && row.outof >= 50));
   }
 
+  /** The npc and object pages an item or quest page names that are worth reading soon, as Forever queue keys: the
+   *  creatures that drop the item (unless 15 or more do: a world drop), sell it, the chests and nodes it comes from,
+   *  the creature or object that starts or ends the quest. Their own pages count better, and a new drop row from an npc
+   *  page waits for the item's page anyway. */
+  function namedBy(record) {
+    if (!record || record.status !== 'ok') return [];
+    const out = [];
+    const tabs = record.tabs || {};
+    if (record.kind === 'item') {
+      const wanted = { 'dropped-by': 'npc', 'sold-by': 'npc', 'contained-in-object': 'object', 'mined-from-object': 'object', 'gathered-from-object': 'object' };
+      for (const [tab, kind] of Object.entries(wanted)) {
+        const rows = (tabs[tab] && tabs[tab].rows) || [];
+        if (tab === 'dropped-by' && Math.max(rows.length, tabs[tab].total || 0) >= 15) continue;
+        for (const row of rows) if (Number.isInteger(row.id) && row.id > 0) out.push(kind + ':' + row.id);
+      }
+    }
+    if (record.kind === 'quest') {
+      for (const line of record.quick || []) {
+        if (!/^(Start|End)\s*:/i.test(line)) continue;
+        for (const m of line.matchAll(/\/(npc|object)=(\d+)/g)) out.push(m[1] + ':' + Number(m[2]));
+      }
+    }
+    return [...new Set(out)];
+  }
+
+  /** How much a page is worth, most first: the queue is always in this order. The tracker says which pages are which
+   *  (Download the crawler); a page nobody named is 'bulk' (Forever) or 'classic'. */
+  const TIERS = {
+    list: 0,       // the lists: they name everything else
+    gap: 1,        // an item a quest, recipe, mount, toy or spell waits for; a quest without giver or ender
+    named: 2,      // a creature, vendor or chest a tier-1 page names
+    missing: 3,    // a creature or object of the server whose data is missing (no stock, no loot, no trainer list)
+    gapOther: 4,   // an item that only lacks a source
+    namedOther: 5, // what a tier-4 page names
+    bulk: 6,       // the rest of Forever: the rows the server has, measured again
+    classic: 8,    // Classic: only where Forever's counts are thin
+  };
+  const defaultTier = key => /^(classic\/)?list:/.test(key) ? TIERS.list : key.startsWith('classic/') ? TIERS.classic : TIERS.bulk;
+  const tierOf = (tiers, key) => (tiers && key in tiers ? tiers[key] : defaultTier(key));
+  /** Where a page of $tier goes: after every page worth as much or more. */
+  function insertAt(queue, tiers, tier) {
+    const i = queue.findIndex(k => tierOf(tiers, k) > tier);
+    return i < 0 ? queue.length : i;
+  }
+  /** What the pages a page names are worth: the tier after its own, for the gaps; nothing (left where they are) else. */
+  const namedTier = tier => tier <= TIERS.gap ? TIERS.named : tier <= TIERS.gapOther ? TIERS.namedOther : null;
+
   /** A queue key: [branch/]kind:id, or [branch/]list:query. No branch is Forever. */
   function parseKey(key) {
     const m = /^(?:([a-z-]+)\/)?([a-z]+):(.+)$/.exec(key);
@@ -444,7 +491,7 @@
     return { p, wait };
   }
 
-  const api = { VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { namedBy, TIERS, defaultTier, tierOf, insertAt, namedTier, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
@@ -457,6 +504,7 @@
   };
   const state = {
     queue: [],                            // keys ('item:123', 'classic/npc:7', 'list:npcs'), in order; kept in IndexedDB
+    tiers: {},                            // key => tier, for the pages the tracker or a gap's page made worth more
     pace: pacer(store.get('pace', null)), // the learned pace (see paced()), kept between runs
     jitter: 0.15,                         // each wait is the pace, give or take this share
     nextSlot: 0,                          // when the next request to Wowhead may leave, the page's own ones included
@@ -524,6 +572,8 @@
     // a crawler before 2026-11-15 kept its queue in localStorage
     const old = store.get('queue', null);
     state.queue = Array.isArray(kept) ? kept : Array.isArray(old) ? old : [];
+    const tiers = await meta.get('tiers');
+    state.tiers = tiers && typeof tiers === 'object' ? tiers : {};
     if (old) { try { localStorage.removeItem('whc.queue'); } catch (error) { /* blocked */ } await keepQueue(); }
   })();
 
@@ -535,9 +585,34 @@
     const queued = new Set(state.queue);
     const fresh = [];
     for (const key of keys) if (parseKey(key) && !queued.has(key) && !have.has(key)) { queued.add(key); fresh.push(key); }
-    if (options.first) state.queue.unshift(...fresh); else for (const key of fresh) state.queue.push(key);
+    if (options.first) state.queue.unshift(...fresh);
+    else {
+      // each after every page worth as much: a Forever page before the Classic ones already queued
+      const byTier = new Map();
+      for (const key of fresh) { const t = tierOf(state.tiers, key); if (!byTier.has(t)) byTier.set(t, []); byTier.get(t).push(key); }
+      for (const t of [...byTier.keys()].sort((a, b) => a - b)) state.queue.splice(insertAt(state.queue, state.tiers, t), 0, ...byTier.get(t));
+    }
     await keepQueue();
     return { added: fresh.length, queued: state.queue.length };
+  }
+
+  /** Makes pages worth $tier (a TIERS name or number) and moves them there, in their order: after every page worth as
+   *  much or more. A page already worth more stays where it is; pages not queued yet are queued, pages read are not. */
+  async function prioritize(keys, tier = TIERS.named) {
+    await ready;
+    if (typeof tier === 'string') tier = TIERS[tier];
+    if (!Number.isInteger(tier)) throw new Error('unknown tier');
+    const have = new Set(await pages('readonly', s => s.getAllKeys()));
+    const queued = new Set(state.queue);
+    const want = [...new Set(keys)].filter(k => parseKey(k) && !have.has(k) && !(queued.has(k) && tierOf(state.tiers, k) <= tier));
+    if (!want.length) return { moved: 0, queued: state.queue.length };
+    const set = new Set(want);
+    state.queue = state.queue.filter(k => !set.has(k));
+    for (const key of want) state.tiers[key] = tier;
+    state.queue.splice(insertAt(state.queue, state.tiers, tier), 0, ...want);
+    await keepQueue();
+    await meta.set('tiers', state.tiers).catch(() => {});
+    return { moved: want.length, queued: state.queue.length };
   }
 
   /** Adds pages: add('item', [1, 2]), add('npc', [7], {branch: 'classic'}). */
@@ -610,6 +685,12 @@
     await pages('readwrite', s => s.put(record));
     let said = '';
     if (k.kind === 'list' && record.status === 'ok') said = await afterList(record, k.branch);
+    // what a gap's page names comes next: the creatures and chests of an item, who gives or takes a quest
+    const worth = k.branch === 'forever' && (k.kind === 'item' || k.kind === 'quest') ? namedTier(tierOf(state.tiers, key)) : null;
+    if (worth !== null) {
+      const moved = await prioritize(namedBy(record), worth);
+      if (moved.moved) said = moved.moved + ' npc and object pages moved up to tier ' + worth;
+    }
     return { answer: 'page', record, note: said };
   }
 
@@ -667,10 +748,12 @@
     for (const key of await pages('readonly', s => s.getAllKeys())) counts[shelf(key)] = (counts[shelf(key)] || 0) + 1;
     const queued = {};
     for (const key of state.queue) queued[shelf(key)] = (queued[shelf(key)] || 0) + 1;
+    const byTier = {};
+    for (const key of state.queue) { const t = tierOf(state.tiers, key); byTier[t] = (byTier[t] || 0) + 1; }
     const minutes = (Date.now() - state.startedAt) / 60000;
     const left = state.queue.length * state.pace.gap / 3600000;
     return {
-      running: state.running, queued: state.queue.length, queuedByKind: queued, read: counts, thisRun: state.fetched, skipped: state.skipped,
+      running: state.running, queued: state.queue.length, queuedByKind: queued, queuedByTier: byTier, read: counts, thisRun: state.fetched, skipped: state.skipped,
       perMinute: state.startedAt && minutes > 0.5 ? Math.round(state.fetched / minutes * 10) / 10 : null,
       paceSeconds: Math.round(state.pace.gap / 100) / 10, blockedAtSeconds: state.pace.blockedAt ? Math.round(state.pace.blockedAt / 100) / 10 : null,
       hoursLeft: Math.round(left * 10) / 10, plan: store.get('plan', null),
@@ -723,7 +806,7 @@
   }
 
   root.WHC = {
-    add, full, status, lines, save, saveNew, state, extract, PACE,
+    add, full, prioritize, TIERS, status, lines, save, saveNew, state, extract, PACE,
     log: () => state.log.slice(),
     start: () => { state.note = ''; run(); return 'started'; },
     stop: () => { state.running = false; store.set('run', false); return 'stopping after the request in flight'; },

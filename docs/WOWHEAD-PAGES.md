@@ -30,11 +30,12 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 
 ## Reading pages
 
-1. The Forge › Imports › **Download the crawler**. The file holds the crawler and its queue: first the items other
-   content waits for (a quest's objective, a recipe, a mount, a toy, a spell taught by an item), then the other gap
-   items from id 190000 up (`[wowhead] crawl_min_item`; below it are the original game's, nearly all test items),
-   then the quests without a giver or an ender. Pages the cache has are left out until they are due again
-   (`[wowhead] refresh_days`).
+1. The Forge › Imports › **Download the crawler**. The file holds the crawler and its queue, each page with what it
+   is worth ([What is read first](#what-is-read-first)): the quests without a giver or an ender and the items other
+   content waits for (a quest's objective, a recipe, a mount, a toy, a spell taught by an item), then the server's
+   creatures and objects whose data is missing, then the other gap items from id 190000 up (`[wowhead]
+   crawl_min_item`; below it are the original game's, nearly all test items). Pages the cache has are left out until
+   they are due again (`[wowhead] refresh_days`).
 2. Open `https://www.wowhead.com/forever` in a browser tab, open its developer console (F12), paste the file and
    press Enter. Leave the tab open.
 3. `await WHC.status()` says how far it is, the pace it found and the hours left; `WHC.log()` lists its last pace
@@ -47,6 +48,28 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 
 Without the website: `python tools/wowhead_pages.py todo <the To add list as CSV>` prints the queue as
 `WHC.add(...)` lines and `python tools/wowhead_pages.py merge wowhead-pages.jsonl` fills the same cache.
+
+## What is read first
+
+A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first
+(the crawler's `TIERS`; `WHC.status()` counts the queue by tier):
+
+| Tier | Pages | Why |
+|---|---|---|
+| 0 | the list pages | they name every other page, and are few |
+| 1 `gap` | the items a quest, recipe, mount, toy or spell waits for; the quests without a giver or an ender | each unblocks something players cannot do |
+| 2 `named` | the creatures, vendors and chests a tier-1 page names (not a world drop's fifteen and more), who gives or takes such a quest | their own pages count better, and a new drop row from an npc page waits for the item's page |
+| 3 `missing` | the server's creatures and objects whose data is missing: vendors that sell nothing, trainers that teach nothing, chests that hold nothing, creatures without loot (the ones with no service first) | fills holes in what is already in the world |
+| 4 `gapOther` | the items that only lack a source | |
+| 5 | what a tier-4 page names | |
+| 6 | the rest of Forever | measures again what the server already has |
+| 8 | Classic | only where Forever's counts are thin |
+
+*Download the crawler* hands each page its tier from the last analysis and the world database
+(`wowhead_pages_queue`: the tracker's gaps, and `wowhead_pages_missing_data` for tier 3, only the ids Wowhead's Forever
+lists name once they were read). In a crawl that already queued a page it moves up, never down; a page read is not
+asked again. The tiers 2 and 5 are made by the crawler itself, as it reads the pages that name them.
+`WHC.prioritize(['npc:7', 'object:2'], 'missing')` moves pages by hand.
 
 ## The whole database
 

@@ -114,6 +114,19 @@ $cnt = ft_test_dir();
 file_put_contents("$cnt/npc.jsonl", "{\"id\":1}\n{\"id\":2}\n");
 check(wowhead_pages_count('npc', [$cnt]) === 2 && wowhead_pages_count('classic-npc', [$cnt]) === 0, 'a shelf counted by its lines');
 
+// the ids Wowhead's whole lists name, the cut ones left out
+$ld = ft_test_dir();
+file_put_contents("$ld/forever-list.jsonl", implode("\n", array_map('json_encode', [
+    ['kind' => 'list', 'query' => 'npcs?filter=37:37;2:4;1:100', 'fetched' => 1, 'status' => 'ok', 'rows' => [['id' => 7], ['id' => 9]], 'found' => 2, 'truncated' => false],
+    ['kind' => 'list', 'query' => 'npcs', 'fetched' => 1, 'status' => 'ok', 'rows' => [['id' => 500]], 'found' => 15596, 'truncated' => true],
+    ['kind' => 'list', 'query' => 'npcsx?filter=1', 'fetched' => 1, 'status' => 'ok', 'rows' => [['id' => 11]], 'found' => 1, 'truncated' => false],
+    ['kind' => 'list', 'query' => 'objects?filter=15:15;2:4;1:100', 'fetched' => 1, 'status' => 'ok', 'rows' => [['id' => 31]], 'found' => 1, 'truncated' => false],
+])) . "\n");
+check(wowhead_pages_listed('npcs', 'forever', [$ld]) === [7 => true, 9 => true] && wowhead_pages_listed('objects', 'forever', [$ld]) === [31 => true] && wowhead_pages_listed('npcs', 'classic', [$ld]) === null,
+    'the ids whole list pages name; a cut list, another list, another branch not');
+$js2 = wowhead_pages_crawler(['item' => [3], 'quest' => [], 'npc' => [7, 9], 'object' => [31]]);
+check(str_contains($js2, 'await WHC.prioritize(["npc:7","npc:9"], "missing");') && str_contains($js2, 'await WHC.prioritize(["object:31"], "missing");') && !str_contains(strstr($js2, '// ---- queued by the tracker'), 'WHC.add('), 'creatures and objects with missing data are worth tier "missing"');
+
 // the cache read a line at a time: the newest answer of each page, once
 $a = ft_test_dir(); $b = ft_test_dir();
 file_put_contents("$a/npc.jsonl", '{"id":1,"fetched":100,"status":"ok","tabs":{}}' . "\n" . '{"id":2,"fetched":500,"status":"missing"}' . "\n{cut\n");
@@ -141,7 +154,7 @@ $waiting = [['quest', 'item 270001 not obtainable; item 3000 not obtainable'], [
     ['quest', 'No quest text']];
 $order = wowhead_pages_order(array_fill_keys([5559, 250001, 250009, 190000], true), $waiting, array_fill_keys([902, 901], true));
 check($order['item'] === [3000, 8633, 9126, 250001, 255000, 260001, 260002, 260003, 270001, 190000, 250009], 'what other content waits for first, then the gap items from 190000 up: ' . json_encode($order['item']));
-check($order['quest'] === [901, 902], 'the quests without a giver or an ender');
+check($order['quest'] === [901, 902] && $order['blocking'] === 9, 'the quests without a giver or an ender; 9 items other content waits for');
 $order = wowhead_pages_order(array_fill_keys([250009], true), $waiting, [901 => true], ['item' => [3000 => true, 250009 => true], 'quest' => [901 => true]], 0);
 check(!in_array(3000, $order['item'], true) && !in_array(250009, $order['item'], true) && $order['quest'] === [], 'pages the cache has are not read again');
 
@@ -173,8 +186,9 @@ check(wowhead_pages('classic-npc', [$dir])[7]['branch'] === 'classic' && !isset(
 $kept = wowhead_pages('forever-list', [$dir])['npcs?filter=37:37;2:4;1:20000'] ?? [];
 check(($kept['rows'] ?? null) === [['id' => 7, 'minlevel' => 3]] && !isset($kept['branch']) && isset(wowhead_pages('classic-list', [$dir])['npcs?filter=37:37;2:4;1:20000']), 'a list by its query, rows with text or no id dropped');
 
-$js = wowhead_pages_crawler(['item' => [3, 4], 'quest' => []]);
-check(str_contains($js, "await WHC.add(\"item\", [3,4]);") && !str_contains($js, '"quest"') && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its queue, then start');
+$js = wowhead_pages_crawler(['item' => [3, 4, 5], 'quest' => [7], 'blocking' => 2]);
+check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap");') && str_contains($js, 'await WHC.prioritize(["item:3","item:4"], "gap");') && str_contains($js, 'await WHC.prioritize(["item:5"], "gapOther");')
+    && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its pages with what each is worth, then start');
 
 check(str_contains(wowhead_pages_crawler(['item' => [3]], true), "await WHC.full();\n  WHC.start();") && !str_contains($js, 'WHC.full'), 'the full crawl download also starts the whole database');
 
