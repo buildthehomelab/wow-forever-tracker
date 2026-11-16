@@ -958,6 +958,16 @@ const CLASSICDB_HOLIDAYS = [
     ]],
     // Stranglethorn Fishing Extravaganza: the realm has all three events (14 announce, 15 the contest, 62 the turn-ins)
     'fishing' => ['name' => ['Stranglethorn Fishing Extravaganza', 'Concours de pêche de Strangleronce'], 'events' => [14 => ['event' => 14], 15 => ['event' => 15], 34 => ['event' => 62]]],
+    // the yearly holidays: the realm has each under the original game's number (Harvest Festival: 11 there, 33 in the original)
+    'lunar' => ['name' => ['Lunar Festival', 'Fête lunaire'], 'events' => [7 => ['event' => 7]]],
+    'loveair' => ['name' => ['Love is in the Air', 'De l’amour dans l’air'], 'events' => [8 => ['event' => 8]]],
+    'noblegarden' => ['name' => ['Noblegarden', 'Le Jardin des nobles'], 'events' => [9 => ['event' => 9]]],
+    'childrens' => ['name' => ['Children’s Week', 'Semaine des enfants'], 'events' => [10 => ['event' => 10]]],
+    'midsummer' => ['name' => ['Midsummer Fire Festival', 'Fête du Feu du solstice d’été'], 'events' => [1 => ['event' => 1]]],
+    'harvest' => ['name' => ['Harvest Festival', 'Fête des moissons'], 'events' => [33 => ['event' => 11]]],
+    'hallows' => ['name' => ['Hallow’s End', 'Sanssaint'], 'events' => [12 => ['event' => 12]]],
+    'winterveil' => ['name' => ['Feast of Winter Veil', 'Voile d’hiver'], 'events' => [2 => ['event' => 2]]],
+    'newyear' => ['name' => ['New Year’s Eve', 'Réveillon du Nouvel An'], 'events' => [6 => ['event' => 6]]],
 ];
 
 /**

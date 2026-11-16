@@ -142,6 +142,13 @@ check(!isset($h2['game_event']) && array_column($h2['creature'], 'guid') === [14
 check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'eventEntry') === [14, 15, 62] && $fl === [],
     "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and turn-in events (34 becomes 62)");
 [, $fl2] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce'], $templates, 70938);
+// the yearly holidays use the realm's own events: none is made, a missing one is counted
+foreach (CLASSICDB_HOLIDAYS as $key => $h) if ($key !== 'darkmoon') foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
+$yearly = ['12' => ['creatures' => [[1, 14829, 0, 1, 2, 3, 0, 180, 0.0, 0]], 'objects' => []]];
+[$hw, $hwl] = classicdb_holiday_rows('hallows', $yearly, [12 => "Hallow's End"], $templates, 70938);
+check($hw['game_event_creature'] === [['eventEntry' => 12, 'guid' => 1]] && !isset($hw['game_event']) && $hwl === [], "Hallow's End: spawns linked to the realm's event 12");
+[$hv, $hvl] = classicdb_holiday_rows('harvest', ['33' => $yearly['12']], [11 => 'Harvest Festival'], $templates, 70938);
+check($hv['game_event_creature'] === [['eventEntry' => 11, 'guid' => 1]], 'the Harvest Festival: 33 in the original game, 11 on the realm');
 check($fl2 === ['classic_holiday_no_event' => 2], 'an event the realm lacks and is not ours to make is counted');
 
 // the export: a holiday's link follows its spawn to the number it has in the file; another guid stays
