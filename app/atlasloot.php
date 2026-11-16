@@ -2,7 +2,8 @@
 // AtlasLoot Classic Forever (GPL-2.0, CurseForge project 1422985): the loot browser most Forever players run, updated
 // almost daily. Its dungeon and raid tables name the creature (or the boss) that drops each item, Forever's new items
 // and dungeons included; droprate.lua holds measured chances for the Classic ones. There is no public git repository:
-// the newest Forever file is taken from CurseForge and kept in data/atlasloot/<file id>.zip (the last three).
+// the newest Forever file is taken from CurseForge and kept in data/atlasloot/<file id>.zip (all of them: [atlasloot] keep
+// limits how many).
 //
 // Only the files the addon's _Forever.toc loads are read, and a file that switches itself off below The Burning
 // Crusade (data-tbc.lua) is skipped: what it lists is not in Forever. So are blocks wrapped for a later game version,
@@ -18,7 +19,8 @@ const ATLASLOOT_PROJECT = 1422985;
 const ATLASLOOT_FILES = 'https://www.curseforge.com/api/v1/mods/' . ATLASLOOT_PROJECT . '/files';
 const ATLASLOOT_LOOT_ADDON = 'AtlasLootClassic_DungeonsAndRaids';
 const ATLASLOOT_MAX_ENTRY = 32 * 1024 * 1024;   // bytes of one unpacked file (the largest is about 0.3 MB)
-const ATLASLOOT_KEEP = 3;                        // downloads kept in data/atlasloot/
+// downloads kept in data/atlasloot/: all of them (0) unless [atlasloot] keep says how many, a few MB each
+function atlasloot_keep(): int { return max(0, (int)config('atlasloot', 'keep', 0)); }
 const ATLASLOOT_MIN_SHARE = 3;                   // an even share never counts fewer items than this (1 item: 33 %)
 
 function atlasloot_dir(): string { return FT_ROOT . '/data/atlasloot'; }
@@ -50,7 +52,7 @@ function atlasloot_fetch(array $file): array
     rename($part, $path);
     $zips = glob(atlasloot_dir() . '/*.zip') ?: [];
     usort($zips, fn($a, $b) => (int)basename($b, '.zip') <=> (int)basename($a, '.zip'));
-    foreach (array_slice($zips, ATLASLOOT_KEEP) as $old) @unlink($old);
+    if (atlasloot_keep()) foreach (array_slice($zips, atlasloot_keep()) as $old) @unlink($old);
     return [$path, ''];
 }
 

@@ -25,6 +25,7 @@ require_once FT_APP . '/imports.php';
 require_once FT_APP . '/collector.php';
 require_once FT_APP . '/wowhead.php';
 require_once FT_APP . '/snapshots.php';
+require_once FT_APP . '/store.php';
 
 /** Profession names as trainers show them, to skill lines. */
 const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' => 333, 'Engineering' => 202, 'Herbalism' => 182,
@@ -1074,6 +1075,11 @@ function eglink_evidence(): array
     if (!$builds) return ['ok' => false, 'message' => t('EG Link lists no WoW Forever build.', 'EG Link ne liste aucun build de WoW Forever.')];
     usort($builds, 'version_compare');
     $dir = FT_ROOT . "/data/eglink/$commit";
+    // every file of the commit, each kept once (app/store.php): a new commit downloads only the files it changed. Its
+    // data/wowf/<build>/ folders are where tools/tracker.py looks too; the rest of the repository goes under _repo/
+    [$files, $problem] = store_github_files(EGLINK_REPO, $commit, store_place_data('data/wowf'));
+    if ($problem === '') [, , $problem] = store_fill($dir, $files);
+    if ($problem !== '') error_log('Forever Tracker: EG Link ' . $commit . ' not kept whole: ' . $problem);
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => []];
     foreach ($builds as $b) {
         foreach (EGLINK_FILES as $f) {
@@ -1168,10 +1174,17 @@ function foreverdb_evidence(): array
     $version = (string)($listing['data']['version'] ?? '');
     if (!$listing || !preg_match('/^[\w.\-]+$/', $version)) return ['ok' => false, 'message' => t('Could not reach ForeverDB.net.', 'ForeverDB.net est injoignable.')];
     $dir = FT_ROOT . "/data/foreverdb/$version";
+    // every file of the release, each kept once (app/store.php): a new release downloads only the files it changed
+    $files = [];
+    foreach ($listing['data']['files'] as $f) {
+        if (is_string($f['path'] ?? null) && is_string($f['url'] ?? null) && preg_match('/^[0-9a-f]{64}$/', (string)($f['sha256'] ?? ''))) $files[$f['path']] = ['sha256-' . $f['sha256'], FOREVERDB . $f['url']];
+    }
+    [, , $problem] = store_fill($dir, $files);
+    if ($problem !== '') error_log('Forever Tracker: ForeverDB.net ' . $version . ' not kept whole: ' . $problem);
     $text = [];
     foreach ($listing['data']['files'] as $f) {
         if (!in_array($f['path'], FOREVERDB_FILES, true)) continue;
-        $path = "$dir/" . basename($f['path']);
+        $path = "$dir/" . $f['path'];
         if (!is_file($path) || hash_file('sha256', $path) !== $f['sha256']) {
             [$status, $body] = source_http(FOREVERDB . $f['url'], 120);
             // its checksum says the file is whole; source_keep() writes it beside itself and renames it

@@ -45,6 +45,25 @@ again; each row's *Card* button makes one. From the command line: `php tools/sou
 - A source asked about the gaps only (`scope` = `gaps`) knows only what those gaps asked: after an analysis that found
   new gaps, import it from the source again for them.
 
-## Not yet
+## Every file once
 
-- A source's raw copy in `data/` is still kept as each importer keeps it (some only the files they read).
+A source that publishes versions mostly repeats itself: a new EG Link commit or ForeverDB.net release changes a few
+files of hundreds. Every file of a version is kept, each once, in `data/sources/blobs/`, named by its content (as git
+names it, `git-<sha1>`, or `sha256-<hex>` from ForeverDB.net's manifest), and checked against that name when it comes.
+A version's folder is made of links to those files, so a new version downloads only the files it changed, and the
+folders keep their layout (`tools/tracker.py` reads `data/eglink/<commit>/<build>/` as before). Each folder's
+`.files.json` says which file each path is.
+
+| Source | Kept |
+|---|---|
+| EG Link | every file of each commit read: its `data/wowf/<build>/` folders at the top of `data/eglink/<commit>/`, the rest of the repository under `_repo/` (about 500 files, 170 MB, once) |
+| ForeverDB.net | every file of each release (about 50), in `data/foreverdb/<version>/` as the release names them (`Data/NPCs.lua`) |
+| NorgannonDB | every file of the pinned commit: its `data/` folder at the top of `data/norgannondb/<commit>/`, the rest under `_repo/` |
+| AtlasLoot | every download in `data/atlasloot/` (`[atlasloot] keep` limits how many; 0, the default: all) |
+
+A folder downloaded before the store is taken in as it is: its files are checked against their names and kept, not
+downloaded again. When the store cannot be filled (GitHub does not answer), the importer downloads the files it reads
+as before and the log says so.
+
+Icy Veins' mirror and Wowhead's pages are kept answer by answer as before; what changed between two answers is in
+the snapshots.
