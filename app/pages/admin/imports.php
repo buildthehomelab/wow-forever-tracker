@@ -167,7 +167,7 @@ page_start(t('Imports', 'Imports'), 'admin');
     <p class="muted small"><?= e(t('No import has run since snapshots were kept.', 'Aucun import n’a tourné depuis que les instantanés sont conservés.')) ?></p>
   <?php else: ?>
   <table class="table is-forge">
-    <thead><tr><th><?= e(t('Source', 'Source')) ?></th><th><?= e(t('Version', 'Version')) ?></th><th><?= e(t('Run', 'Passage')) ?></th><th><?= e(t('Facts', 'Faits')) ?></th><th><?= e(t('New', 'Nouveaux')) ?></th><th><?= e(t('Changed', 'Modifiés')) ?></th><th><?= e(t('Gone', 'Disparus')) ?></th></tr></thead>
+    <thead><tr><th><?= e(t('Source', 'Source')) ?></th><th><?= e(t('Version', 'Version')) ?></th><th><?= e(t('Run', 'Passage')) ?></th><th><?= e(t('Facts', 'Faits')) ?></th><th><?= e(t('New', 'Nouveaux')) ?></th><th><?= e(t('Changed', 'Modifiés')) ?></th><th><?= e(t('Gone', 'Disparus')) ?></th><th></th></tr></thead>
     <tbody>
     <?php foreach ($snapshots as $source => $snap): $changes = (int)$snap['added'] + (int)$snap['changed'] + (int)$snap['gone'] ? snapshot_changes((int)$snap['id'], 25) : null; ?>
       <tr>
@@ -178,9 +178,10 @@ page_start(t('Imports', 'Imports'), 'admin');
         <td><?= e(number((int)$snap['added'])) ?></td>
         <td><?= e(number((int)$snap['changed'])) ?></td>
         <td><?= $snap['scope'] === 'all' ? e(number((int)$snap['gone'])) : '–' ?></td>
+        <td><?php if (in_array($source, SNAPSHOT_CARDS, true)): ?><button class="btn is-small" type="button" data-scribe="snapshot_card" data-source="<?= e($source) ?>" title="<?= e(t('A card from this run, against the gaps as they are now: nothing is downloaded', 'Une carte faite de ce passage, contre les manques actuels : rien n’est téléchargé')) ?>"><i class="fas fa-database"></i> <?= e(t('Card', 'Carte')) ?></button><?php endif; ?></td>
       </tr>
       <?php if ($changes): ?>
-      <tr><td colspan="7"><details><summary class="small"><?= e(t('The first of them', 'Les premiers')) ?></summary><ul class="small">
+      <tr><td colspan="8"><details><summary class="small"><?= e(t('The first of them', 'Les premiers')) ?></summary><ul class="small">
         <?php $say = fn($r) => $r['fact'] . ' ' . ($r['kind'] ? $r['kind'] . ' ' : '') . $r['entity'] . ' → ' . $r['target'] . ($r['value'] !== null ? ' (' . rtrim(rtrim(number_format((float)$r['value'], 4, '.', ''), '0'), '.') . ')' : ''); ?>
         <?php foreach ($changes['added'] as $r): ?><li>+ <?= e($say($r)) ?></li><?php endforeach; ?>
         <?php foreach ($changes['changed'] as [$old, $new]): ?><li>~ <?= e($say($new)) ?> <span class="muted"><?= e(t('was', 'était')) ?> <?= e($old['value'] ?? '–') ?></span></li><?php endforeach; ?>
@@ -190,6 +191,7 @@ page_start(t('Imports', 'Imports'), 'admin');
     <?php endforeach; ?>
     </tbody>
   </table>
+  <div class="btn-row"><button class="btn is-small is-gold" type="button" data-scribe="snapshot_cards" title="<?= e(t('After a new analysis: every source’s card again, from what it said last, without asking any of them', 'Après une nouvelle analyse : la carte de chaque source à nouveau, depuis ce qu’elle a dit en dernier, sans en interroger aucune')) ?>"><i class="fas fa-database"></i> <?= e(t('Make every card from the database', 'Faire toutes les cartes depuis la base')) ?></button></div>
   <?php endif; ?>
 </section>
 

@@ -319,10 +319,17 @@ function wowhead_pages_classic_import(): array
     [$ev, $newest] = wowhead_pages_classic_evidence($forever, $foreverItems, $gaps['items'], wowhead_pages_each('classic-npc'), wowhead_pages_each('classic-object'), $keep);
     $date = date('Y-m-d', $newest ?: time());
     snapshot_try('wowheadclassic', $date, $ev, 'gaps');
-    $label = 'Wowhead Classic ' . $date;
+    return wowhead_pages_card('wowheadclassic', $ev, $date, $date . '-' . $newest, $gaps);
+}
+
+/** The card of Wowhead's (or Wowhead Classic's) evidence: what the server lacks, and the drops it has measured again.
+ *  Also made from the database (snapshot_card). */
+function wowhead_pages_card(string $source, array $ev, string $date, string $file, array $gaps): array
+{
+    $label = SOURCES[$source][0] . ' ' . $date;
     [$tables, $left] = source_tables($ev, $label, $gaps);
-    [$changes, $moved] = source_refresh($ev, 'wowheadclassic');
-    return source_card('wowheadclassic', $label, 'wowheadclassic@' . $date . '-' . $newest, $tables, $left + $moved, $changes);
+    [$changes, $moved] = source_refresh($ev, $source);
+    return source_card($source, $label, $source . '@' . $file, $tables, $left + $moved, $changes);
 }
 
 /** The items whose drops an npc or object page may give: the gaps, and the items of drop rows an import brought (a
@@ -364,10 +371,7 @@ function wowhead_pages_import(): array
     if ($unreadQuests) $ev['left']['wowhead_quest_not_read'] = $unreadQuests;
     $date = date('Y-m-d', $newest ?: time());
     snapshot_try('wowhead', $date, $ev, 'gaps');   // npc and object pages give only the drops worth a row (wowhead_pages_keep)
-    $label = 'Wowhead ' . $date;
-    [$tables, $left] = source_tables($ev, $label, $gaps);
-    [$changes, $moved] = source_refresh($ev, 'wowhead');
-    return source_card('wowhead', $label, 'wowhead@' . $date . '-' . $newest, $tables, $left + $moved, $changes);
+    return wowhead_pages_card('wowhead', $ev, $date, $date . '-' . $newest, $gaps);
 }
 
 // ------------------------------------------------------------------ the round trip with the browser crawler

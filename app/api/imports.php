@@ -88,6 +88,17 @@ switch ((string)($input['action'] ?? '')) {
         $at = source_refresh_all();
         json_out($at ? ['ok' => true, 'message' => t('Done: every source is asked again at its next run. Run the analysis again (Wowhead), then the imports. The first runs take as long as the very first ones did.', 'Fait : chaque source sera réinterrogée à sa prochaine exécution. Relancez l’analyse (Wowhead), puis les imports. Les premières exécutions durent autant que les toutes premières.')]
             : ['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]);
+    case 'snapshot_card':
+        // a source's card from its last snapshot: nothing is downloaded or asked
+        require_once FT_APP . '/sources.php';
+        json_out(snapshot_card((string)($input['source'] ?? '')));
+    case 'snapshot_cards':
+        require_once FT_APP . '/sources.php';
+        $cards = snapshot_cards();
+        $made = array_filter($cards, fn($c) => !empty($c['id']));
+        json_out(['ok' => (bool)$cards, 'id' => count($made), 'replaced' => array_sum(array_map(fn($c) => (int)($c['replaced'] ?? 0), $cards)),
+            'message' => $cards ? sprintf(t('%d card(s) made from the database, %d source(s) with nothing new for the server.', '%d carte(s) faite(s) depuis la base, %d source(s) sans rien de neuf pour le serveur.'), count($made), count($cards) - count($made))
+                : t('No source has a snapshot yet: import each once from the source.', 'Aucune source n’a encore d’instantané : importez chacune une fois depuis la source.')]);
     case 'norgannon':
         require_once FT_APP . '/norgannon.php';
         json_out(norgannon_import());

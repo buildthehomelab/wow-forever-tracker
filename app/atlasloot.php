@@ -314,14 +314,20 @@ function atlasloot_import(bool $ifNew = false): array
     $ev = atlasloot_evidence($tables, atlasloot_measured($gaps, $witnessLeft));
     $ev['left'] += $witnessLeft;
     snapshot_try('atlasloot', (string)$file['version'], $ev);
-    $label = 'AtlasLoot ' . $file['version'];
+    $out = atlasloot_card($ev, (string)$file['version'], (string)$file['id'], $gaps);
+    if (!empty($out['ok']) || empty($out['counts'])) file_put_contents($mark, (string)$file['id']);
+    return $out;
+}
+
+/** The card of AtlasLoot's evidence. Also made from the database (snapshot_card). */
+function atlasloot_card(array $ev, string $version, string $file, array $gaps): array
+{
+    $label = 'AtlasLoot ' . $version;
     [$cards, $left] = source_tables($ev, $label, $gaps);
     // gap items whose chance is an even share (an upper bound: drops the server already has are left out later)
-    $guessed = count(array_filter($ev['drop'], fn($d) => $d[4] && isset($gaps['items'][$d[2]])));
+    $guessed = count(array_filter($ev['drop'], fn($d) => !empty($d[4]) && isset($gaps['items'][$d[2]])));
     $name = $label . ($guessed && $cards ? ' (' . sprintf(t('up to %d chances are an even share', 'jusqu’à %d chances en part égale'), $guessed) . ')' : '');
-    $out = source_card('atlasloot', $name, 'atlasloot@' . $file['id'], $cards, $left);
-    if (!empty($out['ok']) || $cards === []) file_put_contents($mark, (string)$file['id']);
-    return $out;
+    return source_card('atlasloot', $name, 'atlasloot@' . $file, $cards, $left);
 }
 
 /** Drops of the last downloaded AtlasLoot (no download), for NorgannonDB's second-source check. */
