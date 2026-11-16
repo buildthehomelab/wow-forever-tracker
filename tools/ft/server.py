@@ -89,17 +89,18 @@ def linked_choices(rows):
     return out
 # The core's own C++ scripts that teach a spell in a conversation (a creature) or on use (an object), by script name:
 # (kind, the spells they cast on the player). Only scripts read in the realm's core and found to work on WoW: Forever.
-# Left out until the core fork's fix is live on the realm:
-#   classic_npc_knot_thimblejack  (Knot Thimblejack, Dire Maul: Gordok Ogre Suit) asks for quest 5518 rewarded and
-#                                 "complete" at once, which a rewarded quest never is, so the line never shows;
-#   npc_engineering_tele_trinket  (Zap Farflinger, Jhordy Lapforge: the engineering transporters) checks skill line
-#                                 2506, which the Forever client does not have.
+# Knot Thimblejack, the engineering transporters and Omarion work from core fork PR 60 (f6bb68c6) on: before it, Knot
+# asked for quest 5518 rewarded and "complete" at once, the transporters checked skill line 2506 (not in the Forever
+# client), and Omarion cast pattern spells the client lacks (all but Icebane Breastplate).
 CORE_TEACHERS = {
     'boss_gloomrel': ('npc', {14894}),   # Gloom'rel, Blackrock Depths: Learn Smelt Dark Iron
-    # Master Craftsman Omarion, Naxxramas (Argent Dawn Revered or Exalted, skill 300). His script casts the patterns'
-    # own spells (28212...), and the Forever client has only one of them: Plans: Icebane Breastplate. The other 12
-    # teach nobody until the core fork's fix (Classic's learn spells 28251-28263) is live; then they go here.
-    'classic_mob_craftsman_omarion': ('npc', {28245}),
+    # Knot Thimblejack, Dire Maul (quest 5518 turned in, skill 275): Learn Gordok Ogre Suit (tailoring, leatherworking)
+    'classic_npc_knot_thimblejack': ('npc', {22814, 22816}),
+    # Zap Farflinger, Jhordy Lapforge (Engineering 260, Goblin / Gnomish Engineer): the Everlook and Gadgetzan transporters
+    'npc_engineering_tele_trinket': ('npc', {23490, 23491}),
+    # Master Craftsman Omarion, Naxxramas (Argent Dawn Revered or Exalted, skill 300): Classic's learn spells of his 13
+    # recipes (28245, the plans' own spell, before the fix)
+    'classic_mob_craftsman_omarion': ('npc', set(range(28251, 28264)) | {28245}),
     # Schematic: Field Repair Bot 74A, Blackrock Depths: used at Engineering 300, Learn Field Repair Bot 74A
     'classic_go_field_repair_bot_74A': ('go', {22864}),
 }
