@@ -94,4 +94,9 @@ check(SOURCE_LOOT_TABLES['skin'] === 'skinning_loot_template' && SOURCE_LOOT_TAB
 check(source_stale_cards('icyveins', [31 => 'icyveins@2026-11-15-gaps', 32 => 'atlasloot@1'], []) === [31], 'the early card is an Icy Veins card: the full one replaces it when nothing was applied from it');
 check(source_stale_cards('icyveins', [31 => 'icyveins@2026-11-15-gaps'], [['items' => json_encode([['type' => 'import', 'id' => 31]]), 'state' => 'applied']]) === [], 'an early card something was applied from stays');
 
+check(source_trainer_fits([], 197) && source_trainer_fits([], 0), 'a trainer list with no rows takes anything');
+check(source_trainer_fits([164 => 40, 0 => 2], 164) && !source_trainer_fits([164 => 40, 0 => 2], 129), 'a blacksmithing list takes blacksmithing recipes, not a bandage');
+check(source_trainer_fits([0 => 30], 0) && !source_trainer_fits([0 => 30], 197), 'a class list takes class spells, not recipes');
+check(!source_trainer_fits([197 => 12], 0), 'a tailoring list takes no class spell');
+
 ft_test_done();
