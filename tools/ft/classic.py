@@ -20,7 +20,7 @@ own learn effects say which recipe that is.
 import gzip
 import json
 
-FORMATS = (1, 2, 3)   # 2 adds the conversation lines (talk); 3 the drops, vendors and never-given items
+FORMATS = (1, 2, 3, 4)   # 2 adds the conversation lines (talk); 3 the drops, vendors and never-given items; 4 the event spawns
 TERMS = {'skill': 3, 'quest': 2, 'rep': 3, 'level': 2, 'knows': 2, 'lacks': 2}   # a term's kind and its length
 NEVER_LEARNED = 3   # SkillLineAbility.AcquireMethod
 

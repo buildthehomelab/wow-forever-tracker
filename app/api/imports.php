@@ -133,6 +133,10 @@ switch ((string)($input['action'] ?? '')) {
     case 'source_classicdb':
         require_once FT_APP . '/sources.php';
         json_out(classicdb_import());
+    case 'source_classicdb_holiday':
+        // a holiday's spawns from the pack (CLASSICDB_HOLIDAYS): the button names the holiday
+        require_once FT_APP . '/sources.php';
+        json_out(classicdb_holiday_import((string)($input['source'] ?? '')));
     case 'source_atlasloot':
         // a few seconds (EG Link's first download longer); the same lock as the container's check, so they never overlap
         require_once FT_APP . '/atlasloot.php';

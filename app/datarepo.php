@@ -7,6 +7,7 @@
 // Forge added it is exported corrected; a row deleted since is left out). Running the file again changes nothing:
 // a row is added only where none exists, and each added row is recorded in everlake_import_rows.
 require_once FT_APP . '/forge.php';
+require_once FT_APP . '/imports.php';   // IMPORT_GUID_TABLES / IMPORT_GUID_KIND: the tables that name a spawn by its guid
 
 const DATAREPO_STAGE = 'everlake_forge_stage';
 const DATAREPO_LEDGER = 'everlake_import_rows';
@@ -23,6 +24,9 @@ const DATAREPO_PARENTS = [
     'gameobject' => ['id', 'gameobject_template', 'entry'],
     'creature_queststarter' => ['id', 'creature_template', 'entry'],
     'creature_questender' => ['id', 'creature_template', 'entry'],
+    // a holiday's link to a spawn: only where the spawn was added (not left out as already standing there)
+    'game_event_creature' => ['guid', 'creature', 'guid'],
+    'game_event_gameobject' => ['guid', 'gameobject', 'guid'],
 ];
 
 /** Columns of a table with their types, generated columns left out. */
@@ -154,6 +158,18 @@ function datarepo_block(string $table, array $rows, string $file, string $note, 
     return $out;
 }
 
+/** Rows that name a spawn by its guid (IMPORT_GUID_TABLES), with the number that spawn has in the file: a spawn of the
+ *  same operation gets a number of its own there (DATAREPO_GUID_BASE); a guid of another spawn is kept as it is. */
+function datarepo_renumber(string $table, array $rows, array $renumbered): array
+{
+    $spawns = (IMPORT_GUID_KIND[$table] ?? (str_contains($table, 'gameobject') ? 'go' : 'npc')) === 'go' ? 'gameobject' : 'creature';
+    foreach ($rows as &$r) foreach (IMPORT_GUID_TABLES[$table] ?? [] as $c) {
+        if (isset($r[$c], $renumbered[$spawns][(int)$r[$c]])) $r[$c] = $renumbered[$spawns][(int)$r[$c]];
+    }
+    unset($r);
+    return $rows;
+}
+
 /** The update file of an applied operation: ['ok', 'name', 'sql', 'rows', 'warnings']. */
 function datarepo_export(int $logId): array
 {
@@ -167,7 +183,9 @@ function datarepo_export(int $logId): array
     $changes = datarepo_changes($log);
     $warnings = $changes['skipped']; $blocks = []; $count = 0;
 
-    foreach ($changes['inserts'] as $table => $wheres) {
+    // rows that name a spawn by its guid come after the spawns, with the spawn's number in this file (datarepo_renumber)
+    $dependent = array_intersect_key($changes['inserts'], IMPORT_GUID_TABLES);
+    foreach (array_diff_key($changes['inserts'], IMPORT_GUID_TABLES) as $table => $wheres) {
         if (!table_exists($table, 'world')) { $warnings[] = sprintf(t('Table %s is gone: left out.', 'La table %s n’existe plus : écartée.'), $table); continue; }
         $found = [];
         foreach ($wheres as $where) foreach (rows('SELECT * FROM ' . forge_ident($table) . ' WHERE ' . $where, [], 'world') as $r) $found[] = $r;
@@ -176,6 +194,7 @@ function datarepo_export(int $logId): array
         $count += count($found);
     }
     $base = DATAREPO_GUID_BASE + (int)$log['id'] * DATAREPO_GUID_STEP;
+    $renumbered = ['creature' => [], 'gameobject' => []];   // [table => [guid on the realm => guid in this file]]
     foreach ($changes['spawns'] as $table => $guids) {
         $found = [];
         foreach (array_chunk(array_values(array_unique($guids)), 500) as $chunk) {
@@ -183,9 +202,17 @@ function datarepo_export(int $logId): array
         }
         if (!$found) { $warnings[] = sprintf(t('%s: the spawns were removed from the server since.', '%s : les placements ont été retirés du serveur depuis.'), $table); continue; }
         if (count($found) >= DATAREPO_GUID_STEP) return ['ok' => false, 'message' => 'Too many spawns in one operation.'];
-        foreach ($found as $i => &$r) $r['guid'] = $base + $i;
+        foreach ($found as $i => &$r) { $renumbered[$table][(int)$r['guid']] = $base + $i; $r['guid'] = $base + $i; }
         unset($r);
         $blocks[] = datarepo_block($table, $found, $file, $note, $base);
+        $count += count($found);
+    }
+    foreach ($dependent as $table => $wheres) {
+        if (!table_exists($table, 'world')) { $warnings[] = sprintf(t('Table %s is gone: left out.', 'La table %s n’existe plus : écartée.'), $table); continue; }
+        $found = [];
+        foreach ($wheres as $where) foreach (rows('SELECT * FROM ' . forge_ident($table) . ' WHERE ' . $where, [], 'world') as $r) $found[] = $r;
+        if (!$found) { $warnings[] = sprintf(t('%s: the rows were removed from the server since.', '%s : les lignes ont été retirées du serveur depuis.'), $table); continue; }
+        $blocks[] = datarepo_block($table, datarepo_renumber($table, $found, $renumbered), $file, $note);
         $count += count($found);
     }
     if ($changes['updates']) {

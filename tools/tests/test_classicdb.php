@@ -119,4 +119,36 @@ $trust = source_trust('');
 check(end($trust) === 'classicdb' && $trust[0] === 'client', 'the last source asked: every other one is trusted before it');
 check(str_ends_with(classicdb_pack(), '/data/classicdb/pack.cdbpack'), 'one pack, kept with the tracker\'s data');
 
+// a holiday's spawns: the Faire's events made where the realm lacks them, one spawn in several events linked to each
+$events = ['4' => ['creatures' => [[144006, 14829, 0, -9548.9, 141.163, 58.9648, 4.8346, 180, 0.0, 0], [5, 99999, 0, 1, 2, 3, 0, 1, 0.0, 0]],
+                   'objects' => [[98025, 180040, 0, -9558.64, 119.835, 58.854, -1.2, 0.0, 0.0, 0.0, 0.0, 180]]],
+           '5' => ['creatures' => [[2000, 14829, 1, -1, -2, -3, 0, 180, 0.0, 0], ['bad']], 'objects' => []],
+           '14' => ['creatures' => [[77, 15077, 0, 1, 2, 3, 0, 300, 0.0, 0]], 'objects' => []],
+           '15' => ['creatures' => [[77, 15077, 0, 1, 2, 3, 0, 300, 0.0, 0]], 'objects' => []],
+           '34' => ['creatures' => [[77, 15077, 0, 1, 2, 3, 0, 300, 0.0, 0]], 'objects' => []]];
+$templates = ['npc' => [14829 => true, 15077 => true], 'go' => [180040 => true]];
+[$h, $hl] = classicdb_holiday_rows('darkmoon', $events, [], $templates, 70938);
+check(array_column($h['game_event'], 'eventEntry') === [4, 5] && array_column($h['game_event'], 'holiday') === [263, 264] && $h['game_event'][0]['holidayStage'] === 1,
+    "the Faire's two events are made where the realm lacks them, with Forever's holidays (263 Elwynn, 264 Mulgore)");
+check(array_column($h['creature'], 'guid') === [144006, 2000] && $h['game_event_creature'] === [['eventEntry' => 4, 'guid' => 144006], ['eventEntry' => 5, 'guid' => 2000]],
+    'spawns keep the original guid (the card gives new ones) and each is linked to its event');
+check(abs($h['gameobject'][0]['rotation2'] - round(sin(-0.6), 6)) < 1e-9 && abs($h['gameobject'][0]['rotation3'] - round(cos(-0.6), 6)) < 1e-9,
+    'an object without a rotation is turned by its orientation');
+check($hl === ['classic_holiday_no_template' => 1, 'classic_holiday_bad_row' => 1], 'a creature without a template and a bad row are counted');
+[$h2, $hl2] = classicdb_holiday_rows('darkmoon', $events, [4 => 'Darkmoon Faire (Elwynn Forest)', 5 => 'Something else'], $templates, 70938);
+check(!isset($h2['game_event']) && array_column($h2['creature'], 'guid') === [144006] && $hl2['classic_holiday_event_number_taken'] === 1,
+    'an event the realm has is used; a number the realm uses for another event is left alone');
+[$f, $fl] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce', 15 => 'Pools', 62 => 'Turn-ins'], $templates, 70938);
+check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'eventEntry') === [14, 15, 62] && $fl === [],
+    "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and turn-in events (34 becomes 62)");
+[, $fl2] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce'], $templates, 70938);
+check($fl2 === ['classic_holiday_no_event' => 2], 'an event the realm lacks and is not ours to make is counted');
+
+// the export: a holiday's link follows its spawn to the number it has in the file; another guid stays
+require_once FT_APP . '/datarepo.php';
+$moved = datarepo_renumber('game_event_creature', [['eventEntry' => 4, 'guid' => 500], ['eventEntry' => 4, 'guid' => 7]], ['creature' => [500 => 910270000], 'gameobject' => [7 => 1]]);
+check($moved === [['eventEntry' => 4, 'guid' => 910270000], ['eventEntry' => 4, 'guid' => 7]], 'a link follows its spawn into the file; a creature link never takes an object number');
+$moved = datarepo_renumber('game_event_gameobject', [['eventEntry' => 4, 'guid' => 7]], ['creature' => [], 'gameobject' => [7 => 910270003]]);
+check($moved === [['eventEntry' => 4, 'guid' => 910270003]], 'an object link follows its object');
+
 ft_test_done();
