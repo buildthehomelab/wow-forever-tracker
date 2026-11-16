@@ -4,7 +4,7 @@
 
 The source is the full dump of cmangos' classic-db (github.com/cmangos/classic-db, Full_DB/, GPL-3.0): the content
 database of the 1.12 game. Only the dump is read, as text; nothing is run and no database is needed. The pack is a
-few hundred kB of gzipped JSON holding three things:
+few hundred kB of gzipped JSON holding:
 
     trainers   [npc, spell, cost, skill line, skill rank, level]   npc_trainer, and npc_trainer_template through the
                                                                    creatures that use each template
@@ -12,12 +12,17 @@ few hundred kB of gzipped JSON holding three things:
     gossip     [npc, spell]                                        spells a line of a creature's conversation casts
                                                                    (how Classic teaches a recipe without a trainer
                                                                    window: Knot Thimblejack, the transporter gnomes)
-
-and the names of the creatures, objects and quests it mentions.
-
     talk       [kind, entry, text, spell, terms]                  a line of a creature's ('npc') or a quest-giver
                                                                    object's ('go') conversation that casts a spell, with
-                                                                   the conditions of every line on the way to it (terms()) The website's Imports page takes the pack (docs/SOURCES.md).
+                                                                   the conditions of every line on the way to it (terms())
+    drops      [kind, entry, item, chance]                        a creature ('npc') or chest ('go') that drops an item
+                                                                   that teaches (a recipe, an item learned on use), its
+                                                                   chance in %, loot groups and references worked out;
+                                                                   world drops (more than WORLD_DROP creatures) left out
+    sells      [npc, item, stock]                                 a vendor of such an item (stock 0: no limit)
+
+and the names of the creatures, objects and quests it mentions. The website's Imports page takes the pack
+(docs/SOURCES.md).
 """
 import datetime
 import gzip
@@ -26,7 +31,8 @@ import re
 import sys
 
 WANTED = {'quest_template', 'npc_trainer', 'npc_trainer_template', 'creature_template', 'gameobject_template', 'gossip_menu_option',
-          'dbscripts_on_gossip', 'conditions', 'db_version'}
+          'dbscripts_on_gossip', 'conditions', 'db_version', 'item_template', 'creature_loot_template', 'gameobject_loot_template',
+          'reference_loot_template', 'npc_vendor', 'npc_vendor_template'}
 CAST_SPELL = 15   # dbscripts command: datalong is the spell
 GO_QUESTGIVER = 2   # gameobject_template.type whose data3 is its conversation menu
 # Classic's conditions (cmangos `conditions`) that a conversation line can carry over, as plain terms:
@@ -35,6 +41,10 @@ GO_QUESTGIVER = 2   # gameobject_template.type whose data3 is its conversation m
 # Anything else (an item in the bags, a quest taken, OR, a flag) is not carried over: the line is left out and counted.
 COND_AND, COND_NOT = -1, -3
 COND_REP_MIN, COND_SKILL, COND_QUEST_DONE, COND_LEVEL, COND_SPELL = 5, 7, 8, 15, 17
+# Drops and vendors of the items that teach (item_template: class 9 Recipe, or a spell with trigger 6 LEARN_SPELL_ID)
+ITEM_RECIPE, TRIGGER_LEARN = 9, 6
+GO_CHEST = 3          # gameobject_template.type whose data1 is its loot
+WORLD_DROP = 15       # an item more creatures drop is a world drop: left out, as the other sources do
 
 
 def values(text):
@@ -179,6 +189,90 @@ def conversations(tables, creatures, casts):
     return [[kind, entry, text, spell, json.loads(how)] for kind, entry, text, spell, how in sorted(lines)], dropped
 
 
+def teaching_items(tables):
+    """The items that teach a spell: recipes (class 9) and items whose spell is learned on use (trigger 6)."""
+    out = set()
+    for item in tables['item_template']:
+        entry = whole(item.get('entry'))
+        if entry and (item.get('class') == ITEM_RECIPE or any(item.get(f'spelltrigger_{i}') == TRIGGER_LEARN and whole(item.get(f'spellid_{i}')) for i in range(1, 6))):
+            out.add(entry)
+    return out
+
+
+def loot_chances(rows, refs, entry, depth=0):
+    """{item: chance in %} of one loot table, references followed. Within a group, rows without a chance share what the
+    others leave; outside a group a row without a chance drops nothing. Quest-only rows (a negative chance) and rows with
+    a condition are left out. rows / refs: {entry: [loot rows]} of the table and of reference_loot_template."""
+    out = {}
+    if depth > 4:
+        return out
+    groups = {}
+    for row in rows.get(entry, ()):
+        if whole(row.get('condition_id')) or (row.get('ChanceOrQuestChance') or 0) < 0:
+            continue
+        groups.setdefault(whole(row.get('groupid')), []).append(row)
+    for group, members in groups.items():
+        fixed = sum(float(r.get('ChanceOrQuestChance') or 0) for r in members)
+        shared = [r for r in members if not r.get('ChanceOrQuestChance')]
+        share = max(0.0, 100.0 - fixed) / len(shared) if group and shared else 0.0
+        for row in members:
+            chance = float(row.get('ChanceOrQuestChance') or 0) or share
+            if chance <= 0:
+                continue
+            ref = row.get('mincountOrRef') or 0
+            found = loot_chances(refs, refs, -ref, depth + 1) if ref < 0 else {whole(row.get('item')): 100.0}
+            for item, inner in found.items():
+                if item:
+                    out[item] = min(100.0, out.get(item, 0.0) + chance * inner / 100.0)
+    return out
+
+
+def drops_and_sells(tables, creatures, items):
+    """([[kind, entry, item, chance]], [[npc, item, stock]], {left out: count}) for the given items: creatures' corpses
+    ('npc') and chests ('go'), by the creature or chest, not by its loot table; vendors with their stock (0: no limit).
+    An item more than WORLD_DROP creatures drop is a world drop and left out."""
+    by_entry = lambda name: {e: rs for e, rs in _group(tables[name], 'entry').items()}
+    creature_loot, object_loot, refs = by_entry('creature_loot_template'), by_entry('gameobject_loot_template'), by_entry('reference_loot_template')
+    left = {'classic_world_drop': 0}
+    drops, users = {}, {}
+    for entry, creature in creatures.items():
+        if whole(creature.get('LootId')):
+            users.setdefault(whole(creature['LootId']), set()).add(entry)
+    for loot, npcs in users.items():
+        for item, chance in loot_chances(creature_loot, refs, loot).items():
+            if item in items:
+                for npc in npcs:
+                    drops.setdefault(item, []).append(['npc', npc, item, round(chance, 2)])
+    for g in tables['gameobject_template']:
+        if g.get('type') == GO_CHEST and whole(g.get('data1')):
+            for item, chance in loot_chances(object_loot, refs, whole(g['data1'])).items():
+                if item in items:
+                    drops.setdefault(item, []).append(['go', whole(g.get('entry')), item, round(chance, 2)])
+    out = []
+    for item, rows in drops.items():
+        if sum(1 for r in rows if r[0] == 'npc') > WORLD_DROP:
+            left['classic_world_drop'] += 1
+            continue
+        out += [r for r in rows if r[3] >= 0.01]
+    templates = _group(tables['npc_vendor_template'], 'entry')
+    sells = set()
+    for row in tables['npc_vendor']:
+        if whole(row.get('item')) in items and not whole(row.get('condition_id')) and whole(row.get('entry')) in creatures:
+            sells.add((whole(row['entry']), whole(row['item']), whole(row.get('maxcount'))))
+    for entry, creature in creatures.items():
+        for row in templates.get(whole(creature.get('VendorTemplateId')), ()) if whole(creature.get('VendorTemplateId')) else ():
+            if whole(row.get('item')) in items and not whole(row.get('condition_id')):
+                sells.add((entry, whole(row['item']), whole(row.get('maxcount'))))
+    return sorted(out), [list(s) for s in sorted(sells)], left
+
+
+def _group(rows, key):
+    out = {}
+    for row in rows:
+        out.setdefault(whole(row.get(key)), []).append(row)
+    return out
+
+
 def pack(tables, today=None):
     creatures = {whole(c.get('Entry')): c for c in tables['creature_template'] if whole(c.get('Entry'))}
     users = {}   # trainer template -> creatures
@@ -223,14 +317,17 @@ def pack(tables, today=None):
             todo.extend(leads.get(menu, ()))
 
     talk, dropped = conversations(tables, creatures, casts)
+    drops, sells, loot_left = drops_and_sells(tables, creatures, teaching_items(tables))
 
     npcs = {npc for npc, *_ in trainers} | {npc for npc, _ in gossip} | {entry for kind, entry, *_ in talk if kind == 'npc'}
+    npcs |= {entry for kind, entry, *_ in drops if kind == 'npc'} | {npc for npc, *_ in sells}
     asked = {quest for quest, *_ in quests}
     version = ''
     for row in tables['db_version']:
         version = str(row.get('version') or '')[:120]
-    objects = {str(whole(g.get('entry'))): str(g.get('name') or '') for g in tables['gameobject_template'] if any(k == 'go' and e == whole(g.get('entry')) for k, e, *_ in talk)}
-    return {'format': 2, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
+    named_objects = {e for k, e, *_ in talk if k == 'go'} | {e for k, e, *_ in drops if k == 'go'}
+    objects = {str(whole(g.get('entry'))): str(g.get('name') or '') for g in tables['gameobject_template'] if whole(g.get('entry')) in named_objects}
+    return {'format': 3, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'drops': drops, 'sells': sells, 'loot_left': loot_left, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
             'trainers': sorted(trainers), 'quests': quests, 'gossip': sorted(gossip),
             'npc_names': {str(npc): str(creatures[npc].get('Name') or '') for npc in sorted(npcs)},
             'quest_names': {str(whole(q.get('entry'))): str(q.get('Title') or '') for q in tables['quest_template'] if whole(q.get('entry')) in asked}}
@@ -246,7 +343,9 @@ def main(argv):
         sys.exit('no trainer and no quest found: is this the full dump of cmangos classic-db?')
     with gzip.open(argv[2], 'wt', encoding='utf-8') as out:
         json.dump(made, out, ensure_ascii=False, separators=(',', ':'))
-    print(f"{argv[2]}: {len(made['trainers'])} trainer lines, {len(made['quests'])} quests with a spell, {len(made['talk'])} conversation lines that cast a spell"
+    print(f"{argv[2]}: {len(made['drops'])} drops and {len(made['sells'])} vendor lines of items that teach "
+          f"({made['loot_left']['classic_world_drop']} world drops left out), "
+          f"{len(made['trainers'])} trainer lines, {len(made['quests'])} quests with a spell, {len(made['talk'])} conversation lines that cast a spell"
           f" ({made['talk_dropped']} left out: a condition not carried over) ({made['version']})")
 
 
