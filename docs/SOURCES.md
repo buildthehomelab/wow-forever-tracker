@@ -49,8 +49,10 @@ as text.
   realm's events 14, 15 and 62), and the yearly holidays under the realm's own events: Lunar Festival 7, Love is in
   the Air 8, Noblegarden 9 (the realm lacks it: made on Forever's holiday 181, 7 days), Children's Week 10, Midsummer 1, Harvest Festival 11 (33 in the original game), Hallow's
   End 12, Winter Veil 2, New Year's Eve 6. A card's preview says how many of its spawns already stand on the realm:
-  the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature or
-  object already stands within 3 yards is left out with its links. The world data export numbers the spawns in its
+  the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature
+  already stands within 30 yards, or whose object within 10, is left out with its links: the realm's holiday spawns come
+  from another database (VMaNGOS), which places the same NPC a few yards off, and a closer match gave the realm a
+  second Silas Darkmoon or Lunar Festival Elder. The card's own spawns are still told apart at 3 yards, so a crowd stays whole. The world data export numbers the spawns in its
   own range and writes each link with its spawn's new number, only where that spawn was added. Restart the
   worldserver after applying: events are read at start. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
 (`data/classicdb/pack.cdbpack`) and a card is made at once; *Read the pack again* makes a new card after an analysis.
@@ -304,7 +306,9 @@ Spawns: a creature or object the card places where none of its kind stands, with
 within `[imports] spawn_move_yards` (40 by default, 0: never) that the card does not also place, is that spawn moved:
 the nearest one gets the card's position and facing, keeping its guid (its addon, formation and pool rows stay). A
 spawn a more trusted source placed is left where it is, and no second one is added beside it. Like every spawn, moves
-are written only while the worldserver is stopped.
+are written only while the worldserver is stopped. A holiday's spawn (one the card links to a game event) with one of
+its kind within 30 yards (an object within 10) is that one, which stays where it is: the realm's holiday spawns come
+from VMaNGOS, and a holiday card from another database moves nothing that close.
 
 A file imported by hand counts as the source `sniff` (WowPacketParser's format) or `scribe` (ForeverScribe's notes).
 Both come after the Forever sources and before Classic's in the default order.
