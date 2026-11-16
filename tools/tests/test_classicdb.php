@@ -138,9 +138,9 @@ check($hl === ['classic_holiday_no_template' => 1, 'classic_holiday_bad_row' => 
 [$h2, $hl2] = classicdb_holiday_rows('darkmoon', $events, [4 => 'Darkmoon Faire (Elwynn Forest)', 5 => 'Something else'], $templates, 70938);
 check(!isset($h2['game_event']) && array_column($h2['creature'], 'guid') === [144006] && $hl2['classic_holiday_event_number_taken'] === 1,
     'an event the realm has is used; a number the realm uses for another event is left alone');
-[$f, $fl] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce', 15 => 'Pools', 62 => 'Turn-ins'], $templates, 70938);
-check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'eventEntry') === [14, 15, 62] && $fl === [],
-    "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and turn-in events (34 becomes 62)");
+[$f, $fl] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce', 15 => 'Tournament', 40 => 'The Crew'], $templates, 70938);
+check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'eventEntry') === [14, 15, 40] && $fl === [],
+    "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and crew events (34 becomes 40)");
 [, $fl2] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce'], $templates, 70938);
 // the yearly holidays use the realm's own events: none is made, a missing one is counted
 foreach (CLASSICDB_HOLIDAYS as $key => $h) if ($key !== 'darkmoon') foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
