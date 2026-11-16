@@ -206,13 +206,14 @@ first_run() {
     # choice calls; 20: the SmartAI rows a choice links to, and only what a conversation's spell teaches counts;
     # 21: Knot Thimblejack, the engineering transporters and Omarion teach, core fork PR 60; 22: Season of Discovery
     # spells and original spells the original game never taught are internal; 23: items the original game never gave
-    # out, and the spells only they teach): the stored
+    # out, and the spells only they teach; 24: the core's scripts read again, f6bb68c6: helpers, arrays, entry swaps):
+    # the stored
     # analysis is then redone once at the next start.
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=23 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=24 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

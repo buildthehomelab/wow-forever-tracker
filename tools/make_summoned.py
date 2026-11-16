@@ -7,7 +7,9 @@ The database knows some summons (SmartAI, summon groups, summoning spells), but 
 the analysis calls it missing and the locator offers to spawn it for good.
 
 Three lists:
-  creatures   entry -> script, for every SummonCreature / DoSummon call with a known entry
+  creatures   entry -> script, for every SummonCreature / DoSummon call with a known entry (also a script's own
+              helper named Summon...Creature, every entry of an array the call picks from, and what an instance's
+              GetCreatureEntry hook swaps a spawn for)
   objects     entry -> script, the same for SummonGameObject (a boss's chest)
   encounters  DungeonEncounter id -> creature entries, from the instance scripts' own tables: the encounter list
               `{ DATA_UROK_DOOMHOWL, {{ 271 }} }` joined to the creature of that boss (`{ NPC_X, DATA_X }`,
@@ -32,7 +34,15 @@ CONSTANT = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\d+)\s*[,;}\n]')
 # Calls that create a creature or a world object from an entry given as their first argument.
 CREATURE_CALLS = ('SummonCreature', 'DoSummon', 'DoSummonFlyer', 'DoSpawnCreature', 'SummonTrigger')
 OBJECT_CALLS = ('SummonGameObject', 'DoSummonGameObject')
-CALL = re.compile(r'\b(' + '|'.join(CREATURE_CALLS + OBJECT_CALLS) + r')\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*|\d+)\s*[,)]')
+# A script's own helper named so (`SummonRookeryCreature(NPC_SOLAKAR, ...)`) counts as such a call too. The first
+# argument may pick from an array (`SummonCreature(BrdRingBoss[urand(0, 5)], ...)`): every entry of the array counts.
+HELPER = r'\w*Summon\w*(?:Creature|GameObject)\w*'
+CALL = re.compile(r'\b(' + '|'.join(CREATURE_CALLS + OBJECT_CALLS) + '|' + HELPER + r')\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*|\d+)\s*(\[|[,)])')
+# `uint32 const BrdRingBoss[] = { 9027, 9028, ... };`: a one-level array of numbers or constants
+ARRAY = re.compile(r'\b([A-Za-z_]\w*)\s*\[\s*\w*\s*\]\s*=\s*\{([^{}]*)\}')
+# An instance's GetCreatureEntry hook swaps a spawn's creature for another (a rare instead of its placeholder):
+# every creature it returns comes into the world
+ENTRY_HOOK = re.compile(r'\bGetCreatureEntry\s*\([^)]*\)[^{;]*\{')
 COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
 NAME = r'[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*'
 # { DATA_X, {{ 271 }} }: a boss slot of the instance and its DungeonEncounter ids
@@ -77,13 +87,42 @@ def scan(scripts):
                 return next(iter(values)) if len(values) == 1 else None
         return None
 
+    arrays = {}   # (folder, name) -> [tokens], and (None, name) for a name used once anywhere
+    for path, text in texts.items():
+        for name, body in ARRAY.findall(text):
+            tokens = re.findall(r'[A-Za-z_][A-Za-z0-9_:]*|\d+', body)
+            arrays.setdefault((path, name), tokens)
+            arrays.setdefault((os.path.dirname(path), name), tokens)
+            arrays.setdefault((None, name), tokens)
+
     creatures, objects = {}, {}
     for path in sorted(texts):
         script = os.path.relpath(path, scripts).replace(os.sep, '/')
-        for call, token in CALL.findall(texts[path]):
-            entry = resolve(path, token)
-            if entry:
-                (objects if call in OBJECT_CALLS else creatures).setdefault(entry, script)
+        text = texts[path]
+        for call, token, after in CALL.findall(text):
+            helper = call not in CREATURE_CALLS + OBJECT_CALLS
+            if helper and 'Group' in call:
+                continue   # SummonCreatureGroup(id): a summon group of the database (read from creature_summon_groups)
+            if after == '[':   # an array: every entry it holds
+                name = token.rsplit('::', 1)[-1]
+                tokens = arrays.get((path, name)) or arrays.get((os.path.dirname(path), name)) or arrays.get((None, name)) or []
+            else:
+                tokens = [token]
+            is_object = call in OBJECT_CALLS or 'GameObject' in call
+            for t in tokens:
+                entry = resolve(path, t)
+                # an array, or a script's own helper, with small numbers holds slots or indexes, not creatures
+                if entry and (not (helper or after == '[') or entry >= MIN_ENTRY):
+                    (objects if is_object else creatures).setdefault(entry, script)
+        for hook in ENTRY_HOOK.finditer(text):
+            depth, i = 1, hook.end()
+            while depth and i < len(text):
+                depth += {'{': 1, '}': -1}.get(text[i], 0)
+                i += 1
+            for token in re.findall(r'\breturn\s+([A-Za-z_][A-Za-z0-9_:]*|\d+)\s*;', text[hook.end():i]):
+                entry = resolve(path, token)
+                if entry and entry >= MIN_ENTRY:
+                    creatures.setdefault(entry, script)
 
     def creature_entry(path, token):
         """The creature a table cell names, or None: a number, or a constant named as a creature (a door table pairs a

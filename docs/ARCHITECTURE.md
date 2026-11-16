@@ -47,7 +47,10 @@ Quests, items and crafts depend on each other, so the analysis repeats until not
 calls him, and Darkmaster Gandling appears when his six lieutenants are dead. The world database knows part of it (a
 SmartAI summon, a summon group, an event script, a summoning spell); the core's C++ scripts know the rest, and
 `tools/make_summoned.py /path/to/core` reads them into `tools/world/summoned.json`: the entries a `SummonCreature` or
-`SummonGameObject` call names, and which creature each instance script counts as which boss encounter. Run it again
+`SummonGameObject` call names (also a script's own `Summon...Creature` helper, every entry of an array a call picks
+from, and what an instance's `GetCreatureEntry` hook swaps a spawn for: Grizzle in the Ring of Law, Solakar
+Flamewreath in the rookery, Bannok Grimaxe for a Firebrand Grunt), and which creature each instance script counts as
+which boss encounter. Run it again
 when the core moves to a commit with new scripts (the file records the commit it was read from). A summoned creature
 counts for its loot, its stock, its quests and kill objectives, never as a trainer, and the locator does not offer
 to spawn it.
