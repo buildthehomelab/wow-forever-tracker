@@ -143,7 +143,10 @@ check(count($f['creature']) === 1 && array_column($f['game_event_creature'], 'ev
     "the fishing contest: one Riggle Bassbait, in the realm's announce, contest and turn-in events (34 becomes 62)");
 [, $fl2] = classicdb_holiday_rows('fishing', $events, [14 => 'Announce'], $templates, 70938);
 // the yearly holidays use the realm's own events: none is made, a missing one is counted
-foreach (CLASSICDB_HOLIDAYS as $key => $h) if ($key !== 'darkmoon') foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
+foreach (CLASSICDB_HOLIDAYS as $key => $h) if (!in_array($key, ['darkmoon', 'noblegarden'], true)) foreach ($h['events'] as $t) check(!isset($t['create']), "$key: the realm's own event, never a new one");
+[$ng, $ngl] = classicdb_holiday_rows('noblegarden', ['9' => ['creatures' => [], 'objects' => [[50, 180040, 0, 1, 2, 3, 0, 0, 0, 0, 0, 180]]]], [], $templates, 70938);
+check($ng['game_event'][0]['eventEntry'] === 9 && $ng['game_event'][0]['holiday'] === 181 && $ng['game_event'][0]['length'] === 10080 && $ng['game_event'][0]['holidayStage'] === 1
+    && $ng['game_event_gameobject'] === [['eventEntry' => 9, 'guid' => 50]] && $ngl === [], "Noblegarden: event 9 made on Forever's holiday 181, 7 days, its eggs linked to it");
 $yearly = ['12' => ['creatures' => [[1, 14829, 0, 1, 2, 3, 0, 180, 0.0, 0]], 'objects' => []]];
 [$hw, $hwl] = classicdb_holiday_rows('hallows', $yearly, [12 => "Hallow's End"], $templates, 70938);
 check($hw['game_event_creature'] === [['eventEntry' => 12, 'guid' => 1]] && !isset($hw['game_event']) && $hwl === [], "Hallow's End: spawns linked to the realm's event 12");

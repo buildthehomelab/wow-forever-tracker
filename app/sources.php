@@ -961,7 +961,11 @@ const CLASSICDB_HOLIDAYS = [
     // the yearly holidays: the realm has each under the original game's number (Harvest Festival: 11 there, 33 in the original)
     'lunar' => ['name' => ['Lunar Festival', 'Fête lunaire'], 'events' => [7 => ['event' => 7]]],
     'loveair' => ['name' => ['Love is in the Air', 'De l’amour dans l’air'], 'events' => [8 => ['event' => 8]]],
-    'noblegarden' => ['name' => ['Noblegarden', 'Le Jardin des nobles'], 'events' => [9 => ['event' => 9]]],
+    // the realm has no Noblegarden: event 9 is made on Forever's holiday 181, which gives a date every year (Easter) but
+    // no duration: the row's 7 days are its length (core fork PR 61 keeps them), and its start is the next date
+    'noblegarden' => ['name' => ['Noblegarden', 'Le Jardin des nobles'], 'events' => [
+        9 => ['event' => 9, 'create' => ['description' => 'Noblegarden', 'holiday' => 181, 'start' => '2027-03-29 10:00:00', 'occurence' => 525600, 'length' => 10080]],
+    ]],
     'childrens' => ['name' => ['Children’s Week', 'Semaine des enfants'], 'events' => [10 => ['event' => 10]]],
     'midsummer' => ['name' => ['Midsummer Fire Festival', 'Fête du Feu du solstice d’été'], 'events' => [1 => ['event' => 1]]],
     'harvest' => ['name' => ['Harvest Festival', 'Fête des moissons'], 'events' => [33 => ['event' => 11]]],
