@@ -39,7 +39,8 @@ WANTED = {'quest_template', 'npc_trainer', 'npc_trainer_template', 'creature_tem
           'dbscripts_on_gossip', 'conditions', 'db_version', 'item_template', 'creature_loot_template', 'gameobject_loot_template',
           'reference_loot_template', 'npc_vendor', 'npc_vendor_template', 'item_loot_template', 'fishing_loot_template',
           'skinning_loot_template', 'pickpocketing_loot_template', 'disenchant_loot_template', 'mail_loot_template',
-          'spell_loot_template', 'spell_template', 'game_event', 'game_event_creature', 'game_event_gameobject', 'creature', 'gameobject'}
+          'spell_loot_template', 'spell_template', 'game_event', 'game_event_creature', 'game_event_gameobject', 'creature', 'gameobject',
+          'creature_spawn_entry', 'gameobject_spawn_entry'}
 # Every table through which the original game gave an item out: its rows' `item` column (loot of any kind, vendors)
 GIVING_TABLES = ('creature_loot_template', 'gameobject_loot_template', 'reference_loot_template', 'item_loot_template', 'fishing_loot_template',
                  'skinning_loot_template', 'pickpocketing_loot_template', 'disenchant_loot_template', 'mail_loot_template',
@@ -299,7 +300,20 @@ def holidays(tables):
     event runs, by its event, with each spawn's own place.
       creatures [guid, id, map, x, y, z, orientation, respawn seconds, wander distance, movement type]
       objects   [guid, id, map, x, y, z, orientation, rotation 0..3, respawn seconds]
-    A negative event (a spawn the event removes) is not carried over and is counted in 'left'."""
+    A negative event (a spawn the event removes) is not carried over and is counted in 'left'.
+    A spawn of id 0 takes its id from *_spawn_entry, where cmangos lists the ones it picks from at random at each spawn
+    (Noblegarden's eggs: four colours). TrinityCore has no such pick: each spawn keeps one of them for good, its guid
+    choosing which, so the place keeps the original mix of colours. One with no list keeps 0 (the website leaves it out)."""
+    picks = {'creature': {}, 'gameobject': {}}
+    for kind in picks:
+        for row in tables.get(kind + '_spawn_entry') or []:
+            if whole(row.get('guid')) and whole(row.get('entry')):
+                picks[kind].setdefault(whole(row['guid']), set()).add(whole(row['entry']))
+
+    def entry(kind, row):
+        found = whole(row.get('id'))
+        choices = sorted(picks[kind].get(whole(row.get('guid')), ()))
+        return found or (choices[whole(row['guid']) % len(choices)] if choices else 0)
     names = {whole(e.get('entry')): str(e.get('description') or '') for e in tables['game_event']}
     linked = {'creature': {}, 'gameobject': {}}
     left = {}
@@ -314,12 +328,12 @@ def holidays(tables):
     for r in tables['creature']:
         for event in sorted(linked['creature'].get(whole(r.get('guid')), ())):
             out.setdefault(event, {'name': names.get(event, ''), 'creatures': [], 'objects': []})['creatures'].append(
-                [whole(r['guid']), whole(r.get('id')), int(r.get('map') or 0)] + [round(float(r.get(c) or 0), 4) for c in ('position_x', 'position_y', 'position_z', 'orientation')]
+                [whole(r['guid']), entry('creature', r), int(r.get('map') or 0)] + [round(float(r.get(c) or 0), 4) for c in ('position_x', 'position_y', 'position_z', 'orientation')]
                 + [whole(r.get('spawntimesecsmin')), round(float(r.get('spawndist') or 0), 2), int(r.get('MovementType') or 0)])
     for r in tables['gameobject']:
         for event in sorted(linked['gameobject'].get(whole(r.get('guid')), ())):
             out.setdefault(event, {'name': names.get(event, ''), 'creatures': [], 'objects': []})['objects'].append(
-                [whole(r['guid']), whole(r.get('id')), int(r.get('map') or 0)]
+                [whole(r['guid']), entry('gameobject', r), int(r.get('map') or 0)]
                 + [round(float(r.get(c) or 0), 6) for c in ('position_x', 'position_y', 'position_z', 'orientation', 'rotation0', 'rotation1', 'rotation2', 'rotation3')]
                 + [int(r.get('spawntimesecsmin') or 0)])
     for event, n in left.items():
