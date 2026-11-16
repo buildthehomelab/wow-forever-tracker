@@ -170,6 +170,7 @@ switch ($action) {
         json_out(['ok' => true, 'report' => $report, 'message' => $report ? implode(' · ', $report) : t('No new ForeverScribe notes in the game folder.', 'Aucune nouvelle note ForeverScribe dans le dossier du jeu.')]);
     case 'preview':
         $built = import_build($id, $tables);
+        if (!(int)$built['rows']) import_mark($id, false, true);
         json_out(['ok' => true, 'rows' => $built['rows'], 'skipped' => $built['skipped'], 'tables' => $built['tables'], 'warnings' => $built['warnings'], 'count' => 1,
                   'apply' => forge_script($built['plans'], 'apply'), 'rollback' => forge_script($built['plans'], 'rollback'), 'databases' => array_keys($built['plans'])]);
     case 'apply':

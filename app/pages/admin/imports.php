@@ -177,7 +177,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <a href="<?= e(url('admin')) ?>"><i class="fas fa-hammer"></i><?= e(t('Fixes', 'Corrections')) ?></a>
   <a href="<?= e(url('admin', ['tab' => 'vendor'])) ?>"><i class="fas fa-gem"></i><?= e(t('Items', 'Objets')) ?></a>
   <a href="<?= e(url('admin/spawns')) ?>"><i class="fas fa-location-crosshairs"></i><?= e(t('Spawns', 'Placements')) ?></a>
-  <a class="is-active" href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><em><?= count($imports) ?></em></a>
+  <a class="is-active" href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><em><?= count(import_groups($imports)[0]) ?></em></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
 </nav>
@@ -377,21 +377,32 @@ page_start(t('Imports', 'Imports'), 'admin');
   <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-file-import"></i></div><p><?= e(t('No file imported yet.', 'Aucun fichier importé pour le moment.')) ?></p></div>
 <?php endif; ?>
 <?php
-// a source's earlier cards go below, folded: its newest card says all they said and is still true
-$earlierIds = array_flip(import_earlier($imports));
-$ordered = array_merge(array_values(array_filter($imports, fn($s) => !isset($earlierIds[(int)$s['id']]))), array_values(array_filter($imports, fn($s) => isset($earlierIds[(int)$s['id']]))));
-$folded = false;
+// open cards first; then, folded, the ones with nothing left to apply and a source's earlier cards (its newest card
+// says all they said and is still true)
+[$openIds, $doneIds, $earlierList] = import_groups($imports);
+$byId = array_column($imports, null, 'id');
+$sections = ['open' => $openIds, 'done' => $doneIds, 'earlier' => $earlierList];
+$ordered = [];
+foreach ($sections as $section => $ids) foreach ($ids as $cardId) $ordered[] = ['section' => $section] + $byId[$cardId];
+$folded = '';
 foreach ($ordered as $s): $counts = json_decode((string)$s['counts'], true) ?: []; $ignored = json_decode((string)$s['ignored'], true) ?: []; ?>
-<?php if (!$folded && isset($earlierIds[(int)$s['id']])): $folded = true; ?>
+<?php if ($s['section'] !== 'open' && $s['section'] !== $folded): ?>
+<?php if ($folded): ?></details><?php endif; $folded = $s['section']; ?>
+<?php if ($folded === 'done'): ?>
+<details class="import-earlier import-done">
+  <summary><i class="fas fa-circle-check"></i> <?= e(sprintf(t('Applied: nothing left to add (%d)', 'Appliquées : plus rien à ajouter (%d)'), count($doneIds))) ?>
+    <small class="muted"><?= e(t('Everything on them that was ticked is on the server. Rolling one of their operations back in the history puts the card back above.', 'Tout ce qui y était coché est sur le serveur. Annuler une de leurs opérations dans l’historique remet la carte au-dessus.')) ?></small></summary>
+<?php else: ?>
 <details class="import-earlier">
-  <summary><i class="fas fa-clock-rotate-left"></i> <?= e(sprintf(t('Earlier cards of sources that have a newer one (%d)', 'Cartes précédentes de sources qui en ont une plus récente (%d)'), count($earlierIds))) ?>
+  <summary><i class="fas fa-clock-rotate-left"></i> <?= e(sprintf(t('Earlier cards of sources that have a newer one (%d)', 'Cartes précédentes de sources qui en ont une plus récente (%d)'), count($earlierList))) ?>
     <small class="muted"><?= e(t('Kept because something was applied from them. The newest card of each source, above, is the one to apply.', 'Conservées car quelque chose en a été appliqué. La carte la plus récente de chaque source, ci-dessus, est celle à appliquer.')) ?></small></summary>
+<?php endif; ?>
 <?php endif; ?>
 <article class="block import-card" data-import="<?= (int)$s['id'] ?>">
   <header class="op-head">
     <span class="fix-kind is-import"><i class="fas fa-file-import"></i></span>
     <div><strong>#<?= (int)$s['id'] ?> · <?= e($s['name']) ?></strong>
-      <small><?= e($s['file']) ?> · <?= e(date(t('M j, Y H:i', 'd/m/Y H:i'), strtotime($s['imported_at']))) ?> · <?= number(array_sum($counts)) ?> <?= e(t('rows', 'lignes')) ?> · <?= number((int)$s['items']) ?> <?= e(t('item(s) made obtainable', 'objet(s) rendus obtenables')) ?></small></div>
+      <small><?= e($s['file']) ?> · <?= e(date(t('M j, Y H:i', 'd/m/Y H:i'), strtotime($s['imported_at']))) ?> · <?= number(array_sum($counts)) ?> <?= e(t('rows', 'lignes')) ?> · <?= number((int)$s['items']) ?> <?= e(t('item(s) made obtainable', 'objet(s) rendus obtenables')) ?><?php if (!empty($s['done_at'])): ?> · <span class="is-ok"><i class="fas fa-check"></i> <?= e(sprintf(t('nothing left to add (%s)', 'plus rien à ajouter (%s)'), date(t('M j, H:i', 'd/m H:i'), strtotime($s['done_at'])))) ?></span><?php elseif (!empty($s['applied_at'])): ?> · <?= e(sprintf(t('last applied %s', 'appliquée le %s'), date(t('M j, H:i', 'd/m H:i'), strtotime($s['applied_at'])))) ?><?php endif; ?></small></div>
     <button class="icon-btn is-small" type="button" data-import-delete title="<?= e(t('Forget this import (the server is not changed)', 'Oublier cet import (le serveur n’est pas modifié)')) ?>"><i class="fas fa-trash"></i></button>
   </header>
   <div class="import-tables">
