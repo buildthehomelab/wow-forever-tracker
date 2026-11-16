@@ -236,6 +236,9 @@ test('what a gap\'s page names is read soon: its creatures, vendors and chests, 
   const quest = { kind: 'quest', status: 'ok', quick: ['Level: 12', 'Start: [url=/forever/npc=253812]', 'End: [url=/forever/object=180001] [url=/forever/npc=7]'] };
   assert.deepEqual(crawler.namedBy(quest), ['npc:253812', 'object:180001', 'npc:7']);
   assert.deepEqual(crawler.namedBy({ kind: 'item', status: 'missing' }), []);
+  // a page without a Dropped by tab (item 842, a mount nobody gets): nothing named, no error
+  assert.deepEqual(crawler.namedBy({ kind: 'item', status: 'ok', tabs: { 'same-model-as': { rows: [{ id: 1 }] } } }), []);
+  assert.deepEqual(crawler.namedBy({ kind: 'item', status: 'ok' }), []);
 });
 
 test('the queue is in value order: a page goes after every page worth as much or more', () => {

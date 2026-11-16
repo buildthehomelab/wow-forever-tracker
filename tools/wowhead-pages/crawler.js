@@ -375,7 +375,7 @@
       const wanted = { 'dropped-by': 'npc', 'sold-by': 'npc', 'contained-in-object': 'object', 'mined-from-object': 'object', 'gathered-from-object': 'object' };
       for (const [tab, kind] of Object.entries(wanted)) {
         const rows = (tabs[tab] && tabs[tab].rows) || [];
-        if (tab === 'dropped-by' && Math.max(rows.length, tabs[tab].total || 0) >= 15) continue;
+        if (tab === 'dropped-by' && Math.max(rows.length, (tabs[tab] && tabs[tab].total) || 0) >= 15) continue;
         for (const row of rows) if (Number.isInteger(row.id) && row.id > 0) out.push(kind + ':' + row.id);
       }
     }
@@ -708,9 +708,18 @@
       const left = state.blockedUntil - Date.now();
       if (left > 0) { await sleep(Math.min(left, 30000)); continue; }
       const key = state.queue[0];
-      const result = await one(key);
+      // a page this crawler cannot handle must not end the crawl unseen: it is asked again later, as after a network
+      // error, and the log says why
+      let result;
+      try { result = await one(key); }
+      catch (error) {
+        const why = 'this crawler failed on ' + key + ': ' + (error && error.message || error);
+        // the third time: set aside (WHC.state.failed), so that one page cannot hold up the queue
+        if ((state.tries[key] || 0) >= 2) { note(why + ' (set aside)'); state.failed = (state.failed || []).concat(key); delete state.tries[key]; result = { answer: 'skip' }; }
+        else result = { answer: 'error', note: why };
+      }
       if (result.answer === 'stopped') break;
-      if (result.answer === 'skip') { state.skipped++; state.queue.shift(); keepQueue(); continue; }
+      if (result.answer === 'skip') { state.skipped++; const at = state.queue.indexOf(key); if (at >= 0) state.queue.splice(at, 1); keepQueue(); continue; }
       state.last = key + ' ' + (result.record ? result.record.status : result.answer); state.lastAt = Date.now();
       const before = state.pace.gap;
       const { p, wait } = paced(state.pace, result.answer);
