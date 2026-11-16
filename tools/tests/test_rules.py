@@ -350,6 +350,19 @@ class NotContent(unittest.TestCase):
             self.assertEqual(status, 'partial', over)
             self.assertNotIn(26363, ctx['granted_spells'])
 
+    def test_a_spell_only_never_given_items_teach(self):
+        # the Gray Wolf: its two items the original game gave out nowhere
+        (status, _, checks), ctx = self.result(459, classic_taught={1}, classic_never_given={842, 1134}, teaches={459: {842, 1134}})
+        self.assertEqual(status, 'ok')
+        self.assertIn('never gave out', next(c for c in checks if c['code'] == 'learn')['detail']['en'])
+        self.assertIn(459, ctx['granted_spells'])
+        # one item it did give out: the spell stays (the Panda: a quest gave its item)
+        (status, _, _), ctx = self.result(17707, classic_taught={1}, classic_never_given={842}, teaches={17707: {842, 13583}})
+        self.assertEqual(status, 'partial')
+        # taught by the original game anyway
+        (status, _, _), ctx = self.result(459, classic_taught={459}, classic_never_given={842}, teaches={459: {842}})
+        self.assertEqual(status, 'partial')
+
     def test_a_skill_line_not_for_players(self):
         from ft import content
         self.assertTrue(content.DO_NOT_TRANSLATE.search('Test Profession [DNT]'))

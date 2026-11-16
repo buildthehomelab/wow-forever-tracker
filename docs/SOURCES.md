@@ -16,7 +16,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand, vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project | from a file you send: a pack made from a copy of the site you already have. The tracker never asks the site |
-| [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it. Asked last, and only about profession recipes nobody can learn | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
+| [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
 What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
 
@@ -26,9 +26,20 @@ repeat its rows.
 ## The original game's database: the last word, from a file
 
 `python tools/classicdb_pack.py ClassicDB_1_12_1_z2815.sql.gz out.cdbpack` makes a pack from the full dump of
-cmangos' classic-db (`Full_DB/` of its repository): about 150 kB of gzipped JSON with its trainer lines, the quests
-whose turn-in shows or casts a spell, and the spells a line of a creature's conversation casts. The dump is only read
-as text. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
+cmangos' classic-db (`Full_DB/` of its repository): about 170 kB of gzipped JSON with its trainer lines, the quests
+whose turn-in shows or casts a spell, the spells a line of a creature's conversation casts, and (format 3) the
+creatures, chests and vendors of the items that teach (recipes, items learned on use) with each creature's chance
+worked out through loot groups and references, and the items the original game gave out nowhere. The dump is only read
+as text.
+
+- **Drops and vendors:** for an item players cannot get on the realm, the card proposes Classic's creatures and chests
+  that dropped it and the vendors that sold it, through the same rules as every source (a creature the realm does not
+  have, or a drop it already has, is left out and counted). An item more than 15 creatures dropped is a world drop: no
+  place to put it, left out and counted.
+- **Never given out:** an item no loot table of any kind, vendor, quest reward or spell gave out in the original game
+  (removed mounts, promotional pets, plans and patterns never released) is listed under *Internal / test* when players
+  cannot get it on the realm either, and so is a spell only such items teach. The analysis reads the pack: after
+  sending a new one, run the analysis again. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
 (`data/classicdb/pack.cdbpack`) and a card is made at once; *Read the pack again* makes a new card after an analysis.
 
 - **Only what nothing else answers.** The original game is not WoW: Forever. The pack is asked about profession

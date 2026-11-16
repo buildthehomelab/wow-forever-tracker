@@ -642,8 +642,9 @@ function source_check(): ?array
 
 function classicdb_pack(): string { return FT_ROOT . '/data/classicdb/pack.cdbpack'; }
 
-/** The evidence tools/tracker.py made from a pack, checked: trainer lines of whole numbers with a skill line, the
- *  counted reasons that are its own. Anything else is dropped. */
+/** The evidence tools/tracker.py made from a pack, checked: trainer lines of whole numbers with a skill line,
+ *  conversation lines, drops and vendors of items players cannot get, the counted reasons that are its own. Anything
+ *  else is dropped. */
 function classicdb_evidence(array $result): array
 {
     $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'left' => []];
@@ -654,6 +655,13 @@ function classicdb_evidence(array $result): array
         $ev['train'][] = [$r[0], $r[1], $r[2], $r[3], $r[4], $r[5], [], 1];
     }
     foreach ((array)($result['ev']['talk'] ?? []) as $r) if (($line = classicdb_talk_line($r)) !== null) $ev['talk'][] = $line;
+    // drops of a creature's corpse ('npc') or a chest ('go'), and vendors, of items players cannot get
+    $whole = fn($v) => is_int($v) && $v > 0;
+    foreach ((array)($result['ev']['drop'] ?? []) as $r) {
+        if (is_array($r) && count($r) === 4 && in_array($r[0], ['npc', 'go'], true) && $whole($r[1]) && $whole($r[2]) && (is_int($r[3]) || is_float($r[3])) && $r[3] > 0 && $r[3] <= 100)
+            $ev['drop'][] = [$r[0], $r[1], $r[2], (float)$r[3]];
+    }
+    foreach ((array)($result['ev']['sell'] ?? []) as $r) if (is_array($r) && count($r) === 3 && $whole($r[0]) && $whole($r[1]) && $count($r[2])) $ev['sell'][] = [$r[0], $r[1], $r[2]];
     foreach ((array)($result['left'] ?? []) as $why => $n) if (preg_match('/^classic_[a-z_]+$/', (string)$why) && (int)$n > 0) $ev['left'][(string)$why] = (int)$n;
     return $ev;
 }

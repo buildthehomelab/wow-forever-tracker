@@ -170,6 +170,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name else 0
+                if status != 'ok' and entity_id < NEW_FROM['item'] and entity_id in (ctx.get('classic_never_given') or ()):
+                    internal = 1  # the original game gave it out nowhere (removed or never released) and nothing here does
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
                 if kind == 'taxi' and (QUEST_PATH.search(name_en or name) or unused_taxi(entity_id, entity, baseline, content['dungeon'])):

@@ -10,10 +10,13 @@ $ev = classicdb_evidence(['ev' => [
                 [12939, 10841, 100000, 0, 0, 240, [], 1],          // no skill line: a class spell, not asked here
                 ['12939', 10841, 1, 0, 129, 240, [], 1], [12939, 0, 1, 0, 129, 240, [], 1], [12939, 10841, -5, 0, 129, 240, [], 1],
                 [12939, 10841, 1, 0, 129, 240, [10840], 1], [12939, 10841, 1, 0, 129, 240, [], 2], [12939, 10841, 1, 0, 129, 240, []], '12939 OR 1=1'],
-    'sell' => [[1, 2, 0]], 'drop' => [['npc', 1, 2, 50.0]], 'start' => [['npc', 1, 2]],
+    'sell' => [[1, 2, 0], [0, 2, 0], [1, 2, -1], ['1', 2, 0]],
+    'drop' => [['npc', 1, 2, 50.0], ['go', 77, 902, 100], ['npc', 1, 2, 0], ['npc', 1, 2, 101], ['skin', 1, 2, 5.0], ['npc', -1, 2, 5.0]],
+    'start' => [['npc', 1, 2]],
 ], 'left' => ['classic_conversation' => 14, 'classic_silent' => 0, 'report_name_unknown' => 3, 'DROP TABLE x' => 1]]);
 check($ev['train'] === [[12939, 10841, 100000, 0, 129, 240, [], 1], [8696, 13028, 0, 0, 185, 175, [], 1]], 'trainer lines: whole numbers, a skill line, no rank it would need');
-check($ev['sell'] === [] && $ev['drop'] === [] && $ev['start'] === [] && $ev['end'] === [], 'nothing it does not make: no vendors, drops or quest givers');
+check($ev['sell'] === [[1, 2, 0]] && $ev['drop'] === [['npc', 1, 2, 50.0], ['go', 77, 902, 100.0]], 'drops of a corpse or a chest with a chance up to 100, vendors with a stock: whole numbers only');
+check($ev['start'] === [] && $ev['end'] === [], 'nothing it does not make: no quest givers');
 check($ev['left'] === ['classic_conversation' => 14], 'only its own reasons are counted');
 check(classicdb_evidence([])['train'] === [] && classicdb_evidence(['ev' => 'x'])['train'] === [], 'a result that is no result gives nothing');
 

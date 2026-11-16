@@ -245,18 +245,19 @@ def wowhead_verdicts(content, results, baseline, ask):
 RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
-def classic_taught(path=None):
-    """The spells the original game teaches anywhere, from the Classic database pack the website keeps
-    (data/classicdb/pack.cdbpack); None without a pack, or with one that cannot be read."""
+def classic_facts(path=None):
+    """(the spells the original game teaches anywhere, the items it gave out nowhere), from the Classic database pack
+    the website keeps (data/classicdb/pack.cdbpack); (None, set()) without a pack, or with one that cannot be read."""
     from ft import classic
     path = path or os.path.join(DATA, 'classicdb', 'pack.cdbpack')
     if not os.path.isfile(path):
-        return None
+        return None, set()
     try:
-        return classic.taught(classic.load(path))
+        pack = classic.load(path)
+        return classic.taught(pack), set(pack.get('never_given') or ())
     except (OSError, ValueError, KeyError, TypeError) as error:
         log(f'classic database pack not read ({error}): spells nothing teaches stay listed')
-        return None
+        return None, set()
 
 
 def classic_teachers(args):
@@ -301,17 +302,22 @@ def classic_teachers(args):
         for row in sqlio.query('SELECT ID, RewardSpell FROM quest_template WHERE ID IN (' + ','.join(map(str, named[start:start + 1000])) + ')'):
             quests[int(row['ID'])] = int(row['RewardSpell'] or 0)
     found = classic.evidence(pack, wanted, teachers, quests)
+    item_gaps = {int(row['id']) for row in sqlio.query("SELECT id FROM ft_entities WHERE internal = 0 AND status <> 'ok' AND type = 'item'" + later, 'tracker')}
+    drops, sells, item_left = classic.item_sources(pack, item_gaps)
+    for why, n in item_left.items():
+        found['left'][why] = found['left'].get(why, 0) + n
     if gaps > len(wanted):
         found['left']['classic_gone_from_forever'] = gaps - len(wanted)
     result = {'version': str(pack.get('version') or '')[:120], 'made': str(pack.get('made') or '')[:10], 'asked': len(wanted),
-              'ev': {'train': found['train'], 'talk': found['talk']}, 'changes': found['changes'], 'gossip': found['gossip'],
+              'ev': {'train': found['train'], 'talk': found['talk'], 'drop': drops, 'sell': sells}, 'changes': found['changes'], 'gossip': found['gossip'],
               'names': {'npc': {k: str(v)[:100] for k, v in (pack.get('npc_names') or {}).items()},
                         'go': {k: str(v)[:100] for k, v in (pack.get('object_names') or {}).items()}},
               'left': found['left']}
     with open(args.out, 'w', encoding='utf-8') as out:
         json.dump(result, out, ensure_ascii=False)
     log(f"classic: {len(wanted)} recipes asked, {len(found['train'])} trainer lines, {sum(len(c['rows']) for c in found['changes'])} quests, "
-        f"{len(found['talk'])} conversation lines, {len(found['gossip'])} taught in a conversation of an older pack")
+        f"{len(found['talk'])} conversation lines, {len(drops)} drops and {len(sells)} vendor lines of items players cannot get, "
+        f"{len(found['gossip'])} taught in a conversation of an older pack")
 
 
 def player_reports(args):
@@ -636,7 +642,7 @@ def analyse(args):
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             hotfix_changes[index] = change[:6] + (name,)
     ctx['season'] = baseline.season
-    ctx['classic_taught'] = classic_taught()
+    ctx['classic_taught'], ctx['classic_never_given'] = classic_facts()
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     try:
