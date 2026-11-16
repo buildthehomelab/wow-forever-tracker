@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A holiday's spawn is matched against its own holiday only.** A holiday card took any spawn of the same kind
+  nearby for its own, so New Year's Eve found its fireworks over Booty Bay already standing: they were Midsummer's.
+  A holiday's spawn now stands already only when the server's copy is there while the holiday runs (all year, or
+  brought in by the same event), and moves only a spawn its own event brings in. The world data export asks the same.
+
 - **Holiday cards stop adding second copies.** The realm's holiday spawns come from VMaNGOS, and the holiday cards
   from cmangos classic-db, which places the same NPC a few yards off: matched at 3 yards, the cards gave the realm a
   second Silas Darkmoon, Lunar Festival Elders and Love is in the Air perfume sellers. A spawn a card links to a game

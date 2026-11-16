@@ -281,29 +281,45 @@ function import_delete(int $id): void
 }
 
 // ------------------------------------------------------------------ planning
-/** The spawns an import links to a holiday (a game event that brings them in), by their guid in the import:
- *  ['creature' => [guid => true], 'gameobject' => [...]]. A negative event (one that hides a spawn) does not count. */
+/** The spawns an import links to a holiday (a game event that brings them in), by their guid in the import, with those
+ *  events: ['creature' => [guid => [event, ...]], 'gameobject' => [...]]. A negative event (one that hides a spawn) does
+ *  not count. */
 function import_holiday_spawns(array $tables): array
 {
     $holiday = ['creature' => [], 'gameobject' => []];
     foreach (['game_event_creature' => 'creature', 'game_event_gameobject' => 'gameobject'] as $links => $spawnTable) {
         foreach ($tables[$links]['groups'] ?? [] as $group) foreach ($group['rows'] as $row) {
             $r = array_combine($group['columns'], $row);
-            if ((int)($r['eventEntry'] ?? 0) > 0 && array_key_exists('guid', $r)) $holiday[$spawnTable][is_array($r['guid']) ? implode('', $r['guid']) : (string)$r['guid']] = true;
+            if ((int)($r['eventEntry'] ?? 0) > 0 && array_key_exists('guid', $r)) $holiday[$spawnTable][is_array($r['guid']) ? implode('', $r['guid']) : (string)$r['guid']][] = (int)$r['eventEntry'];
         }
     }
     return $holiday;
 }
 
-/** Whether a spawn of the import stands already: the server has the same creature / object near it ($server, [x, y]
- *  pairs on the same map: IMPORT_SAME_SPAWN yards, IMPORT_SAME_HOLIDAY_SPAWN for a holiday's spawn), or the import
- *  placed one at the same spot ($added: IMPORT_SAME_SPAWN, so a crowd of the same NPC keeps its members). */
-function import_spawn_stands(string $table, bool $holiday, float $x, float $y, array $server, array $added): bool
+/** Whether a server spawn is there while a holiday's spawn is: it is when it stands all year (no event, or only events
+ *  that hide it other than these) or when one of these events brings it in. A spawn of another holiday is not: the
+ *  same fireworks over Booty Bay at Midsummer are not New Year's Eve's. $spotEvents: the server spawn's game_event rows
+ *  (negative = the event hides it). Moving one ($move) needs it brought in by one of these events: a spawn that stands
+ *  all year would become the holiday's. */
+function import_spot_shares(array $events, array $spotEvents, bool $move = false): bool
 {
-    $reach = $holiday ? (IMPORT_SAME_HOLIDAY_SPAWN[$table] ?? IMPORT_SAME_SPAWN) : IMPORT_SAME_SPAWN;
-    foreach ([[$server, $reach], [$added, IMPORT_SAME_SPAWN]] as [$spots, $yards]) {
-        foreach ($spots as [$sx, $sy]) if (hypot($sx - $x, $sy - $y) < $yards) return true;
+    $brings = array_filter($spotEvents, fn($e) => $e > 0);
+    if ($brings || $move) return (bool)array_intersect($events, $brings);
+    return !array_intersect($events, array_map('abs', $spotEvents));
+}
+
+/** Whether a spawn of the import stands already: the server has the same creature / object near it ($server, [x, y,
+ *  guid] on the same map: IMPORT_SAME_SPAWN yards; for a holiday's spawn, $events its events, IMPORT_SAME_HOLIDAY_SPAWN
+ *  yards and only a server spawn there while it is, import_spot_shares() with $serverEvents [guid => events]), or the
+ *  import placed one at the same spot ($added: IMPORT_SAME_SPAWN, so a crowd of the same NPC keeps its members). */
+function import_spawn_stands(string $table, ?array $events, float $x, float $y, array $server, array $added, array $serverEvents = []): bool
+{
+    $reach = $events ? (IMPORT_SAME_HOLIDAY_SPAWN[$table] ?? IMPORT_SAME_SPAWN) : IMPORT_SAME_SPAWN;
+    foreach ($server as $spot) {
+        if ($events && !import_spot_shares($events, $serverEvents[(int)($spot[2] ?? 0)] ?? [])) continue;
+        if (hypot($spot[0] - $x, $spot[1] - $y) < $reach) return true;
     }
+    foreach ($added as [$sx, $sy]) if (hypot($sx - $x, $sy - $y) < IMPORT_SAME_SPAWN) return true;
     return false;
 }
 
@@ -349,6 +365,15 @@ function import_build(int $id, array $only = [], array $items = []): array
         foreach (array_chunk(array_keys($entries), 1000) as $chunk) {
             foreach (rows("SELECT guid, id, map, position_x x, position_y y FROM `$table` WHERE id IN (" . implode(',', $chunk) . ')', [], 'world') as $e) $existing[$e['id'] . ':' . $e['map']][] = [(float)$e['x'], (float)$e['y'], (int)$e['guid']];
         }
+        // the events of the server's spawns, for a holiday's: only a spawn there while the holiday runs is the same one
+        $serverEvents = [];
+        if ($holiday[$table]) {
+            $links = $table === 'creature' ? 'game_event_creature' : 'game_event_gameobject';
+            $guids = []; foreach ($existing as $list) foreach ($list as $e) $guids[] = $e[2];
+            foreach (array_chunk($guids, 1000) as $chunk) {
+                foreach (rows("SELECT guid, eventEntry FROM `$links` WHERE guid IN (" . implode(',', array_map('intval', $chunk)) . ')', [], 'world') as $l) $serverEvents[(int)$l['guid']][] = (int)$l['eventEntry'];
+            }
+        }
         // a spawn the card also places (within IMPORT_SAME_SPAWN yards, a holiday's IMPORT_SAME_HOLIDAY_SPAWN) is confirmed:
         // never moved to another of the card's places
         $confirmed = []; $spawnOrigin = [];
@@ -356,8 +381,10 @@ function import_build(int $id, array $only = [], array $items = []): array
             foreach ($tables[$table]['groups'] as $group) foreach ($group['rows'] as $row) {
                 $r = array_combine($group['columns'], $row);
                 $original = is_array($r['guid'] ?? null) ? implode('', $r['guid']) : (string)($r['guid'] ?? '');
-                $reach = isset($holiday[$table][$original]) ? IMPORT_SAME_HOLIDAY_SPAWN[$table] : IMPORT_SAME_SPAWN;
+                $events = $holiday[$table][$original] ?? null;
+                $reach = $events ? IMPORT_SAME_HOLIDAY_SPAWN[$table] : IMPORT_SAME_SPAWN;
                 foreach ($existing[($r['id'] ?? 0) . ':' . ($r['map'] ?? 0)] ?? [] as [$x, $y, $guid]) {
+                    if ($events && !import_spot_shares($events, $serverEvents[$guid] ?? [])) continue;
                     if (is_numeric($r['position_x'] ?? null) && hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']) < $reach) $confirmed[$guid] = true;
                 }
             }
@@ -377,12 +404,15 @@ function import_build(int $id, array $only = [], array $items = []): array
                 // the same creature or object close by on the server (a holiday's farther: IMPORT_SAME_HOLIDAY_SPAWN), or this
                 // card's own at the same spot: it stands already
                 $at = ($r['id'] ?? 0) . ':' . ($r['map'] ?? 0);
-                if (import_spawn_stands($table, isset($holiday[$table][$original]), (float)$r['position_x'], (float)$r['position_y'], $existing[$at] ?? [], $added[$at] ?? [])) { $nearby++; continue; }
+                $events = $holiday[$table][$original] ?? null;
+                if (import_spawn_stands($table, $events, (float)$r['position_x'], (float)$r['position_y'], $existing[$at] ?? [], $added[$at] ?? [], $serverEvents)) { $nearby++; continue; }
                 // the same creature or object a few yards off, that the card does not place where it stands: it moved
                 if ($refresh && $radius > 0 && !isset($guidMap[$kind][$original])) {
                     $best = null; $bestAt = $radius;
                     foreach ($existing[$r['id'] . ':' . $r['map']] ?? [] as $i => [$x, $y, $guid]) {
                         if (!$guid || isset($confirmed[$guid])) continue;
+                        // a holiday's spawn moves only a spawn its own event brings in, never another holiday's or one of all year
+                        if ($events && !import_spot_shares($events, $serverEvents[$guid] ?? [], true)) continue;
                         $d = hypot($x - (float)$r['position_x'], $y - (float)$r['position_y']);
                         if ($d < $bestAt) { $best = $i; $bestAt = $d; }
                     }

@@ -50,7 +50,8 @@ as text.
   the Air 8, Noblegarden 9 (the realm lacks it: made on Forever's holiday 181, 7 days), Children's Week 10, Midsummer 1, Harvest Festival 11 (33 in the original game), Hallow's
   End 12, Winter Veil 2, New Year's Eve 6. A card's preview says how many of its spawns already stand on the realm:
   the quickest way to see which holidays it lacks. Applying gives the spawns new guids and the links follow; a spawn whose creature
-  already stands within 30 yards, or whose object within 10, is left out with its links: the realm's holiday spawns come
+  already stands within 30 yards, or whose object within 10, all year or brought in by the same event, is left out with
+  its links (another holiday's copy does not count: Midsummer and New Year's Eve both light fireworks over Booty Bay): the realm's holiday spawns come
   from another database (VMaNGOS), which places the same NPC a few yards off, and a closer match gave the realm a
   second Silas Darkmoon or Lunar Festival Elder. The card's own spawns are still told apart at 3 yards, so a crowd stays whole. The world data export numbers the spawns in its
   own range and writes each link with its spawn's new number, only where that spawn was added. Restart the
@@ -317,8 +318,9 @@ within `[imports] spawn_move_yards` (40 by default, 0: never) that the card does
 the nearest one gets the card's position and facing, keeping its guid (its addon, formation and pool rows stay). A
 spawn a more trusted source placed is left where it is, and no second one is added beside it. Like every spawn, moves
 are written only while the worldserver is stopped. A holiday's spawn (one the card links to a game event) with one of
-its kind within 30 yards (an object within 10) is that one, which stays where it is: the realm's holiday spawns come
-from VMaNGOS, and a holiday card from another database moves nothing that close.
+its kind within 30 yards (an object within 10), there all year or brought in by the same event, is that one, which
+stays where it is: the realm's holiday spawns come from VMaNGOS, and a holiday card from another database moves nothing
+that close. A holiday's spawn only ever moves one its own event brings in, never another holiday's or one of all year.
 
 A file imported by hand counts as the source `sniff` (WowPacketParser's format) or `scribe` (ForeverScribe's notes).
 Both come after the Forever sources and before Classic's in the default order.
