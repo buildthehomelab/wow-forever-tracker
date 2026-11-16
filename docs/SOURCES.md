@@ -318,6 +318,9 @@ cut short goes on from where it stopped, since what was asked since the button w
     quests that have no row there), and the NPC services as `npcflag` bits the creature lacks (innkeeper, banker,
     flight master, spirit healer). Applying a skinning or pick-pocket row fills the creature's `SkinLootID` /
     `PickPocketLootID` where it is 0, as `LootID` already was.
+  - **An early card** is made as soon as the gaps are all asked (minutes on a run that goes on from its mirror),
+    from their answers alone: "Icy Veins <date> (gaps)". The full card at the end replaces it, unless something was
+    applied from it.
   - **The locator** reads the positions players recorded (`addon_points`) for creatures and objects Wowhead cannot
     place: "seen by players (Icy Veins)".
   - **Kept, counted on the card, not written yet:** levels, the money a creature drops, what an NPC says (gossip),
