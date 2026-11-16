@@ -236,6 +236,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
                 'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else [],
+                # the days each hotfix entry covers (ft.dating): {'build:hotfix': {'from', 'until', 'days', 'rows', 'next'}}
+                'hotfix_windows': {f"{h['build']}:{h['hotfix']}": h['window'] for h in (((ctx.get('changelog') or {}).get('hotfixes') or []) if ctx else []) if h.get('window')},
                 # resources that exist by hotfix alone and that the changelog therefore does not call "added": {kind: count}
                 'hotfix_only': (ctx.get('hotfix_only') or {}) if ctx else {},
                 # the original game as the changelog's start (ft.vanilla): {'build', 'version', 'first', 'hidden', 'alone'}

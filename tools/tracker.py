@@ -56,7 +56,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import client, content as official_content, forge, hotfixes, locator, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
+from ft import client, content as official_content, dating, forge, hotfixes, locator, notes, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -87,6 +87,26 @@ def snapshot(args):
     json.dump(info, open(meta, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
 
+NOTES = os.path.join(DATA, 'notes')
+
+
+def hotfix_note_days():
+    """The days written notes name as hotfix days (Blizzard's hotfix posts, ForeverChanges): they date the windows."""
+    return sorted(day for day, entry in notes.days(NOTES).items() if entry['blizzard']['sections'] or entry['foreverchanges'])
+
+
+def fetch_notes():
+    """Blizzard's blue posts, then ForeverChanges' notes (ft.notes): {'code': 0 when either stored something new}."""
+    first = notes.fetch_blizzard(NOTES, log=log)
+    second = notes.fetch(NOTES, log=log)
+    return {'code': 0 if 0 in (first['code'], second['code']) else 3, 'message': f"{first['message']}; {second['message']}"}
+
+
+def notes_command(_args):
+    result = fetch_notes()
+    log(result['message'])
+
+
 def client_check(args):
     """What the container does on its own every few hours, at once: the live build from the CDN when it is new (or a
     key it waited for is out), Blizzard's hotfixes, and the analysis when either brought something."""
@@ -97,7 +117,9 @@ def client_check(args):
         client.noted('hotfixes', lambda: hotfixes.fetch(BUILDS, {b['build'] for b in official_content.builds()}, None if url == hotfixes.MIRROR else url)),
         log,
         # the builds before the newest snapshot, back to the first beta: once each (docs/CLIENT.md)
-        client.noted('history', lambda: client.history(log=client.calm(log))))
+        client.noted('history', lambda: client.history(log=client.calm(log))),
+        # what Blizzard wrote about its changes: dates the hotfixes, and tells of the changes made on the servers alone
+        fetch_notes=client.noted('notes', fetch_notes))
     if not (new or args.always):
         log(f"nothing new on Blizzard's servers: the analysis was not run (check done in {time.time() - started:.0f} s)")
         return
@@ -606,6 +628,11 @@ def analyse(args):
     server_build = known_server_build()
     if not server_build:
         log('warning: server build unknown: set [server] build in config.ini')
+    # Blizzard's hotfixes back to the beta: today's cache taken apart along the stored builds (ft.dating, docs/CLIENT.md)
+    try:
+        log(dating.rebuild(build_list, hotfix_note_days(), log)['message'])
+    except (OSError, ValueError, hotfixes.CacheError) as error:
+        log(f'hotfix windows not written ({error}): the hotfixes stand over the newest build only')
     content, changes, first_seen, changed_in, by_hotfix, more = official_content.changelog(build_list, log)
     build_list = more['builds']   # without an original game that could not be compared: the website would show it as a build
     latest = build_list[-1]
@@ -734,6 +761,7 @@ def main():
     fetch = sub.add_parser('fetch', help="store the live client build's tables from Blizzard's CDN when it is newer than the newest snapshot")
     fetch.add_argument('--force', action='store_true', help='read the live build again even when it is already stored')
     fetch.add_argument('--keep-cache', action='store_true', help="keep the CDN lookup files of this build in data/cdn (several hundred MB)")
+    sub.add_parser('notes', help="store Blizzard's blue posts (its hotfix notes and announcements) and ForeverChanges' patch notes, for the timeline (docs/CLIENT.md)")
     sub.add_parser('hotfixes', help="store Blizzard's live hotfixes with the snapshot of their build (the public cache, [client] hotfix_cache)")
     again = sub.add_parser('refresh', help="what the newest recording of the live game would change in the server's quests (for the EG Link import card)")
     again.add_argument('what', choices=['quests'])
@@ -803,6 +831,8 @@ def main():
         client_status()
     elif args.command == 'check':
         client_check(args)
+    elif args.command == 'notes':
+        notes_command(args)
     elif args.command == 'refresh':
         refresh_quests(args)
     elif args.command == 'reports':

@@ -188,10 +188,101 @@ function hotfix_updates(): array
 }
 /** SQL on ft_changes (alias like "c."): the changes of a build itself (0) or of one of its hotfix updates. */
 function hotfix_is(int $hotfix, string $alias = ''): string { return hotfix_entries() ? " AND {$alias}hotfix = " . $hotfix : ''; }
-/** "Hotfixes of Nov 15" for a hotfix update. */
-function hotfix_name(array $update): string
+/**
+ * The days a hotfix entry covers, when the analysis dated it from the builds (tools/ft/dating.py): ['from', 'until',
+ * 'days' (the hotfix days written notes name in it), 'rows', 'next' (the build that carried its hotfixes)], [] when not.
+ */
+function hotfix_window(array $update): array
 {
-    return sprintf(t('Hotfixes of %s', 'Correctifs du %s'), $update['released'] ? date(t('M j', 'd/m'), strtotime((string)$update['released'])) : '#' . (int)$update['hotfix']);
+    $found = (meta()['hotfix_windows'] ?? [])[(int)$update['build'] . ':' . (int)$update['hotfix']] ?? [];
+    return is_array($found) ? $found : [];
+}
+/** "Hotfixes of Nov 15", or "Hotfixes of Nov 10–12" for an entry that covers several days. */
+function hotfix_name(array $update, ?array $window = null): string
+{
+    $window ??= hotfix_window($update);
+    $from = (string)($window['from'] ?? $update['released'] ?? ''); $until = (string)($window['until'] ?? $from);
+    if ($from === '') return sprintf(t('Hotfixes of %s', 'Correctifs du %s'), '#' . (int)$update['hotfix']);
+    $a = strtotime($from); $b = strtotime($until ?: $from);
+    if ($until === '' || $until === $from || $b <= $a) return sprintf(t('Hotfixes of %s', 'Correctifs du %s'), date(t('M j', 'd/m'), $a));
+    $same = date('Ym', $a) === date('Ym', $b);
+    return sprintf(t('Hotfixes of %s–%s', 'Correctifs du %s au %s'), date(t('M j', 'd/m'), $a), $same && !fr() ? date('j', $b) : date(t('M j', 'd/m'), $b));
+}
+/**
+ * What was written about the game day by day (tools/ft/notes.py, docs/CLIENT.md): Blizzard's blue posts first (its
+ * hotfix notes, a day at a time, and its other posts), then ForeverChanges' patch notes where Blizzard posted none.
+ * ['days' => [day => ['blizzard' => ['sections', 'urls'], 'posts' => [ids], 'fc' => note]], 'builds' => [build => note],
+ * 'posts' => [id => post]]
+ */
+function timeline_notes(?string $folder = null): array
+{
+    static $cached = [];
+    $folder ??= FT_ROOT . '/data/notes';
+    if (isset($cached[$folder])) return $cached[$folder];
+    $read = fn(string $file) => json_decode((string)@file_get_contents($folder . '/' . $file), true) ?: [];
+    $notes = ['days' => [], 'builds' => [], 'posts' => []];
+    $day = function (string $at) use (&$notes) {
+        $notes['days'][$at] ??= ['blizzard' => ['sections' => [], 'urls' => []], 'posts' => [], 'fc' => null];
+    };
+    foreach ((array)($read('blizzard.json')['posts'] ?? []) as $post) {
+        if (!is_array($post) || empty($post['id'])) continue;
+        $notes['posts'][(int)$post['id']] = $post;
+        $posted = substr((string)($post['date'] ?? ''), 0, 10);
+        if ($posted !== '') { $day($posted); $notes['days'][$posted]['posts'][] = (int)$post['id']; }
+        if (empty($post['hotfixes'])) continue;
+        // Blizzard edits its first post to hold every day and posts each day again: a line is kept once
+        foreach ((array)($post['days'] ?? []) as $named) {
+            $at = (string)($named['day'] ?? ''); if ($at === '') continue;
+            $day($at);
+            $into = &$notes['days'][$at]['blizzard'];
+            if (!in_array($post['url'], $into['urls'], true)) $into['urls'][] = (string)$post['url'];
+            foreach ((array)($named['sections'] ?? []) as $section) {
+                $name = (string)($section['name'] ?? '');
+                if (!isset($into['sections'][$name])) $into['sections'][$name] = [];
+                foreach ((array)($section['lines'] ?? []) as $line) {
+                    $text = (string)($line['text'] ?? '');
+                    if ($text !== '' && !in_array($text, array_column($into['sections'][$name], 'text'), true)) $into['sections'][$name][] = ['text' => $text, 'mark' => (string)($line['mark'] ?? '')];
+                }
+            }
+            unset($into);
+        }
+    }
+    foreach ((array)($read('foreverchanges.json')['notes'] ?? []) as $note) {
+        if (!is_array($note)) continue;
+        if (($note['kind'] ?? '') === 'build' && !empty($note['build'])) $notes['builds'][(int)$note['build']] = $note;
+        elseif (!empty($note['day'])) { $day((string)$note['day']); $notes['days'][(string)$note['day']]['fc'] = $note; }
+    }
+    ksort($notes['days']);
+    return $cached[$folder] = $notes;
+}
+/** The days of a hotfix entry that something was written about, oldest first. */
+function hotfix_days(array $update): array
+{
+    $window = hotfix_window($update);
+    $from = (string)($window['from'] ?? $update['released'] ?? ''); $until = (string)($window['until'] ?? $from);
+    if ($from === '') return [];
+    return array_values(array_filter(array_keys(timeline_notes()['days']), fn($d) => $d >= $from && $d <= $until));
+}
+/** A day's notes as sections [name => [['text', 'mark']]]: Blizzard's when it posted them, else ForeverChanges'. */
+function day_sections(string $day): array
+{
+    $entry = timeline_notes()['days'][$day] ?? null;
+    if (!$entry) return [];
+    if ($entry['blizzard']['sections']) return $entry['blizzard']['sections'];
+    $out = [];
+    foreach ((array)($entry['fc']['sections'] ?? []) as $section) $out[(string)$section['name']] = (array)$section['lines'];
+    return $out;
+}
+/** The topics of some days' notes, most lines first: ['Classes' => 41, 'Items' => 10, ...]. */
+function notes_topics(array $days): array
+{
+    $count = [];
+    foreach ($days as $day) foreach (day_sections($day) as $name => $lines) {
+        // "Druid: Feral: ..." lines under Classes count for their class
+        $count[$name] = ($count[$name] ?? 0) + count($lines);
+    }
+    arsort($count);
+    return $count;
 }
 /** A build of the beta: stored from a product of that name (tools/ft/client.py, history). */
 function build_is_beta(array $build): bool

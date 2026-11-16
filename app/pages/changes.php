@@ -148,6 +148,65 @@ page_start(t('Changelog', 'Changelog') . ($current ? ' ' . $current['version'] :
 <?php elseif (is_admin() && $build && !$hotfix): ?>
 <p class="muted"><a href="<?= e(url('admin/notes', ['build' => $build])) ?>"><i class="fas fa-pen-to-square"></i> <?= e(t('Add Blizzard’s patch notes for this build', 'Ajouter les notes de mise à jour de Blizzard pour ce build')) ?></a></p>
 <?php endif; ?>
+<?php
+// What was written about this step (tools/ft/notes.py): Blizzard's own posts first, ForeverChanges where Blizzard posted
+// none. A line naming something this step changed in the client's data is marked so; any other line tells of a change
+// made on the servers alone, which no client file shows.
+$written = timeline_notes();
+$noteDays = $update ? hotfix_days($update) : [];
+$buildNote = !$hotfix && $build ? ($written['builds'][$build] ?? null) : null;
+$buildDay = !$hotfix && $current ? (string)$current['released'] : '';
+$dayPosts = function (string $day) use ($written) {
+    return array_values(array_filter(array_map(fn($id) => $written['posts'][$id] ?? null, $written['days'][$day]['posts'] ?? []),
+        fn($p) => $p && empty($p['hotfixes'])));
+};
+$changedNames = [];
+if ($noteDays || $buildNote) {
+    foreach (rows('SELECT DISTINCT c.name FROM ft_changes c WHERE c.build = ?' . hotfix_is($hotfix, 'c.'), [$build]) as $x) {
+        $n = mb_strtolower(trim((string)$x['name']));
+        if (mb_strlen($n) >= 5) $changedNames[$n] = true;
+    }
+}
+$inClient = function (string $line) use ($changedNames): bool {
+    $low = mb_strtolower($line);
+    foreach ($changedNames as $n => $_) if (str_contains($low, $n)) return true;
+    return false;
+};
+$lineHtml = function (array $line) use ($inClient, $changedNames): string {
+    $mark = (string)($line['mark'] ?? '');
+    $tag = $changedNames ? ($inClient((string)$line['text'])
+        ? '<em class="tag is-client" title="' . e(t('Something this step changed in the client’s data is named here', 'Ce que cette étape a changé dans les données du client est nommé ici')) . '">' . e(t('In the client data', 'Dans les données client')) . '</em>'
+        : '<em class="tag is-server" title="' . e(t('Nothing in the client’s data changed for it here: a change made on the servers', 'Rien dans les données du client n’a changé pour cela ici : un changement fait sur les serveurs')) . '">' . e(t('Server side', 'Côté serveur')) . '</em>') : '';
+    return '<li' . ($mark ? ' class="is-' . e($mark) . '"' : '') . '><span>' . e((string)$line['text']) . '</span>' . $tag . '</li>';
+};
+?>
+<?php if ($noteDays): ?>
+<section class="block day-notes">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('What was written', 'Ce qui a été écrit')) ?></span><h2><?= e(sprintf(t('%d hotfix days', '%d jours de correctifs'), count($noteDays))) ?></h2></div></header>
+  <?php $w = hotfix_window($update); if (!empty($w['from'])): ?><p class="muted small"><?= e(sprintf(t('Dated from Blizzard’s builds: the changes below were in no client before %s and were baked into build %s. Blizzard’s cache does not say on which day each came: the days are those Blizzard’s notes name in that time.', 'Daté à partir des builds de Blizzard : les changements ci-dessous n’étaient dans aucun client avant le %s et ont été intégrés au build %s. Le cache de Blizzard ne dit pas quel jour chacun est arrivé : les jours sont ceux que nomment les notes de Blizzard dans cette période.'), date(t('M j', 'd/m'), strtotime((string)$w['from'])), $w['next'] ? (string)$w['next'] : t('none yet', 'aucun encore'))) ?></p><?php endif; ?>
+  <?php foreach ($noteDays as $day): $entry = $written['days'][$day]; $fromBlizzard = (bool)$entry['blizzard']['sections']; $sections = day_sections($day); $posts = $dayPosts($day); ?>
+  <article class="day-note">
+    <h3><time datetime="<?= e($day) ?>"><?= e(date(t('l, F j', 'l j F'), strtotime($day))) ?></time>
+      <?php if ($fromBlizzard): ?><span class="source is-blizzard">Blizzard</span><?php foreach ($entry['blizzard']['urls'] as $u): ?> <a class="link small" href="<?= e($u) ?>" target="_blank" rel="noopener"><?= e(t('post', 'message')) ?> ↗</a><?php endforeach; ?>
+      <?php elseif ($entry['fc']): ?><span class="source" title="<?= e(t('Blizzard posted no notes for this day: ForeverChanges fills the gap', 'Blizzard n’a publié aucune note pour ce jour : ForeverChanges comble le manque')) ?>">ForeverChanges</span> <a class="link small" href="<?= e((string)$entry['fc']['url']) ?>" target="_blank" rel="noopener"><?= e(t('source', 'source')) ?> ↗</a><?php endif; ?></h3>
+    <?php if (!$fromBlizzard && !empty($entry['fc']['summary'])): ?><p class="muted"><?= e(implode(' ', (array)$entry['fc']['summary'])) ?></p><?php endif; ?>
+    <?php foreach ($sections as $name => $lines): ?>
+      <h4><?= e($name) ?></h4><ul class="note-lines"><?php foreach ($lines as $line) echo $lineHtml($line); ?></ul>
+    <?php endforeach; ?>
+    <?php foreach ($posts as $p): ?><p class="blue-post"><a href="<?= e((string)$p['url']) ?>" target="_blank" rel="noopener"><strong><?= e((string)$p['topic']) ?></strong></a> <small class="muted"><?= e((string)$p['author']) ?></small><br><span class="muted"><?= e((string)$p['excerpt']) ?></span></p><?php endforeach; ?>
+  </article>
+  <?php endforeach; ?>
+</section>
+<?php elseif (!$note && ($buildNote || ($buildDay !== '' && $dayPosts($buildDay)))): ?>
+<section class="block day-notes">
+  <header class="block-head"><div><span class="eyebrow"><?= e($buildNote ? 'ForeverChanges' : 'Blizzard') ?></span><h2><?= e(t('About this build', 'À propos de ce build')) ?></h2></div><?php if ($buildNote): ?><a class="link" href="<?= e((string)$buildNote['url']) ?>" target="_blank" rel="noopener"><?= e(t('Source', 'Source')) ?> ↗</a><?php endif; ?></header>
+  <?php if ($buildNote): ?>
+    <?php if (!empty($buildNote['summary'])): ?><p><?= e(implode(' ', (array)$buildNote['summary'])) ?></p><?php endif; ?>
+    <?php foreach ((array)$buildNote['sections'] as $section): ?><h4><?= e((string)$section['name']) ?></h4><ul class="note-lines"><?php foreach ((array)$section['lines'] as $line) echo $lineHtml($line); ?></ul><?php endforeach; ?>
+  <?php endif; ?>
+  <?php foreach ($buildDay !== '' ? $dayPosts($buildDay) : [] as $p): ?><p class="blue-post"><a href="<?= e((string)$p['url']) ?>" target="_blank" rel="noopener"><strong><?= e((string)$p['topic']) ?></strong></a> <small class="muted"><?= e((string)$p['author']) ?></small><br><span class="muted"><?= e((string)$p['excerpt']) ?></span></p><?php endforeach; ?>
+</section>
+<?php endif; ?>
 <?php if (is_admin() && $build && $current && !$vanillaBuild): $stepId = $build . ($hotfix ? '+' . $hotfix : ''); ?>
 <p class="muted"><a href="<?= e(url('admin/checkout')) ?>#step-<?= e($stepId) ?>"><i class="fas fa-code-branch"></i> <?= e(t('Check out this step: its client data as a test realm’s hotfixes database', 'Extraire cette étape : ses données client comme base hotfixes d’un royaume de test')) ?></a></p>
 <?php endif; ?>
@@ -173,12 +232,12 @@ if ($firstHeld && !empty($replay['kinds'])): $allOk = !empty($replay['ok']); ?>
 <?php endif; ?>
 <?php if ($hotfix ? !in_array($build . ':' . $hotfix, $hotfixWithChanges, true) : !in_array($build, $withChanges, true)): ?>
   <div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-equals"></i></div><p><?= e($hotfix
-      ? t('These hotfixes changed nothing the tracker compares.', 'Ces correctifs n’ont rien changé de ce que le tracker compare.')
+      ? ($noteDays ? t('These hotfixes changed nothing in the client’s data: what Blizzard wrote above was changed on the servers.', 'Ces correctifs n’ont rien changé dans les données du client : ce que Blizzard a écrit ci-dessus a été changé sur les serveurs.') : t('These hotfixes changed nothing the tracker compares.', 'Ces correctifs n’ont rien changé de ce que le tracker compare.'))
       : ($vanillaBuild
       ? sprintf(t('The original game: the changelog starts here. The next build (%s) is compared with it.', 'Le jeu d’origine : le changelog commence ici. Le build suivant (%s) lui est comparé.'), (string)baseline()['first'])
       : ($firstHeld
       ? t('The first build the tracker holds: the changelog starts with the next one.', 'Le premier build que le tracker possède : le changelog commence au suivant.')
-      : t('No data change in this build compared with the previous one.', 'Aucune donnée modifiée dans ce build par rapport au précédent.')))) ?></p></div>
+      : t('This build has the same game data as the previous one, byte for byte: Blizzard changed the program alone.', 'Ce build a les mêmes données de jeu que le précédent, octet pour octet : Blizzard n’a changé que le programme.')))) ?></p></div>
 <?php else: ?>
 <div class="chips">
   <a class="<?= $filterType === '' ? 'is-active' : '' ?>" href="<?= e($query(['type' => '', 'p' => ''])) ?>"><?= e(t('All', 'Tout')) ?></a>
