@@ -331,7 +331,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <ol class="steps-list">
     <li><?= e(t('Use a SQL file you already have in WowPacketParser\'s world format (usually ending in _world.sql), or any file of INSERT statements for your world tables.', 'Utilisez un fichier SQL que vous avez déjà, au format monde de WowPacketParser (il finit souvent par _world.sql), ou tout fichier d’INSERT pour vos tables du monde.')) ?></li>
     <li><?= e(sprintf(t('Send it here, or copy big files into %s and import them from the list below.', 'Envoyez-le ici, ou copiez les gros fichiers dans %s et importez-les depuis la liste ci-dessous.'), str_replace('\\', '/', $dir))) ?></li>
-    <li><?= e(t('Preview what your server lacks, then apply it.', 'Prévisualisez ce qui manque à votre serveur, puis appliquez-le.')) ?></li>
+    <li><?= e((int)config('imports', 'auto_apply', 1) ? t('What your server lacks is applied as soon as the card is made (spawns only while the worldserver is stopped); the history keeps each rollback.', 'Ce qui manque à votre serveur est appliqué dès que la carte est créée (les placements seulement quand le worldserver est arrêté) ; l’historique garde chaque annulation.') : t('Preview what your server lacks, then apply it.', 'Prévisualisez ce qui manque à votre serveur, puis appliquez-le.')) ?></li>
   </ol>
   <form class="import-upload" data-import-upload>
     <label class="btn"><i class="fas fa-file-arrow-up"></i> <?= e(t('Choose a .sql or ForeverScribe.lua file', 'Choisir un fichier .sql ou ForeverScribe.lua')) ?><input type="file" accept=".sql,.lua" hidden></label>

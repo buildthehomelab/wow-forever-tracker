@@ -104,6 +104,9 @@ trust = "${FT_SOURCES_TRUST:-}"
 refresh = ${FT_SOURCES_REFRESH:-1}
 chance_tolerance = ${FT_SOURCES_CHANCE_TOLERANCE:-10}
 
+[imports]
+auto_apply = ${FT_IMPORTS_AUTO_APPLY:-1}
+
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Imports apply themselves.** A card is now applied as soon as an import makes it, from a button, an upload, a
+  background run (Icy Veins, ForeverChanges) or Wowhead's quest enders, so the next analysis counts it without a
+  click on Apply. The card's message says how many rows went in and the history number to roll them back. Spawn
+  rows (and the rows keyed by their guid) go in only when the remote console says the worldserver is stopped;
+  otherwise they wait on the card for its Apply button. `[imports] auto_apply = 0` (Docker: `FT_IMPORTS_AUTO_APPLY=0`)
+  brings back the old way.
+
 - **Season of Discovery items Forever kept: Wowhead Classic's item pages.** The Forever client still carries Season of
   Discovery's items, and Forever brought some of them back (the Tarnished Undermine Real), but Wowhead's Forever pages
   often know no source for them yet. For a gap item that is Season's (id 190000 and up, in the Classic Era client), the

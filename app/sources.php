@@ -560,9 +560,9 @@ function source_card(string $source, string $name, string $file, array $tables, 
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables, 'changes' => $changes], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION));
     import_index($id, $tables);
-    return ['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced, 'moved' => $moved,
+    return import_auto_apply(['ok' => true, 'id' => $id, 'counts' => $counts, 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'replaced' => $replaced, 'moved' => $moved,
             'message' => sprintf(t('%s: %s rows for what the server lacks.', '%s : %s lignes pour ce qui manque au serveur.'), $name, number(array_sum($counts) - $moved))
-                . ($moved ? ' ' . sprintf(t('%s value(s) it measured again differ from the server’s.', '%s valeur(s) qu’il a mesurées à nouveau diffèrent de celles du serveur.'), number($moved)) : '') . $replacedNote];
+                . ($moved ? ' ' . sprintf(t('%s value(s) it measured again differ from the server’s.', '%s valeur(s) qu’il a mesurées à nouveau diffèrent de celles du serveur.'), number($moved)) : '') . $replacedNote]);
 }
 
 /** GET with a user agent; [status, body, length]: the size the server announced for the body (Content-Length), null

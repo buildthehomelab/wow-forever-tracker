@@ -367,3 +367,38 @@ function import_apply(int $id, array $only = [], array $items = [], bool $stoppe
     }
     return forge_commit($built, 'import');
 }
+
+/**
+ * Applies a card as soon as it is made ([imports] auto_apply, on unless set to 0), so an import is not left waiting
+ * for its Apply button. $card: what import_file / source_card returned. Spawn rows (and the rows keyed by their guid)
+ * go in only when the remote console says the worldserver is stopped: otherwise they stay on the card for the
+ * Apply button, and the card says so. Returns $card with 'applied' (the Forge's answer) and the message extended.
+ */
+function import_auto_apply(array $card): array
+{
+    if (empty($card['ok']) || empty($card['id']) || !(int)config('imports', 'auto_apply', 1)) return $card;
+    require_once FT_APP . '/spawns.php';
+    $id = (int)$card['id'];
+    $only = array_keys((array)($card['counts'] ?? []));
+    $held = array_merge(array_keys(IMPORT_SPAWN_TABLES), array_keys(IMPORT_GUID_TABLES));
+    $kept = [];
+    if (array_intersect($only, array_keys(IMPORT_SPAWN_TABLES)) && spawn_world_state() !== 'stopped') {
+        $kept = array_values(array_intersect($only, $held));
+        $only = array_values(array_diff($only, $held));
+    }
+    try {
+        $applied = $only ? import_apply($id, $only, [], false) : ['ok' => false, 'message' => ''];
+    } catch (Throwable $e) {
+        error_log('Forever Tracker: import #' . $id . ' could not be applied on its own: ' . $e->getMessage());
+        $applied = ['ok' => false, 'message' => $e->getMessage()];
+    }
+    $card['applied'] = $applied;
+    $said = $only && !(int)($applied['log'] ?? 0) && ($applied['ok'] || (!(int)($applied['rows'] ?? 0) && !($applied['warnings'] ?? [])))
+        ? t('Nothing on it is missing from the server any more.', 'Plus rien n’y manque au serveur.')
+        : ($applied['ok']
+        ? sprintf(t('Applied at once: %s row(s) (history #%d).', 'Appliqué aussitôt : %s ligne(s) (historique #%d).'), number((int)($applied['rows'] ?? 0)), (int)($applied['log'] ?? 0))
+        : ($only ? t('Not applied on its own:', 'Pas appliqué automatiquement :') . ' ' . strip_tags((string)($applied['message'] ?? '')) : ''));
+    if ($kept) $said .= ' ' . sprintf(t('Spawns left on the card (%s): stop the worldserver, then press Apply.', 'Placements laissés sur la carte (%s) : arrêtez le worldserver, puis appliquez.'), implode(', ', $kept));
+    $card['message'] = trim(trim((string)($card['message'] ?? '')) . ' ' . trim($said));
+    return $card;
+}
