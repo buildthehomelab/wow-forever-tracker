@@ -21,6 +21,8 @@ few hundred kB of gzipped JSON holding:
                                                                    world drops (more than WORLD_DROP creatures) left out
     sells      [npc, item, stock]                                 a vendor of such an item (stock 0: no limit)
     world_drops [item]                                            such items left out of drops as world drops
+    holidays   {event: {name, creatures, objects}}                what spawns only while an event runs (holidays(),
+                                                                   format 4): the Darkmoon Faire, the fishing contest...
     never_given [item]                                            items the original game gave out nowhere (no loot,
                                                                    vendor, quest or spell): removed or never released
 
@@ -37,7 +39,7 @@ WANTED = {'quest_template', 'npc_trainer', 'npc_trainer_template', 'creature_tem
           'dbscripts_on_gossip', 'conditions', 'db_version', 'item_template', 'creature_loot_template', 'gameobject_loot_template',
           'reference_loot_template', 'npc_vendor', 'npc_vendor_template', 'item_loot_template', 'fishing_loot_template',
           'skinning_loot_template', 'pickpocketing_loot_template', 'disenchant_loot_template', 'mail_loot_template',
-          'spell_loot_template', 'spell_template'}
+          'spell_loot_template', 'spell_template', 'game_event', 'game_event_creature', 'game_event_gameobject', 'creature', 'gameobject'}
 # Every table through which the original game gave an item out: its rows' `item` column (loot of any kind, vendors)
 GIVING_TABLES = ('creature_loot_template', 'gameobject_loot_template', 'reference_loot_template', 'item_loot_template', 'fishing_loot_template',
                  'skinning_loot_template', 'pickpocketing_loot_template', 'disenchant_loot_template', 'mail_loot_template',
@@ -292,6 +294,39 @@ def never_given(tables, items):
     return sorted(set(items) - given)
 
 
+def holidays(tables):
+    """{event: {'name', 'creatures', 'objects', 'left'}}: what the original game spawns only while a holiday or another
+    event runs, by its event, with each spawn's own place.
+      creatures [guid, id, map, x, y, z, orientation, respawn seconds, wander distance, movement type]
+      objects   [guid, id, map, x, y, z, orientation, rotation 0..3, respawn seconds]
+    A negative event (a spawn the event removes) is not carried over and is counted in 'left'."""
+    names = {whole(e.get('entry')): str(e.get('description') or '') for e in tables['game_event']}
+    linked = {'creature': {}, 'gameobject': {}}
+    left = {}
+    for kind, table in (('creature', 'game_event_creature'), ('gameobject', 'game_event_gameobject')):
+        for row in tables[table]:
+            event = row.get('event') or 0
+            if event < 0:
+                left[-event] = left.get(-event, 0) + 1
+            elif event > 0 and whole(row.get('guid')):
+                linked[kind].setdefault(whole(row['guid']), set()).add(event)   # a spawn may belong to several events
+    out = {}
+    for r in tables['creature']:
+        for event in sorted(linked['creature'].get(whole(r.get('guid')), ())):
+            out.setdefault(event, {'name': names.get(event, ''), 'creatures': [], 'objects': []})['creatures'].append(
+                [whole(r['guid']), whole(r.get('id')), int(r.get('map') or 0)] + [round(float(r.get(c) or 0), 4) for c in ('position_x', 'position_y', 'position_z', 'orientation')]
+                + [whole(r.get('spawntimesecsmin')), round(float(r.get('spawndist') or 0), 2), int(r.get('MovementType') or 0)])
+    for r in tables['gameobject']:
+        for event in sorted(linked['gameobject'].get(whole(r.get('guid')), ())):
+            out.setdefault(event, {'name': names.get(event, ''), 'creatures': [], 'objects': []})['objects'].append(
+                [whole(r['guid']), whole(r.get('id')), int(r.get('map') or 0)]
+                + [round(float(r.get(c) or 0), 6) for c in ('position_x', 'position_y', 'position_z', 'orientation', 'rotation0', 'rotation1', 'rotation2', 'rotation3')]
+                + [int(r.get('spawntimesecsmin') or 0)])
+    for event, n in left.items():
+        out.setdefault(event, {'name': names.get(event, ''), 'creatures': [], 'objects': []})['left'] = n
+    return {str(e): v for e, v in sorted(out.items())}
+
+
 def _group(rows, key):
     out = {}
     for row in rows:
@@ -346,6 +381,7 @@ def pack(tables, today=None):
     teaching = teaching_items(tables)
     drops, sells, world = drops_and_sells(tables, creatures, teaching)
     unsourced = never_given(tables, {whole(i.get('entry')) for i in tables['item_template']} - {0})
+    events = holidays(tables)
 
     npcs = {npc for npc, *_ in trainers} | {npc for npc, _ in gossip} | {entry for kind, entry, *_ in talk if kind == 'npc'}
     npcs |= {entry for kind, entry, *_ in drops if kind == 'npc'} | {npc for npc, *_ in sells}
@@ -355,7 +391,7 @@ def pack(tables, today=None):
         version = str(row.get('version') or '')[:120]
     named_objects = {e for k, e, *_ in talk if k == 'go'} | {e for k, e, *_ in drops if k == 'go'}
     objects = {str(whole(g.get('entry'))): str(g.get('name') or '') for g in tables['gameobject_template'] if whole(g.get('entry')) in named_objects}
-    return {'format': 3, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'drops': drops, 'sells': sells, 'world_drops': world, 'never_given': unsourced, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
+    return {'format': 4, 'holidays': events, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'drops': drops, 'sells': sells, 'world_drops': world, 'never_given': unsourced, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
             'trainers': sorted(trainers), 'quests': quests, 'gossip': sorted(gossip),
             'npc_names': {str(npc): str(creatures[npc].get('Name') or '') for npc in sorted(npcs)},
             'quest_names': {str(whole(q.get('entry'))): str(q.get('Title') or '') for q in tables['quest_template'] if whole(q.get('entry')) in asked}}
@@ -372,6 +408,7 @@ def main(argv):
     with gzip.open(argv[2], 'wt', encoding='utf-8') as out:
         json.dump(made, out, ensure_ascii=False, separators=(',', ':'))
     print(f"{argv[2]}: {len(made['drops'])} drops and {len(made['sells'])} vendor lines of items that teach "
+          f"{sum(len(e['creatures']) + len(e['objects']) for e in made['holidays'].values())} spawns of {len(made['holidays'])} events, "
           f"({len(made['world_drops'])} world drops left out; {len(made['never_given'])} given out nowhere), "
           f"{len(made['trainers'])} trainer lines, {len(made['quests'])} quests with a spell, {len(made['talk'])} conversation lines that cast a spell"
           f" ({made['talk_dropped']} left out: a condition not carried over) ({made['version']})")

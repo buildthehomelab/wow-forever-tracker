@@ -302,5 +302,30 @@ class Loot(unittest.TestCase):
         self.assertEqual((pack['drops'], pack['sells'], pack['never_given'], pack['world_drops']), ([['npc', 1, 2, 3.5]], [[1, 2, 0]], [5], [6]))
 
 
+
+class Holidays(unittest.TestCase):
+    def test_spawns_by_event(self):
+        tables = {name: [] for name in classicdb_pack.WANTED}
+        tables.update(
+            game_event=[{'entry': 4, 'description': 'Darkmoon Faire (Elwynn Forest)'}, {'entry': 15, 'description': 'Fishing Extravaganza'},
+                        {'entry': 34, 'description': 'Fishing Extravaganza Turn-in'}],
+            game_event_creature=[{'guid': 1, 'event': 4}, {'guid': 2, 'event': 15}, {'guid': 2, 'event': 34}, {'guid': 3, 'event': -4}],
+            game_event_gameobject=[{'guid': 9, 'event': 4}],
+            creature=[{'guid': 1, 'id': 14829, 'map': 0, 'position_x': -9548.9, 'position_y': 141.163, 'position_z': 58.96, 'orientation': 4.83,
+                       'spawntimesecsmin': 180, 'spawndist': 0, 'MovementType': 0},
+                      {'guid': 2, 'id': 15077, 'map': 0, 'position_x': 1, 'position_y': 2, 'position_z': 3, 'orientation': 0,
+                       'spawntimesecsmin': 300, 'spawndist': 5, 'MovementType': 1},
+                      {'guid': 7, 'id': 99, 'map': 0}],                    # in no event
+            gameobject=[{'guid': 9, 'id': 180040, 'map': 0, 'position_x': 1, 'position_y': 2, 'position_z': 3, 'orientation': -1.2,
+                         'rotation0': 0, 'rotation1': 0, 'rotation2': 0, 'rotation3': 0, 'spawntimesecsmin': 180}])
+        found = classicdb_pack.holidays(tables)
+        self.assertEqual(found['4']['creatures'], [[1, 14829, 0, -9548.9, 141.163, 58.96, 4.83, 180, 0.0, 0]])
+        self.assertEqual(found['4']['objects'], [[9, 180040, 0, 1.0, 2.0, 3.0, -1.2, 0.0, 0.0, 0.0, 0.0, 180]])
+        self.assertEqual(found['4']['left'], 1)                            # a spawn the event removes
+        self.assertEqual([c[0] for c in found['15']['creatures']], [2])    # one spawn in two events: in both
+        self.assertEqual([c[0] for c in found['34']['creatures']], [2])
+        self.assertEqual(found['34']['name'], 'Fishing Extravaganza Turn-in')
+
+
 if __name__ == '__main__':
     unittest.main()

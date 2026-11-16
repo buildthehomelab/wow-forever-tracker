@@ -17,6 +17,7 @@ $located = (int)value('SELECT COUNT(*) FROM ft_collected');
 $clientAddons = (function () { require_once FT_APP . '/spawns.php'; return spawn_client_addons(); })();
 $scribeInstalled = $clientAddons !== '' && is_file($clientAddons . '/ForeverScribe/ForeverScribe.toc');
 $tableLabels = [
+    'game_event' => t('Holiday events', 'Événements de fête'), 'game_event_creature' => t('Creatures of a holiday', 'PNJ d’une fête'), 'game_event_gameobject' => t('Objects of a holiday', 'Objets d’une fête'),
     'creature' => t('Creature spawns', 'Placements de PNJ'), 'gameobject' => t('Object spawns', 'Placements d’objets'), 'creature_template' => t('New creatures', 'Nouveaux PNJ'),
     'gameobject_template' => t('New objects', 'Nouveaux objets du monde'), 'creature_loot_template' => t('Creature loot', 'Butin des PNJ'), 'gameobject_loot_template' => t('Chest loot', 'Butin des coffres'),
     'npc_vendor' => t('Vendors', 'Marchands'), 'quest_template' => t('Quests', 'Quêtes'), 'creature_queststarter' => t('Quest givers', 'Donneurs de quête'),
@@ -64,6 +65,11 @@ $leftLabels = [
     'classic_talk_not_spawned' => t('conversation lines of creatures or objects nobody spawned here', 'répliques de PNJ ou d’objets que personne n’a placés ici'),
     'classic_talk_known' => t('conversation lines the server already has', 'répliques que le serveur a déjà'),
     'classic_talk_other_script' => t('conversation lines of creatures or objects run by a core script (SmartAI would not run)', 'répliques de PNJ ou d’objets gérés par un script du cœur (SmartAI ne tournerait pas)'),
+    'classic_holiday_no_template' => t('holiday spawns of a creature or object this server has no template for', 'placements de fête d’un PNJ ou objet sans modèle sur ce serveur'),
+    'classic_holiday_event_number_taken' => t('holiday events whose number this server already uses for another event', 'événements de fête dont ce serveur utilise déjà le numéro pour un autre'),
+    'classic_holiday_no_event' => t('holiday events this server lacks', 'événements de fête absents de ce serveur'),
+    'classic_holiday_no_spawns' => t('holiday events the pack has no spawns for (a pack older than format 4?)', 'événements de fête sans placements dans le paquet (un paquet antérieur au format 4 ?)'),
+    'classic_holiday_bad_row' => t('holiday spawn rows of the wrong shape', 'lignes de placement de fête de forme incorrecte'),
     'classic_world_drop' => t('items more than 15 creatures dropped in the original game (a world drop: no place to put it)', 'objets que plus de 15 PNJ lâchaient dans le jeu d’origine (butin du monde : aucun endroit où le placer)'),
     'classic_talk_core_teaches' => t('conversation lines a script of the core already teaches (Knot Thimblejack, the engineering transporters, Master Craftsman Omarion, the Field Repair Bot schematic)', 'répliques qu’un script du cœur enseigne déjà (Knot Thimblejack, les transporteurs d’ingénierie, le maître artisan Omarion, le schéma du robot réparateur)'),
     'classic_talk_core_broken' => t('conversation lines of a core script that teaches nobody until the core is fixed', 'répliques d’un script du cœur qui n’enseigne à personne tant que le cœur n’est pas corrigé'),
@@ -270,6 +276,7 @@ page_start(t('Imports', 'Imports'), 'admin');
   <div class="btn-row">
     <form class="import-upload" data-import-upload><label class="btn is-small is-gold"><i class="fas fa-file-arrow-up"></i> <?= e(t('Send a .cdbpack file', 'Envoyer un fichier .cdbpack')) ?><input type="file" accept=".cdbpack" hidden></label></form>
     <?php if (is_file($cdbPack)): ?><button class="btn is-small" type="button" data-scribe="source_classicdb"><i class="fas fa-rotate"></i> <?= e(t('Read the pack again', 'Relire le paquet')) ?></button>
+      <?php foreach (CLASSICDB_HOLIDAYS as $holidayKey => $holiday): ?><button class="btn is-small" type="button" data-scribe="source_classicdb_holiday" data-source="<?= e($holidayKey) ?>" title="<?= e(t('What the original game spawns while this holiday runs, as a card: its creatures, objects and their link to the realm\'s event', 'Ce que le jeu d’origine fait apparaître pendant cette fête, en carte : ses PNJ, objets et leur lien à l’événement du royaume')) ?>"><i class="fas fa-calendar-day"></i> <?= e(t($holiday['name'][0], $holiday['name'][1])) ?></button><?php endforeach; ?>
       <small class="muted"><?= e(sprintf(t('Pack of %s, %s.', 'Paquet du %s, %s.'), date(t('M j, Y H:i', 'd/m/Y H:i'), (int)filemtime($cdbPack)), number((int)filesize($cdbPack) / 1024, 0) . ' kB')) ?></small><?php endif; ?>
   </div>
 </section>

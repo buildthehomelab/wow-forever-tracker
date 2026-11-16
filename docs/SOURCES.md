@@ -39,7 +39,17 @@ as text.
 - **Never given out:** an item no loot table of any kind, vendor, quest reward or spell gave out in the original game
   (removed mounts, promotional pets, plans and patterns never released) is listed under *Internal / test* when players
   cannot get it on the realm either, and so is a spell only such items teach. The analysis reads the pack: after
-  sending a new one, run the analysis again. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
+  sending a new one, run the analysis again.
+- **Holiday spawns (format 4):** what the original game spawns only while an event runs, by event, with each spawn's
+  place. A button per holiday under *Classic database* makes a card of its creatures and objects and the link of
+  each to the realm's event (`game_event_creature` / `game_event_gameobject`), and the event itself where the realm
+  lacks it (`CLASSICDB_HOLIDAYS` in `app/sources.php`). So far: the **Darkmoon Faire** (Elwynn Forest becomes event 4
+  with Forever's holiday 263, Mulgore event 5 with holiday 264: the core reads their dates from the client; the
+  building stages are left out, Forever's Faire has one stage) and the **Stranglethorn Fishing Extravaganza** (the
+  realm's events 14, 15 and 62). Applying gives the spawns new guids and the links follow; a spawn whose creature or
+  object already stands within 3 yards is left out with its links. The world data export numbers the spawns in its
+  own range and writes each link with its spawn's new number, only where that spawn was added. Restart the
+  worldserver after applying: events are read at start. Send the `.cdbpack` on the Imports page: it becomes the one pack the tracker keeps
 (`data/classicdb/pack.cdbpack`) and a card is made at once; *Read the pack again* makes a new card after an analysis.
 
 - **Only what nothing else answers.** The original game is not WoW: Forever. The pack is asked about profession

@@ -540,13 +540,13 @@ function source_supersede(string $source): int
 }
 
 /** Saves tables as an import card (preview, apply, history, rollback, data repo export). */
-function source_card(string $source, string $name, string $file, array $tables, array $left, array $changes = []): array
+function source_card(string $source, string $name, string $file, array $tables, array $left, array $changes = [], string $supersede = ''): array
 {
     import_schema();
     // every card is built against the gaps and the database as they are now, so the newest one of a source says all
     // its earlier ones said and is still true: without this each new AtlasLoot version and each click left one more
     // card for the same gap. Also when the new card would be empty: the old ones then offer what is no longer missing.
-    $replaced = source_supersede($source);
+    $replaced = source_supersede($supersede !== '' ? $supersede : $source);   // a card kind of its own replaces only its own kind
     $replacedNote = $replaced ? ' ' . sprintf(t('%d earlier card(s) of this source that were never applied were replaced.', '%d carte(s) précédente(s) de cette source, jamais appliquée(s), ont été remplacée(s).'), $replaced) : '';
     if (!$tables && !$changes) return ['ok' => false, 'id' => 0, 'counts' => [], 'ignored' => $left, 'replaced' => $replaced,
         'message' => sprintf(t('%s has nothing this server lacks, and nothing it has moved.', '%s n’a rien qui manque à ce serveur, et rien de ce qu’il a n’a bougé.'), SOURCES[$source][0] ?? $source) . $replacedNote];
@@ -942,6 +942,107 @@ function classicdb_tables(array $rows): array
         $tables[$table] = ['db' => 'world', 'columns' => $use, 'groups' => [['columns' => $use, 'rows' => array_map(fn($r) => array_map(fn($c) => $r[$c], $use), $records)]]];
     }
     return $tables;
+}
+
+/**
+ * What the original game spawns while a holiday runs, as a card per holiday: its creatures and objects, the link of each
+ * to the realm's event, and the event itself where the realm has none. Each holiday names the original game's events
+ * (tools/classicdb_pack.py holidays()) and the realm's event each becomes; one the realm lacks is made with the Forever
+ * client's holiday (Holidays: 263 Elwynn Forest, 264 Mulgore, alternate months, 168 hours), whose dates the core reads.
+ * The building stages of the Faire are left out: Forever's Faire has one stage.
+ */
+const CLASSICDB_HOLIDAYS = [
+    'darkmoon' => ['name' => ['Darkmoon Faire', 'Foire de Sombrelune'], 'events' => [
+        4 => ['event' => 4, 'create' => ['description' => 'Darkmoon Faire (Elwynn Forest)', 'holiday' => 263, 'start' => '2025-01-06 04:00:00', 'occurence' => 43200, 'length' => 10080]],
+        5 => ['event' => 5, 'create' => ['description' => 'Darkmoon Faire (Mulgore)', 'holiday' => 264, 'start' => '2024-12-09 04:00:00', 'occurence' => 43200, 'length' => 10080]],
+    ]],
+    // Stranglethorn Fishing Extravaganza: the realm has all three events (14 announce, 15 the contest, 62 the turn-ins)
+    'fishing' => ['name' => ['Stranglethorn Fishing Extravaganza', 'Concours de pêche de Strangleronce'], 'events' => [14 => ['event' => 14], 15 => ['event' => 15], 34 => ['event' => 62]]],
+];
+
+/**
+ * A holiday's rows: [rows by table, left out by reason]. $events: the original game's spawns by event, as the pack has
+ * them; $realm: the realm's events [eventEntry => description]; $templates: ['npc' => [entry => true], 'go' => ...] of
+ * the realm. A spawn in several of the holiday's events is one spawn with a link to each. The guids are the original
+ * game's: applying the card gives them new ones (import_build), and the links follow.
+ */
+function classicdb_holiday_rows(string $key, array $events, array $realm, array $templates, int $build): array
+{
+    $holiday = CLASSICDB_HOLIDAYS[$key] ?? null;
+    if (!$holiday) return [[], ['classic_holiday_unknown' => 1]];
+    $rows = []; $left = [];
+    $count = function (string $why, int $n = 1) use (&$left) { if ($n > 0) $left[$why] = ($left[$why] ?? 0) + $n; };
+    $seen = ['npc' => [], 'go' => []];
+    foreach ($holiday['events'] as $classic => $target) {
+        $spawns = $events[(string)$classic] ?? null;
+        if (!is_array($spawns)) { $count('classic_holiday_no_spawns'); continue; }
+        $event = (int)$target['event'];
+        if (isset($target['create'])) {
+            $c = $target['create'];
+            if (isset($realm[$event]) && trim((string)$realm[$event]) !== $c['description']) { $count('classic_holiday_event_number_taken'); continue; }
+            if (!isset($realm[$event])) {
+                $rows['game_event'][] = ['eventEntry' => $event, 'start_time' => $c['start'], 'end_time' => '2035-12-31 04:00:00', 'occurence' => $c['occurence'],
+                    'length' => $c['length'], 'holiday' => $c['holiday'], 'holidayStage' => 1, 'description' => $c['description'], 'world_event' => 0, 'announce' => 2];
+            }
+        } elseif (!isset($realm[$event])) { $count('classic_holiday_no_event'); continue; }
+        foreach ((array)($spawns['creatures'] ?? []) as $s) {
+            if (!is_array($s) || count($s) !== 10 || !is_int($s[0]) || !is_int($s[1]) || $s[0] <= 0) { $count('classic_holiday_bad_row'); continue; }
+            [$guid, $id, $map, $x, $y, $z, $o, $respawn, $wander, $movement] = $s;
+            if (!isset($templates['npc'][$id])) { $count('classic_holiday_no_template'); continue; }
+            if (!isset($seen['npc'][$guid])) {
+                $seen['npc'][$guid] = true;
+                $rows['creature'][] = ['guid' => $guid, 'id' => $id, 'map' => (int)$map, 'spawnDifficulties' => '0', 'position_x' => (float)$x, 'position_y' => (float)$y,
+                    'position_z' => (float)$z, 'orientation' => (float)$o, 'spawntimesecs' => max(0, (int)$respawn), 'wander_distance' => (float)$wander,
+                    'MovementType' => (int)$movement, 'VerifiedBuild' => $build];
+            }
+            $rows['game_event_creature'][] = ['eventEntry' => $event, 'guid' => $guid];
+        }
+        foreach ((array)($spawns['objects'] ?? []) as $s) {
+            if (!is_array($s) || count($s) !== 12 || !is_int($s[0]) || !is_int($s[1]) || $s[0] <= 0) { $count('classic_holiday_bad_row'); continue; }
+            [$guid, $id, $map, $x, $y, $z, $o, $r0, $r1, $r2, $r3, $respawn] = $s;
+            if (!isset($templates['go'][$id])) { $count('classic_holiday_no_template'); continue; }
+            if (!isset($seen['go'][$guid])) {
+                $seen['go'][$guid] = true;
+                // the original game often keeps no rotation: the orientation is the turn about the vertical axis
+                if (!$r0 && !$r1 && !$r2 && !$r3) { $r2 = sin((float)$o / 2); $r3 = cos((float)$o / 2); }
+                $rows['gameobject'][] = ['guid' => $guid, 'id' => $id, 'map' => (int)$map, 'spawnDifficulties' => '0', 'position_x' => (float)$x, 'position_y' => (float)$y,
+                    'position_z' => (float)$z, 'orientation' => (float)$o, 'rotation0' => (float)$r0, 'rotation1' => (float)$r1, 'rotation2' => round((float)$r2, 6),
+                    'rotation3' => round((float)$r3, 6), 'spawntimesecs' => (int)$respawn, 'animprogress' => 255, 'state' => 1, 'VerifiedBuild' => $build];
+            }
+            $rows['game_event_gameobject'][] = ['eventEntry' => $event, 'guid' => $guid];
+        }
+    }
+    return [$rows, $left];
+}
+
+/** The card of a holiday's spawns (CLASSICDB_HOLIDAYS), from the pack of format 4. */
+function classicdb_holiday_import(string $key): array
+{
+    if ($e = source_check()) return $e;
+    $holiday = CLASSICDB_HOLIDAYS[$key] ?? null;
+    if (!$holiday) return ['ok' => false, 'message' => t('No such holiday.', 'Fête inconnue.')];
+    $path = classicdb_pack();
+    $raw = is_file($path) ? @gzdecode((string)file_get_contents($path)) : false;
+    $pack = $raw !== false ? json_decode($raw, true) : null;
+    if (!is_array($pack) || !is_array($pack['holidays'] ?? null)) {
+        return ['ok' => false, 'message' => t('The Classic database pack holds no holiday spawns: make it again with tools/classicdb_pack.py (format 4) and send it here.',
+            'Le paquet de la base Classic ne contient aucun placement de fête : recréez-le avec tools/classicdb_pack.py (format 4) et envoyez-le ici.')];
+    }
+    $events = array_map(fn($t) => (int)$t['event'], $holiday['events']);
+    $realm = [];
+    foreach (rows('SELECT eventEntry, description FROM game_event WHERE eventEntry IN (' . implode(',', $events) . ')', [], 'world') as $r) $realm[(int)$r['eventEntry']] = (string)$r['description'];
+    $ids = ['npc' => [], 'go' => []];
+    foreach (array_keys($holiday['events']) as $classic) {
+        foreach ((array)($pack['holidays'][(string)$classic]['creatures'] ?? []) as $s) if (is_array($s) && is_int($s[1] ?? null)) $ids['npc'][$s[1]] = true;
+        foreach ((array)($pack['holidays'][(string)$classic]['objects'] ?? []) as $s) if (is_array($s) && is_int($s[1] ?? null)) $ids['go'][$s[1]] = true;
+    }
+    $templates = ['npc' => [], 'go' => []];
+    if ($ids['npc']) foreach (rows('SELECT entry FROM creature_template WHERE entry IN (' . implode(',', array_keys($ids['npc'])) . ')', [], 'world') as $r) $templates['npc'][(int)$r['entry']] = true;
+    if ($ids['go']) foreach (rows('SELECT entry FROM gameobject_template WHERE entry IN (' . implode(',', array_keys($ids['go'])) . ')', [], 'world') as $r) $templates['go'][(int)$r['entry']] = true;
+    [$rows, $left] = classicdb_holiday_rows($key, $pack['holidays'], $realm, $templates, (int)(meta()['client_build'] ?? 0));
+    $made = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($pack['made'] ?? '')) ? (string)$pack['made'] : date('Y-m-d', (int)filemtime($path));
+    $name = 'Classic database ' . $made . ': ' . $holiday['name'][0];
+    return source_card('classicdb', $name, 'classicdb-holiday-' . $key . '@' . $made, classicdb_tables($rows), $left, [], 'classicdb-holiday-' . $key);
 }
 
 function classicdb_import(): array
