@@ -21,10 +21,9 @@
   const SKIPPED = Symbol('expression');
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
-  const MAX_ROWS = 2000;
-  // what a row repeats for the page's own display (models, per-season and per-mode copies of its counts): not kept
-  const DISPLAY_ONLY = new Set(['envChange', 'modes', 'itemSeasonPhaseData', 'appearances', 'bonustrees', 'flags2', 'displayid', 'npcmodel', 'popularity']);
-  const rowFacts = row => { if (!row || typeof row !== 'object' || Array.isArray(row)) return null; const out = {}; for (const key of Object.keys(row)) if (!DISPLAY_ONLY.has(key)) out[key] = row[key]; return facts(out); };
+  // every number of a page is kept (a page costs seconds of a slow crawl, a byte of disk costs nothing): a tab is cut
+  // only past this many rows
+  const MAX_ROWS = 20000;
 
   // ------------------------------------------------------------------ reading a page (pure)
 
@@ -167,7 +166,7 @@
       const template = typeof config.template === 'string' ? config.template : '';
       if (!id || NOT_DATA.has(template) || !/^[\w-]{1,60}$/.test(id) || !Array.isArray(config.data)) continue;
       const data = config.data;
-      const rows = data.slice(0, MAX_ROWS).map(rowFacts).filter(r => r && typeof r === 'object' && !Array.isArray(r));
+      const rows = data.slice(0, MAX_ROWS).map(facts).filter(r => r && typeof r === 'object' && !Array.isArray(r));
       const tab = { template, rows };
       if (data.length > MAX_ROWS) tab.total = data.length;
       const { found } = counted(config, data.length);
@@ -267,10 +266,6 @@
   };
   const LAST_ID = 2147483647;
   const PER_LIST = 1000;
-  /** Of a list row only these are kept: what a thing is and where it comes from, not every stat of an item. */
-  const LIST_FIELDS = new Set(['id', 'level', 'reqlevel', 'minlevel', 'maxlevel', 'quality', 'classs', 'subclass', 'slot', 'side', 'react',
-    'type', 'classification', 'boss', 'location', 'source', 'sourcemore', 'category', 'category2', 'reqclass', 'reqrace', 'skill',
-    'reqskill', 'tag', 'firstseenpatch', 'wflags', 'xp', 'money', 'itemrewards', 'itemchoices', 'currencyrewards', 'hasQuests']);
 
   /** The filter criterion a list page names for "ID" (Filter.init's criteria), or null. */
   function idCriterion(html) {
@@ -306,10 +301,10 @@
     if (!main && !/Filter\.init|listPage|"ID"/.test(html)) return Object.assign(record, { status: 'odd', bytes: html.length });
     const data = main ? main.data : [];
     const rows = [];
+    // every number of a row, as on a page: an item's stats too
     for (const row of data) {
-      const kept = {};
-      for (const key of Object.keys(row || {})) if (LIST_FIELDS.has(key)) { const f = facts(row[key]); if (f !== undefined) kept[key] = f; }
-      if (typeof kept.id === 'number' && kept.id > 0) rows.push(kept);
+      const kept = facts(row);
+      if (kept && typeof kept === 'object' && !Array.isArray(kept) && typeof kept.id === 'number' && kept.id > 0) rows.push(kept);
     }
     let { found, truncated } = main ? counted(main, data.length) : { found: 0, truncated: false };
     // a range with nothing in it: Wowhead drops the filter and shows its whole list instead. A row outside the range

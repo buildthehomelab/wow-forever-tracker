@@ -84,7 +84,7 @@ check(in_array(['npc', 250484, 900, 2.7136], $ev3['drop'], true), 'the item page
 check($ev4['drop'] === [['npc', 250484, 900, 2.7136]], 'a drop measured again needs no item page');
 
 $slim = wowhead_pages_clean(['kind' => 'npc', 'id' => 5, 'fetched' => 100, 'status' => 'ok', 'tabs' => ['drops' => ['template' => 'item', 'rows' => [['id' => 818, 'count' => 27, 'outof' => 995, 'modes' => ['0' => ['count' => 27]], 'flags2' => -5, 'envChange' => ['labels' => []]]]]]]);
-check($slim['tabs']['drops']['rows'] === [['id' => 818, 'count' => 27, 'outof' => 995]], 'what a row repeats for display is not kept');
+check($slim['tabs']['drops']['rows'] === [['id' => 818, 'count' => 27, 'outof' => 995, 'modes' => ['0' => ['count' => 27]], 'flags2' => -5, 'envChange' => ['labels' => []]]], 'every number of a row is kept, the per-mode counts too');
 
 // ---- Classic's pages: drops only, where Forever's pages count too few
 $foreverItems = [

@@ -141,11 +141,11 @@ new Listview({template: 'item', id: 'items', extraCols: [].concat(Filter.cols([1
 new Listview({template: 'generic-model', id: 'itemsgallery', data: listviewitems});</script>` + pad;
   const a = crawler.extractList('items?filter=151;2;200000', js, 200);
   assert.equal(a.status, 'ok'); assert.equal(a.found, 8599); assert.equal(a.truncated, true); assert.equal(a.cr, 151);
-  assert.deepEqual(a.rows, [{ id: 260166, quality: 2, source: [4], sourcemore: [{ t: 5, ti: 86777 }] }]);   // no name, no stats
+  assert.deepEqual(a.rows, [{ id: 260166, quality: 2, source: [4], sourcemore: [{ t: 5, ti: 86777 }], dps: 40.3, appearances: { 0: [717884, null] } }]);   // every number, no name
   const json = `<script>${filterInit}new Listview({"_truncated":1,"note":"15,596 NPCs found (1,000 displayed)","id":"npcs","template":"npc","data":[{"id":263380,"name":"Ghostmaw","minlevel":42,"maxlevel":42,"location":[16591],"react":[-1,-1],"envChange":{"status":"new"}}]});</script>` + pad;
   const b = crawler.extractList('npcs', json, 200);
   assert.deepEqual([b.found, b.truncated, b.cr], [15596, true, 37]);
-  assert.deepEqual(b.rows, [{ id: 263380, minlevel: 42, maxlevel: 42, location: [16591], react: [-1, -1] }]);
+  assert.deepEqual(b.rows, [{ id: 263380, minlevel: 42, maxlevel: 42, location: [16591], react: [-1, -1], envChange: {} }]);
   const tag = `<script type="application/json" id="data.page.listPage.listviews">[{"id":"objects","template":"object","data":[{"id":105174,"name":"Chest","type":3,"location":[1519]}],"note":"1 object found","totalCount":1}]</script>` + pad;
   const c = crawler.extractList('objects?filter=15:15;2:4;1:200000', tag, 200);
   assert.deepEqual([c.found, c.truncated, c.cr, c.rows], [1, false, 15, [{ id: 105174, type: 3, location: [1519] }]]);
@@ -207,12 +207,13 @@ test('queue keys: Forever without a branch, Classic and lists with one', () => {
   assert.equal(crawler.keyOf('classic', 'list', 'npcs'), 'classic/list:npcs');
 });
 
-test('an npc page: its drops with counts, without what the page repeats for display', () => {
+test('an npc page: its drops with every number, the per-mode and per-season counts too, no name', () => {
   const npc = `<script>var g_pageInfo = {type: 1, typeId: 250484};
 new Listview({template: 'item', id: 'drops', _totalCount: 995, data: [{"id":818,"name":"Tigerseye","classs":7,"flags2":-2147459072,"count":27,"outof":995,"modes":{"0":{"count":27,"outof":995},"mode":[1]},"itemSeasonPhaseData":{"0":{"0":{"count":27}}},"envChange":{"labels":[]},"stack":[1,1]}]});
 new Listview({template: 'item', id: 'sells', data: [{"id":12844,"avail":-1,"cost":[[0,[],[[22484,15]]]]}]});</script>` + pad;
   const record = crawler.extract('npc', 250484, npc, 200, '');
-  assert.deepEqual(record.tabs.drops, { template: 'item', rows: [{ id: 818, classs: 7, count: 27, outof: 995, stack: [1, 1] }], total: 995 });
+  assert.deepEqual(record.tabs.drops, { template: 'item', rows: [{ id: 818, classs: 7, flags2: -2147459072, count: 27, outof: 995,
+    modes: { 0: { count: 27, outof: 995 }, mode: [1] }, itemSeasonPhaseData: { 0: { 0: { count: 27 } } }, envChange: { labels: [] }, stack: [1, 1] }], total: 995 });
   assert.deepEqual(record.tabs.sells.rows, [{ id: 12844, avail: -1, cost: [[0, [], [[22484, 15]]]] }]);
 });
 
