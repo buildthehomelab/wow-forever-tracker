@@ -303,7 +303,9 @@ cut short goes on from where it stopped, since what was asked since the button w
   the Imports page. Every download stays in `data/atlasloot/` (`[atlasloot] keep` limits how many). A new analysis alone makes no new card: press
   *Import AtlasLoot* after one.
 - Icy Veins runs in the background and keeps a **mirror of its whole WoW Forever database**: every NPC, object,
-  quest, item, zone, flight path and map it lists (about 67,000 answers, read from its list pages 200 at a time),
+  quest, item, zone, flight path and map it lists (about 67,000 answers, read from its list pages 200 at a time,
+  from both ends: without an API key a list stops after 10,000 rows; items past both ends come from what the NPCs,
+  objects and quests name),
   each kept whole (the entity, its children and every relation) in `data/icyveins/<kind>/<id>.json.gz`. The gaps are
   asked first (items players cannot get, quests without giver, ender or turn-in words, the server's trainers), then
   the rest. Two lookups a second: about nine hours the first time. Its last log line shows on the Imports page. Answers
