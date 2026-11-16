@@ -64,7 +64,9 @@ The extension keeps one pinned Wowhead tab (Memory Saver may not put it to sleep
 tracker for the crawler with its queue (`GET api/wowhead-crawler`, the full crawl, as *Open Wowhead* hands it out)
 and loads it into the page; the crawler goes on where it was (its queue and pace are in the tab's IndexedDB). Every 5
 minutes it checks that the tab is there and has its crawler: a closed tab, a crash or a restart of Chrome is mended
-then. The crawler passes what it read to the extension's script in the same tab (`window.postMessage`, as a linked
+then. A crawler loaded more than an hour ago is replaced: once the tracker has answered with a new one, the tab is
+reloaded and takes it, so a crawl that runs for days follows the tracker's latest queue and crawler (an extension
+before 1.1.0 kept the first crawler until the tab happened to reload). The crawler passes what it read to the extension's script in the same tab (`window.postMessage`, as a linked
 crawl does to its opener), which sends it to `api/wowhead-push` with the key; the crawler forgets a batch only once the
 tracker kept it. The icon's popup shows the queue, the pace, the last page and what was sent, and pauses the crawl;
 a `!` on the icon means the tracker did not answer or refused.

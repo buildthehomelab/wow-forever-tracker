@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The Chrome extension takes a new crawler every hour.** It loaded the tracker's crawler only when its tab had
+  none, so a tab that crawled for days kept the queue and code it started with: the new order of the crawl did not
+  reach it. Extension 1.1.0 reloads the tab for a new crawler once the one it runs is an hour old (and at once for one
+  an earlier version loaded), only after the tracker answered. Download it again from The Forge › Crawl and reload it
+  in `chrome://extensions`.
+
 - **The crawl reads the items with no source before the creatures with missing data.** The items that only lacked a
   source were the crawler's tier 4, behind more than 2,000 creature pages of tier 3 (about a day of reading at its
   pace). They are now tier 3, what their pages name tier 4, and the server's creatures and objects whose data is
