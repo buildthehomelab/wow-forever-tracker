@@ -49,4 +49,8 @@ check(questie_whole(QUESTIE_BASE, $base) && !questie_whole(QUESTIE_BASE, substr(
 check(questie_whole(QUESTIE_CORRECTIONS[0], $traces . "return ForeverBaseItem\n"), 'a correction file that hands its module back is whole');
 check(questie_whole(QUESTIE_CORRECTIONS[1], $fixes) && !questie_whole(QUESTIE_CORRECTIONS[1], substr($fixes, 0, 60)), 'nor a cut correction file');
 
+$rows = questie_drop_rows(['772' => ['npc' => [40, 327]], 2320 => ['go' => [2843]]]);
+check($rows === [['npc', 40, 772, null], ['npc', 327, 772, null], ['go', 2843, 2320, null]], 'a snapshot keeps every drop, with no chance');
+check(questie_drops_from_rows($rows) === [772 => ['npc' => [40, 327]], 2320 => ['go' => [2843]]], 'and the drops come back from it as they were');
+
 ft_test_done();
