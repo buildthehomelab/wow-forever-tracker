@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **QuestieDB is in *What the sources said*.** Each QuestieDB import now keeps what it said as a snapshot (every drop it
+  names, without a chance), so it shows in the table with its facts and what changed since its last release, and its
+  *Card* (and *Make every card from the database*) makes its card again without downloading anything.
+
 - **QuestieDB's card reads cleanly.** Its credit line showed a raw `\u{2019}` where an apostrophe belongs, and two of its
   left-out reasons showed as bare keys (`questie_item_not_in_forever`, `questie_phase_not_open`).
 
