@@ -34,7 +34,7 @@ const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' =>
 
 const SOURCES = [
     'wowhead' => ['Wowhead', 'facts from the pages of wowhead.com/forever (ids and players’ counts, no text; no licence stated: credited)'],
-    'questie' => ['QuestieDB', 'GPL-3.0: "QuestieDB (https://github.com/Questie/QuestieDB), with its players\u{2019} QuestieTrace recordings"'],
+    'questie' => ['QuestieDB', 'GPL-3.0: "QuestieDB (https://github.com/Questie/QuestieDB), with its players’ QuestieTrace recordings"'],
     'norgannondb' => ['NorgannonDB', 'GPL-3.0 (with QuestieDB, pfQuest, DungeonJournal)'],
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],

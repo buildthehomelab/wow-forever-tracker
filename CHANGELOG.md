@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **QuestieDB's card reads cleanly.** Its credit line showed a raw `\u{2019}` where an apostrophe belongs, and two of its
+  left-out reasons showed as bare keys (`questie_item_not_in_forever`, `questie_phase_not_open`).
+
 - **The locator finds QuestieDB without a pin.** The container never runs `world pin`, so the locator read no QuestieDB
   position at all ("QuestieDB places 0 recorded"). Without a pin it now takes the commit of QuestieDB's newest release
   itself, or offline the newest one already downloaded.
