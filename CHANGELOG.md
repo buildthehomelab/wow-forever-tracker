@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **An applied card is Applied, also when its source has a newer one.** The Imports page put every earlier card of a
+  source in its own group, so cards with nothing left to add (most of them, now that cards apply themselves) sat
+  apart from the applied ones. They now fold under Applied; the earlier group keeps only cards with something not
+  applied, which the source's newest card offers.
+
 - **The Crawl and Imports pages count Wowhead Classic's item pages.** The crawl reads the Classic page of each Season of
   Discovery item Forever kept with no source, but neither page counted them, so a crawl reading them looked stuck. The
   *Import Classic pages* button is also offered when only Classic item pages were read.

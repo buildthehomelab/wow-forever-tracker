@@ -179,17 +179,19 @@ function import_reopen(array $items): void
 }
 
 /** [open, done, earlier] ids of the cards ($imports: rows of ft_imports with id, file, done_at): the cards with
- *  something left to apply, the ones with nothing left, and a source's earlier cards a newer one stands above. */
+ *  something left to apply, the ones with nothing left, and a source's earlier cards a newer one stands above that
+ *  still have something left (the newer card offers it). A card with nothing left is applied, earlier or not. */
 function import_groups(array $imports): array
 {
     $earlier = array_flip(import_earlier($imports));
-    $open = []; $done = [];
+    $open = []; $done = []; $left = [];
     foreach ($imports as $s) {
         $id = (int)$s['id'];
-        if (isset($earlier[$id])) continue;
-        if (!empty($s['done_at'])) $done[] = $id; else $open[] = $id;
+        if (!empty($s['done_at'])) $done[] = $id;
+        elseif (isset($earlier[$id])) $left[] = $id;
+        else $open[] = $id;
     }
-    return [$open, $done, array_keys($earlier)];
+    return [$open, $done, $left];
 }
 
 // ------------------------------------------------------------------ parsing
