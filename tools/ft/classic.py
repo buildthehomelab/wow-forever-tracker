@@ -20,7 +20,8 @@ own learn effects say which recipe that is.
 import gzip
 import json
 
-FORMATS = (1, 2, 3, 4)   # 2 adds the conversation lines (talk); 3 the drops, vendors and never-given items; 4 the event spawns
+FORMATS = (1, 2, 3, 4, 5)   # 2 adds the conversation lines (talk); 3 the drops, vendors and never-given items; 4 the event spawns;
+# 5 the creatures it never spawns (never_spawned) and those it spawns only for a world event (event_only)
 TERMS = {'skill': 3, 'quest': 2, 'rep': 3, 'level': 2, 'knows': 2, 'lacks': 2}   # a term's kind and its length
 NEVER_LEARNED = 3   # SkillLineAbility.AcquireMethod
 
@@ -41,7 +42,34 @@ def load(path):
     pack['sells'] = [r for r in pack.get('sells') or [] if isinstance(r, list) and len(r) == 3 and all(isinstance(v, int) and v >= 0 for v in r) and r[0] and r[1]]
     pack['never_given'] = [i for i in pack.get('never_given') or [] if isinstance(i, int) and i > 0]
     pack['world_drops'] = [i for i in pack.get('world_drops') or [] if isinstance(i, int) and i > 0]
+    pack['never_spawned'] = [i for i in pack.get('never_spawned') or [] if isinstance(i, int) and i > 0]
+    only = pack.get('event_only') if isinstance(pack.get('event_only'), dict) else {}
+    pack['event_only'] = {int(k): [e for e in v if isinstance(e, int) and e > 0] for k, v in only.items()
+                          if str(k).isdigit() and int(k) > 0 and isinstance(v, list) and any(isinstance(e, int) and e > 0 for e in v)}
     return pack
+
+
+def spawning(pack):
+    """(never spawned, {creature: [events]}, {event: name}) of the original game, or None for a pack made before
+    format 5, which does not say: a pack that cannot tell must not make every creature look summoned."""
+    if pack.get('format', 0) < 5:
+        return None
+    names = {int(e): str(v.get('name') or '') for e, v in (pack.get('holidays') or {}).items() if str(e).isdigit() and isinstance(v, dict)}
+    return set(pack['never_spawned']), pack['event_only'], names
+
+
+def not_spawned(entry, facts):
+    """Why the original game would not have this creature stand all year, as a note for the locator; '' when it does,
+    or when it does not know the creature. facts: spawning() of a pack."""
+    if not facts:
+        return ''
+    never, only, names = facts
+    if entry in never:
+        return 'summoned in Classic: a script, a spell or an event brings it (VMaNGOS never spawns it)'
+    if entry in only:
+        events = ', '.join(f'{e} {names.get(e, "")}'.strip() for e in only[entry])
+        return f'event {events} only in Classic'[:250]
+    return ''
 
 
 def taught(pack):

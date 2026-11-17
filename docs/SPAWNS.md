@@ -29,6 +29,12 @@ will bring), and only templates that exist and have no spawn. A creature or obje
 event brings in is left out: it needs no spawn row, and spawning it for good would put it in the world twice
 (`tools/world/summoned.json`, docs/ARCHITECTURE.md).
 
+A creature the original game never spawns (a script, a spell or an event summons it) or spawns only while a world
+event runs is listed under **Summoned or event** (state `summoned`), with a note such as "summoned in Classic" or
+"event 17 Scourge Invasion only in Classic", and never offered to the Forge: give it its script or event instead. The
+locator reads that from the pack of the original game sent on the Imports page (format 5 or later: VMaNGOS', else
+classic-db's, docs/SOURCES.md); with no such pack it cannot tell them apart.
+
 | Needed as | Found from |
 |---|---|
 | Quest giver / ender | `creature_queststarter`, `creature_questender`, `gameobject_queststarter`, `gameobject_questender` of the quests whose giver or ender check fails |

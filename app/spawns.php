@@ -18,7 +18,7 @@ function spawn_role_label(string $role): string
 function spawn_state_label(string $state): string
 {
     return ['ready' => t('Ready', 'Prêt'), 'manual' => t('Place in game', 'À placer en jeu'), 'unknown' => t('No position', 'Sans position'),
-            'pending' => t('Not looked up', 'Non recherché'), 'spawned' => t('Spawned', 'Placé')][$state] ?? $state;
+            'pending' => t('Not looked up', 'Non recherché'), 'summoned' => t('Summoned or event', 'Invoqué ou événement'), 'spawned' => t('Spawned', 'Placé')][$state] ?? $state;
 }
 
 // ------------------------------------------------------------------ remote console (RA)

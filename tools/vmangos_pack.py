@@ -16,6 +16,8 @@ VMaNGOS also keeps what players could never reach, which classic-db leaves out; 
 that it does not count as a way the game gave an item out: a vendor that is never spawned (World Mount Vendor,
 "[UNUSED] …", test vendors), a vendor list no spawned creature uses, a quest Blizzard's own title marks as never made
 ("<NYI>", "<TXT>", "<UNUSED>", "REUSE", a test quest).
+What VMaNGOS only summons or spawns for a world event (never_spawned, event_only) is read from its spawns of every
+patch, not only 1.12: a creature that stood somewhere in any patch was spawned, not summoned.
 The rows are then renamed to cmangos' columns and made into a pack by tools/classicdb_pack.py pack(): the same format,
 read by the same code (ft.classic, app/sources.php), with VMaNGOS named as its source.
 """
@@ -149,8 +151,17 @@ def open_dump(path):
     return opener(path, 'rt', encoding='utf-8', errors='replace')
 
 
+def spawning(tables):
+    """(never_spawned, event_only) of classicdb_pack.spawning(), from VMaNGOS' rows of every patch."""
+    templates = {whole(r.get('entry')) for r in tables.get('creature_template') or ()} - {0}
+    spawns = [(whole(r.get('guid')), [whole(r.get(c)) for c in ('id', 'id2', 'id3', 'id4', 'id5')]) for r in tables.get('creature') or ()]
+    events = [(whole(r.get('guid')), int(r.get('event') or 0)) for r in tables.get('game_event_creature') or ()]
+    return classicdb_pack.spawning(templates, spawns, events)
+
+
 def pack(tables, today=None):
     made = classicdb_pack.pack(to_cmangos(tables), today)
+    made['never_spawned'], made['event_only'] = spawning(tables)
     made.update(source='VMaNGOS', licence='GPL-2.0')
     return made
 
@@ -168,7 +179,8 @@ def main(argv):
           f"{sum(len(e['creatures']) + len(e['objects']) for e in made['holidays'].values())} spawns of {len(made['holidays'])} events "
           f"({len(made['world_drops'])} world drops left out; {len(made['never_given'])} given out nowhere), "
           f"{len(made['trainers'])} trainer lines, {len(made['quests'])} quests with a spell, {len(made['talk'])} conversation lines that cast a spell"
-          f" ({made['talk_dropped']} left out: a condition not carried over) ({made['version']})")
+          f" ({made['talk_dropped']} left out: a condition not carried over), {len(made['never_spawned'])} creatures never spawned, "
+          f"{len(made['event_only'])} spawned only for an event ({made['version']})")
 
 
 if __name__ == '__main__':
