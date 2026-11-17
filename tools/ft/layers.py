@@ -215,6 +215,12 @@ def resolve(pin, fetch_json=http_json, fetch_digest=http_digest):
         tag = str(release.get('tag_name') or '') if latest else pin['tag']
         if latest and not tag:
             raise LookupError(f"{pin['repo']}: its newest release has no tag")
+        if latest and pin.get('commit'):
+            # a source read file by file from the repository: pinned by the commit its newest release was tagged on
+            commit = fetch_json(f"https://api.github.com/repos/{pin['repo']}/commits/{tag}")
+            if not re.fullmatch(r'[0-9a-f]{40}', str(commit.get('sha') or '')):
+                raise LookupError(f"{pin['repo']} {tag}: no commit for the tag")
+            return {'version': commit['sha'], 'tag': tag, 'date': release.get('published_at') or ''}
         assets = [a for a in release.get('assets', []) if fnmatch.fnmatch(a.get('name', ''), pin.get('asset', '*'))]
         if not assets:
             raise LookupError(f"{pin['repo']} {tag}: no asset named {pin.get('asset', '*')}")

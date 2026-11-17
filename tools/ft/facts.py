@@ -346,6 +346,8 @@ QUESTIE_FILES = collections.OrderedDict(
                                 ('generated', 'generated/', ('BaseQuest', 'BaseNpc', 'BaseObject', 'BaseItem')),
                                 ('trace', 'traces/', ('QuestTraces', 'NpcTraces', 'ObjectTraces', 'ItemTraces')))
     for name, entity in zip(names, ('quest', 'npc', 'object', 'item')))
+# quest chains players' traces showed (what comes before, after, instead of a quest): applied in Questie as corrections
+QUESTIE_FILES[f'{QUESTIE_FOLDER}/traces/foreverQuestRelationTraces.lua'] = ('quest', 'trace')
 # field (and field_add) of an entity: the facts it states, as (kind, the entity is the subject?, the other side's kind
 # per position when the value is a list of lists, else the other side's kind)
 QUESTIE_RELATIONS = {

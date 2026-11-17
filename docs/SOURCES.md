@@ -22,7 +22,9 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
 
 Questie and DungeonJournal come in through NorgannonDB, which is built from them: a second Questie import would only
-repeat its rows.
+repeat its rows. The locator and the world build read QuestieDB's own Forever corrections (pinned by the commit of its
+newest release): positions players recorded with QuestieTrace come before Wowhead's maps, hand-fixed positions after
+them.
 
 ## The original game's database: the last word, from a file
 

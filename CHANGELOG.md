@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **The locator places what players recorded with QuestieDB first.** QuestieDB's Forever corrections carry where its
+  players' QuestieTrace recordings saw creatures and objects stand (about 2,100 of them, 56,000 points). The locator now
+  takes those positions before Wowhead's maps, and QuestieDB's hand fixes (zones named as `zoneIDs.NAME`) where Wowhead
+  has none, before Icy Veins. Its generated part is built from Wowhead and its converted Classic base says where
+  things stood in Classic: neither is read for positions.
+
+- **QuestieDB is pinned by its newest release.** `world pin questie` now takes the commit of QuestieDB's newest release
+  (v1.1.2 on 2026-11-16) instead of its master branch, and reads its new quest chain recordings
+  (`traces/foreverQuestRelationTraces.lua`: what comes before, after or instead of a quest).
+
 - **An applied card is Applied, also when its source has a newer one.** The Imports page put every earlier card of a
   source in its own group, so cards with nothing left to add (most of them, now that cards apply themselves) sat
   apart from the applied ones. They now fold under Applied; the earlier group keeps only cards with something not
