@@ -98,6 +98,9 @@ switch ($action) {
     case 'norgannon':
         require_once FT_APP . '/norgannon.php';
         json_out(norgannon_import());
+    case 'questie':
+        require_once FT_APP . '/questie.php';
+        json_out(questie_import());
     case 'source_eglink':
         require_once FT_APP . '/sources.php';
         json_out(eglink_import());

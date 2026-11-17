@@ -9,6 +9,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 |---|---|---|---|
 | [Wowhead's pages](WOWHEAD-PAGES.md) | Wowhead's WoW Forever database, page by page: the creatures and chests that drop an item and how often its players saw it, who sells it, who starts and ends a quest | none stated: ids and counts only, no text; credit it | from a copy in `data/wowhead-pages`, read slowly in your own browser tab (The Forge › Imports). The tracker never asks Wowhead for a page |
 | [Wowhead Classic's pages](WOWHEAD-PAGES.md#classics-pages) | Wowhead's WoW Classic database, page by page: how often Classic's players saw a creature or chest drop an item, for creatures and chests Forever kept | none stated: ids and counts only, no text; credit it | from the same copy, read by the full crawl. Drops only, and only where Forever's pages count too few; trusted after every source recorded on Forever |
+| [QuestieDB](https://github.com/Questie/QuestieDB) | the Questie addon's Forever database, curated, with what over a million of its players' sessions recorded on live Forever (QuestieTrace): which creatures drop an item and which chests hold it, for about 8,800 items. Ranks right after Wowhead and needs no second source; where Wowhead says otherwise, Wowhead wins | GPL-3.0: credit *"QuestieDB (https://github.com/Questie/QuestieDB)"* | the commit of its newest release, checked every few hours by the container. A row takes the server's chance for the item elsewhere, else (a quest item) `[questie] quest_chance` (40), quest-only |
 | [NorgannonDB](NORGANNONDB.md) | open Forever database: QuestieDB, pfQuest, DungeonJournal, cmangos classic-db and its players' Collector | GPL-3.0 | pinned commit, downloaded whole |
 | [EG Link](https://github.com/JIVESCORP/eg-link-output-wowf) | what EG Link players' addons recorded on live Forever, per client build: vendor windows, loot with kill counts, trainer lists, who offers and takes quests | CC BY 4.0: credit *"Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."* | its newest commit, every Forever build |
 | [ForeverDB.net](https://foreverdb.net) | its addon data: stock of vendors its players saw on Forever, boss loot measured on Forever, quest givers and enders its players recorded | GPL-3.0 with attribution: *"Data from ForeverDB.net"* | its manifest's version, each file checked by sha256 |
@@ -426,10 +427,12 @@ cut short goes on from where it stopped, since what was asked since the button w
 
 - The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
 - `php tools/source-import.php <source> --from-database`: the card from the source's last run kept in the database, nothing asked ([SNAPSHOTS.md](SNAPSHOTS.md)).
-- `php tools/source-import.php norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic`; `atlasloot --if-new` does nothing
-  when the newest CurseForge file is the one imported last. One run of a source at a time: a second one says the
+- `php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic`; `atlasloot --if-new` does nothing
+  when the newest CurseForge file is the one imported last, `questie --if-new` when QuestieDB's newest release is. One run of a source at a time: a second one says the
   import is already running and exits 3. `--log` writes the run's lines to `data/source-<source>.log`, the file the
   Imports page reads, instead of printing them.
+- QuestieDB by itself: the container checks its newest release every `FT_QUESTIE_EVERY_HOURS` (6; `0` = never), 20
+  minutes after start and never while an analysis runs, and makes a card when a new release is out.
 - AtlasLoot by itself: the container checks CurseForge every `FT_ATLASLOOT_EVERY_HOURS` (6; `0` = never), 15 minutes
   after start and never while an analysis runs, and makes a card when a new version is out. Its last log line shows on
   the Imports page. Every download stays in `data/atlasloot/` (`[atlasloot] keep` limits how many). A new analysis alone makes no new card: press

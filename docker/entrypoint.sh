@@ -109,6 +109,10 @@ change_core = ${FT_SOURCES_CHANGE_CORE:-1}
 auto_apply = ${FT_IMPORTS_AUTO_APPLY:-1}
 spawn_move_yards = ${FT_IMPORTS_SPAWN_MOVE_YARDS:-40}
 
+[questie]
+commit = "${FT_QUESTIE_COMMIT:-}"
+quest_chance = ${FT_QUESTIE_QUEST_CHANCE:-40}
+
 [norgannondb]
 commit = "${FT_NORGANNONDB_COMMIT:-}"
 
@@ -312,6 +316,29 @@ atlasloot_watch() {
     done
 }
 atlasloot_watch &
+
+# QuestieDB (its drops, docs/SOURCES.md): every FT_QUESTIE_EVERY_HOURS (0 = never) its newest release is checked and,
+# when it is new, imported as a card (applied as every card is, [imports] auto_apply). Exit 3: an analysis or another
+# QuestieDB import is running, checked again in 15 minutes.
+questie_watch() {
+    case "${FT_QUESTIE_EVERY_HOURS:-6}" in ''|*[!0-9]*|?????*) say "FT_QUESTIE_EVERY_HOURS must be a whole number up to 9999: no QuestieDB check"; return ;; esac
+    hours="$(expr "${FT_QUESTIE_EVERY_HOURS:-6}" + 0 || true)"
+    if [ "$hours" -eq 0 ]; then say "FT_QUESTIE_EVERY_HOURS=0: no QuestieDB check"; return; fi
+    log="$DATA/source-questie.log"
+    sleep 1200
+    while :; do
+        nap=$((hours * 3600))
+        if as_www php "$ROOT/tools/source-import.php" questie --if-new --log >/dev/null 2>&1; then rc=0; else rc=$?; fi
+        if [ "$rc" -eq 3 ]; then
+            say "QuestieDB: an analysis or another QuestieDB import is running: checked again in 15 minutes"
+            nap=900
+        else
+            tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] QuestieDB: /'
+        fi
+        sleep "$nap"
+    done
+}
+questie_watch &
 
 # ForeverChanges (foreverchanges.pro): every FT_FOREVERCHANGES_EVERY_HOURS (0 = never) a visit of the site reads up
 # to [foreverchanges] limit files of what the last analysis lacks (nothing else), and makes a card from everything kept (nothing

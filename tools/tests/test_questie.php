@@ -1,0 +1,52 @@
+<?php
+// QuestieDB's drops (app/questie.php): its item database, corrections applied as Questie applies them, and the
+// chance each row takes.
+require __DIR__ . '/helpers.php';
+ft_test_boot();
+require FT_APP . '/questie.php';
+
+$base = "QuestieDB.itemData = [[return {\n"
+    . "[25] = {'Worn Shortsword',nil,nil,nil,nil,nil,nil,nil,2,1,0,2,7},\n"
+    . "[750] = {'Tough Wolf Meat',{525,238425,238426},nil,nil,nil,nil,nil,nil,1,0,0,12,0},\n"
+    . "[772] = {'Large Candle',{40,327,475,476},nil,nil,nil,nil,nil,nil,1,0,0,12,0},\n"
+    . "[780] = {'Torn Murloc Fin',{46,732,202060},nil,nil,nil,nil,nil,nil,1,0,0,12,0},\n"
+    . "[2320] = {'Coarse Thread',{100},{2843},nil,nil,nil,nil,nil,1,0,0,7,0},\n"
+    . "[3000] = {'Kobold\\'s {odd} name',{9},nil,nil,nil,nil,nil,nil,1,0,0,12,0},\n"
+    . "}]]\n";
+$fixes = "function ForeverItemFixes:Load()\n    local itemKeys = QuestieDB.itemKeys\n    return {\n"
+    . "        [750] = { -- Tough Wolf Meat\n            [itemKeys.npcDrops_remove] = {238425,238426},\n        },\n"
+    . "        [780] = { -- Torn Murloc Fin\n            [itemKeys.npcDrops_remove] = {202060},\n        },\n"
+    . "        [2320] = { -- Coarse Thread\n            [itemKeys.npcDrops] = {},\n        },\n"
+    . "        -- [772] = { [itemKeys.npcDrops] = {1}, },\n"
+    . "    }\nend\n";
+$traces = "function ForeverItemTraces:Load()\n    local itemKeys = QuestieDB.itemKeys\n    return {\n"
+    . "        [772] = {\n            [itemKeys.name] = \"Large Candle\",\n            [itemKeys.npcDrops_add] = {476,6000},\n        },\n"
+    . "        [190179] = {\n            [itemKeys.name] = \"Avelina's Heart\",\n            [itemKeys.npcDrops_add] = {185333},\n            [itemKeys.objectDrops_add] = {5},\n        },\n"
+    . "    }\nend\n";
+
+$drops = questie_drops($base, [$fixes, $traces]);
+check(!isset($drops[25]), 'an item nothing drops is left out');
+check($drops[750] === ['npc' => [525]], '_remove takes creatures out');
+check($drops[772] === ['npc' => [40, 327, 475, 476, 6000]], '_add adds players\' recordings once; a commented-out correction is not applied');
+check($drops[780] === ['npc' => [46, 732]], 'a creature a hand fix removes is gone');
+check($drops[2320] === ['go' => [2843]], 'an empty plain list means drops from no creature; the chest stays');
+check($drops[3000] === ['npc' => [9]], 'a name with an escaped quote and braces is read');
+check($drops[190179] === ['npc' => [185333], 'go' => [5]], 'an item only the traces know comes in, with its chest');
+
+$ev = questie_evidence(
+    [772 => ['npc' => [40, 327]], 780 => ['npc' => [46]], 2320 => ['go' => [2843]], 999 => ['npc' => [1]], 555 => ['npc' => [2]]],
+    [772 => true, 780 => true, 2320 => true, 555 => true],   // in Forever (999 is not)
+    [555 => true],                                          // a phase not open yet
+    [780 => 12.5],                                          // the server's best chance elsewhere
+    [772 => true, 780 => true],                             // a quest asks for them
+    40.0);
+check($ev['drop'] === [['npc', 40, 772, 40.0], ['npc', 327, 772, 40.0], ['npc', 46, 780, 12.5]], 'a quest item takes the server\'s chance, else the quest chance; any other item without one is left out');
+check(isset($ev['quest_drop']['npc:40:772']) && isset($ev['quest_drop']['npc:46:780']), 'a quest item drops only for players on the quest');
+check($ev['any_item'] === true, 'not only items nobody can get');
+check($ev['left'] === ['questie_item_not_in_forever' => 1, 'questie_phase_not_open' => 1, 'loot_chance_unknown' => 1], 'what is left out is counted');
+
+check(questie_whole(QUESTIE_BASE, $base) && !questie_whole(QUESTIE_BASE, substr($base, 0, 120)), 'a cut item database is not kept');
+check(questie_whole(QUESTIE_CORRECTIONS[0], $traces . "return ForeverBaseItem\n"), 'a correction file that hands its module back is whole');
+check(questie_whole(QUESTIE_CORRECTIONS[1], $fixes) && !questie_whole(QUESTIE_CORRECTIONS[1], substr($fixes, 0, 60)), 'nor a cut correction file');
+
+ft_test_done();

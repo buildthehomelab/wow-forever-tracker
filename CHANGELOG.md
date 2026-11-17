@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **QuestieDB's drops come in by themselves.** The Forge › Imports › *Import QuestieDB drops* (and the container, every
+  `FT_QUESTIE_EVERY_HOURS`) reads QuestieDB's newest release: its Forever item database, corrected by hand and by what
+  over a million of its players' sessions recorded on live Forever. About 8,800 items, 210,000 creature drops and 27,000
+  chest drops. QuestieDB ranks right after Wowhead and needs no second source; it fills every creature or chest that
+  does not drop the item yet, not only items nobody can get, and Wowhead's word replaces its rows where they disagree.
+  QuestieDB has no drop chance: a row takes the server's chance for the item elsewhere, else (an item a quest asks
+  for) `[questie] quest_chance` (40), dropping only for players on the quest; any other item without one is left out.
+
 - **The locator places what players recorded with QuestieDB first.** QuestieDB's Forever corrections carry where its
   players' QuestieTrace recordings saw creatures and objects stand (about 2,100 of them, 56,000 points). The locator now
   takes those positions before Wowhead's maps, and QuestieDB's hand fixes (zones named as `zoneIDs.NAME`) where Wowhead
