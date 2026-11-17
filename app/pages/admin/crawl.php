@@ -3,7 +3,7 @@
 // (docs/WOWHEAD-PAGES.md, "A linked crawl"). The crawler runs in the Wowhead tab; this page receives what it reads,
 // sends it to api/imports (wowhead_push) and makes the import cards again every [wowhead] card_minutes.
 require_once FT_APP . '/wowheadpages.php';
-$shelves = ['item', 'quest', 'npc', 'object', 'classic-npc', 'classic-object', 'forever-list', 'classic-list'];
+$shelves = ['item', 'quest', 'npc', 'object', 'classic-item', 'classic-npc', 'classic-object', 'forever-list', 'classic-list'];
 $kept = array_combine($shelves, array_map('wowhead_pages_count', $shelves));
 // when a crawl last sent something: the newest of the files a push adds to (a crawl that stopped shows here)
 $lastIn = 0;
@@ -38,8 +38,8 @@ page_start(t('Crawl Wowhead', 'Parcourir Wowhead'), 'admin');
     <button class="btn is-small" type="button" data-crawl-cards><i class="fas fa-book-open"></i> <?= e(t('Make the cards now', 'Faire les cartes maintenant')) ?></button></div>
   <p class="small"><strong data-crawl-state><?= e(t('Not linked: no page received since this tab opened.', 'Pas de lien : aucune page reçue depuis l’ouverture de cet onglet.')) ?></strong></p>
   <p class="muted small" data-crawl-last></p>
-  <p class="muted small"><?= e(sprintf(t('Kept so far: %s item, %s quest, %s npc and %s object pages of Forever; %s npc and %s object pages of Classic.', 'Conservées : %s pages d’objets, %s de quêtes, %s de PNJ et %s d’objets du monde de Forever ; %s de PNJ et %s d’objets du monde de Classic.'),
-      number($kept['item']), number($kept['quest']), number($kept['npc']), number($kept['object']), number($kept['classic-npc']), number($kept['classic-object']))) ?></p>
+  <p class="muted small"><?= e(sprintf(t('Kept so far: %s item, %s quest, %s npc and %s object pages of Forever; %s item, %s npc and %s object pages of Classic.', 'Conservées : %s pages d’objets, %s de quêtes, %s de PNJ et %s d’objets du monde de Forever ; %s d’objets, %s de PNJ et %s d’objets du monde de Classic.'),
+      number($kept['item']), number($kept['quest']), number($kept['npc']), number($kept['object']), number($kept['classic-item']), number($kept['classic-npc']), number($kept['classic-object']))) ?></p>
   <p class="muted small"><?= e(sprintf(t('List pages: %s of Forever, %s of Classic (a whole crawl reads these first). Last page received: %s.', 'Pages de listes : %s de Forever, %s de Classic (un parcours complet les lit d’abord). Dernière page reçue : %s.'),
       number($kept['forever-list']), number($kept['classic-list']), $lastIn ? date('M j, Y H:i', $lastIn) : t('never', 'jamais'))) ?></p>
 </section>

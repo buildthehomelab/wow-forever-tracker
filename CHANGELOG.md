@@ -7,6 +7,10 @@
   apart from the applied ones. They now fold under Applied; the earlier group keeps only cards with something not
   applied, which the source's newest card offers.
 
+- **The Crawl and Imports pages count Wowhead Classic's item pages.** The crawl reads the Classic page of each Season of
+  Discovery item Forever kept with no source, but neither page counted them, so a crawl reading them looked stuck. The
+  *Import Classic pages* button is also offered when only Classic item pages were read.
+
 - **ForeverChanges needs a second source.** A row only ForeverChanges states is no longer put on its card, so it is
   never applied by itself nor exported: Wowhead, ForeverDB.net or EG Link (their last snapshots; EG Link's quest texts
   for turn-in and progress texts) must state the same thing. What is left is listed on the card as hints about the gaps.
