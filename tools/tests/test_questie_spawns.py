@@ -1,5 +1,6 @@
 """python -m unittest discover -s tools/tests"""
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -71,6 +72,32 @@ class QuestieSpawns(unittest.TestCase):
         self.assertEqual(found[('go', 35)], {'trace': [(12, 50.0, 50.0)]})
         # the generated part is built from Wowhead's pages: not read
         self.assertNotIn(('npc', 9), found)
+
+    def test_without_a_pin_the_newest_release_is_read(self):
+        # the container never runs `world pin`: the locator looks the newest release up itself
+        with tempfile.TemporaryDirectory() as data:
+            saved = (questie.DATA, questie.LOCK, facts.fetch_questie, facts.http_bytes)
+            facts.http_bytes = lambda url: b'constants.zoneIDs = {\n  ELWYNN_FOREST = 12,\n}\n'
+            questie.DATA, questie.LOCK = data, os.path.join(data, 'world', 'layers.lock.json')
+            fetched = []
+            facts.fetch_questie = lambda pin, folder, log=None: fetched.append((pin, folder)) or 0
+            try:
+                folder = questie.pinned_folder(resolve=lambda pin: {'version': 'e' * 40})
+                self.assertEqual(folder, os.path.join(data, 'questie', 'e' * 40))
+                self.assertEqual(fetched, [('e' * 40, folder)])
+                # offline: the newest folder already downloaded, nothing fetched
+                self.assertTrue(os.path.isfile(os.path.join(folder, questie.ZONES)))
+                self.assertEqual(questie.pinned_folder(fetch=False), folder)
+                # GitHub unreachable and nothing kept: no QuestieDB, said in the log
+                shutil.rmtree(folder)
+                said = []
+
+                def unreachable(pin):
+                    raise OSError('unreachable')
+                self.assertIsNone(questie.pinned_folder(log=said.append, resolve=unreachable))
+                self.assertIn('unreachable', said[0])
+            finally:
+                questie.DATA, questie.LOCK, facts.fetch_questie, facts.http_bytes = saved
 
     def test_no_folder_no_spawns(self):
         self.assertEqual(questie.spawns(None), {})

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The locator finds QuestieDB without a pin.** The container never runs `world pin`, so the locator read no QuestieDB
+  position at all ("QuestieDB places 0 recorded"). Without a pin it now takes the commit of QuestieDB's newest release
+  itself, or offline the newest one already downloaded.
+
 - **QuestieDB's drops come in by themselves.** The Forge › Imports › *Import QuestieDB drops* (and the container, every
   `FT_QUESTIE_EVERY_HOURS`) reads QuestieDB's newest release: its Forever item database, corrected by hand and by what
   over a million of its players' sessions recorded on live Forever. About 8,800 items, 210,000 creature drops and 27,000

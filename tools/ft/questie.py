@@ -23,11 +23,22 @@ LOCK = os.path.join(DATA, 'world', 'layers.lock.json')
 ZONES = 'src/corrections/enum/zones.lua'
 
 
-def pinned_folder(fetch=True, log=lambda message: None):
-    """The folder of the pinned QuestieDB, its files downloaded when `fetch`; None when it is not pinned."""
+def pinned_folder(fetch=True, log=lambda message: None, resolve=layers.resolve):
+    """The folder of the pinned QuestieDB, its files downloaded when `fetch`. Without a pin (the container never runs
+    `world pin`) the commit of QuestieDB's newest release, looked up when `fetch`; else the newest folder already
+    downloaded. None when there is none."""
     pin = (layers.read_lock(LOCK).get('sources', {}).get('questie') or {}).get('version')
+    if not pin and fetch:
+        try:
+            pin = (resolve(layers.load().source('questie')['pin']) or {}).get('version')
+        except (OSError, LookupError, ValueError, KeyError) as error:
+            log(f'locator: QuestieDB\'s newest release cannot be read ({error})')
     if not pin:
-        return None
+        kept = os.path.join(DATA, 'questie')
+        folders = [f for f in os.listdir(kept) if re.fullmatch(r'[0-9a-f]{40}', f)] if os.path.isdir(kept) else []
+        if not folders:
+            return None
+        pin = max(folders, key=lambda f: os.path.getmtime(os.path.join(kept, f)))
     folder = os.path.join(DATA, 'questie', pin)
     if fetch:
         facts.fetch_questie(pin, folder, log=log)
