@@ -18,8 +18,13 @@ Three lists:
 
     python tools/make_summoned.py /path/to/TrinityCore            (reads src/server/scripts)
 
-Only calls whose first argument is a number or a constant the scripts define with a number are kept; a variable
-(`SummonCreature(entry, ...)`) is left out, so the list errs on the side of fewer entries. Run it again when the
+A call's first argument counts when it is a number or a constant the scripts define with a number. Any argument of a
+summoning call counts when it is a constant named as a creature (NPC_…) or object (GO_…): a script's helper that takes
+the entry later (`SummonNPC(me, player, NPC_TEMPLAR_FIRE, SPELL_TEMPLAR_FIRE)`, `RAND(NPC_A, NPC_B)`). A field of a
+table counts too (`SummonCreature(WavesInfo[i].CreatureId, ...)`, `for (SummonLocation const& s : AddLocations)
+SummonCreature(s.entry, ...)`, `Row const& data = Rows[slot]; SummonCreature(data.Entry, ...)`): that field of every
+row of the table, by the place of the field in the table's struct. Another variable (`SummonCreature(entry, ...)`) is
+left out, so the list errs on the side of fewer entries. Run it again when the
 core moves to a commit with new scripts.
 """
 import json
@@ -43,6 +48,16 @@ ARRAY = re.compile(r'\b([A-Za-z_]\w*)\s*\[\s*\w*\s*\]\s*=\s*\{([^{}]*)\}')
 # An instance's GetCreatureEntry hook swaps a spawn's creature for another (a rare instead of its placeholder):
 # every creature it returns comes into the world
 ENTRY_HOOK = re.compile(r'\bGetCreatureEntry\s*\([^)]*\)[^{;]*\{')
+# Any call that summons, to read every argument of: SummonNPC, SummonTemplar, DoSummon... but not what only looks at
+# summons (GetSummonedCreature, JustSummoned, IsSummonedBy, SummonCreatureGroup: a database summon group)
+ANY_CALL = re.compile(r'\b(\w*Summon\w*|DoSpawnCreature)\s*\(')
+NOT_SUMMONING = re.compile(r'^(?:Get|Has|Is|Count|Find|Despawn|Remove|Un|Just|On|Handle)|Summoned|Summoner|Summons|Group|List')
+OBJECT_PREFIXES = ('GO_', 'OBJECT_', 'GAMEOBJECT_')
+# `Name[i].Field`, or `var.Field` / `var->Field` of a variable bound to a table's row
+TABLE_FIELD = re.compile(r'^([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:\.|->)\s*([A-Za-z_]\w*)$')
+# `Type const Name[] = {` and `std::array<Type, N> const Name = {`
+TABLE = re.compile(r'\b(?:std::array\s*<\s*([A-Za-z_][\w:]*)\s*,[^>]*>|([A-Za-z_][\w:]*))\s+(?:const\s+|constexpr\s+)*([A-Za-z_]\w*)\s*(\[\s*\w*\s*\])?\s*=\s*\{')
+STRUCT = re.compile(r'\b(?:struct|class)\s+([A-Za-z_]\w*)\s*(?::[^{;]*)?\{')
 COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
 NAME = r'[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*'
 # { DATA_X, {{ 271 }} }: a boss slot of the instance and its DungeonEncounter ids
@@ -57,6 +72,76 @@ MIN_ENTRY = 100   # below that a number is a slot of the instance, not a creatur
 def read(path):
     with open(path, encoding='utf-8', errors='replace') as handle:
         return COMMENT.sub('', handle.read())
+
+
+def named(token, prefixes):
+    """A constant named as one of the prefixes says: NPC_X, or a script's own CLASSIC_BWL_NPC_X."""
+    short = token.rsplit('::', 1)[-1]
+    if re.search(r'SPELL|SOUND|SAY_|EMOTE|EVENT_|ACTION_|DATA_|POINT_|PATH_|MODEL_|DISPLAY_|TEXT_', short):
+        return False   # a spell, text or event of the creature, not the creature
+    return short.startswith(prefixes) or any('_' + p in short for p in prefixes)
+
+
+def closing(text, start):
+    """The index just past the bracket that closes the one at text[start] ('(' or '{')."""
+    pairs = {'(': ')', '{': '}', '[': ']'}
+    stack, i = [], start
+    while i < len(text):
+        c = text[i]
+        if c in pairs:
+            stack.append(pairs[c])
+        elif stack and c == stack[-1]:
+            stack.pop()
+            if not stack:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def split_top(text):
+    """The parts of a list split at its commas outside brackets."""
+    parts, depth, current = [], 0, ''
+    for c in text:
+        if c in '({[':
+            depth += 1
+        elif c in ')}]':
+            depth -= 1
+        if c == ',' and depth == 0:
+            parts.append(current.strip())
+            current = ''
+        else:
+            current += c
+    if current.strip():
+        parts.append(current.strip())
+    return parts
+
+
+def fields(body):
+    """The data members of a struct body, in order (methods, nested types and access labels left out)."""
+    flat, depth = '', 0
+    for c in body:
+        if c == '{':
+            depth += 1
+            flat += ' ' if depth > 1 else ''
+            continue
+        if c == '}':
+            depth -= 1
+            flat += ';' if depth == 0 else ''
+            continue
+        if depth == 0:
+            flat += c
+    out = []
+    for statement in flat.split(';'):
+        statement = re.sub(r'\b(?:public|private|protected)\s*:', '', statement).strip()
+        if not statement or '(' in statement or re.match(r'(?:static|using|typedef|friend|enum|struct|class|template)\b', statement):
+            continue
+        parts = split_top(re.sub(r'\[[^\]]*\]', '', statement))
+        for n, part in enumerate(parts):
+            part = part.split('=')[0].strip()
+            names = re.findall(r'[A-Za-z_]\w*', part)
+            if names:
+                out.append(names[-1] if n == 0 else names[0])
+    return out
 
 
 def scan(scripts):
@@ -95,14 +180,57 @@ def scan(scripts):
             arrays.setdefault((os.path.dirname(path), name), tokens)
             arrays.setdefault((None, name), tokens)
 
+    structs, tables = {}, {}   # name -> fields; (scope, name) -> (struct name or '', [rows as parts])
+    for path, text in texts.items():
+        for m in STRUCT.finditer(text):
+            structs.setdefault(m.group(1), fields(text[m.end():closing(text, m.end() - 1) - 1]))
+        for m in TABLE.finditer(text):
+            kind, name = (m.group(1) or m.group(2)).rsplit('::', 1)[-1], m.group(3)
+            body = text[m.end():closing(text, m.end() - 1) - 1].strip()
+            if m.group(1) and body.startswith('{') and closing(body, 0) == len(body):
+                body = body[1:-1]   # std::array<T, N> x = {{ ... }}: the inner list
+            rows = [split_top(part[1:-1]) for part in split_top(body) if part.startswith('{') and part.endswith('}')]
+            if rows:
+                for scope in (path, os.path.dirname(path), None):
+                    tables.setdefault((scope, name), (kind, rows, body))
+
+    def table_field(path, text, at, token):
+        """The tokens a call's first argument stands for when it reads a field of a table's rows, else []."""
+        m = TABLE_FIELD.match(token.strip())
+        if not m:
+            return []
+        name, field = m.groups()
+        found = tables.get((path, name)) or tables.get((os.path.dirname(path), name)) or tables.get((None, name))
+        kind = None
+        if not found:   # a variable bound to a row: `for (Row const& s : Table)`, `Row const& data = Table[i]`
+            before = text[:at]
+            binds = list(re.finditer(r'for\s*\(\s*([^;:()]*?)\b' + name + r'\s*:\s*([A-Za-z_][\w:]*)\s*\)', before))
+            binds += list(re.finditer(r'([A-Za-z_][\w:<>\s]*?)[&*\s]\s*' + name + r'\s*=\s*&?\s*([A-Za-z_]\w*)\s*\[', before))
+            if not binds:
+                return []
+            bind = max(binds, key=lambda b: b.start())
+            table_name = bind.group(2).rsplit('::', 1)[-1]
+            found = tables.get((path, table_name)) or tables.get((os.path.dirname(path), table_name)) or tables.get((None, table_name))
+            kind = next((w for w in re.findall(r'[A-Za-z_]\w*', bind.group(1)) if w in structs), None)
+        if not found:
+            return []
+        struct, rows, body = found
+        names = structs.get(kind or struct)
+        if names and field in names:
+            index = names.index(field)
+            return [row[index] for row in rows if index < len(row)]
+        # a struct not found: the constants of the table named as creatures
+        return [t for t in re.findall(r'[A-Za-z_]\w*', body) if named(t, CREATURE_PREFIXES)]
+
     creatures, objects = {}, {}
     for path in sorted(texts):
         script = os.path.relpath(path, scripts).replace(os.sep, '/')
         text = texts[path]
         for call, token, after in CALL.findall(text):
             helper = call not in CREATURE_CALLS + OBJECT_CALLS
-            if helper and 'Group' in call:
-                continue   # SummonCreatureGroup(id): a summon group of the database (read from creature_summon_groups)
+            if helper and NOT_SUMMONING.search(call):
+                continue   # SummonCreatureGroup(id): a summon group of the database (read from creature_summon_groups);
+                           # GetSummonedCreatureByEntry(id): a look-up of one already there
             if after == '[':   # an array: every entry it holds
                 name = token.rsplit('::', 1)[-1]
                 tokens = arrays.get((path, name)) or arrays.get((os.path.dirname(path), name)) or arrays.get((None, name)) or []
@@ -114,6 +242,24 @@ def scan(scripts):
                 # an array, or a script's own helper, with small numbers holds slots or indexes, not creatures
                 if entry and (not (helper or after == '[') or entry >= MIN_ENTRY):
                     (objects if is_object else creatures).setdefault(entry, script)
+        # every argument of a summoning call: constants named as creatures or objects, a field of a table
+        for m in ANY_CALL.finditer(text):
+            call = m.group(1)
+            if NOT_SUMMONING.search(call) or text[:m.start()].rstrip().endswith(('void', 'bool', '::')):
+                continue
+            args = text[m.end():closing(text, m.end() - 1) - 1]
+            is_object = call in OBJECT_CALLS or 'GameObject' in call
+            parts = split_top(args)
+            tokens = table_field(path, text, m.start(), parts[0]) if parts else []
+            for t in tokens:
+                entry = resolve(path, t) if re.fullmatch(r'[A-Za-z_][\w:]*|\d+', t) else None
+                if entry and entry >= MIN_ENTRY:
+                    (objects if is_object else creatures).setdefault(entry, script)
+            for t in re.findall(r'\b[A-Za-z_][\w:]*', args):
+                if named(t, OBJECT_PREFIXES if is_object else CREATURE_PREFIXES):
+                    entry = resolve(path, t)
+                    if entry and entry >= MIN_ENTRY:
+                        (objects if is_object else creatures).setdefault(entry, script)
         for hook in ENTRY_HOOK.finditer(text):
             depth, i = 1, hook.end()
             while depth and i < len(text):

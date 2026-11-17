@@ -103,7 +103,7 @@ CREATE TABLE `creature` (
   `patch_min` tinyint(3) unsigned NOT NULL DEFAULT '0',
   `patch_max` tinyint(3) unsigned NOT NULL DEFAULT '10'
 ) ENGINE=MyISAM;
-INSERT INTO `creature` VALUES (1,14829,0,0,0,0,0,1,2,3,0.5,180,180,2,1,0,10),(2,600,601,0,0,0,0,1,2,3,0,60,60,0,0,0,10),(3,14829,0,0,0,0,0,9,9,9,0,60,60,0,0,0,3);
+INSERT INTO `creature` VALUES (1,14829,0,0,0,0,0,1,2,3,0.5,180,180,2,1,0,10),(2,600,601,0,0,0,0,1,2,3,0,60,60,0,0,0,10),(3,14829,0,0,0,0,0,9,9,9,0,60,60,0,0,0,3),(4,2836,0,0,0,0,0,1,2,3,0,60,60,0,0,0,10),(5,12939,0,0,0,0,0,1,2,3,0,60,60,0,0,0,2),(6,601,0,0,0,0,0,1,2,3,0,60,60,0,0,0,10);
 CREATE TABLE `game_event` (
   `entry` int(10) unsigned NOT NULL,
   `description` varchar(255) DEFAULT NULL,
@@ -115,7 +115,7 @@ CREATE TABLE `game_event_creature` (
   `guid` int(10) unsigned NOT NULL,
   `event` smallint(6) NOT NULL DEFAULT '0'
 ) ENGINE=MyISAM;
-INSERT INTO `game_event_creature` VALUES (1,4),(2,4),(3,4);
+INSERT INTO `game_event_creature` VALUES (1,4),(2,4),(3,4),(6,-4);
 CREATE TABLE `migrations` (
   `id` varchar(255) NOT NULL
 ) ENGINE=MyISAM;
@@ -128,7 +128,7 @@ class VmangosPack(unittest.TestCase):
         self.pack = vmangos_pack.pack(vmangos_pack.read(io.StringIO(DUMP)), '2026-11-16')
 
     def test_names_its_source(self):
-        self.assertEqual((self.pack['source'], self.pack['licence'], self.pack['format']), ('VMaNGOS', 'GPL-2.0', 4))
+        self.assertEqual((self.pack['source'], self.pack['licence'], self.pack['format']), ('VMaNGOS', 'GPL-2.0', 5))
         self.assertEqual(self.pack['version'], 'VMaNGOS world database, migration 20261111193532, patch 1.12')
 
     def test_trainers_of_1_12_through_templates(self):
@@ -146,6 +146,11 @@ class VmangosPack(unittest.TestCase):
         self.assertEqual([c[:2] for c in faire['creatures']], [[1, 14829], [2, 600]], 'a spawn gone before 1.12 is left out')
         self.assertEqual(faire['creatures'][0][7:], [180, 2.0, 1], "respawn, VMaNGOS' wander distance and movement type")
         self.assertIn(faire['creatures'][1][1], (600, 601), 'a spawn that picks among creatures keeps one of them')
+
+    def test_creatures_never_spawned_or_only_for_an_event(self):
+        self.assertEqual(self.pack['never_spawned'], [500], 'a spawn of any patch counts (Doctor Gustaf in 1.2)')
+        self.assertEqual(self.pack['event_only'], {'14829': [4], '600': [4]},
+                         'a spawn an event removes stands the rest of the year (601)')
 
     def test_unreachable_givers_dropped(self):
         out = {'creature': [{'id': 600}, {'id': 0}], 'creature_spawn_entry': [{'guid': 2, 'entry': 601}],

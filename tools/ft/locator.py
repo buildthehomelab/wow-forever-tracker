@@ -9,6 +9,9 @@ Every candidate gets one of these states:
     manual    it belongs inside a dungeon or raid, where Wowhead gives no position: place it in game
     unknown   Wowhead has no position for it in the Forever branch (often content Blizzard does not use)
     pending   not asked yet (--limit reached, --offline, or Wowhead could not be reached)
+    summoned  the original game (the VMaNGOS pack, else classic-db's) never spawns this creature (a script, a spell or
+              an event summons it) or spawns it only while a world event runs: no position is looked up, the note says
+              which; spawning it for good would leave the Abyssal Council or the Scourge standing all year
 
 Wowhead answers are cached in data/wowhead, so a second run only asks for the new candidates.
 """
@@ -18,7 +21,7 @@ import math
 import os
 import re
 
-from . import facts, icyveins, phases, questie, sqlio, summons
+from . import classic, facts, icyveins, phases, questie, sqlio, summons
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
@@ -50,6 +53,31 @@ def in_list(values):
 
 def normal(name):
     return re.sub(r'[^a-z0-9]', '', (name or '').lower())
+
+
+def classic_spawning(paths=None):
+    """classic.spawning() of the first pack of the original game that says (VMaNGOS', then classic-db's), or None."""
+    for path in paths or [os.path.join(DATA, source, 'pack.cdbpack') for source in ('vmangos', 'classicdb')]:
+        if not os.path.isfile(path):
+            continue
+        try:
+            said = classic.spawning(classic.load(path))
+        except (OSError, ValueError, EOFError, KeyError, TypeError) as error:
+            log(f'locator: {path} not read ({error})')
+            continue
+        if said is not None:
+            return said
+    return None
+
+
+def summoned_in_classic(found, said):
+    """{(kind, entry): note} of the candidate creatures the original game only summons or spawns for an event."""
+    out = {}
+    for kind, entry in found:
+        note = classic.not_spawned(entry, said) if kind == 'npc' else ''
+        if note:
+            out[(kind, entry)] = note
+    return out
 
 
 def candidates():
@@ -200,6 +228,10 @@ def run(args):
     log('locator: looking for unspawned creatures and objects that the content needs')
     found = candidates()
     log(f"locator: {len(found)} candidates ({sum(1 for k, _ in found if k == 'npc')} creatures, {sum(1 for k, _ in found if k == 'go')} objects)")
+    said = classic_spawning()
+    summoned = summoned_in_classic(found, said) if said else {}
+    log(f'locator: {len(summoned)} of them only summoned or spawned for an event in Classic' if said
+        else 'locator: no pack of the original game of format 5 (Imports): summoned creatures are not told apart')
     neighbours = Neighbours()
     wowhead = Wowhead(refresh=args.refresh)
     collected = {}  # where the ForeverScribe addon saw them: (kind, entry) -> [(map, x, y) or (map, None, None) inside an instance]
@@ -253,6 +285,12 @@ def run(args):
         pack = 'objective' in roles
         service = roles <= SERVICE
         state, map_id, zone, points, note = 'pending', info.get('map'), None, [], ''
+        wander = 0.0 if service else 5.0
+        if key in summoned:
+            counts['summoned'] = counts.get('summoned', 0) + 1
+            rows.append(f"({sqlio.escape(kind)},{entry},{sqlio.escape(info['name'][:250])},{priority},'summoned',{'NULL' if map_id is None else int(map_id)},"
+                        f"NULL,'[]',{sqlio.escape(json.dumps(info['reasons']))},{wander},{sqlio.escape(summoned[key])},NOW())")
+            continue
         seen = collected.get(key)
         if seen:
             # seen in game by ForeverScribe: the player stood within a few yards of it

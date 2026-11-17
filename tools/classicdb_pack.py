@@ -25,6 +25,9 @@ few hundred kB of gzipped JSON holding:
                                                                    format 4): the Darkmoon Faire, the fishing contest...
     never_given [item]                                            items the original game gave out nowhere (no loot,
                                                                    vendor, quest or spell): removed or never released
+    never_spawned [creature]                                      creatures it knows but never spawns (spawning(),
+                                                                   format 5): a script, a spell or an event summons them
+    event_only  {creature: [event]}                               creatures whose every spawn belongs to a world event
 
 and the names of the creatures, objects and quests it mentions. The website's Imports page takes the pack
 (docs/SOURCES.md).
@@ -341,6 +344,34 @@ def holidays(tables):
     return {str(e): v for e, v in sorted(out.items())}
 
 
+def spawning(templates, spawns, events):
+    """(never_spawned, event_only): what the original game brings into the world only by a summon or a world event.
+      templates  creature entries it knows
+      spawns     [(guid, [creature entries the spawn may be])]
+      events     [(guid, event)] of game_event_creature
+    never_spawned: [entries] no spawn names. event_only: {'entry': [events]} of the creatures whose every spawn
+    belongs to an event above 0 (it stands only while that event runs); a negative event removes a spawn while it
+    runs, so such a spawn stands the rest of the year."""
+    linked = {}
+    for guid, event in events:
+        if guid:
+            linked.setdefault(guid, set()).add(event)
+    spawned, plain, by_event = set(), set(), {}
+    for guid, entries in spawns:
+        held = {e for e in linked.get(guid, ()) if e > 0}
+        for entry in entries:
+            if not entry:
+                continue
+            spawned.add(entry)
+            if held:
+                by_event.setdefault(entry, set()).update(held)
+            else:
+                plain.add(entry)
+    never = sorted(set(templates) - spawned - {0})
+    only = {str(e): sorted(v) for e, v in sorted(by_event.items()) if e not in plain}
+    return never, only
+
+
 def _group(rows, key):
     out = {}
     for row in rows:
@@ -396,6 +427,12 @@ def pack(tables, today=None):
     drops, sells, world = drops_and_sells(tables, creatures, teaching)
     unsourced = never_given(tables, {whole(i.get('entry')) for i in tables['item_template']} - {0})
     events = holidays(tables)
+    choices = {}
+    for row in tables.get('creature_spawn_entry') or []:
+        choices.setdefault(whole(row.get('guid')), []).append(whole(row.get('entry')))
+    never_spawned, event_only = spawning(creatures, [(whole(r.get('guid')), [whole(r.get('id'))] + choices.get(whole(r.get('guid')), []))
+                                                     for r in tables['creature']],
+                                         [(whole(r.get('guid')), int(r.get('event') or 0)) for r in tables['game_event_creature']])
 
     npcs = {npc for npc, *_ in trainers} | {npc for npc, _ in gossip} | {entry for kind, entry, *_ in talk if kind == 'npc'}
     npcs |= {entry for kind, entry, *_ in drops if kind == 'npc'} | {npc for npc, *_ in sells}
@@ -405,7 +442,7 @@ def pack(tables, today=None):
         version = str(row.get('version') or '')[:120]
     named_objects = {e for k, e, *_ in talk if k == 'go'} | {e for k, e, *_ in drops if k == 'go'}
     objects = {str(whole(g.get('entry'))): str(g.get('name') or '') for g in tables['gameobject_template'] if whole(g.get('entry')) in named_objects}
-    return {'format': 4, 'holidays': events, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'drops': drops, 'sells': sells, 'world_drops': world, 'never_given': unsourced, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
+    return {'format': 5, 'never_spawned': never_spawned, 'event_only': event_only, 'holidays': events, 'talk': talk, 'talk_dropped': dropped, 'object_names': objects, 'drops': drops, 'sells': sells, 'world_drops': world, 'never_given': unsourced, 'source': 'cmangos classic-db', 'licence': 'GPL-3.0', 'version': version, 'made': today or datetime.date.today().isoformat(),
             'trainers': sorted(trainers), 'quests': quests, 'gossip': sorted(gossip),
             'npc_names': {str(npc): str(creatures[npc].get('Name') or '') for npc in sorted(npcs)},
             'quest_names': {str(whole(q.get('entry'))): str(q.get('Title') or '') for q in tables['quest_template'] if whole(q.get('entry')) in asked}}

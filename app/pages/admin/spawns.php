@@ -3,7 +3,7 @@
 require_once FT_APP . '/spawns.php';
 forge_schema();
 $hasTable = table_exists('ft_spawns');
-$states = ['ready' => 'fa-location-dot', 'manual' => 'fa-hand-pointer', 'unknown' => 'fa-circle-question', 'pending' => 'fa-hourglass-half'];
+$states = ['ready' => 'fa-location-dot', 'manual' => 'fa-hand-pointer', 'unknown' => 'fa-circle-question', 'pending' => 'fa-hourglass-half', 'summoned' => 'fa-wand-magic-sparkles'];
 $state = isset($states[$_GET['state'] ?? '']) ? $_GET['state'] : 'ready';
 $role = in_array($_GET['role'] ?? '', SPAWN_ROLES, true) ? $_GET['role'] : '';
 $kindFilter = in_array($_GET['kind'] ?? '', ['npc', 'go'], true) ? $_GET['kind'] : '';
@@ -80,6 +80,7 @@ page_start(t('Spawns', 'Placements'), 'admin');
     'manual' => t('Inside dungeons and raids Wowhead gives no position: export them to the ForeverForge addon, enter the instance, stand where each one belongs and press "Spawn here".', 'Dans les donjons et raids, Wowhead ne donne pas de position : exportez-les vers l’addon ForeverForge, entrez dans l’instance, placez-vous à l’endroit voulu et appuyez sur « Placer ici ».'),
     'unknown' => t('Wowhead\'s Forever branch has no position for these: often content Blizzard does not use in Forever, or a creature that only appears through a script or an event.', 'La branche Forever de Wowhead n’a aucune position pour eux : souvent du contenu que Blizzard n’utilise pas dans Forever, ou un PNJ qui n’apparaît que par script ou événement.'),
     'pending' => t('Not looked up yet: run the locator again (it only asks Wowhead for what it does not know).', 'Pas encore recherchés : relancez le localisateur (il ne demande à Wowhead que ce qu’il ne connaît pas).'),
+    'summoned' => t('The original game (VMaNGOS) never spawns these, or spawns them only while a world event runs: a script, a spell or the event brings them. Spawning them for good would put them in the world all year; give them their script or event instead.', 'Le jeu d’origine (VMaNGOS) ne les place jamais, ou seulement pendant un événement : un script, un sort ou l’événement les fait apparaître. Les placer pour de bon les laisserait là toute l’année ; donnez-leur plutôt leur script ou leur événement.'),
 ][$state]) ?></p>
 
 <?php if (!$hasTable): ?>

@@ -75,6 +75,76 @@ class Shapes(unittest.TestCase):
             creatures, _objects, _encounters = make_summoned.scan(folder)
         self.assertEqual(set(creatures), {10264, 9027, 9028, 9029, 9596})   # no 1, 2, 3 or 11: indexes, a group, a slot
 
+# zone_silithus.cpp's own helper takes the entry third, sometimes picked at random; tables a summon reads a field of
+SILITHUS = '''
+enum { NPC_TEMPLAR_FIRE = 15209, NPC_TEMPLAR_WATER = 15211, NPC_DUKE_FIRE = 15206, SPELL_TEMPLAR_FIRE = 24748, NPC_HELPER_SPELL_NPC_X = 1 };
+enum { SPELL_SUMMON_NPC_ROYAL = 24800, CLASSIC_BWL_NPC_DRAKANOID = 14302, NPC_RIDER = 13576, NPC_THORIM_ADD = 32885, NPC_SCRYER_ADD = 14514, NPC_ROYAL_GONE = 15999 };
+struct WaveData
+{
+    uint8 SpawnCount;
+    uint8 UsedSpawnPoint;
+    uint32 CreatureId;
+    uint32 SpawnTimer;
+};
+static WaveData WavesInfo[3] =
+{
+    {30,  0, 15423, 0},    // Kaldorei Soldier
+    { 3, 35, 15424, 0},
+    {12, 38, 15414, 0}
+};
+struct SummonLocation
+{
+    Position pos;
+    uint32 entry;
+};
+SummonLocation const PreAddLocations[] =
+{
+    { { 2149.68f, -263.477f, 419.679f, 3.120f }, NPC_THORIM_ADD },
+    { { 2131.31f, -271.640f, 419.840f, 2.188f }, 32886 },
+};
+struct Scryer { uint8 Wave; uint32 DelaySeconds; uint32 Entry; bool Attacks; Position Pos; };
+std::array<Scryer, 2> const Scryers = {{
+    { 1, 1, NPC_SCRYER_ADD, true, { 103.0f, 141.2f, 93.9f, 1.4f } },
+    { 2, 5, 14516, false, { 121.7f, 136.9f, 93.4f, 1.0f } },
+}};
+void SummonNPC(GameObject* go, Player* player, uint32 npc, uint32 spell) { go->SummonCreature(npc, pos); }
+void Use() { SummonNPC(me, player, NPC_TEMPLAR_FIRE, SPELL_TEMPLAR_FIRE); SummonNPC(me, player, RAND(NPC_TEMPLAR_WATER, NPC_DUKE_FIRE), SPELL_SUMMON_NPC_ROYAL); }
+void Waves() { me->SummonCreature(WavesInfo[WaveCount].CreatureId, SpawnLocation[i]); }
+void Adds() { for (SummonLocation const& s : PreAddLocations) me->SummonCreature(s.entry, s.pos); }
+void Scry(uint8 i) { Scryer const& data = Scryers[i]; me->SummonCreature(data.Entry, data.Pos); }
+void Bwl() { me->SummonCreature(urand(0, 1) ? CLASSIC_BWL_NPC_DRAKANOID : NPC_RIDER, pos); }
+Creature* found = me->GetSummonedCreatureByEntry(NPC_ROYAL_GONE);
+'''
+
+
+class Helpers(unittest.TestCase):
+    """Summons a first-argument reading misses: an entry given later, picked at random, or read from a table."""
+
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Kalimdor', 'zone_silithus.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(SILITHUS)
+            cls.creatures = set(make_summoned.scan(folder)[0])
+
+    def test_an_entry_given_after_other_arguments(self):
+        self.assertTrue({15209, 15211, 15206} <= self.creatures, 'SummonNPC(me, player, NPC_TEMPLAR_FIRE, ...) and RAND(...)')
+
+    def test_a_spell_is_no_creature(self):
+        self.assertFalse({24748, 24800, 1, 15999} & self.creatures, "a spell, and a look-up of what was summoned")
+
+    def test_a_field_of_a_table_of_numbers(self):
+        self.assertTrue({15423, 15424, 15414} <= self.creatures)
+        self.assertFalse({30, 3, 12, 35, 38} & self.creatures, 'the other fields of the rows are counts and points')
+
+    def test_a_row_of_a_range_for_and_a_reference(self):
+        self.assertTrue({32885, 32886, 14514, 14516} <= self.creatures, 'nested positions, std::array, `Row const& data = Table[i]`')
+
+    def test_a_scripts_own_prefix_and_a_ternary(self):
+        self.assertTrue({14302, 13576} <= self.creatures)
+
 
 class Scan(unittest.TestCase):
     @classmethod
@@ -120,6 +190,8 @@ class Shipped(unittest.TestCase):
         self.assertIn(1853, lists['encounters'].get(2801, []))     # Darkmaster Gandling, Scholomance
         self.assertIn(12580, lists['creatures'])                   # Reginald Windsor walks into Stormwind
         for entry in (9028, 10264, 9596):                          # Grizzle, Solakar Flamewreath, Bannok Grimaxe
+            self.assertIn(entry, lists['creatures'])
+        for entry in (15209, 15211, 15212, 15307, 15203, 15305):   # the Abyssal Council of Silithus' Wind Stones
             self.assertIn(entry, lists['creatures'])
 
     def test_a_missing_or_broken_file_is_an_empty_list(self):
