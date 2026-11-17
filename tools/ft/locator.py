@@ -18,7 +18,7 @@ import math
 import os
 import re
 
-from . import icyveins, phases, sqlio, summons
+from . import facts, icyveins, phases, questie, sqlio, summons
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
@@ -218,6 +218,29 @@ def run(args):
             if spots:
                 collected[(r['kind'], int(r['entry']))] = spots
     instance_maps = {m['ID'] for m in geo.maps.values() if m.get('InstanceType') in (1, 2)}
+    # where QuestieDB's players' recordings (trace) and hand fixes put them: read before Wowhead's maps
+    try:
+        questie_spawns = questie.spawns(questie.pinned_folder(fetch=not args.offline, log=log))
+    except facts.SourceError as error:
+        log(f'locator: QuestieDB left out ({error})')
+        questie_spawns = {}
+    log(f"locator: QuestieDB places {sum(1 for v in questie_spawns.values() if 'trace' in v)} recorded, "
+        f"{sum(1 for v in questie_spawns.values() if 'fix' in v)} hand-fixed creatures and objects")
+
+    def questie_place(key, part, pack):
+        """(state, map, points) from QuestieDB's points of one part, or None when it has none outside."""
+        world = [w[:3] for w in (geo.wowhead(z, 0, x, y) for z, x, y in questie_spawns.get(key, {}).get(part, [])) if w]
+        if not world:
+            return None
+        outside = [w for w in world if w[0] not in instance_maps]
+        if not outside:
+            return 'manual', world[0][0], []
+        by_map = {}
+        for m, x, y in outside:
+            by_map.setdefault(m, []).append((x, y))
+        map_id = max(by_map, key=lambda m: len(by_map[m]))
+        spots = cluster(by_map[map_id], 6.0 if pack else 60.0)[:MAX_POINTS]
+        return 'ready', map_id, [neighbours.place(map_id, x, y) for x, y in spots]
     order = sorted(found, key=lambda k: (min(PRIORITY[r[0]] for r in found[k]['reasons']), k[1]))
     rows, asked, counts = [], 0, {}
     for index, key in enumerate(order):
@@ -244,6 +267,15 @@ def run(args):
                 state, note = 'ready', 'seen in game (ForeverScribe)'
             else:
                 map_id, state, note = seen[0][0], 'manual', 'seen in game inside an instance (ForeverScribe)'
+            counts[state] = counts.get(state, 0) + 1
+            wander = 0.0 if service else 5.0
+            rows.append(f"({sqlio.escape(kind)},{entry},{sqlio.escape(info['name'][:250])},{priority},{sqlio.escape(state)},{'NULL' if map_id is None else int(map_id)},"
+                        f"NULL,{sqlio.escape(json.dumps(points))},{sqlio.escape(json.dumps(info['reasons']))},{wander},{sqlio.escape(note)},NOW())")
+            continue
+        placed = questie_place(key, 'trace', pack)
+        if placed:
+            state, map_id, points = placed
+            note = 'recorded by players (QuestieDB)' if state == 'ready' else 'recorded by players inside an instance (QuestieDB)'
             counts[state] = counts.get(state, 0) + 1
             wander = 0.0 if service else 5.0
             rows.append(f"({sqlio.escape(kind)},{entry},{sqlio.escape(info['name'][:250])},{priority},{sqlio.escape(state)},{'NULL' if map_id is None else int(map_id)},"
@@ -284,6 +316,11 @@ def run(args):
                     state, note = 'unknown', 'no position on Wowhead'
         elif 'boss' in roles and map_id is not None:
             state, note = 'manual', 'inside an instance'
+        if state not in ('ready', 'manual'):
+            placed = questie_place(key, 'fix', pack)
+            if placed and placed[0] == 'ready':
+                state, map_id, points = placed
+                note, zone = 'hand fix (QuestieDB)', None
         if state not in ('ready', 'manual'):
             # where Wowhead has no position: where players' addons saw it, from the Icy Veins mirror (Import Icy Veins).
             # Inside an instance it stays for a hand to place, as with ForeverScribe's sightings

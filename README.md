@@ -100,7 +100,8 @@ history with its rollback, and safe to repeat: rows your server already has are 
 
 Many quests fail only because a creature was never spawned: the template exists, the quest points to it, but nobody
 stands in the world. The **locator** finds the quest givers, enders, objectives, vendors, trainers, rare drops and
-bosses your server knows but never spawned, and where they stand on Wowhead's public maps. The Forge places them on the
+bosses your server knows but never spawned, and where they stand: where QuestieDB's players recorded them, else on
+Wowhead's public maps. The Forge places them on the
 running server (exact height computed by the server), in the database, in game with the **ForeverForge** addon, or
 gives the GM commands.
 

@@ -98,7 +98,7 @@
         "fix": {"group": "questie"},
         "dynamic": {"group": "questie"}
       },
-      "pin": {"type": "github-branch", "repo": "Questie/QuestieDB", "branch": "master"}
+      "pin": {"type": "github-latest-release", "repo": "Questie/QuestieDB", "commit": true}
     },
     {
       "id": "norgannondb", "name": "NorgannonDB", "layer": "live", "group": "questie", "also": ["cmangos", "dungeonjournal"],

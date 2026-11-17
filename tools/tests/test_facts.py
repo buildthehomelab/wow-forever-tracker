@@ -225,6 +225,8 @@ QUESTIE = {
                                '    [npcKeys.npcFlags] = npcFlags.VENDOR, -- base data adds a wrong innkeeper bit\n    [npcKeys.questStarts_remove] = {5},\n},'),
     'foreverObjectFixes.lua': lua('ForeverObjectFixes', ''),
     'foreverItemFixes.lua': lua('ForeverItemFixes', ''),
+    'traces/foreverQuestRelationTraces.lua': lua('ForeverQuestRelationTraces', '-- [2] = { [questKeys.preQuestSingle] = {6383}, },\n'
+                                                 '[93] = { [questKeys.preQuestSingle] = {5}, },'),
     'generated/foreverBaseQuest.lua': lua('ForeverBaseQuest', '[91758] = { -- Follow That Kobold! : https://example.invalid/quest=91758\n'
                                           '    [questKeys.startedBy] = {{197},nil,{12345}},\n'
                                           '    [questKeys.requiredRaces] = raceIDs.NIGHT_ELF + raceIDs.HUMAN,\n},'),
@@ -269,7 +271,7 @@ class Questie(unittest.TestCase):
     def parts(self, *key):
         return self.by[key].data['parts']
 
-    def test_the_file_list_is_the_twelve_forever_correction_files(self):
+    def test_the_file_list_is_the_thirteen_forever_correction_files(self):
         self.assertEqual(sorted(facts.QUESTIE_FILES), sorted('src/corrections/Forever/' + name for name in QUESTIE))
         self.assertEqual(facts.QUESTIE_FILES['src/corrections/Forever/traces/foreverNpcTraces.lua'], ('npc', 'trace'))
         self.assertEqual(facts.QUESTIE_FILES['src/corrections/Forever/foreverNPCFixes.lua'], ('npc', 'fix'))
@@ -280,7 +282,10 @@ class Questie(unittest.TestCase):
         for fact in self.facts:
             self.assertIsNotNone(facts.check(fact), fact)
             self.assertEqual(fact.build, 0)                          # not tied to a client build
-        self.assertEqual(collections.Counter(f.kind for f in self.facts), {'gives': 7, 'takes': 3, 'drops': 4, 'sells': 1, 'entry': 8})
+        self.assertEqual(collections.Counter(f.kind for f in self.facts), {'gives': 7, 'takes': 3, 'drops': 4, 'sells': 1, 'entry': 9})
+        # a quest chain players' traces showed is kept in its quest's entry; one Questie left commented out is not read
+        self.assertEqual(self.parts('entry', 'quest', 93, 0), {'trace': {'preQuestSingle': [5]}})
+        self.assertNotIn(('entry', 'quest', 2, 0), self.by)
 
     def test_who_gives_a_quest_and_which_part_said_so(self):
         # the quest's file and the NPC's file say the same thing: one fact, both fields, per part
@@ -371,7 +376,7 @@ class Questie(unittest.TestCase):
             asked.append(url.replace(f'https://raw.githubusercontent.com/Questie/QuestieDB/{COMMIT}/', ''))
             return b'function X:Load()\n    return {}\nend\n'
         with tempfile.TemporaryDirectory() as folder:
-            self.assertEqual(facts.fetch_questie(COMMIT, folder, fetch), 12)
+            self.assertEqual(facts.fetch_questie(COMMIT, folder, fetch), 13)
             self.assertEqual(asked, list(facts.QUESTIE_FILES))
             self.assertEqual(facts.fetch_questie(COMMIT, folder, fetch), 0)
             self.assertEqual(list(facts.questie(folder)), [])                # twelve empty files: nothing to say

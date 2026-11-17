@@ -34,6 +34,7 @@ const SOURCE_SKILLS = ['Alchemy' => 171, 'Blacksmithing' => 164, 'Enchanting' =>
 
 const SOURCES = [
     'wowhead' => ['Wowhead', 'facts from the pages of wowhead.com/forever (ids and players’ counts, no text; no licence stated: credited)'],
+    'questie' => ['QuestieDB', 'GPL-3.0: "QuestieDB (https://github.com/Questie/QuestieDB), with its players\u{2019} QuestieTrace recordings"'],
     'norgannondb' => ['NorgannonDB', 'GPL-3.0 (with QuestieDB, pfQuest, DungeonJournal)'],
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
@@ -166,7 +167,8 @@ function source_tables(array $ev, string $label, array $gaps): array
     // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go')
     $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []];
     foreach ($ev['drop'] ?? [] as [$kind, $id, $item, $chance]) {
-        if (!isset($gaps['items'][(int)$item]) || !isset($drops[$kind])) continue;
+        // a source that may fill any item ('any_item': QuestieDB, which ranks after Wowhead alone) chose its items itself
+        if ((empty($ev['any_item']) && !isset($gaps['items'][(int)$item])) || !isset($drops[$kind])) continue;
         $old = $drops[$kind][(int)$id][(int)$item] ?? 0;
         $drops[$kind][(int)$id][(int)$item] = max($old, (float)$chance);   // a source seen in several builds: its best measure
     }
@@ -284,16 +286,16 @@ function source_tables(array $ev, string $label, array $gaps): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'questie' => 'QuestieDB', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
- *  Questie's data (it comes through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
+ *  QuestieDB (its own import, then through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
  *  (Wowhead Classic, then the original game's database: VMaNGOS before cmangos' classic-db) comes after everything
  *  recorded on Forever. A file imported by hand
  *  ("sniff": WowPacketParser's format; "scribe": ForeverScribe's notes) comes after the Forever sources and before
  *  Classic's. The core's own rows, which no import wrote, rank below all of them ([sources] change_core). */
-const SOURCE_TRUST = 'client,wowhead,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,vmangos,classicdb';
+const SOURCE_TRUST = 'client,wowhead,questie,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,vmangos,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array
@@ -302,7 +304,6 @@ function source_trust(?string $configured = null): array
     $order = [];
     foreach (array_merge(explode(',', strtolower($configured)), explode(',', SOURCE_TRUST)) as $name) {
         $name = trim($name);
-        if ($name === 'questie') $name = 'norgannondb';
         if ($name === 'cdn' || $name === 'gameclient') $name = 'client';
         if (isset(SOURCE_MARKS[$name]) && !in_array($name, $order, true)) $order[] = $name;
     }

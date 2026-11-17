@@ -6,9 +6,11 @@ ft_test_boot();
 require FT_APP . '/sources.php';
 
 // ---- the order of trust
-check(source_trust('') === ['client', 'wowhead', 'norgannondb', 'icyveins', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'vmangos', 'classicdb'], 'by default: the game client and the CDN, Wowhead, Questie\'s data (NorgannonDB), Icy Veins, players\' reports, then the others, files imported by hand, Classic\'s counts before the original game\'s database');
-check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'norgannondb', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'vmangos', 'classicdb'], '[sources] trust goes next; the sources it leaves out follow in the default order');
-check(source_trust('Wowhead, Questie, nonsense, icyveins')[2] === 'norgannondb', '"questie" is NorgannonDB, and a name that is no source is ignored');
+check(source_trust('') === ['client', 'wowhead', 'questie', 'norgannondb', 'icyveins', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'vmangos', 'classicdb'], 'by default: the game client and the CDN, Wowhead, QuestieDB, then NorgannonDB (built from it), Icy Veins, players\' reports, then the others, files imported by hand, Classic\'s counts before the original game\'s database');
+check(source_trust('icyveins, wowhead') === ['client', 'icyveins', 'wowhead', 'questie', 'norgannondb', 'foreverchanges', 'eglink', 'foreverdb', 'atlasloot', 'sniff', 'scribe', 'wowheadclassic', 'vmangos', 'classicdb'], '[sources] trust goes next; the sources it leaves out follow in the default order');
+check(source_trust('Wowhead, Questie, nonsense, icyveins')[2] === 'questie', '"questie" is QuestieDB\'s own import, and a name that is no source is ignored');
+check(array_slice(source_trust(''), 1, 3) === ['wowhead', 'questie', 'norgannondb'], 'QuestieDB ranks right after Wowhead, NorgannonDB (built from it) after it');
+check(source_may_change('wowhead', 'questie', source_trust('')) === 'yes' && source_may_change('questie', 'wowhead', source_trust('')) === 'trusted', 'where Wowhead disagrees with QuestieDB, Wowhead wins');
 check(source_trust('wowhead, cdn')[0] === 'client' && source_trust('icyveins, gameclient, wowhead')[0] === 'client', 'the client is first wherever a configuration puts it');
 check(source_may_change('wowhead', 'client') === 'trusted' && source_may_change('icyveins', 'client') === 'trusted', 'no source changes a row written from the client\'s own tables');
 check(source_named('Forge #3: Forever client tables (skill lines)') === 'client', 'such a row says so in its note');

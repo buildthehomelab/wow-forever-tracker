@@ -193,6 +193,15 @@ class Pins(unittest.TestCase):
         # the core's own files and Karrz's releases are one line: no second witness beside each other
         self.assertEqual(registry.witnesses(['core', 'karrz']), 1)
 
+    def test_questiedb_is_pinned_by_the_commit_of_its_newest_release(self):
+        answers = {'https://api.github.com/repos/Questie/QuestieDB/releases/latest': {'tag_name': 'v1.1.2', 'published_at': '2026-11-16T10:02:35Z', 'assets': []},
+                   'https://api.github.com/repos/Questie/QuestieDB/commits/v1.1.2': {'sha': 'e' * 40}}
+        self.assertEqual(layers.resolve(layers.load().source('questie')['pin'], answers.__getitem__, self.digest),
+                         {'version': 'e' * 40, 'tag': 'v1.1.2', 'date': '2026-11-16T10:02:35Z'})
+        with self.assertRaisesRegex(LookupError, 'no commit for the tag'):
+            layers.resolve({'type': 'github-latest-release', 'repo': 'x/y', 'commit': True},
+                           lambda url: {'tag_name': 'v1'} if url.endswith('/latest') else {'message': 'Not Found'})
+
     def test_curseforge_newest_forever_file_only(self):
         found = self.resolve({'type': 'curseforge', 'project': 1422985, 'name': 'AtlasLoot-Classic-Forever-'})
         self.assertEqual((found['version'], found['file']), ('7', 'AtlasLoot-Classic-Forever-1.3.8.zip'))
