@@ -164,12 +164,38 @@ function questie_import(bool $ifNew = false): array
     return $out;
 }
 
-/** The card of one QuestieDB commit. */
+/** The card of one QuestieDB commit: what it says is kept as a snapshot first (docs/SNAPSHOTS.md), every drop it names
+ *  with no chance (QuestieDB has none), so that its card can be made again from the database. */
 function questie_card_from(string $commit, string $tag): array
 {
     [$dir, $error] = questie_fetch($commit);
     if ($error !== '') return ['ok' => false, 'message' => $error];
     $drops = questie_drops((string)file_get_contents("$dir/" . QUESTIE_BASE), array_map(fn($p) => (string)file_get_contents("$dir/$p"), QUESTIE_CORRECTIONS));
+    $version = $tag !== '' ? "$tag $commit" : $commit;
+    snapshot_try('questie', $version, ['drop' => questie_drop_rows($drops)]);
+    return questie_card($drops, $version);
+}
+
+/** [[kind, id, item, null], ...] of the drops: how a snapshot keeps them. */
+function questie_drop_rows(array $drops): array
+{
+    $out = [];
+    foreach ($drops as $item => $kinds) foreach ($kinds as $kind => $ids) foreach ($ids as $id) $out[] = [$kind, (int)$id, (int)$item, null];
+    return $out;
+}
+
+/** The drops back from a snapshot's rows: [item => [kind => [ids]]]. */
+function questie_drops_from_rows(array $rows): array
+{
+    $out = [];
+    foreach ($rows as $r) if (isset(QUESTIE_KINDS_BACK[$r[0] ?? ''])) $out[(int)$r[2]][$r[0]][] = (int)$r[1];
+    return $out;
+}
+const QUESTIE_KINDS_BACK = ['npc' => true, 'go' => true];
+
+/** The import card of QuestieDB's drops, against the gaps and the server as they are now. $version: "tag commit". */
+function questie_card(array $drops, string $version): array
+{
     $gaps = source_gaps();
     $allowed = [];
     foreach (array_chunk(array_keys($drops), 2000) as $chunk) {
@@ -178,7 +204,8 @@ function questie_card_from(string $commit, string $tag): array
     $questItems = [];
     foreach (rows('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1', [], 'world') as $r) $questItems[(int)$r['ObjectID']] = true;
     $ev = questie_evidence($drops, $allowed, $gaps['later']['items'] ?? [], questie_server_chances($allowed), $questItems, (float)config('questie', 'quest_chance', 40));
-    $label = 'QuestieDB ' . ($tag !== '' ? $tag : substr($commit, 0, 8));
+    $parts = explode(' ', $version, 2);
+    $label = 'QuestieDB ' . (count($parts) === 2 ? $parts[0] : substr($version, 0, 8));
     [$tables, $left] = source_tables($ev, $label, $gaps);
-    return source_card('questie', $label, 'questie@' . $commit, $tables, $left);
+    return source_card('questie', $label, 'questie@' . end($parts), $tables, $left);
 }
