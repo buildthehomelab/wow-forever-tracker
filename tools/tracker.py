@@ -56,7 +56,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ft import client, content as official_content, dating, forge, hotfixes, locator, notes, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
+from ft import client, content as official_content, dating, forge, geo, hotfixes, locator, notes, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
 from ft.baseline import Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
@@ -702,6 +702,11 @@ def analyse(args):
         npc_checks(args.wowhead)
     except Exception as error:  # a report only: it never stops the analysis
         log(f'npc check failed, skipped: {error}')
+    try:   # the zone maps the Forge's Spawns page draws the locator's positions on (app/maps.php)
+        if geo.write_export(latest['dir'], os.path.join(DATA, 'ui-maps.json'), latest['build']):
+            log('zone maps written for the Spawns page')
+    except (OSError, ValueError) as error:
+        log(f'zone maps not written ({error})')
     log('tooltips')
     tips = tooltips.build(content, latest['dir'], quest_names, ctx)
     fixes = forge.generate(content, results, ctx, latest['dir'], latest['build'], wowhead)

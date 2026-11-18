@@ -68,6 +68,11 @@ switch (true) {
     case ($parts[0] ?? '') === 'admin':
         require_admin();
         $section = $parts[1] ?? 'forge';
+        if ($section === 'map' && count($parts) === 2) {   // a zone map picture for the Spawns page
+            require_once FT_APP . '/maps.php';
+            maps_serve((int)($_GET['id'] ?? 0));
+            exit;
+        }
         if (in_array($section, ['forge', 'notes', 'history', 'spawns', 'imports', 'checks', 'checkout', 'crawl'], true) && count($parts) <= 2) $page('admin/' . $section);
         break;
     case ($parts[0] ?? '') === 'api' && count($parts) === 4 && $parts[1] === 'tooltip':
