@@ -513,6 +513,9 @@ def evaluate_all(content, ctx):
         return [check(spell_id in known['spell'], 'core', L('', ''), 1), check(bool(how), 'learn', detail, 3)]
 
     def collection_spell(spell_id):
+        """How players learn a mount's or a pet's spell, by the same rules as the spell's own line: a trainer, an item
+        players can get, a quest reward (the paladin's and the warlock's class mounts), automatic learning, a talent or
+        perk tree, a conversation, or another spell that teaches it."""
         how = []
         if spell_id in trained:
             how.append(L('trainer', 'entraîneur'))
@@ -520,6 +523,16 @@ def evaluate_all(content, ctx):
         if items & obtainable:
             ids = ', '.join(map(str, sorted(items & obtainable)[:3]))
             how.append(L('obtainable item ' + ids, 'objet obtenable ' + ids))
+        if spell_id in quest_spells:
+            how.append(L('quest reward', 'récompense de quête'))
+        if spell_id in ctx['auto_learn'] or spell_id in ctx['create_spells']:
+            how.append(L('learned automatically', 'appris automatiquement'))
+        if spell_id in tree_spells:
+            how.append(L('talent or perk tree', 'arbre de talents ou d’avantages'))
+        if in_conversation(spell_id):
+            how.append(in_conversation(spell_id))
+        if spell_id in learnable and not how:
+            how.append(L('learned through another spell', 'appris via un autre sort'))
         return how, items
 
     def mount_result(mount_id, entity):
@@ -530,7 +543,7 @@ def evaluate_all(content, ctx):
             ids = ', '.join(map(str, sorted(items)[:3]))
             detail = L('Item exists but cannot be obtained: ' + ids, 'Objet existant mais non obtenable : ' + ids)
         else:
-            detail = L('No item and no trainer.', 'Aucun objet ni entraîneur.')
+            detail = waiting_for(entity['spell'], items) or L('No item and no trainer.', 'Aucun objet ni entraîneur.')
         return [check(mount_id in known['mount'], 'core', L('Server Mount.db2.', 'Mount.db2 du serveur.'), 1), check(bool(how), 'obtainable', detail, 3)]
 
     def pet_result(pet_id, entity):

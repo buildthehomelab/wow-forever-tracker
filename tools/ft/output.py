@@ -194,6 +194,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     data['season'] = True
             elif kind in ('mount', 'pet', 'toy', 'recipe'):
                 internal = 1 if named_internal(name_en or name) else 0  # unnamed ones stay: content players have yet to discover
+                spell = int(entity.get('spell') or 0) if kind in ('mount', 'pet') else 0
+                if spell and status != 'ok' and (spell in granted or (spell in content.get('spell', {}) and leftover(
+                        'spell', spell, content['spell'][spell], 'missing', content.get('item', {}), wowhead, baseline, trained))):
+                    internal = 1  # its spell's line says nobody learns it here or in the original game (removed, promo, Season)
                 if kind == 'recipe' and leftover(kind, entity_id, entity, status, content.get('item', {}), wowhead, baseline, trained):
                     internal = 1
             verdict = (wowhead or {}).get((kind, entity_id))
