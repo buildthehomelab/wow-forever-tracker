@@ -52,6 +52,9 @@ A key is out when either says so:
   A table's hidden section names its key by name, a hotfix by number; the build's own table `TactKeyLookup` joins the
   two, and `build.json` keeps the numbers of the keys it waits for (`key_ids`). A snapshot stored before the tracker
   kept them learns them once, at the next check (the build is indexed for it, a few minutes).
+- **Every region's hotfixes**, as wago.tools collects them from players' caches (its `TactKey` and `TactKeyLookup`
+  tables of the product). The hotfix cache the tracker reads is the US one; a key can reach Europe, Korea, Taiwan or
+  China, or one uploader, first. When wago cannot be read it adds nothing.
 - **The list of published keys** (wowdev's TACTKeys), which names the same keys a little later. When it cannot be
   reached, the keys from the hotfixes are still checked.
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Keys from every region.** The client check also takes the decryption keys wago.tools saw handed out by hotfix in
+  any region (its `TactKey` and `TactKeyLookup` tables), next to wowdev's TACTKeys list: a key that reaches Europe,
+  Korea, Taiwan or China before the US hotfix cache, or before the list is updated by hand, opens the build's hidden
+  tables at the next check. TACTKeys wins where both name a key; wago being down changes nothing. docs/CLIENT.md.
+
 - **Spawn positions on the map.** The Spawns page shows where the locator would place a creature on the official
   zone map, so a wrong position is seen before it is spawned. Positions are drawn with the client's own UiMap tables
   (`data/ui-maps.json`, written by the analysis and the locator); the pictures come from wago.tools (`[client]

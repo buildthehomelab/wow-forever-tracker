@@ -34,6 +34,9 @@ import zlib
 
 VERSIONS = "http://us.patch.battle.net:1119/%s/%s"
 KEYS = "https://raw.githubusercontent.com/wowdev/TACTKeys/master/WoW.txt"
+# The keys Blizzard handed out by hotfix in any region, as wago.tools collects them from players' caches: a key can
+# reach EU, Korea, Taiwan or China, or one uploader, before the US cache this tracker reads and before the list above.
+WAGO_TABLE = "https://wago.tools/db2/%s/csv?product=%s"
 UA = {"User-Agent": "ForeverTracker/1.3 (private server admin tool)"}
 ENUS = 0x2  # root locale flag
 LOW_VIOLENCE = 0x80  # root content flag: the censored copy of a file
@@ -231,6 +234,7 @@ class Tact:
     def __init__(self, cache, product="wowf", refresh=False, log=print):
         self.dir = os.path.join(cache, "tact")
         self.log = log
+        self.product = product
         os.makedirs(self.dir, exist_ok=True)
         pin = os.path.join(self.dir, "build.txt")
         if refresh or not os.path.exists(pin):
@@ -365,7 +369,9 @@ class Tact:
                 if self.keys is None:
                     path = os.path.join(self.dir, "keys.txt")
                     if not os.path.exists(path) or time.time() - os.path.getmtime(path) > 86400:
-                        open(path, "wb").write(get(KEYS))
+                        text = get(KEYS)
+                        extra = "".join("%s %s\n" % (name, key.hex().upper()) for name, key in sorted(wago_keys(self.product).items()))
+                        open(path, "wb").write(text + b"\n" + extra.encode())
                     self.keys = {}
                     for line in open(path).read().split("\n"):
                         parts = line.split()
@@ -452,6 +458,7 @@ class Earlier(Tact):
     def __init__(self, cache, pin, product="wowf", log=print):
         self.dir = os.path.join(cache, "tact")
         self.log = log
+        self.product = product
         os.makedirs(self.dir, exist_ok=True)
         where = next(r for r in table(get(VERSIONS % (product, "cdns")).decode()) if r["Name"] == "us")
         self.build, self.cdn, self.version = pin["config"], pin["cdn"], pin["version"]
@@ -582,9 +589,10 @@ class Earlier(Tact):
         return self.decoded(fdid, self.raw(*row[1:]), row[0], partial)
 
 
-def published_keys():
-    """{key name: 16 bytes} of every key published so far (wowdev's TACTKeys list). Blizzard ships unreleased content
-    encrypted and hands the key out when it opens: the list grows with time."""
+def published_keys(product="wowf"):
+    """{key name: 16 bytes} of every key published so far: wowdev's TACTKeys list, then the keys wago.tools saw handed
+    out by hotfix in any region (wago_keys). Blizzard ships unreleased content encrypted and hands the key out when it
+    opens: the lists grow with time. RuntimeError when TACTKeys cannot be read."""
     keys = {}
     for line in get(KEYS).decode("utf-8", "replace").split("\n"):
         parts = line.split()
@@ -593,7 +601,43 @@ def published_keys():
                 keys[parts[0].upper()] = bytes.fromhex(parts[1])
             except ValueError:
                 pass
+    for name, key in wago_keys(product).items():
+        keys.setdefault(name, key)
     return keys
+
+
+def wago_keys(product="wowf", fetch=None):
+    """{key name: 16 bytes} from wago.tools' TactKey table of the product (every region's hotfixes merged), named
+    through its TactKeyLookup table (a key's 8-byte name, stored low byte first). {} when wago cannot be read: it only
+    adds to the published list. fetch: url -> bytes (tests)."""
+    fetch = fetch or get
+    try:
+        keys = _csv_rows(fetch(WAGO_TABLE % ("TactKey", product)))
+        names = _csv_rows(fetch(WAGO_TABLE % ("TactKeyLookup", product)))
+    except (RuntimeError, ValueError, UnicodeDecodeError):
+        return {}
+    named = {}
+    for row in names:
+        try:
+            named[int(row["ID"])] = bytes(int(row["TACTID_%d" % i]) & 0xFF for i in range(8))[::-1].hex().upper()
+        except (KeyError, ValueError):
+            continue
+    out = {}
+    for row in keys:
+        try:
+            number = int(row["ID"])
+            key = bytes(int(row["Key_%d" % i]) & 0xFF for i in range(16))
+        except (KeyError, ValueError):
+            continue
+        if number in named and any(key):
+            out[named[number]] = key
+    return out
+
+
+def _csv_rows(blob):
+    import csv
+    import io
+    return list(csv.DictReader(io.StringIO(blob.decode("utf-8"))))
 
 
 def live(product="wowf", region="us"):
