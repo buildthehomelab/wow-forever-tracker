@@ -290,6 +290,9 @@
       const text = fmt(L('%d position(s) on this map.', '%d position(s) sur cette carte.'), m.pins.length) + (m.elsewhere ? ' ' + fmt(L('%d more on other maps.', '%d autre(s) sur d’autres cartes.'), m.elsewhere) : '');
       note.textContent = text;
       img.onerror = () => { note.textContent = text + ' ' + L('The map picture could not be loaded.', 'L’image de la carte n’a pas pu être chargée.'); };
+      const frame = img.closest('.zone-map');
+      frame.style.removeProperty('--ratio');   // the game's 1002 x 668 until the picture says otherwise (some maps are square)
+      img.onload = () => { if (img.naturalWidth && img.naturalHeight) frame.style.setProperty('--ratio', String(img.naturalWidth / img.naturalHeight)); };
       img.src = m.src;
       mapDialog.hidden = false;
     });
