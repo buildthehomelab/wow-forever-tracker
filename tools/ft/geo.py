@@ -9,8 +9,9 @@ from .content import table
 
 
 class Geo:
-    def __init__(self, folder):
-        rows = lambda name: table(folder, name)
+    def __init__(self, folder, read=None):
+        """folder: a client snapshot (data/builds/<build>); read: a table's name -> its rows, instead of a snapshot."""
+        rows = read or (lambda name: table(folder, name))
         self.ui_maps = {r['ID']: r for r in rows('UiMap')}
         self.assignments = {}
         for a in rows('UiMapAssignment'):

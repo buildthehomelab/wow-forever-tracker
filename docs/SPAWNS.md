@@ -58,8 +58,13 @@ Then:
 - **Packs and single creatures.** Quest objectives come in packs: each distinct point is a spawn (points closer
   than 6 yards are merged). Anything else (givers, vendors, trainers, rares, bosses) is one creature per place:
   Wowhead's several points around it are its wandering, so points within 60 yards are merged into one spawn.
-- **Height.** Wowhead has no height. The locator notes the height of the nearest existing spawn (within 20 yards)
-  as a hint; the server computes the real ground when it spawns (see the modes below).
+- **Height.** Wowhead has no height. The locator reads it in the server's maps and vmaps (`[server] maps` and
+  `vmaps` of `config.ini`), as `tools/height.py` does (section 5): with the z of the nearest existing spawn within
+  20 yards as the hint, the floor `.forge height` would pick under it (a street over the terrain, a bridge, a
+  building's floor); with no spawn that near, the highest surface. Where the files have no ground (no tile, or a cave
+  they lack) the nearest spawn's own z is kept instead, and without the files at all the locator only borrows that z
+  (it says so in its log). Each point records where its z came from (`terrain` or `spawn`); in the server and addon
+  modes the z is a hint and the server computes the real ground when it spawns (see the modes below).
 - **Facing.** Towards the existing spawns around, as townsfolk face their town; otherwise north.
 - **Wandering.** Quest objectives and drops wander 5 yards around their spawn point; others stand still.
 
@@ -144,7 +149,9 @@ After a new export, `/reload` in game.
 ### In the database
 
 Writes `creature` / `gameobject` rows in one transaction, with an exact rollback, like the other fixes. Only the
-points that have an existing spawn within 15 yards are written: their height is borrowed from it. The
+points that have a height are written: the one the locator read in the server's maps and vmaps, else one borrowed
+from an existing spawn within 15 yards (the ruler count in each row's *Spawns* column
+says how many have one). The
 **worldserver must be stopped** (it hands out spawn ids itself and would overwrite rows added behind its back); the
 Forge refuses while the remote console answers. With no remote console configured (`[console] host` empty, as when
 `FT_RA_HOST` is not set) it cannot tell: it then asks you to confirm *"I have stopped the worldserver"* before it
@@ -230,6 +237,53 @@ What the merge does:
 *Chest*, *Sold by*, *Quest reward* — with the filter *Found in an import*. Select items and **Apply imported
 sources**: only their loot rows, vendor rows and rewarding quests are added.
 
+## 5. Heights without the game
+
+`tools/height.py` gives the ground height (z) of points from the server's extracted files, without a game client, a
+running worldserver or anyone typing `.gps` in game. It reads the terrain tiles (`data/maps`) and the collision models
+of buildings, bridges and rocks (`data/vmaps`) the way the worldserver reads them, so its answer is the server's. Use
+it for hand-written spawns in a data repository, or to check a batch of points before spawning them. The locator
+reads the same files with the same code (`tools/ft/terrain.py`) for its ready spawns (section 1).
+
+```
+python3 tools/height.py <map> <x> <y> [zHint]
+python3 tools/height.py --zone <zone>[:floor] <x%> <y%> [zHint]     # Wowhead's zone id and map percentages
+python3 tools/height.py --file points.txt                          # one point per line; - reads standard input
+```
+
+- `--data <folder>`: the server's data folder (`maps/`, `vmaps/`, `dbc/<locale>/`). Without it, `[server] maps`,
+  `vmaps` and `dbc` of `config.ini`. With `--data`, no `config.ini` is needed.
+- `--floors` lists every surface on the vertical line through the point (terrain, water, each model), top first.
+- `--forge` answers exactly as `.forge height` does.
+- `--json` prints one JSON object per point.
+
+A point file holds lines like the command line: `<map> <x> <y> [zHint] [label]` or
+`zone <zone>[:floor] <x%> <y%> [zHint] [label]`, with spaces or commas; `#` starts a comment. Each answer is a
+tab-separated line: map, x, y, z (`none` where there is no ground: no tile, or a hole in the terrain with nothing
+under it), what the z stands on (`terrain`, `water`, or `model <file> spawn <id>`), and the label. The exit code is 1
+when a point has no ground.
+
+```
+$ python3 tools/height.py --data /srv/server/data 1 1920.17 -4124.66 43 --floors
+1	1920.17	-4124.66	43.39	model FILE0003167F.xxx spawn 4294215716		floors: 61.53 model FILE00798645.xxx …, 43.39 …, 24.11 terrain
+```
+
+**Which floor.** Without a hint the answer is the highest surface: right outdoors, wrong under a roof, a bridge, in a
+cave or anywhere in a city whose buildings are one big model (Orgrimmar, Stormwind). There, give a hint near the floor
+you want: the answer is then the server's for that hint, the model floor from 3 yards above it to 37 below, or the
+terrain under it when that is closer, as `.forge height <map> <x> <y> <z>` picks. `--floors` shows the choices.
+
+Note that `.forge height` and `.forge spawn` **without** a hint look down only 50 yards from the top of the world, so
+they never meet a model: they answer the terrain or the water, even inside a building. `--forge` reproduces that.
+
+**Checked against the official positions.** On 1,600 creature and object positions sniffed on official Forever
+servers (map 2991, and the cities and open country of Kalimdor and the Eastern Kingdoms), with the sniffed z as hint the
+answer is within half a yard for 85% of them; about 87% stand within half a yard of one of the `--floors`, and most
+of the rest hover in the air (flying creatures, floating objects).
+
+Not read: game objects (doors, elevators, ships), phased terrain swaps, and the parent map of an instance with no
+files of its own. Liquids inside models (city canals) are not read either; the terrain's own water is.
+
 ## Limits
 
 - **Dungeons and raids** have no position on Wowhead: place them in game with the addon.
@@ -238,9 +292,10 @@ sources**: only their loot rows, vendor rows and rewarding quests are added.
   hand afterwards.
 - **Positions** are those of the official game, a few yards apart. Check important ones (quest givers in buildings)
   in game; `.npc move` fixes one.
-- **Height in places with several levels** (cities with canals, cellars and towers, like Stormwind): the database
-  mode borrows the height of the nearest existing spawn, which can stand one level lower or higher. Prefer the
-  server mode there, and check in game. A wrong batch is undone with **Roll back** in the history.
+- **Height in places with several levels** (cities with canals, cellars and towers, like Stormwind): the locator
+  picks the floor with the nearest existing spawn's z, which can stand one level lower or higher; with no spawn near
+  it takes the highest surface, a roof under which the creature belonged. Prefer the
+  server mode there, and check in game, or list the floors with `tools/height.py --floors` (section 5). A wrong batch is undone with **Roll back** in the history.
 - **Creatures without a template** cannot be spawned: the template (model, faction, level) is not on Wowhead.
 - Wowhead's data belongs to Wowhead: the locator asks politely (one request at a time, cached forever) and only for
   what your server lacks. Use it for your own server.

@@ -1,7 +1,8 @@
 <?php
 // Spawns: the creatures and world objects found by the locator (ft_spawns), placed on the server in one of three ways:
 //   server    the worldserver's remote console (RA) runs ".forge spawn" (ForeverTracker core module): exact height, live, undoable
-//   database  rows written in the world database with the height of the nearest existing spawn (worldserver stopped)
+//   database  rows written in the world database (worldserver stopped), at the height the locator read in the server's maps
+//             and vmaps, else at the height of an existing spawn within 15 yards
 //   addon     the ForeverForge in-game addon walks a GM through the list with standard GM commands
 require_once FT_APP . '/forge.php';
 
@@ -104,7 +105,8 @@ function spawn_console_status(): array
 // ------------------------------------------------------------------ plans
 /**
  * The spawn points of a selection [{kind, entry}, …] as they stand now: entries spawned since the locator ran are left out.
- * Returns ['points' => [[kind, entry, name, map, x, y, zHint|null, hintDistance|null, orientation, wander]], 'manual' => [...], 'skipped' => n, 'warnings' => [...]].
+ * Returns ['points' => [[kind, entry, name, map, x, y, zHint|null, hintDistance|null, orientation, wander, heightFrom]], 'manual' => [...], 'skipped' => n, 'warnings' => [...]]
+ * where heightFrom is 'terrain' (the locator read z in the server's maps and vmaps), 'spawn' (z of the nearest spawn) or null.
  */
 function spawn_plan(array $selection): array
 {
@@ -123,13 +125,30 @@ function spawn_plan(array $selection): array
             if (isset($spawned[$entry])) { $skipped++; continue; }
             if ($s['state'] === 'manual') { $manual[] = ['kind' => $kind, 'entry' => $entry, 'name' => $s['name'], 'map' => (int)$s['map']]; continue; }
             if ($s['state'] !== 'ready') continue;
-            foreach (json_decode((string)$s['points'], true) ?: [] as [$x, $y, $z, $dist, $o]) {
-                $points[] = [$kind, $entry, $s['name'], (int)$s['map'], (float)$x, (float)$y, $z === null ? null : (float)$z, $dist === null ? null : (float)$dist, (float)$o, (float)$s['wander']];
+            foreach (json_decode((string)$s['points'], true) ?: [] as $p) {
+                [$x, $y, $z, $dist, $o] = $p;
+                $points[] = [$kind, $entry, $s['name'], (int)$s['map'], (float)$x, (float)$y, $z === null ? null : (float)$z, $dist === null ? null : (float)$dist, (float)$o, (float)$s['wander'], spawn_height_from($p)];
             }
         }
     }
     if ($skipped) $warnings[] = sprintf(t('%d selected creature(s) or object(s) are spawned already and were left out.', '%d PNJ ou objet(s) choisis sont déjà placés et ont été écartés.'), $skipped);
     return ['points' => $points, 'manual' => $manual, 'skipped' => $skipped, 'warnings' => $warnings];
+}
+
+/** Where a locator point's z comes from: 'terrain', 'spawn', or null without a z. Points the locator wrote before it
+ *  read the maps ([x, y, z, dist, o], five fields) borrowed their z from the nearest spawn. */
+function spawn_height_from(array $point): ?string
+{
+    if (($point[2] ?? null) === null) return null;
+    return ($point[5] ?? null) === 'terrain' ? 'terrain' : 'spawn';
+}
+
+/** Whether the database mode can write a point: its z was read in the server's maps and vmaps, or an existing spawn
+ *  within $maxHintDistance yards lends it one. */
+function spawn_has_height(?float $z, ?float $dist, ?string $from, float $maxHintDistance = 15): bool
+{
+    if ($z === null) return false;
+    return $from === 'terrain' || ($dist !== null && $dist <= $maxHintDistance);
 }
 
 function spawn_number(float $value): string { return rtrim(rtrim(sprintf('%.2f', $value), '0'), '.') ?: '0'; }
@@ -200,7 +219,7 @@ function spawn_rollback_console(string $script): array
 }
 
 // ------------------------------------------------------------------ mode: database
-/** Forge operations for the points that have a height hint (the worldserver must be stopped: it hands out spawn ids itself). */
+/** Forge operations for the points that have a height (spawn_has_height; the worldserver must be stopped: it hands out spawn ids itself). */
 function spawn_db_ops(array $plan, int $maxHintDistance = 15): array
 {
     $ops = []; $left = 0;
@@ -210,8 +229,8 @@ function spawn_db_ops(array $plan, int $maxHintDistance = 15): array
         return $difficulties[$map] ??= (string)(value('SELECT spawnDifficulties FROM creature WHERE map = ? GROUP BY spawnDifficulties ORDER BY COUNT(*) DESC LIMIT 1', [$map], 'world') ?? '0');
     };
     $npc = []; $go = [];
-    foreach ($plan['points'] as [$kind, $entry, , $map, $x, $y, $z, $dist, $o, $wander]) {
-        if ($z === null || $dist === null || $dist > $maxHintDistance) { $left++; continue; }
+    foreach ($plan['points'] as [$kind, $entry, , $map, $x, $y, $z, $dist, $o, $wander, $from]) {
+        if (!spawn_has_height($z, $dist, $from, $maxHintDistance)) { $left++; continue; }
         if ($kind === 'npc') {
             $npc[] = [++$guid['npc'], $entry, $map, $difficulty($map), round($x, 2), round($y, 2), round($z + 0.1, 2), round($o, 3), 120, $wander, $wander > 0 ? 1 : 0, 0];
         } else {
@@ -247,7 +266,7 @@ function spawn_world_unknown_message(): string
         'Aucune console distante n’est configurée ([console] host) : le site ne peut pas savoir si le worldserver tourne. Il attribue lui-même les identifiants de placement : arrêtez-le, puis confirmez que vous l’avez arrêté.');
 }
 
-/** The database mode as a Forge plan: [built, left] where left counts the points without a close height hint. */
+/** The database mode as a Forge plan: [built, left] where left counts the points without a height (spawn_has_height). */
 function spawn_build_database(array $selection): array
 {
     $plan = spawn_plan($selection);
@@ -255,7 +274,7 @@ function spawn_build_database(array $selection): array
     $merged = [];
     foreach ($ops as $op) forge_merge($merged, $op);
     $warnings = $plan['warnings'];
-    if ($left) $warnings[] = sprintf(t('%d point(s) have no existing spawn close enough to borrow a height from: use the server or addon mode for them.', '%d point(s) n’ont aucun placement assez proche pour en reprendre la hauteur : utilisez le mode serveur ou l’addon pour eux.'), $left);
+    if ($left) $warnings[] = sprintf(t('%d point(s) have no height: the locator found no ground for them in the server\'s maps and vmaps and no existing spawn close enough to borrow one from. Use the server or addon mode for them.', '%d point(s) n’ont pas de hauteur : le localisateur ne leur a trouvé aucun sol dans les maps et vmaps du serveur, ni de placement assez proche pour en reprendre une. Utilisez le mode serveur ou l’addon pour eux.'), $left);
     if ($plan['manual']) $warnings[] = sprintf(t('%d boss(es) or dungeon creature(s) need the addon (Spawn here).', '%d boss ou PNJ de donjon nécessitent l’addon (Placer ici).'), count($plan['manual']));
     $built = forge_plan($merged, [], $warnings);
     $built['items'] = array_values(array_map(fn($k) => ['type' => 'spawn', 'id' => (int)explode(':', $k)[1], 'kind' => explode(':', $k)[0]],
