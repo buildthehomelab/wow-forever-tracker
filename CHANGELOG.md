@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The locator reads heights in the server's maps.** Every ready spawn point now gets its z from the server's maps
+  and vmaps (`[server] maps` / `vmaps`), the nearest existing spawn's z picking the floor under a roof or a bridge,
+  and records that it came from the terrain. The database spawn mode writes these points too, not only those with an
+  existing spawn within 15 yards. Without the files the locator borrows the nearest spawn's z as before.
+  docs/SPAWNS.md, section 1.
+
 - **Heights without the game.** `tools/height.py` answers the ground height of spawn points (map and world x, y, or
   Wowhead's zone percentages) from the server's maps and vmaps, buildings and bridges included, as the worldserver
   computes it: no game client, no running server, no `.gps`. `--floors` lists every level under a point, a hint picks

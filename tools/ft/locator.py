@@ -5,7 +5,8 @@ those map percentages into world positions ready to spawn (table ft_spawns of th
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
 
 Every candidate gets one of these states:
-    ready     world positions are known (one per spawn), each with a height hint from the nearest existing spawn
+    ready     world positions are known (one per spawn), each with a height from the server's maps and vmaps (the
+              nearest existing spawn's z picks the floor), else the nearest existing spawn's own z
     manual    it belongs inside a dungeon or raid, where Wowhead gives no position: place it in game
     unknown   Wowhead has no position for it in the Forever branch (often content Blizzard does not use)
     pending   not asked yet (--limit reached, --offline, or Wowhead could not be reached)
@@ -20,8 +21,9 @@ import json
 import math
 import os
 import re
+import struct
 
-from . import classic, facts, icyveins, phases, questie, sqlio, summons
+from . import classic, facts, icyveins, phases, questie, sqlio, summons, terrain
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
@@ -161,15 +163,21 @@ def candidates():
 
 
 class Neighbours:
-    """Existing spawns by map and 32-yard cell: height hints and facing for new spawns."""
+    """Existing spawns by map and 32-yard cell, and the server's maps and vmaps when the tracker can read them:
+    heights and facing for new spawns."""
     CELL = 32.0
 
-    def __init__(self):
+    def __init__(self, terrain=None, spawns=None):
+        """terrain: an ft.terrain.Terrain, or None to borrow heights from the nearest spawn only. spawns: (map, x, y, z)
+        rows, by default every creature and game object spawn of the world database."""
+        self.terrain = terrain
         self.cells = {}
-        for table_name in ('creature', 'gameobject'):
-            for r in sqlio.query(f'SELECT map, position_x x, position_y y, position_z z FROM {table_name}'):
-                m, x, y = int(r['map']), float(r['x']), float(r['y'])
-                self.cells.setdefault((m, int(x // self.CELL), int(y // self.CELL)), []).append((x, y, float(r['z'])))
+        if spawns is None:
+            spawns = ((r['map'], r['x'], r['y'], r['z']) for table_name in ('creature', 'gameobject')
+                      for r in sqlio.query(f'SELECT map, position_x x, position_y y, position_z z FROM {table_name}'))
+        for m, x, y, z in spawns:
+            m, x, y = int(m), float(x), float(y)
+            self.cells.setdefault((m, int(x // self.CELL), int(y // self.CELL)), []).append((x, y, float(z)))
 
     def near(self, map_id, x, y, radius):
         cx, cy, reach = int(x // self.CELL), int(y // self.CELL), int(radius // self.CELL) + 1
@@ -182,20 +190,53 @@ class Neighbours:
                         out.append((d, px, py, pz))
         return sorted(out)
 
+    def ground(self, map_id, x, y, hint):
+        """The terrain's z for a point, or None: with the nearest spawn's z as the hint, the floor .forge height would
+        pick for it (a building's floor, a bridge, else the terrain); without one, the highest surface. A hint with no
+        floor near it (no map tile, a cave the files lack) is no terrain height: None."""
+        if self.terrain is None:
+            return None
+        try:
+            if hint is None:
+                return self.terrain.height(map_id, x, y)
+            z = self.terrain.static_height(map_id, x, y, hint + terrain.HINT_LIFT, True, terrain.HINT_SEARCH)
+            return None if z <= terrain.INVALID_HEIGHT else z
+        except (OSError, terrain.TerrainError, struct.error) as error:
+            log(f'locator: no terrain height for map {map_id} {x:.1f} {y:.1f} ({error})')
+            return None
+
     def place(self, map_id, x, y):
-        """[x, y, z hint or None, hint distance or None, orientation]: the closest spawn gives the height,
-        the spawns around give the facing (towards them, as townsfolk face their town)."""
+        """[x, y, z or None, nearest spawn's distance or None, orientation, where z comes from]: the server's maps and
+        vmaps give the height ('terrain'), with the closest spawn's z as the hint to pick the floor under a roof or a
+        bridge; without a terrain height the closest spawn's own z ('spawn'); None when neither is known. The spawns
+        around give the facing (towards them, as townsfolk face their town)."""
         around = self.near(map_id, x, y, 30.0)
         hint = [s for s in around if s[0] <= 20.0]
-        z = round(hint[0][3], 2) if hint else None
+        nearest = hint[0][3] if hint else None
         dist = round(hint[0][0], 1) if hint else None
+        z, source = self.ground(map_id, x, y, nearest), 'terrain'
+        if z is None:
+            z, source = nearest, 'spawn' if hint else None
         if around:
             mx = sum(s[1] for s in around) / len(around) - x
             my = sum(s[2] for s in around) / len(around) - y
             orientation = round(math.atan2(my, mx) % (2 * math.pi), 3) if abs(mx) + abs(my) > 1 else 0.0
         else:
             orientation = 0.0
-        return [round(x, 2), round(y, 2), z, dist, orientation]
+        return [round(x, 2), round(y, 2), None if z is None else round(z, 2), dist, orientation, source]
+
+
+def open_terrain():
+    """ft.terrain.Terrain over config.ini [server] maps / vmaps, or None (heights then come from nearby spawns only)."""
+    maps, vmaps = CONFIG.server_path('maps'), CONFIG.server_path('vmaps')
+    try:
+        found = terrain.Terrain(maps, vmaps)
+    except terrain.TerrainError as error:
+        log(f'locator: no terrain heights ({error}): heights come from the nearest spawn only')
+        return None
+    if not found.vmaps:
+        log(f'locator: no vmaps in {vmaps or "(none)"}: terrain heights leave out buildings, bridges and rocks')
+    return found
 
 
 def cluster(points, radius):
@@ -232,7 +273,7 @@ def run(args):
     summoned = summoned_in_classic(found, said) if said else {}
     log(f'locator: {len(summoned)} of them only summoned or spawned for an event in Classic' if said
         else 'locator: no pack of the original game of format 5 (Imports): summoned creatures are not told apart')
-    neighbours = Neighbours()
+    neighbours = Neighbours(open_terrain())
     wowhead = Wowhead(refresh=args.refresh)
     collected = {}  # where the ForeverScribe addon saw them: (kind, entry) -> [(map, x, y) or (map, None, None) inside an instance]
     if sqlio.has_table('ft_collected', 'tracker'):
