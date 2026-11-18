@@ -5,6 +5,11 @@ on:
     branches: [main]
 permissions:
   contents: read
+# A newer push to the same pull request or branch cancels the older run still queued or running
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     runs-on: ubuntu-latest
