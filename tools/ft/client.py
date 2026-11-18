@@ -378,7 +378,7 @@ def fetch(product=None, force=False, keep_cache=False, log=print, reader=None, l
                     remember_key_ids(build, read_key_numbers(tact.read))
             names = set(hotfix_keys(build))
             try:
-                names |= set((published or cdn.published_keys)())
+                names |= set(published() if published else cdn.published_keys(product))
             except RuntimeError as error:
                 log(f'client: the list of published keys could not be read ({error}): only the keys from hotfixes are checked this time')
             opened = unlocked(build, names)

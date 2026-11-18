@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Keys from every region.** The client check also takes the decryption keys wago.tools saw handed out by hotfix in
+  any region (its `TactKey` and `TactKeyLookup` tables), next to wowdev's TACTKeys list: a key that reaches Europe,
+  Korea, Taiwan or China before the US hotfix cache, or before the list is updated by hand, opens the build's hidden
+  tables at the next check. TACTKeys wins where both name a key; wago being down changes nothing. docs/CLIENT.md.
+
 - **The locator reads heights in the server's maps.** Every ready spawn point now gets its z from the server's maps
   and vmaps (`[server] maps` / `vmaps`), the nearest existing spawn's z picking the floor under a roof or a bridge,
   and records that it came from the terrain. The database spawn mode writes these points too, not only those with an
