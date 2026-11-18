@@ -26,7 +26,7 @@ from .config import CONFIG, PROJECT
 from .server import log
 
 DEFAULT = os.path.join(PROJECT, 'tools', 'phases', 'forever.json')
-KINDS = ('maps', 'npcs', 'objects', 'quests', 'items')
+KINDS = ('maps', 'npcs', 'objects', 'quests', 'items', 'spells')
 
 
 def normal(name):
@@ -66,7 +66,7 @@ def load(file=None):
             values = phase.get(kind) or []
             if not isinstance(values, list):
                 raise SystemExit(f'phases: "{kind}" of {key} must be a list')
-            if kind in ('objects', 'quests', 'items') and any(not str(v).isdigit() for v in values):
+            if kind in ('objects', 'quests', 'items', 'spells') and any(not str(v).isdigit() for v in values):
                 raise SystemExit(f'phases: "{kind}" of {key} takes ids only')
             phase[kind] = values
     return phases
@@ -169,13 +169,13 @@ def assign(content, ctx, phases, facts):
         if entry not in spawned_npc and normal(name) in boss_phase:
             npc_phase[entry] = min(npc_phase.get(entry, 10 ** 6), boss_phase[normal(name)])
 
-    fixed = {kind: {} for kind in ('npc', 'go', 'quest', 'item')}
+    fixed = {kind: {} for kind in ('npc', 'go', 'quest', 'item', 'spell')}
     for number, phase in enumerate(phases, 1):
         for value in phase['npcs']:
             for entry in ({int(value)} if isinstance(value, int) or str(value).isdigit() else npc_by_name.get(normal(value), set())):
                 fixed['npc'].setdefault(entry, number)
-        for kind, field in (('go', 'objects'), ('quest', 'quests'), ('item', 'items')):
-            for value in phase[field]:
+        for kind, field in (('go', 'objects'), ('quest', 'quests'), ('item', 'items'), ('spell', 'spells')):
+            for value in phase.get(field) or []:
                 fixed[kind].setdefault(int(value), number)
     npc_phase.update(fixed['npc'])
     go_phase.update(fixed['go'])
@@ -288,7 +288,7 @@ def assign(content, ctx, phases, facts):
         if source and obj:
             objectives.setdefault(quest, set()).add((source, obj))
 
-    item_phase, quest_phase, spell_phase = dict(fixed['item']), dict(fixed['quest']), {}
+    item_phase, quest_phase, spell_phase = dict(fixed['item']), dict(fixed['quest']), dict(fixed['spell'])
     phase_of = {'npc': npc_phase, 'go': go_phase, 'item': item_phase, 'quest': quest_phase, 'spell': spell_phase}
 
     def lowest(found):
@@ -324,6 +324,8 @@ def assign(content, ctx, phases, facts):
                 quest_phase[quest] = p
                 changed += 1
         for spell, found in spell_sources.items():
+            if spell in fixed['spell']:
+                continue
             p = lowest(found)
             if p != spell_phase.get(spell, 0):
                 spell_phase[spell] = p

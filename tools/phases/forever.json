@@ -1,5 +1,5 @@
 {
- "about": "WoW Forever's release phases, in release order. The client already carries content the game has not opened yet; what a phase lists (and everything only it gives: loot, quests, recipes) shows as Later instead of missing until the phase opens. opens: the date it opens (YYYY-MM-DD), or null while Blizzard has not announced one. maps: instances by English name or map id. npcs, objects, quests, items: ids (npcs also by English name). See docs/PHASES.md.",
+ "about": "WoW Forever's release phases, in release order. The client already carries content the game has not opened yet; what a phase lists (and everything only it gives: loot, quests, recipes) shows as Later instead of missing until the phase opens. opens: the date it opens (YYYY-MM-DD), or null while Blizzard has not announced one. maps: instances by English name or map id. npcs, objects, quests, items, spells: ids (npcs also by English name). See docs/PHASES.md.",
  "phases": [
   {
    "key": "first-raids",
@@ -22,6 +22,13 @@
    "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in",
    "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"],
    "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271]
+  },
+  {
+   "key": "not-out",
+   "name": "Not out yet",
+   "opens": null,
+   "source": "Spells in the client that nothing teaches on live WoW Forever: Wowhead's Forever pages list no trainer, quest, item, talent or perk for them, and no client spell teaches them (2026-11-18): Teleport: Dalaran, Lacerate rank 4, Voice of Truth, Improved Seal of Fury",
+   "spells": [1297659, 1299332, 1310897, 1314103]
   }
  ]
 }

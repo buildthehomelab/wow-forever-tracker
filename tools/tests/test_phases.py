@@ -101,6 +101,16 @@ class Assign(unittest.TestCase):
         self.assertEqual(self.tagged[('mount', 20)], 2)   # its spell is taught by Geddon's drop
         self.assertEqual(self.tagged[('item', 8888)], 2)  # listed by id
 
+    def test_spells_listed_by_id(self):
+        c, x = content(), ctx()
+        c['spell'][502] = {'sub': 'class'}
+        listed = [dict(p, spells=[]) for p in PHASES]
+        listed[1]['spells'] = [502, 501]
+        tagged = phases.assign(c, x, listed, FACTS)
+        self.assertEqual(tagged[('spell', 502)], 2)    # nothing teaches it: listed, so it waits for the phase
+        self.assertEqual(tagged[('spell', 501)], 2)    # the list wins over a trainer, as for items and quests
+        self.assertNotIn(('spell', 502), self.tagged)  # without the list it stays released (no source at all)
+
     def test_items_without_source_stay_released(self):
         self.assertNotIn(('item', 6), self.tagged)
         self.assertNotIn(('toy', 30), self.tagged)
@@ -182,6 +192,11 @@ class Load(unittest.TestCase):
         loaded = phases.load(phases.DEFAULT)
         self.assertGreaterEqual(len(loaded), 2)
         self.assertTrue(all(set(phases.KINDS) <= set(p) for p in loaded))
+
+    def test_spell_ids_only(self):
+        path = self.write({'phases': [{'key': 'x', 'opens': None, 'spells': ['Teleport: Dalaran']}]})
+        with self.assertRaises(SystemExit):
+            phases.load(path)
 
     def test_bad_date_stops(self):
         with self.assertRaises(ValueError):
