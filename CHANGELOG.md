@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Spawn positions on the map.** The Spawns page shows where the locator would place a creature on the official
+  zone map, so a wrong position is seen before it is spawned. Positions are drawn with the client's own UiMap tables
+  (`data/ui-maps.json`, written by the analysis and the locator); the pictures come from wago.tools (`[client]
+  map_images`) and are kept per build in `data/maps`. docs/SPAWNS.md, section 1.
+
 - **The locator reads heights in the server's maps.** Every ready spawn point now gets its z from the server's maps
   and vmaps (`[server] maps` / `vmaps`), the nearest existing spawn's z picking the floor under a roof or a bridge,
   and records that it came from the terrain. The database spawn mode writes these points too, not only those with an
