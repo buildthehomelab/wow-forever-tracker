@@ -27,7 +27,7 @@ from . import classic, facts, icyveins, phases, questie, sqlio, summons, terrain
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
-from .geo import Geo
+from .geo import Geo, save as geo_save
 from .server import log
 from .wowhead import Wowhead
 
@@ -266,6 +266,10 @@ def run(args):
         raise SystemExit(f'The snapshot {folder} has no UiMap tables: run the snapshot command again for this build '
                          '(the locator needs UiMap, UiMapAssignment and UiMapGroupMember).')
     geo = Geo(folder)
+    try:   # the Spawns page draws the positions on these maps (app/maps.php)
+        geo_save(geo.export(build_list[-1].get('build')), os.path.join(DATA, 'ui-maps.json'))
+    except OSError as error:
+        log(f'locator: zone maps not written ({error})')
     log('locator: looking for unspawned creatures and objects that the content needs')
     found = candidates()
     log(f"locator: {len(found)} candidates ({sum(1 for k, _ in found if k == 'npc')} creatures, {sum(1 for k, _ in found if k == 'go')} objects)")

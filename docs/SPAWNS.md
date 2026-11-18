@@ -68,6 +68,15 @@ Then:
 - **Facing.** Towards the existing spawns around, as townsfolk face their town; otherwise north.
 - **Wandering.** Quest objectives and drops wander 5 yards around their spawn point; others stand still.
 
+### On the map
+
+On the Spawns page a map button next to *Where* shows a creature's positions on the official zone map, to check them
+before spawning. The analysis and the locator write the client's zone and continent maps to `data/ui-maps.json`
+(`UiMap` and `UiMapAssignment`: which world rectangle each map draws), and the page puts every point on the zone it
+stands in, the city map inside a city, the continent outside every zone. The picture is the game's own map art with
+towns and roads, as wago.tools generates it (`[client] map_images`, `FT_CLIENT_MAP_IMAGES`; `off` for none),
+downloaded once per client build into `data/maps`. Dungeons have no picture.
+
 ### States
 
 | State | Meaning | What to do |

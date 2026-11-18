@@ -277,6 +277,24 @@
     }).catch((e) => toast(esc(e.message), 'error')).finally(() => { button.disabled = false; });
   }));
 
+  // spawns: a creature's positions on the official zone map (app/maps.php)
+  const mapDialog = $('#map-dialog');
+  if (mapDialog) {
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-map-show]');
+      if (!button) return;
+      const m = JSON.parse(button.dataset.mapShow);
+      const img = $('[data-map-img]', mapDialog), note = $('[data-map-note]', mapDialog);
+      $('[data-map-title]', mapDialog).textContent = `${m.title} · ${m.map}`;
+      $('[data-map-pins]', mapDialog).innerHTML = m.pins.map(([u, v]) => `<span class="zone-map-pin" style="left:${(u * 100).toFixed(3)}%;top:${(v * 100).toFixed(3)}%"></span>`).join('');
+      const text = fmt(L('%d position(s) on this map.', '%d position(s) sur cette carte.'), m.pins.length) + (m.elsewhere ? ' ' + fmt(L('%d more on other maps.', '%d autre(s) sur d’autres cartes.'), m.elsewhere) : '');
+      note.textContent = text;
+      img.onerror = () => { note.textContent = text + ' ' + L('The map picture could not be loaded.', 'L’image de la carte n’a pas pu être chargée.'); };
+      img.src = m.src;
+      mapDialog.hidden = false;
+    });
+  }
+
   // spawns (locator results)
   const spawnTable = $('[data-spawn-table]'), spawnBar = $('[data-spawn-bar]'), spawnDialog = $('#spawn-dialog');
   if (spawnTable && spawnBar && spawnDialog) {

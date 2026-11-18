@@ -1,6 +1,7 @@
 <?php
 // The Forge · Spawns: creatures and world objects the content needs but nobody spawned, with their official positions (locator).
 require_once FT_APP . '/spawns.php';
+require_once FT_APP . '/maps.php';
 forge_schema();
 $hasTable = table_exists('ft_spawns');
 $states = ['ready' => 'fa-location-dot', 'manual' => 'fa-hand-pointer', 'unknown' => 'fa-circle-question', 'pending' => 'fa-hourglass-half', 'summoned' => 'fa-wand-magic-sparkles'];
@@ -29,7 +30,7 @@ if ($hasTable) {
     $updated = value('SELECT MAX(updated_at) FROM ft_spawns');
 }
 // names of the places and of the quests / items / spells the spawns are for
-$zones = []; $refs = [];
+$zones = []; $refs = []; $uiMaps = maps_ui();
 if ($list) {
     $zoneIds = array_filter(array_unique(array_map(fn($x) => (int)$x['zone'], $list)));
     $mapIds = array_filter(array_unique(array_map(fn($x) => (int)$x['map'], $list)), fn($m) => $m !== null);
@@ -112,7 +113,10 @@ page_start(t('Spawns', 'Placements'), 'admin');
       <td class="fix-cell"><?php foreach (array_slice($reasons, 0, 3) as [$r, $type, $id]): $label = $refs[$type . ':' . $id] ?? (type_label($type) . ' ' . $id); ?>
         <span class="reason"><em class="tag is-plain"><?= e(spawn_role_label($r)) ?></em> <?php if (isset(TYPES[$type])): ?><a href="<?= e(entry_url($type, (int)$id)) ?>" data-tt="<?= e($type . ':' . (int)$id) ?>"><?= e($label) ?></a><?php else: ?><?= e($label) ?><?php endif; ?></span>
       <?php endforeach; ?><?= count($reasons) > 3 ? '<small class="muted">+' . (count($reasons) - 3) . '</small>' : '' ?></td>
-      <td><?= e($place($x)) ?: '<span class="muted">—</span>' ?><?php if ($x['note'] !== ''): ?><small class="muted"><?= e($x['note']) ?></small><?php endif; ?></td>
+      <td><?= e($place($x)) ?: '<span class="muted">—</span>' ?><?php $pins = $points ? maps_pins($x['map'] === null ? null : (int)$x['map'], $points, $x['zone'] === null ? null : (int)$x['zone'], $uiMaps) : null;
+        if ($pins): ?> <button class="icon-btn is-small" type="button" title="<?= e(t('Show on the map', 'Voir sur la carte')) ?>" aria-label="<?= e(t('Show on the map', 'Voir sur la carte')) ?>"
+          data-map-show='<?= e(json_encode(['src' => url('admin/map', ['id' => $pins['map'], 'b' => (int)($uiMaps['build'] ?? 0)]), 'title' => $x['name'] !== '' ? $x['name'] : '#' . $x['entry'], 'map' => $pins['name'], 'pins' => $pins['pins'], 'elsewhere' => $pins['elsewhere']])) ?>'><i class="fas fa-map"></i></button><?php endif; ?>
+        <?php if ($x['note'] !== ''): ?><small class="muted"><?= e($x['note']) ?></small><?php endif; ?></td>
       <td class="num"><?= count($points) ?: ($x['state'] === 'manual' ? '1' : '—') ?><?php if ($points): ?><small class="<?= $hinted === count($points) ? 'ok-text' : 'muted' ?>" title="<?= e(t('Points with a height for the database mode: read in the server\'s maps and vmaps, or borrowed from an existing spawn closer than 15 yards', 'Points ayant une hauteur pour le mode base de données : lue dans les maps et vmaps du serveur, ou reprise d’un placement existant à moins de 15 mètres')) ?>"><?= $hinted ?>/<?= count($points) ?> <i class="fas fa-ruler-vertical"></i></small><?php endif; ?></td>
     </tr>
   <?php endforeach; ?>
@@ -131,6 +135,16 @@ page_start(t('Spawns', 'Placements'), 'admin');
   <div class="action-count"><strong data-selected-count>0</strong> <span><?= e(t('selected', 'sélectionné(s)')) ?></span></div>
   <?php if ($total > $perPage || $total > 0): ?><button class="btn is-small" type="button" data-spawn-all><i class="fas fa-check-double"></i> <?= e(sprintf(t('All %s', 'Les %s'), number($total))) ?></button><?php endif; ?>
   <button class="btn is-small is-gold" type="button" data-spawn-open><i class="fas fa-location-crosshairs"></i> <?= e(t('Spawn…', 'Placer…')) ?></button>
+</div>
+
+<div class="modal" id="map-dialog" hidden>
+  <div class="modal-box is-wide" role="dialog" aria-modal="true" aria-labelledby="map-dialog-title">
+    <header><h2 id="map-dialog-title"><i class="fas fa-map"></i> <span data-map-title></span></h2><button class="icon-btn" type="button" data-modal-close aria-label="<?= e(t('Close', 'Fermer')) ?>"><i class="fas fa-xmark"></i></button></header>
+    <div class="modal-body">
+      <figure class="zone-map"><img alt="" data-map-img><div class="zone-map-pins" data-map-pins></div></figure>
+      <p class="muted" data-map-note></p>
+    </div>
+  </div>
 </div>
 
 <div class="modal" id="spawn-dialog" hidden>
