@@ -766,7 +766,7 @@ a.id-link:hover { color: var(--accent-text); }
 .blue-post { margin: 8px 0 0; font-size: 13px; }
 
 /* Spawns: positions on the official zone map (the picture is 1002 x 668, the game's own map size) */
-.zone-map { position: relative; margin: 0; aspect-ratio: 1002 / 668; background: var(--surface-2, #1a1a1a); border-radius: var(--radius); overflow: hidden; }
+.zone-map { --ratio: 1.5; position: relative; margin: 0 auto; aspect-ratio: var(--ratio); width: min(100%, calc((100vh - 200px) * var(--ratio))); background: var(--surface-2); border-radius: var(--radius); overflow: hidden; }
 .zone-map img { display: block; width: 100%; height: 100%; object-fit: fill; }
 .zone-map-pins { position: absolute; inset: 0; pointer-events: none; }
 .zone-map-pin { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #f5c542; border: 2px solid #1b1b1b; box-shadow: 0 0 0 2px rgba(245, 197, 66, .45); }

@@ -40,7 +40,9 @@ check(count($asked) === 1, 'and kept');
 check(maps_image(9999, $get, $ui, $dir) === null && count($asked) === 1, 'a map the client does not draw is never asked for');
 $bad = function (string $url) use (&$asked) { $asked[] = $url; return [200, '<html>not a map</html>']; };
 check(maps_image(1414, $bad, $ui, $dir) === null && !is_file("$dir/70959/1414.png"), 'an answer that is not a PNG is not kept');
-check(maps_image(1414, $get, $ui, $dir) === null && count($asked) === 2, 'and not asked again for a day');
+check(maps_image(1414, $get, $ui, $dir) === null && count($asked) === 2, 'and not asked again at once');
+touch("$dir/70959/1414.failed", time() - MAPS_RETRY_AFTER - 1);
+check(maps_image(1414, $get, $ui, $dir) === "$dir/70959/1414.png" && count($asked) === 3, 'but again once the wait is over, and kept then');
 $down = function (string $url) { return [500, null]; };
 check(maps_image(2548, $down, $ui, $dir) === null, 'a failed download is no picture');
 

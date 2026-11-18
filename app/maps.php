@@ -8,7 +8,8 @@
 
 const MAPS_IMAGES = 'https://wago.tools/api/map/{id}?product={product}&explored=1';   // with towns and roads
 const MAPS_MAX_BYTES = 16 * 1024 * 1024;
-const MAPS_RETRY_AFTER = 86400;   // a picture that could not be had is asked for again a day later
+const MAPS_RETRY_AFTER = 600;     // a picture that could not be had is asked for again 10 minutes later
+const MAPS_TIMEOUT = 90;          // wago.tools draws a map the first time it is asked for: that can take a while
 
 function maps_file(): string { return FT_ROOT . '/data/ui-maps.json'; }
 function maps_dir(): string { return FT_ROOT . '/data/maps'; }
@@ -107,7 +108,7 @@ function maps_image(int $id, ?callable $get = null, ?array $ui = null, ?string $
 
 function maps_download(string $url): array
 {
-    $context = stream_context_create(['http' => ['timeout' => 30, 'ignore_errors' => true,
+    $context = stream_context_create(['http' => ['timeout' => MAPS_TIMEOUT, 'ignore_errors' => true,
         'header' => "User-Agent: ForeverTracker/1.3 (private server admin tool)\r\nAccept: image/png\r\n"]]);
     $body = @file_get_contents($url, false, $context, 0, MAPS_MAX_BYTES + 1);
     $status = 0;
