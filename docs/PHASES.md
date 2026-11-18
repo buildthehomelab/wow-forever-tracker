@@ -28,7 +28,7 @@ It stays out of the coverage figures and the work list, but you can still browse
 | `source` | Where the date or the list comes from (shown on hover) |
 | `maps` | Instances, by English name or map id |
 | `npcs` | Creatures, by id or English name (world bosses, event creatures outside an instance) |
-| `objects`, `quests`, `items` | Ids, for what the rules below miss |
+| `objects`, `quests`, `items`, `spells` | Ids, for what the rules below miss (a spell nothing teaches on the live game yet) |
 
 You only list the instances. The analysis works out the rest from the server's data:
 
