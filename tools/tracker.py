@@ -128,6 +128,16 @@ def client_check(args):
     sys.exit(subprocess.call([sys.executable, '-X', 'utf8', '-u', os.path.abspath(__file__), 'analyse'] + (['--wowhead'] if args.wowhead else [])))
 
 
+def extended_costs(args):
+    """Writes the server's ItemExtendedCost rows by what they ask (ft.costs), for the website's import cards."""
+    from ft import costs
+    folder, configured = CONFIG.dbc_folder()
+    if not folder:
+        sys.exit(f'costs: no DB2 files in {configured or "[server] dbc"}')
+    with open(args.out, 'w', encoding='utf-8') as handle:
+        json.dump(costs.load(folder), handle, sort_keys=True)
+
+
 def refresh_quests(args):
     """Compares the quests the server has with EG Link's newest recording of the live game and writes what differs,
     as changes for an import card (ft.refresh, docs/SOURCES.md). Called by the website's EG Link import."""
@@ -798,6 +808,8 @@ def main():
     again.add_argument('what', choices=['quests'])
     again.add_argument('--eglink', required=True, metavar='COMMIT', help='the EG Link commit to read')
     again.add_argument('--out', required=True, metavar='FILE', help='where the changes are written, as JSON')
+    costs_parser = sub.add_parser('costs', help="the server's ItemExtendedCost rows by what they ask, for vendor rows paid with currencies or items (the website's import cards)")
+    costs_parser.add_argument('--out', required=True, metavar='FILE', help='where they are written, as JSON {key: ID}')
     told = sub.add_parser('reports', help="players' reports (a ForeverChanges pack) as evidence for the website's import card")
     told.add_argument('--pack', required=True, metavar='FILE', help='the pack tools/foreverchanges_pull.py made')
     told.add_argument('--out', required=True, metavar='FILE', help='where the evidence is written, as JSON')
@@ -866,6 +878,8 @@ def main():
         notes_command(args)
     elif args.command == 'refresh':
         refresh_quests(args)
+    elif args.command == 'costs':
+        extended_costs(args)
     elif args.command == 'reports':
         player_reports(args)
     elif args.command == 'classic':

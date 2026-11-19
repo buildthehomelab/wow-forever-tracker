@@ -444,7 +444,7 @@ function import_build(int $id, array $only = [], array $items = []): array
     $itemSet = $items ? array_flip(array_map('intval', $items)) : null;
     if ($itemSet !== null) {
         // only what makes these items obtainable: their loot rows, vendor rows and the quests that reward them
-        $tables = array_intersect_key($tables, array_flip(['creature_loot_template', 'gameobject_loot_template', 'skinning_loot_template', 'pickpocketing_loot_template', 'npc_vendor', 'quest_template']));
+        $tables = array_intersect_key($tables, array_flip(['creature_loot_template', 'gameobject_loot_template', 'skinning_loot_template', 'pickpocketing_loot_template', 'item_loot_template', 'npc_vendor', 'quest_template']));
     }
     // the newer word wins: rows the server already has take this card's values, and spawns it places a few yards off
     // are moved there, wherever the row's writer (ft_row_origin, a loot row's Comment, else the core) is not more

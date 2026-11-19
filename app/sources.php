@@ -92,18 +92,27 @@ function source_trainer_npcs(): array
 }
 
 /** The loot table each kind of drop goes to. */
-const SOURCE_LOOT_TABLES = ['npc' => 'creature_loot_template', 'skin' => 'skinning_loot_template', 'pick' => 'pickpocketing_loot_template', 'go' => 'gameobject_loot_template'];
+const SOURCE_LOOT_TABLES = ['npc' => 'creature_loot_template', 'skin' => 'skinning_loot_template', 'pick' => 'pickpocketing_loot_template', 'go' => 'gameobject_loot_template',
+    'item' => 'item_loot_template'];
 /** The creature_template_difficulty column that points a creature to each of its tables. */
 const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' => 'PickPocketLootID'];
 
 /**
- * The loot entries of these creatures and objects: [[kind => [id => entry, 0 when the creature has no table of that
- * kind yet]], [known => ['npc' => [id => true], 'go' => [id => true]]]]. An object has an entry only as a chest or a
- * gathering node (types 3 and 25, Data1).
+ * The loot entries of these creatures, objects and containers: [[kind => [id => entry, 0 when the creature has no
+ * table of that kind yet]], [known => ['npc' => [id => true], 'go' => [id => true], 'item' => [id => true]]]]. An
+ * object has an entry only as a chest or a gathering node (types 3 and 25, Data1). A container is known only when the
+ * server already opens it (item_loot_template has rows under its number): whether an item can be opened at all is
+ * the client's word (its flags), which no row here can give.
  */
-function source_loot_entries(array $npcs, array $objects): array
+function source_loot_entries(array $npcs, array $objects, array $containers = []): array
 {
-    $entryOf = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []]; $known = ['npc' => [], 'go' => []];
+    $entryOf = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []]; $known = ['npc' => [], 'go' => [], 'item' => []];
+    foreach (array_chunk(array_values(array_unique(array_map('intval', $containers))), 1000) as $chunk) {
+        foreach (rows('SELECT DISTINCT Entry FROM item_loot_template WHERE Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
+            $known['item'][(int)$r['Entry']] = true;
+            $entryOf['item'][(int)$r['Entry']] = (int)$r['Entry'];
+        }
+    }
     foreach (array_chunk(array_values(array_unique(array_map('intval', $npcs))), 1000) as $chunk) {
         foreach (rows('SELECT Entry, LootID, SkinLootID, PickPocketLootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
             $known['npc'][(int)$r['Entry']] = true;
@@ -150,8 +159,15 @@ function source_tables(array $ev, string $label, array $gaps): array
     $in = fn(array $list) => implode(',', array_map('intval', array_values(array_unique($list)))) ?: '0';
 
     // ---- vendors
-    $sells = [];
-    foreach ($ev['sell'] ?? [] as [$npc, $item, $stock]) if (isset($gaps['items'][(int)$item])) $sells[(int)$npc][(int)$item] = (int)$stock;
+    $sells = []; $asks = [];
+    foreach ($ev['sell'] ?? [] as $s) {
+        [$npc, $item, $stock] = $s;
+        if (!isset($gaps['items'][(int)$item])) continue;
+        $sells[(int)$npc][(int)$item] = (int)$stock;
+        // paid with currencies or items (Wowhead's sold-by cost, keyed as ft/costs.py keys ItemExtendedCost)
+        if (is_string($s[3] ?? null) && $s[3] !== '') $asks[(int)$npc][(int)$item] = $s[3];
+    }
+    $extended = $asks ? source_extended_costs() : [];
     $creatures = $ids('SELECT entry FROM creature_template WHERE entry IN (' . $in(array_keys($sells)) . ')');
     $sold = array_merge(...array_map('array_keys', array_values($sells)) ?: [[]]);
     $costs = [];
@@ -159,20 +175,26 @@ function source_tables(array $ev, string $label, array $gaps): array
     foreach ($sells as $npc => $list) {
         if (!isset($creatures[$npc])) { $left['vendor_unknown'] += count($list); continue; }
         foreach ($list as $item => $stock) {
+            $cost = $costs[$item] ?? 0;
+            if (isset($asks[$npc][$item])) {
+                // the server's own ItemExtendedCost that asks exactly this; none: the row would sell it for money alone
+                $cost = $extended[$asks[$npc][$item]] ?? 0;
+                if (!$cost) { $left['cost_unknown'] = ($left['cost_unknown'] ?? 0) + 1; continue; }
+            }
             $rows['npc_vendor'][] = ['entry' => $npc, 'slot' => 0, 'item' => $item, 'maxcount' => max(0, $stock), 'incrtime' => $stock > 0 ? 3600 : 0,
-                'ExtendedCost' => $costs[$item] ?? 0, 'type' => 1, 'VerifiedBuild' => $build];
+                'ExtendedCost' => $cost, 'type' => 1, 'VerifiedBuild' => $build];
         }
     }
 
-    // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go')
-    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []];
+    // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go'), a container ('item')
+    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []];
     foreach ($ev['drop'] ?? [] as [$kind, $id, $item, $chance]) {
         // a source that may fill any item ('any_item': QuestieDB, which ranks after Wowhead alone) chose its items itself
         if ((empty($ev['any_item']) && !isset($gaps['items'][(int)$item])) || !isset($drops[$kind])) continue;
         $old = $drops[$kind][(int)$id][(int)$item] ?? 0;
         $drops[$kind][(int)$id][(int)$item] = max($old, (float)$chance);   // a source seen in several builds: its best measure
     }
-    [$entryOf, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']));
+    [$entryOf, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']), array_keys($drops['item']));
     $questItems = $ids('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1');
     $gives = [];
     // a creature without a table of that kind is checked under its own entry (where its rows go); an object only as a chest or node
@@ -181,7 +203,8 @@ function source_tables(array $ev, string $label, array $gaps): array
     foreach ($drops as $kind => $sources) {
         $table = SOURCE_LOOT_TABLES[$kind];
         foreach ($sources as $id => $list) {
-            if (!isset($known[$kind === 'go' ? 'go' : 'npc'][$id])) { $left[$kind === 'go' ? 'object_no_loot' : 'loot_unknown_creature'] += count($list); continue; }
+            if ($kind === 'item' && !isset($known['item'][$id])) { $left['container_no_loot'] = ($left['container_no_loot'] ?? 0) + count($list); continue; }
+            if ($kind !== 'item' && !isset($known[$kind === 'go' ? 'go' : 'npc'][$id])) { $left[$kind === 'go' ? 'object_no_loot' : 'loot_unknown_creature'] += count($list); continue; }
             if ($kind === 'go' && empty($entryOf['go'][$id])) { $left['object_no_loot'] += count($list); continue; }
             // a creature without a table of its own gets one under its entry: applying the card points the template to it
             $entry = $entryOf[$kind][$id] ?: $id;
@@ -208,6 +231,19 @@ function source_tables(array $ev, string $label, array $gaps): array
             if (!isset($templates[$kind][(int)$id])) { $left['quest_unknown']++; continue; }
             $rows[($kind === 'npc' ? 'creature_' : 'gameobject_') . $suffix][] = ['id' => (int)$id, 'quest' => (int)$quest, 'VerifiedBuild' => $build];
         }
+    }
+
+    // ---- quest rewards: a free reward slot of a quest the server has, filled (never one that holds an item already)
+    $changes = [];
+    $rewards = array_values(array_filter($ev['reward'] ?? [], fn($r) => is_array($r) && isset($gaps['items'][(int)($r[1] ?? 0)])));
+    if ($rewards) {
+        $columns = 'ID, ' . implode(', ', array_merge(...array_map(fn($n) => ["RewardItem$n", "RewardAmount$n"], range(1, 4)), ...array_map(fn($n) => ["RewardChoiceItemID$n", "RewardChoiceItemQuantity$n"], range(1, 6))));
+        $questRows = [];
+        foreach (array_chunk(array_values(array_unique(array_map(fn($r) => (int)$r[0], $rewards))), 1000) as $chunk) {
+            foreach (rows("SELECT $columns FROM quest_template WHERE ID IN (" . implode(',', $chunk) . ')', [], 'world') as $r) $questRows[(int)$r['ID']] = $r;
+        }
+        [$changes, $rewardLeft] = source_reward_changes($rewards, $questRows, $gaps['later']['quests'] ?? []);
+        foreach ($rewardLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
     }
 
     // ---- trainers
@@ -273,7 +309,56 @@ function source_tables(array $ev, string $label, array $gaps): array
         $use = array_values(array_intersect(array_keys($records[0]), $columns));
         $tables[$table] = ['db' => 'world', 'columns' => $use, 'groups' => [['columns' => $use, 'rows' => array_map(fn($r) => array_map(fn($c) => $r[$c], $use), $records)]]];
     }
-    return [$tables, array_filter($left)];
+    return [$tables, array_filter($left), $changes];
+}
+
+/**
+ * Quest rewards ([quest, item, count, 0 fixed | 1 choice]) as Forge "fill" operations on quest_template: each into
+ * the first slot of its kind (RewardItem1-4 with RewardAmount, RewardChoiceItemID1-6 with RewardChoiceItemQuantity)
+ * that is empty on the quest's row ($quests: [ID => row]). Returns [operations, left out]. A fill writes only where
+ * the column is still 0, so a slot another card took in the meantime is left as it is.
+ */
+function source_reward_changes(array $rewards, array $quests, array $later = []): array
+{
+    $left = []; $set = [];
+    $count = function (string $why) use (&$left) { $left[$why] = ($left[$why] ?? 0) + 1; };
+    $slots = [0 => [4, 'RewardItem', 'RewardAmount'], 1 => [6, 'RewardChoiceItemID', 'RewardChoiceItemQuantity']];
+    foreach ($rewards as [$quest, $item, $amount, $choice]) {
+        $quest = (int)$quest; $item = (int)$item; $choice = (int)$choice ? 1 : 0;
+        $row = $quests[$quest] ?? null;
+        if ($row === null) { $count('reward_quest_unknown'); continue; }
+        if (isset($later[$quest])) { $count('reward_phase_not_open'); continue; }
+        $has = false;
+        foreach ($slots as [$n, $itemColumn]) for ($i = 1; $i <= $n; $i++) if ((int)($row["$itemColumn$i"] ?? 0) === $item) $has = true;
+        if ($has) { $count('reward_known'); continue; }
+        [$n, $itemColumn, $amountColumn] = $slots[$choice];
+        $free = 0;
+        for ($i = 1; $i <= $n && !$free; $i++) if (!(int)($row["$itemColumn$i"] ?? 0)) $free = $i;
+        if (!$free) { $count('reward_no_free_slot'); continue; }
+        $quests[$quest]["$itemColumn$free"] = $item;   // the next reward of the same quest takes the next slot
+        $set["$itemColumn$free"][] = [$quest, $item];
+        $set["$amountColumn$free"][] = [$quest, max(1, (int)$amount)];
+    }
+    $ops = [];
+    foreach ($set as $column => $rows) $ops[] = ['db' => 'world', 'table' => 'quest_template', 'columns' => ['ID', $column], 'match' => ['ID'], 'set' => $column, 'fill' => $column, 'rows' => $rows];
+    return [$ops, $left];
+}
+
+/** The server's ItemExtendedCost rows by what they ask ({"c<currency>x<n>,i<item>x<n>": ID}, ft/costs.py), read once
+ *  a request from the worldserver's DB2 files ([server] dbc) by tools/tracker.py costs. [] when it cannot be run. */
+function source_extended_costs(): array
+{
+    static $costs = null;
+    if ($costs !== null) return $costs;
+    @mkdir(import_dir(), 0775, true);
+    $out = import_dir() . '/extended-costs-' . getmypid() . '.json';
+    $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
+    $lines = []; $code = 1;
+    if (function_exists('exec')) @exec(escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/tracker.py') . ' costs --out ' . escapeshellarg($out) . ' 2>&1', $lines, $code);
+    $read = $code === 0 && is_file($out) ? json_decode((string)file_get_contents($out), true) : null;
+    @unlink($out);
+    if (!is_array($read)) error_log('Forever Tracker: the server\'s ItemExtendedCost could not be read: ' . mb_substr(implode(' | ', array_slice($lines, -3)), 0, 400));
+    return $costs = array_map('intval', array_filter(is_array($read) ? $read : [], fn($v, $k) => is_string($k) && is_numeric($v), ARRAY_FILTER_USE_BOTH));
 }
 
 // ------------------------------------------------------------------ rows the server already has, measured again
@@ -376,13 +461,13 @@ function source_drop_changes(string $source, array $measured, array $current, fl
 /** The server's drop rows for the creatures and chests of the evidence, and the evidence keyed like them: [measured, current]. */
 function source_drops_now(array $ev): array
 {
-    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => []];
+    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []];
     foreach ($ev['drop'] ?? [] as $d) {
         [$kind, $id, $item, $chance] = $d;
         if (!empty($d[4]) || !isset($drops[$kind])) continue;   // an even share AtlasLoot guessed is no measure
         $drops[$kind][(int)$id][(int)$item] = max($drops[$kind][(int)$id][(int)$item] ?? 0, (float)$chance);
     }
-    [$found, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']));
+    [$found, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']), array_keys($drops['item']));
     $measured = []; $current = [];
     foreach (SOURCE_LOOT_TABLES as $kind => $table) {
         // a creature's table under its own entry when its template names none (an import made it so); an object only as a chest or node
@@ -570,7 +655,8 @@ function source_card(string $source, string $name, string $file, array $tables, 
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = count($entry['groups'][0]['rows']);
     // values measured again: one line of the card each ("creature_loot_template.Chance"), ticked or not like a table
     $moved = 0;
-    foreach ($changes as $op) { $counts[$op['table'] . '.' . $op['set']] = count($op['rows']); $moved += count($op['rows']); }
+    // a fill (a quest's empty reward slot) is a new value, not one measured again
+    foreach ($changes as $op) { $counts[$op['table'] . '.' . $op['set']] = count($op['rows']); if (empty($op['fill'])) $moved += count($op['rows']); }
     $name .= ' · ' . (SOURCES[$source][1] ?? '');
     rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
     $id = (int)db()->insert_id;

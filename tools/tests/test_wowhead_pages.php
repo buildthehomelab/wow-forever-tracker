@@ -36,10 +36,10 @@ $quests = [
 
 check($newest === 3000, 'the newest page dates the card');
 check($ev['drop'] === [['npc', 939, 100, 12.3913], ['npc', 981, 100, 100.0], ['go', 7001, 100, 75.0], ['npc', 12, 700, 10.0]], 'counted drops: creature and chest, the chance is drops over loots');
-check($ev['sell'] === [[3413, 200, 0], [3414, 200, 2]], 'vendors paid with money: unlimited and limited stock');
+check($ev['sell'] === [[3413, 200, 0], [3414, 200, 2], [3415, 200, 0, 'c1901x30'], [3416, 200, 0, 'i20558x3']], 'vendors paid with money: unlimited and limited stock; a currency or items: what it asks, keyed as ft/costs.py: ' . json_encode($ev['sell']));
 check($ev['start'] === [['npc', 253812, 10], ['npc', 1, 12], ['npc', 2, 12]] && $ev['end'] === [['go', 180001, 10], ['npc', 7, 11]], 'quest givers and enders by number, an object as an object');
-check($ev['left'] === ['wowhead_item_unknown' => 1, 'wowhead_no_source' => 1, 'wowhead_only_other_source' => 1, 'wowhead_drop_world' => 18, 'wowhead_drop_few' => 2,
-    'wowhead_drop_not_counted' => 1, 'wowhead_vendor_other_cost' => 3, 'wowhead_quest_unknown' => 1, 'wowhead_quest_started_by_item' => 1], 'what was left out is counted for the gap items only: ' . json_encode($ev['left']));
+check($ev['left'] === ['wowhead_item_unknown' => 1, 'wowhead_no_source' => 1, 'wowhead_only_quest_reward' => 1, 'wowhead_drop_world' => 18, 'wowhead_drop_few' => 2,
+    'wowhead_drop_not_counted' => 1, 'wowhead_vendor_other_cost' => 1, 'wowhead_quest_unknown' => 1, 'wowhead_quest_started_by_item' => 1], 'what was left out is counted for the gap items only: ' . json_encode($ev['left']));
 check(!array_filter($ev['drop'], fn($d) => $d[3] > 100), 'no chance above 100 (more drops than loots, several in one corpse, is capped)');
 
 // a gap item seen dropping once only: that rate is written when nothing better gives it (Blue Suede Shoulders, 1 in 158)
@@ -49,6 +49,26 @@ $seen = [800 => ['id' => 800, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['d
 [$evSeen] = wowhead_pages_evidence($seen, [], array_fill_keys([800, 801], true));
 check($evSeen['drop'] === [['npc', 1831, 800, 0.6329]], 'a sighting of an item nothing else gives, on ten loots or more; not one a vendor gives, not one that is no gap: ' . json_encode($evSeen['drop']));
 check($evSeen['left'] === ['wowhead_drop_few' => 2], 'the sighting on five loots and the one a vendor makes needless are left out: ' . json_encode($evSeen['left']));
+
+// ---- skinning, pick pocketing, containers, quest rewards and the other tabs
+$more = [
+    1000 => ['id' => 1000, 'fetched' => 1000, 'status' => 'ok', 'tabs' => [
+        'skinned-from' => $tab([['id' => 2001, 'count' => 40, 'outof' => 200]]),
+        'pick-pocketed-from' => $tab([['id' => 2002, 'count' => 3, 'outof' => 30]]),
+        'contained-in-item' => $tab([['id' => 190001, 'count' => 25, 'outof' => 100]])]],
+    // a fixed reward of 2 and a choice; a row that names the item in neither list; a quest that is no gap's
+    1001 => ['id' => 1001, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['reward-from-q' => ['template' => 'quest', 'rows' => [
+        ['id' => 81000, 'itemrewards' => [[1001, 2], [5, 1]]], ['id' => 81001, 'itemchoices' => [[7, 1], [1001, 1]]], ['id' => 81002, 'itemrewards' => [[9, 1]]]]]]],
+    1002 => ['id' => 1002, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['reward-from-q' => ['template' => 'quest', 'rows' => [['id' => 81003]]], 'created-by' => $tab([['id' => 3]])]],
+    1003 => ['id' => 1003, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['fished-in' => $tab([['id' => 40, 'count' => 9, 'outof' => 90]])]],
+    1004 => ['id' => 1004, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['reward-from-q' => ['template' => 'quest', 'rows' => [['id' => 81004]]]]],
+    1005 => ['id' => 1005, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['reward-from-q' => ['template' => 'quest', 'rows' => [['id' => 81005, 'itemrewards' => [[1005, 1]]]]]]],
+];
+[$evMore] = wowhead_pages_evidence($more, [], array_fill_keys([1000, 1001, 1002, 1003, 1004], true));
+check($evMore['drop'] === [['skin', 2001, 1000, 20.0], ['pick', 2002, 1000, 10.0], ['item', 190001, 1000, 25.0]], 'skinning, pick pocketing and a container: counted like a corpse: ' . json_encode($evMore['drop']));
+check($evMore['reward'] === [[81000, 1001, 2, 0], [81001, 1001, 1, 1]], 'quest rewards of gap items: the quest, the item, how many, fixed (0) or a choice (1): ' . json_encode($evMore['reward']));
+check($evMore['left'] === ['wowhead_only_craft' => 1, 'wowhead_only_fishing' => 1, 'wowhead_only_quest_reward' => 1], 'a craft first, fishing, a reward whose row names no slot: counted apart: ' . json_encode($evMore['left']));
+check(wowhead_pages_cost_key([0, [[1901, 30]], [[20558, 3], [17, 2]]]) === 'c1901x30,i17x2,i20558x3' && wowhead_pages_cost_key([500]) === '' && wowhead_pages_cost_key([0, 'x', []]) === null, 'a cost\'s key, sorted as ft/costs.py sorts it');
 
 // ---- npc and object pages: whole loot tables, vendors, quests
 $npcPages = [
@@ -78,11 +98,11 @@ $keepItems = $gapsPlus;   // 999: neither a gap nor an import's drop
 check($newest2 === 4000, 'npc and object pages date the card too (a page Wowhead does not have does not)');
 $drop2 = array_map(fn($d) => implode(':', $d), $ev2['drop']);
 sort($drop2);
-check($drop2 === ['go:1731:907:1.0443', 'go:2843:906:16.3084', 'go:7001:100:75', 'npc:12:700:10', 'npc:939:100:12', 'npc:981:100:100'], 'drops of npc and object pages, the better counted of two pages: ' . json_encode($drop2));
-check(in_array([250484, 902, 0], $ev2['sell'], true) && !array_filter($ev2['sell'], fn($s) => in_array($s[1], [903, 999], true)), 'an npc page\'s stock: money as the first way to pay; a currency left out, an item worth no row not kept');
+check($drop2 === ['go:1731:907:1.0443', 'go:2843:906:16.3084', 'go:7001:100:75', 'npc:12:700:10', 'npc:939:100:12', 'npc:981:100:100', 'skin:250484:904:25'], 'drops of npc and object pages, the better counted of two pages; an npc page\'s skinning too: ' . json_encode($drop2));
+check(in_array([250484, 902, 0], $ev2['sell'], true) && in_array([250484, 903, 0, 'i22484x15'], $ev2['sell'], true) && !array_filter($ev2['sell'], fn($s) => $s[1] === 999), 'an npc page\'s stock: money as the first way to pay; items with what they ask, an item worth no row not kept');
 check(in_array(['npc', 250484, 5504], $ev2['start'], true) && in_array(['npc', 250484, 5524], $ev2['start'], true) && in_array(['npc', 250484, 5504], $ev2['end'], true) && in_array(['go', 2843, 7000], $ev2['start'], true), 'quests an npc or object page starts and ends');
-check(($ev2['left']['wowhead_drop_world'] ?? 0) === 18 + 15 && ($ev2['left']['wowhead_other_loot'] ?? 0) === 1 && ($ev2['left']['wowhead_drop_few'] ?? 0) === 2 && ($ev2['left']['wowhead_vendor_other_cost'] ?? 0) === 4
-    && ($ev2['left']['wowhead_drop_item_page_not_read'] ?? 0) === 2, 'left out: 15 creatures\' world drop, skinning, too few, another cost, a gap item whose own page is not read: ' . json_encode($ev2['left']));
+check(($ev2['left']['wowhead_drop_world'] ?? 0) === 18 + 15 && !isset($ev2['left']['wowhead_other_loot']) && ($ev2['left']['wowhead_drop_few'] ?? 0) === 2 && ($ev2['left']['wowhead_vendor_other_cost'] ?? 0) === 1
+    && ($ev2['left']['wowhead_drop_item_page_not_read'] ?? 0) === 2, 'left out: 15 creatures\' world drop, too few, a cost that cannot be read, a gap item whose own page is not read: ' . json_encode($ev2['left']));
 // once the item's page is read, the creature's page gives the drop
 $withPage = $items + [900 => ['id' => 900, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 250484, 'count' => 20, 'outof' => 900]])]]];
 [$ev3] = wowhead_pages_evidence($withPage, [], $gapsPlus, $npcPages, [], $keepItems);
@@ -296,5 +316,26 @@ check($st === 403 && str_contains($out, 'not allowed'), 'the crawler endpoint: p
 $listed = [1 => ['key' => 'first-raids'], 2 => ['key' => 'not-out', 'wowhead_no_source' => [263505, '5', 0]], 3 => ['key' => 'open', 'wowhead_no_source' => [7]]];
 check(wowhead_pages_unsourced_later($listed, [1, 2]) === [263505 => true, 5 => true], 'a closed phase\'s items without a source on Wowhead go back in the crawl; an open phase\'s do not');
 check(wowhead_pages_unsourced_later($listed, []) === [], 'every phase open: nothing');
+
+
+// ---- pages asked for by hand, a creature page's model, reading kept pages back
+$wf = tempnam(sys_get_temp_dir(), 'want');
+@unlink($wf);
+check(wowhead_wanted($wf) === [], 'no file: nothing asked for');
+wowhead_wanted_set('npc', [247195, '247198', 0, -3, 247195], false, $wf);
+$all = wowhead_wanted_set('npc', [247206], false, $wf);
+check($all === ['npc' => [247195, 247198, 247206]], 'ids added once, bad ones dropped: ' . json_encode($all));
+check(wowhead_wanted_set('npc', [1], true, $wf) === ['npc' => [1]], 'replace keeps only the new list');
+$thrown = false; try { wowhead_wanted_set('spell', [1], false, $wf); } catch (InvalidArgumentException $e) { $thrown = true; }
+check($thrown, 'an unknown kind is refused');
+@unlink($wf);
+$clean = wowhead_pages_clean(['kind' => 'npc', 'id' => 247195, 'fetched' => 1795000000, 'v' => 2, 'status' => 'ok', 'quick' => [], 'tabs' => [], 'model' => [140708, 'x', 0, 5435]]);
+check(($clean['model'] ?? null) === [140708, 5435], 'a model list keeps its positive numbers: ' . json_encode($clean['model'] ?? null));
+$gd = sys_get_temp_dir() . '/whp-' . getmypid();
+@mkdir($gd);
+file_put_contents("$gd/npc.jsonl", '{"id":247195,"fetched":1795000000,"v":2,"status":"ok","quick":[],"tabs":{},"model":[140708]}' . "\n" . '{"id":5,"fetched":1795000000,"v":2,"status":"ok","quick":[],"tabs":{}}' . "\n");
+$got = wowhead_pages_get('npc', [247195, 9], [$gd]);
+check(array_keys($got) === [247195] && $got[247195]['model'] === [140708], 'read back: only the ids asked for that were read');
+@unlink("$gd/npc.jsonl"); @rmdir($gd);
 
 ft_test_done();

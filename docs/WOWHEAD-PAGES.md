@@ -27,6 +27,8 @@ Facts lines (`Level: 13`, `Start: [url=/forever/npc=253812]`) with the text of t
 Names, descriptions, quest text, comments, screenshots and guides are never kept: the crawler drops every text value
 before it stores a row, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both.
 A page Wowhead does not have is kept as `"status": "missing"`, so that it is not asked again.
+A creature's or object's page also keeps the model display ids its model viewer shows (`"model": [140708]`, record
+version 2): a creature the server has no template for needs one.
 
 ## Reading pages
 
@@ -111,6 +113,13 @@ tracker instead:
    the cards again when they are due.
 
 ## What is read first
+
+Pages asked for by hand come before everything: `data/wowhead-wanted.json` (`{"npc": [247195, ...]}`; kinds npc,
+object, item, quest), set with the admin call `POST api/imports {"action": "wowhead_wanted", "kind": "npc", "ids":
+[...], "replace": false}`. That is for content no gap names yet, such as the creatures of a dungeon being built; the
+next crawler load (the extension loads it after every page) reads them first (tier `wanted`), and a page read and not
+due again leaves the list by itself. `{"action": "wowhead_pages_get", "kind": "npc", "ids": [...]}` returns the kept
+pages of those ids.
 
 A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first
 (the crawler's `TIERS`; `WHC.status()` counts the queue by tier):
@@ -233,15 +242,19 @@ repository. From the pages it takes:
 |---|---|---|
 | `creature_loot_template` | an item page's *Dropped by* tab, an npc page's *Drops* | the item is a gap; players looted that creature at least 10 times and saw the item at least twice (the chance is drops over loots). Where both pages count the same drop, the one that counted more loots wins. An item 15 or more creatures drop, by its own page or by the npc pages read, is a world drop and is left out. A new row from an npc page alone waits for the item's own page (until every npc page is read, only it tells a world drop from a creature's own loot); a row an import brought is measured again without it |
 | `gameobject_loot_template` | *Contained in (object)*, *Mined from*, *Gathered from*; an object page's *Contains*, *Mining*, *Herbalism* | the same counts (a chest's page gives its openings once, as the tab's total); the object is a chest on the server |
-| `npc_vendor` | *Sold by*, an npc page's *Sells* | the price is money only (on an npc page: the first way to pay). Stock paid with a currency or with items is left out, unless another vendor of the server already sells the item for that cost |
+| `skinning_loot_template`, `pickpocketing_loot_template` | *Skinned from*, *Pick pocketed from*; an npc page's *Skinning*, *Pickpocketing* | the same counts; the creature is on the server (a creature without a table of that kind gets one under its entry, and applying the card points its template to it) |
+| `item_loot_template` | *Contained in (item)* | the same counts; the server already opens the container (it has rows of its own there: whether an item opens at all is the client's word) |
+| `npc_vendor` | *Sold by*, an npc page's *Sells* | money only (on an npc page: the first way to pay), or paid with currencies or items when one of the server's own ItemExtendedCost rows asks exactly that and nothing else (`tracker.py costs` reads them from `[server] dbc`; the lowest ID of a kind). A cost no row asks is left out and counted |
+| `quest_template` reward slots | an item page's *Reward from* tab: each quest row names the item among its fixed rewards or its choices, with the count | the quest is on the server, its phase is open, it does not give the item yet; the item goes into the first empty slot of that kind (RewardItem1-4 with RewardAmount, RewardChoiceItemID1-6 with RewardChoiceItemQuantity) as a fill: a slot that holds an item is never replaced, and none free is counted |
 | `creature_queststarter`, `gameobject_queststarter`, `..._questender` | a quest page's Quick Facts *Start* and *End*; an npc or object page's *Starts* and *Ends* | the quest has no giver (or no ender); the creature or object is on the server. By id, not by name |
 
 The npc and object pages are read a line at a time (a whole crawl is tens of thousands of pages), and of their drops
 and stock only the items worth a row are kept: the gaps, and the items of drop rows an import brought, which are
 measured again (the cache itself keeps every row).
 
-Not written, and counted on the card: an npc's skinning and pick pocketing loot (tables of their own); items Wowhead only knows as a quest reward, a craft, the content of another
-item, or from skinning, pick pocketing and fishing; drops without counts.
+Not written, and counted on the card: items Wowhead only knows as crafted (the recipe is the gap), from fishing (a
+zone's table), from disenchanting, prospecting, milling or salvaging; quest rewards whose row says neither fixed nor
+choice; drops without counts.
 
 **Rows the server already has** are measured again, as for the other sources: where a drop an import brought has
 another chance on Wowhead now, the card proposes it (*Creature drop chances that moved*). Wowhead is the most trusted
