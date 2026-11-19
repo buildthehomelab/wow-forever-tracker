@@ -140,6 +140,13 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         granted = ctx.get('granted_spells', ())
         trained = {spell for _trainer, spell in ctx.get('trainer_spells', ())}
         batch = Batch(out, 'ft_entities_new')
+        # The titles of the quests players can do: a copy nobody gives under the same title is an older number the
+        # game moved on from (the Strange Water Globe starts Baron Aquanis 6922, not 909; the Arena Master trinket 7810)
+        done_titles = {}
+        for (kind, entity_id), (status, _score, _checks) in results.items():
+            title = ((ctx or {}).get('quests', {}).get(entity_id) or {}).get('LogTitle') if kind == 'quest' and status == 'ok' else None
+            if title:
+                done_titles.setdefault(title, set()).add(entity_id)
         for (kind, entity_id), (status, score, checks) in results.items():
             entity = content[kind][entity_id]
             name = entity.get('name') or ''
@@ -169,6 +176,12 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # purpose (Rokar Bladeshadow, Da Foo, Kill 'Em With Sleep Deprivation), not content waiting for a fix.
                 failed = {c['code'] for c in checks if not c['ok']}
                 if {'enabled', 'starter'} <= failed:
+                    internal = 1
+                if 'starter' in failed and done_titles.get(name_en, set()) - {entity_id}:
+                    internal = 1
+                # started only by an item the client itself marks unused ("<UNUSED> Glyphic Rune")
+                start_item = content.get('item', {}).get((ctx or {}).get('start_quest_item', {}).get(entity_id)) or {}
+                if 'starter' in failed and named_internal(start_item.get('name_en') or start_item.get('name')):
                     internal = 1
                 if not name:
                     data['unnamed'] = True
