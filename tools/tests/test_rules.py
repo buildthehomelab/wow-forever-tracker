@@ -315,6 +315,32 @@ class AchievementRewards(unittest.TestCase):
         self.assertEqual(self.reward({'reward': '', 'reward_item': 0}), ('ok', []))
 
 
+class HowAMountIsLearned(unittest.TestCase):
+    """A mount's spell is learned the same ways as any spell: the paladin's and the warlock's mounts are quest rewards."""
+
+    def mount(self, **over):
+        ctx = world(**over)
+        results = evaluate({'mount': {84: {'spell': 23214}}, 'spell': {23214: {'sub': 'mount'}}, 'quest': {7647: {}}}, ctx)
+        check = next(c for c in results[('mount', 84)][2] if c['code'] == 'obtainable')
+        return results[('mount', 84)][0], check['detail']['en']
+
+    def test_a_quest_reward(self):
+        given = dict(quests={7647: quest_row(RewardSpell=23214)}, q_start_npc=[(100, 7647)], q_end_npc=[(100, 7647)], spawned_npc={100},
+                     quest_turn_in_text={7647})
+        self.assertEqual(self.mount(**given), ('ok', 'quest reward'))
+
+    def test_a_quest_nobody_can_do_yet_is_named(self):
+        self.assertEqual(self.mount(quests={7647: quest_row(RewardSpell=23214)}), ('missing', 'Reward of quest 7647, which players cannot do yet.'))
+
+    def test_learned_through_another_spell_or_a_trainer(self):
+        self.assertEqual(self.mount(auto_learn={1}, spell_teaches={(1, 23214)}), ('ok', 'learned through another spell'))
+        self.assertEqual(self.mount(trainers=[(200, 7)], trainer_spells=[(7, 23214)], spawned_npc={200}), ('ok', 'trainer'))
+
+    def test_nothing_teaches_it(self):
+        self.assertEqual(self.mount(), ('missing', 'No item and no trainer.'))
+        self.assertEqual(self.mount(teaches={23214: {5874}}), ('missing', 'Item exists but cannot be obtained: 5874'))
+
+
 class NotContent(unittest.TestCase):
     """Spells listed as internal instead of incomplete: Season of Discovery additions only Season items teach, and
     original spells nothing teaches that the original game taught nowhere either (Classic database pack)."""
