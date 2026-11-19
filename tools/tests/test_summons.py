@@ -80,6 +80,25 @@ class Shapes(unittest.TestCase):
             creatures, _objects, _encounters, _credits = make_summoned.scan(folder)
         self.assertEqual(set(creatures), {10264, 9027, 9028, 9029, 9596})   # no 1, 2, 3 or 11: indexes, a group, a slot
 
+    def test_numbered_boss_slots(self):
+        text = '''
+constexpr Entry Bosses[] = { { 0, 253201 }, { 1, 261811 }, { 1, 253218 }, { 2, 7 } };
+constexpr Spell Spells[] = { { 261811, 1287747 } };
+static constexpr DungeonEncounterData encounters[] = { { 0, {{ 3498 }} }, { 1, {{ 3499 }} }, { 2, {{ 3500 }} } };
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Custom', 'terrace.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(text)
+            # a row in another file of the folder says nothing about this one's numbered slots
+            with open(os.path.join(folder, 'Custom', 'other.cpp'), 'w', encoding='utf-8') as handle:
+                handle.write('constexpr Entry Other[] = { { 0, 99999 } };\n')
+            encounters = make_summoned.scan(folder)[2]
+        self.assertEqual(encounters[3498], {253201})
+        self.assertEqual(encounters[3499], {261811, 253218})   # two creatures, one encounter
+        self.assertNotIn(3500, encounters)                     # 7 is no creature
+
 # zone_silithus.cpp's own helper takes the entry third, sometimes picked at random; tables a summon reads a field of
 SILITHUS = '''
 enum { NPC_TEMPLAR_FIRE = 15209, NPC_TEMPLAR_WATER = 15211, NPC_DUKE_FIRE = 15206, SPELL_TEMPLAR_FIRE = 24748, NPC_HELPER_SPELL_NPC_X = 1 };
