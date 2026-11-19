@@ -50,6 +50,13 @@ def summary(rows, closed):
     return out
 
 
+# Items of the client's own systems, no content players get, checked by hand (2026-11-19): the transmog window's
+# "Hidden" pieces and its UI models, the WoW Token and the Customer Service Package. Wowhead Forever's list pages name
+# no source for any of them.
+SYSTEM_ITEMS = {122270, 122284, 134110, 134111, 134112, 135510, 135522, 135548, 135549, 135550, 142503, 142504, 143539,
+                158329, 168659, 168664, 168665, 172070}
+
+
 def named_internal(name):
     """A placeholder or test name ([PH] Brown Prideclaw, NOT USED); an empty name says nothing either way."""
     return bool(name and INTERNAL_NAME.search(name))
@@ -73,7 +80,7 @@ def filed_internal(item_id, content, results, ctx, wowhead):
     if item is None:
         return False
     name = item.get('name') or ''
-    if INTERNAL_NAME.search(item.get('name_en') or name) or not name:
+    if INTERNAL_NAME.search(item.get('name_en') or name) or not name or item_id in SYSTEM_ITEMS:
         return True
     status = (results.get(('item', item_id)) or ('',))[0]
     if status != 'ok' and item_id < NEW_FROM['item'] and item_id in ((ctx or {}).get('classic_never_given') or ()):

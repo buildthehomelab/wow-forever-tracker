@@ -277,5 +277,16 @@ class TaughtOnlyByInternalItems(unittest.TestCase):
         self.assertEqual(self.internal({5657, 999}, never_given={5657}), 0)
 
 
+class SystemItems(unittest.TestCase):
+    """The client's own system items (transmog's Hidden pieces, the WoW Token) are no content."""
+
+    def test_filed_internal(self):
+        content = {'item': {134110: named('Hidden Helm', quality=1), 122270: named('WoW Token', quality=1), 2589: named('Linen Cloth', quality=1)}}
+        results = {('item', i): ('partial', 50, []) for i in content['item']}
+        self.assertTrue(output.filed_internal(134110, content, results, {}, {}))
+        self.assertTrue(output.filed_internal(122270, content, results, {}, {}))
+        self.assertFalse(output.filed_internal(2589, content, results, {}, {}))
+
+
 if __name__ == '__main__':
     unittest.main()
