@@ -6,7 +6,7 @@ The database knows some summons (SmartAI, summon groups, summoning spells), but 
 `instance->SummonCreature(NPC_GANDLING, ...)`. Such a boss has no spawn row and never will, so without this list
 the analysis calls it missing and the locator offers to spawn it for good.
 
-Three lists:
+Four lists:
   creatures   entry -> script, for every SummonCreature / DoSummon call with a known entry (also a script's own
               helper named Summon...Creature, every entry of an array the call picks from, and what an instance's
               GetCreatureEntry hook swaps a spawn for)
@@ -15,6 +15,8 @@ Three lists:
               `{ DATA_UROK_DOOMHOWL, {{ 271 }} }` joined to the creature of that boss (`{ NPC_X, DATA_X }`,
               `{ ENC_X, 7273 }`, or the constant of the same name, NPC_UROK_DOOMHOWL). It says which creature is the
               boss without comparing names, and it covers a boss the script creates from a variable.
+  credits     entry -> script, for every KilledMonsterCredit / RewardPlayerAndGroupAtEvent call: a quest objective's
+              marker the script credits (Arathi Basin's bases, 15001-15005), which no spawn stands for
 
     python tools/make_summoned.py /path/to/TrinityCore            (reads src/server/scripts)
 
@@ -67,6 +69,9 @@ PAIR = re.compile(r'\{\s*(' + NAME + r'|\d+)\s*,\s*(' + NAME + r'|\d+)\s*(?:,[^{
 SLOT_PREFIX = re.compile(r'^(?:DATA|BOSS|TYPE|ENCOUNTER|ENC|[A-Z0-9]+_ENC)_')
 CREATURE_PREFIXES = ('NPC_', 'ENTRY_', 'BOSS_', 'CREATURE_', 'MOB_')
 MIN_ENTRY = 100   # below that a number is a slot of the instance, not a creature
+# Calls that give a player the kill credit of a creature given as their first argument: a battleground's capture, a
+# script's event. Such a creature is a quest objective's marker that no spawn ever stands for.
+CREDIT = re.compile(r'\b(KilledMonsterCredit|RewardPlayerAndGroupAtEvent)\s*\(')
 
 
 def read(path):
@@ -312,7 +317,23 @@ def scan(scripts):
             for encounter in ids:
                 if entries:
                     encounters.setdefault(encounter, set()).update(entries)
-    return creatures, objects, encounters
+    credits = {}
+    for path in sorted(texts):
+        script = os.path.relpath(path, scripts).replace(os.sep, '/')
+        text = texts[path]
+        for m in CREDIT.finditer(text):
+            if text[:m.start()].rstrip().endswith(('void', 'bool', '::')):
+                continue   # the function's own definition
+            parts = split_top(text[m.end():closing(text, m.end() - 1) - 1])
+            if not parts:
+                continue
+            first = parts[0].strip()
+            tokens = table_field(path, text, m.start(), first) or ([first] if re.fullmatch(r'[A-Za-z_][\w:]*|\d+', first) else [])
+            for t in tokens:
+                entry = resolve(path, t.strip()) if re.fullmatch(r'[A-Za-z_][\w:]*|\d+', t.strip()) else None
+                if entry and entry >= MIN_ENTRY:
+                    credits.setdefault(entry, script)
+    return creatures, objects, encounters, credits
 
 
 def commit(core):
@@ -329,16 +350,18 @@ def main(argv):
     scripts = os.path.join(core, 'src', 'server', 'scripts')
     if not os.path.isdir(scripts):
         raise SystemExit(f'{scripts}: not a TrinityCore source tree')
-    creatures, objects, encounters = scan(scripts)
+    creatures, objects, encounters, credits = scan(scripts)
     out = {'source': 'TrinityCore C++ scripts (src/server/scripts): entries a script summons',
            'commit': argv[2] if len(argv) > 2 else commit(core),
            'creatures': {str(k): creatures[k] for k in sorted(creatures)},
            'objects': {str(k): objects[k] for k in sorted(objects)},
-           'encounters': {str(k): sorted(encounters[k]) for k in sorted(encounters)}}
+           'encounters': {str(k): sorted(encounters[k]) for k in sorted(encounters)},
+           'credits': {str(k): credits[k] for k in sorted(credits)}}
     with open(OUT, 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(out, handle, indent=0, sort_keys=False)
         handle.write('\n')
-    print(f'{len(creatures)} creatures and {len(objects)} world objects summoned by scripts, {len(encounters)} boss encounters tied to a creature -> {OUT}')
+    print(f'{len(creatures)} creatures and {len(objects)} world objects summoned by scripts, {len(encounters)} boss encounters tied to a creature, '
+          f'{len(credits)} creatures whose kill credit a script gives -> {OUT}')
 
 
 if __name__ == '__main__':

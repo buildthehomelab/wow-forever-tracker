@@ -18,7 +18,8 @@ enum SPCreatureIds
 {
     NPC_UROK_DOOMHOWL   = 10584,
     NPC_GIZRUL          = 10268,
-    NPC_OGRE            = 10601
+    NPC_OGRE            = 10601,
+    NPC_THELDREN_CREDIT = 16166
 };
 enum SPData { DATA_UROK_DOOMHOWL = 4, DATA_HALYCON = 6, DATA_GIZRUL = 7, DATA_DOOR = 9 };
 enum SPObjects { GO_CHEST = 175245, GO_DOOR = 175244 };
@@ -35,6 +36,10 @@ static constexpr DungeonEncounterData Encounters[] =
 void Spawn() { me->SummonCreature(NPC_OGRE, pos); instance->DoSummonGameObject(GO_CHEST, pos); }
 // me->SummonCreature(99999, pos);
 void Other(uint32 entry) { me->SummonCreature(entry, pos); me->SummonCreature(12345, pos); }
+struct NodeInfo { uint32 Flag; uint32 KillCredit; };
+static NodeInfo const NodeData[] = { { 180087, 15001 }, { 180088, 15002 } };
+void Capture(Player* player, uint8 node) { player->KilledMonsterCredit(NodeData[node].KillCredit); player->KilledMonsterCredit(NPC_THELDREN_CREDIT); }
+void Player::KilledMonsterCredit(uint32 entry, ObjectGuid guid) { }
 '''
 CLASSIC = '''
 enum { CZF_ENC_GAHZRILLA = 1, CZF_ENC_UKORZ = 7 };
@@ -72,7 +77,7 @@ class Shapes(unittest.TestCase):
             os.makedirs(os.path.dirname(path))
             with open(path, 'w', encoding='utf-8') as handle:
                 handle.write(SHAPES)
-            creatures, _objects, _encounters = make_summoned.scan(folder)
+            creatures, _objects, _encounters, _credits = make_summoned.scan(folder)
         self.assertEqual(set(creatures), {10264, 9027, 9028, 9029, 9596})   # no 1, 2, 3 or 11: indexes, a group, a slot
 
 # zone_silithus.cpp's own helper takes the entry third, sometimes picked at random; tables a summon reads a field of
@@ -155,7 +160,7 @@ class Scan(unittest.TestCase):
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, 'w', encoding='utf-8') as handle:
                 handle.write(text)
-        cls.creatures, cls.objects, cls.encounters = make_summoned.scan(cls.folder.name)
+        cls.creatures, cls.objects, cls.encounters, cls.credits = make_summoned.scan(cls.folder.name)
 
     @classmethod
     def tearDownClass(cls):
@@ -164,6 +169,10 @@ class Scan(unittest.TestCase):
     def test_a_summon_call_with_a_constant_or_a_number(self):
         self.assertEqual(self.creatures, {10601: 'Spire/instance_spire.cpp', 12345: 'Spire/instance_spire.cpp'})
         self.assertEqual(self.objects, {175245: 'Spire/instance_spire.cpp'})
+
+    def test_a_kill_credit_a_script_gives(self):
+        # a field of a table's rows (Arathi Basin's bases) and a constant; the function's own definition is no call
+        self.assertEqual(set(self.credits), {15001, 15002, 16166})
 
     def test_a_variable_and_a_comment_are_left_out(self):
         self.assertNotIn(99999, self.creatures)

@@ -363,6 +363,7 @@ def server_state():
     ctx['summoned_npc'], ctx['summoned_go'] = summoned, summoned_go
     ctx['encounter_npc'] = core['encounters']
     ctx['summon_script'] = core['creatures']
+    ctx['script_credits'] = set(core.get('credits', {}))   # kill credits a C++ script gives (Arathi Basin's bases)
     bound = {entry for entries in core['encounters'].values() for entry in entries}
     ctx['unspawned_npc'] = [{'id': int(r['entry']), 'name': r['name'] or '', 'script': bool(r['ScriptName'])}
                             for r in q("SELECT ct.entry, ct.name, ct.ScriptName FROM creature_template ct WHERE NOT EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry)")
