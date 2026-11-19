@@ -260,6 +260,27 @@ def zone_rectangles(assignments):
     return out
 
 
+def used_spells(item_spells, effects):
+    """{spell: {item}}: what using an item casts, the spells those trigger included (a learn effect teaches its spell,
+    it casts nothing). The Empty Leaden Collection Phial fills itself into the Full one, the Heated Ancient Blade
+    becomes the Treated one: the item a spell of these creates is made by using an item."""
+    triggers = {}
+    for e in effects:
+        if e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID'] and e['Effect'] != EFFECT_LEARN_SPELL:
+            triggers.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
+    used = {}
+    for item_id, spells in item_spells.items():
+        todo, seen = list(spells), set()
+        while todo:
+            spell = todo.pop()
+            if spell not in seen:
+                seen.add(spell)
+                todo.extend(triggers.get(spell, ()))
+        for spell in seen:
+            used.setdefault(spell, set()).add(item_id)
+    return used
+
+
 def server_state():
     log(f'server: DB2 of the running server ({server_dbc()})')
     for key in ('maps', 'vmaps'):
@@ -277,7 +298,8 @@ def server_state():
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
     learn, creates, spell_summons, cast_by = {}, {}, set(), {}
-    for e in srv('SpellEffect'):
+    spell_effects = srv('SpellEffect')
+    for e in spell_effects:
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
         elif e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID']:
@@ -300,6 +322,7 @@ def server_state():
             for target in {spell} | learn.get(spell, set()):
                 teaches.setdefault(target, set()).add(item_id)
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
+    ctx['used_spells'] = used_spells(item_spells, spell_effects)
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     acquire = {}
     for r in srv('SkillLineAbility'):

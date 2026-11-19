@@ -16,7 +16,8 @@ INTERNAL_NAME = re.compile(
     r'|\bTEST\b|\btest\b|^Test (?!of\b)|\(Test\)|\bTest (?:Item|Dungeon|Quest|Spell|NPC|Mount|Pet|Zone|Vendor|Realm|Character|Creature|Object)s?\b|Test\d|Test[A-Z]'
     r'|^Monster - |^Monstre - '
     r'|\b(OLD|Deprecated|DEPRECATED|DEP|PH|DNT|QA|UNUSED|NYI|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\(Unused\)|- Unused\b|\bUnused$'
-    r'|^Copy of\b|\(copy\)|- copy\b|\bcopy$|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b')
+    r'|^Copy of\b|\(copy\)|- copy\b|\bcopy$|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b'
+    r'|^REUSE$|\bDND\b')
 # Flight paths a quest flies you along (TaxiNodes rows named "Quest Path 11512: ..."), not flight points.
 QUEST_PATH = re.compile(r'^Quest Path \d+')
 DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach', 'creates')
@@ -164,6 +165,11 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # is only asked about Forever's own quests, so no answer would ever hide it. No title is no quest players take.
                 classic_unnamed = not name and not baseline.is_new(kind, entity_id, entity)
                 internal = 1 if unknown_everywhere or classic_unnamed or (name and INTERNAL_NAME.search(name)) else 0
+                # The server's own disables table switches it off and nothing gives it: a quest the core keeps out on
+                # purpose (Rokar Bladeshadow, Da Foo, Kill 'Em With Sleep Deprivation), not content waiting for a fix.
+                failed = {c['code'] for c in checks if not c['ok']}
+                if {'enabled', 'starter'} <= failed:
+                    internal = 1
                 if not name:
                     data['unnamed'] = True
                 name = name or f'#{entity_id}'

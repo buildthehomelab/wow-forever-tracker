@@ -28,6 +28,7 @@ SOURCES = {
     'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
     'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
+    'use': L('Made by using an item', 'Fait en utilisant un objet'),
 }
 
 
@@ -170,6 +171,11 @@ def evaluate_all(content, ctx):
         for spell, items in spell_loot.items():
             if spell in learnable:
                 add(items, 'craft')
+        # made by using an item players hold: the spell it casts (or one that spell triggers) creates it
+        held = set(sources)
+        for item, spells in ctx['creates'].items():
+            if any(ctx.get('used_spells', {}).get(spell, set()) & held for spell in spells):
+                add([item], 'use')
         obtainable = set(sources)
         # every quest the server has, not only the official list's: the client's QuestV2 leaves out many quests live
         # Forever runs (Lunar Festival's Festive Recipes, WRIGGLE.), and what they hand out is still in players' hands
