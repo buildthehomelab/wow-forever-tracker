@@ -42,5 +42,6 @@ page_start(t('Crawl Wowhead', 'Parcourir Wowhead'), 'admin');
       number($kept['item']), number($kept['quest']), number($kept['npc']), number($kept['object']), number($kept['classic-item']), number($kept['classic-npc']), number($kept['classic-object']))) ?></p>
   <p class="muted small"><?= e(sprintf(t('List pages: %s of Forever, %s of Classic (a whole crawl reads these first). Last page received: %s.', 'Pages de listes : %s de Forever, %s de Classic (un parcours complet les lit d’abord). Dernière page reçue : %s.'),
       number($kept['forever-list']), number($kept['classic-list']), $lastIn ? date('M j, Y H:i', $lastIn) : t('never', 'jamais'))) ?></p>
+  <p class="small"><a class="link" href="<?= e(url('admin/writs')) ?>"><i class="fas fa-scroll"></i> <?= e(t('Craftsman’s Writs: what their pages and Wowhead’s writ guide say, read again every few days', 'Ordres d’artisan : ce que disent leurs pages et le guide des ordres de Wowhead, relus tous les quelques jours')) ?> →</a></p>
 </section>
 <?php page_end();

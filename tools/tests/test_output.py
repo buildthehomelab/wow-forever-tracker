@@ -288,5 +288,24 @@ class SystemItems(unittest.TestCase):
         self.assertFalse(output.filed_internal(2589, content, results, {}, {}))
 
 
+
+class Writs(unittest.TestCase):
+    """The Craftsman's Writs the analysis records for the Wowhead crawl: items that start a quest, named as writs."""
+
+    def test_writ_items(self):
+        items = {264081: {'name': "Ordre d'artisan : mannequin", 'name_en': "Craftsman's Writ: Advanced Target Dummy", 'facts': {'startquest': 94281}},
+                 22600: {'name': '', 'name_en': "Craftsman's Writ - Dense Weightstone", 'facts': {'startquest': 9178}},
+                 5: {'name_en': "Craftsman's Writ: never starts a quest", 'facts': {'startquest': 0}},
+                 6: {'name_en': 'A Letter', 'facts': {'startquest': 77}}}
+        self.assertEqual(output.writ_items(items), {22600: 9178, 264081: 94281})
+
+    def test_writ_tiers_from_the_client(self):
+        items = {264081: {'name_en': "Craftsman's Writ: Advanced Target Dummy", 'namedesc_en': 'Expert', 'facts': {'startquest': 94281}},
+                 264011: {'name_en': "Craftsman's Writ: Elixir of Ogre's Strength", 'namedesc_en': 'Journeyman', 'facts': {'startquest': 94004}},
+                 22600: {'name_en': "Craftsman's Writ - Dense Weightstone", 'facts': {'startquest': 9178}},
+                 7: {'name_en': 'A Letter', 'namedesc_en': 'Artisan', 'facts': {'startquest': 77}}}
+        self.assertEqual(output.writ_tiers(items), {264011: 1, 264081: 2})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -27,6 +27,7 @@ CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KINDS = ('item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset')
 BRANCHES = ('forever', 'classic')
 QUERY = re.compile(r'[a-z-]{1,30}(\?filter=[\d:;]{1,80})?')
+GUIDE = re.compile(r'[a-z0-9-]{1,80}(/[a-z0-9-]{1,80}){0,3}')   # a guide's path under /<branch>/guide/
 KEPT = ('ok', 'missing')   # 'blocked' and 'odd' are no answer: the page is asked again
 MAX_ID = 2 ** 31 - 1
 TOOLTIP = re.compile(r'\[tooltip[^\]]*\].*?\[/tooltip\]|\[span[^\]]*\]|\[/span\]', re.S)
@@ -40,14 +41,14 @@ def shelf_of(record):
     """Where a crawler record is kept: 'item' (Forever's item pages, as before there were branches), 'classic-npc',
     'forever-list'."""
     branch = record.get('branch') or 'forever'
-    if record['kind'] == 'list':
-        return f'{branch}-list'
+    if record['kind'] in ('list', 'guide'):
+        return f'{branch}-{record["kind"]}'
     return record['kind'] if branch == 'forever' else f'{branch}-{record["kind"]}'
 
 
 def entity(record):
     """What a record is one of on its shelf: a page's id, a list's query."""
-    return record['query'] if record.get('kind') == 'list' else record.get('id')
+    return record['query'] if record.get('kind') in ('list', 'guide') else record.get('id')
 
 
 def numbers_only(value):
@@ -68,6 +69,8 @@ def clean(record):
         return None
     if record.get('kind') == 'list':
         return clean_list(record)
+    if record.get('kind') == 'guide':
+        return clean_guide(record)
     if record.get('kind') not in KINDS:
         return None
     entity, fetched = record.get('id'), record.get('fetched')
@@ -113,6 +116,23 @@ def clean_list(record):
     out['truncated'] = bool(record.get('truncated'))
     if isinstance(record.get('cr'), int):
         out['cr'] = record['cr']
+    return out
+
+
+def clean_guide(record):
+    """A guide page as the cache keeps it: its path and the items its tables link to, each with the tier its row names
+    (numbers only: the guide's text is never kept)."""
+    query, fetched = record.get('query'), record.get('fetched')
+    if not isinstance(query, str) or not GUIDE.fullmatch(query) or not isinstance(fetched, int) or fetched <= 0:
+        return None
+    out = {'kind': 'guide', 'query': query, 'fetched': fetched, 'v': int(record.get('v') or 0), 'status': record['status']}
+    if record.get('branch', 'forever') != 'forever':
+        out['branch'] = record['branch']
+    if record['status'] == 'missing':
+        return out
+    if not isinstance(record.get('rows'), list):
+        return None
+    out['rows'] = [row for row in record['rows'] if isinstance(row, dict) and isinstance(row.get('id'), int) and row['id'] > 0 and numbers_only(row)]
     return out
 
 
@@ -249,6 +269,9 @@ def stats(folder=CACHE):
     for kind in shelves(folder):
         pages = load(kind, folder)
         if not pages:
+            continue
+        if kind.endswith('-guide'):
+            lines.append(f'{kind}: ' + ', '.join(f"{q} ({len(p.get('rows') or [])} items)" for q, p in sorted(pages.items())))
             continue
         if kind.endswith('-list'):
             named = {}

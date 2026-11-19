@@ -81,6 +81,16 @@ class Merge(unittest.TestCase):
         self.assertNotIn('branch', kept)
         self.assertIn('forever-list: 1 list pages, 1 npcs', wp.stats(self.cache))
 
+    def test_a_guide_keeps_its_items_and_tiers_only(self):
+        guide = {'kind': 'guide', 'query': 'professions/craftsmans-writs-overview-recipes-rewards', 'fetched': 100, 'v': 2, 'status': 'ok',
+                 'rows': [{'id': 264081, 'tier': 2}, {'id': 264011}, {'id': 5, 'name': 'text'}, {'tier': 1}]}
+        saved = self.saved('a.jsonl', [guide, dict(guide, query='../etc'), dict(guide, rows='text')])
+        self.assertEqual(wp.merge([saved], self.cache), {'new': 1, 'newer': 0, 'older': 0, 'not_a_page': 2})
+        self.assertEqual(os.listdir(self.cache), ['forever-guide.jsonl'])
+        kept = wp.load('forever-guide', self.cache)['professions/craftsmans-writs-overview-recipes-rewards']
+        self.assertEqual(kept['rows'], [{'id': 264081, 'tier': 2}, {'id': 264011}])
+        self.assertEqual(wp.stats(self.cache), ['forever-guide: professions/craftsmans-writs-overview-recipes-rewards (2 items)'])
+
     def test_stats(self):
         wp.merge([self.saved('a.jsonl', [page('item', 1, tabs={'sold-by': {'rows': [{'id': 2}]}, 'dropped-by': {'rows': []}}), page('item', 2, status='missing')])], self.cache)
         self.assertEqual(wp.stats(self.cache), ['item: 1 pages, 1 Wowhead does not have, newest 1970-01-01', '    sold-by                          1 pages'])

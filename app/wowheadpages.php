@@ -36,6 +36,12 @@ const WOWHEAD_PAGES_OTHER_TABS = ['created-by' => 'wowhead_only_craft', 'fished-
 function wowhead_pages_dirs(): array { return [FT_ROOT . '/tools/wowhead-pages/cache', wowhead_pages_dir()]; }
 function wowhead_pages_dir(): string { return FT_ROOT . '/data/wowhead-pages'; }
 const WOWHEAD_PAGES_KINDS = ['item', 'npc', 'quest', 'object', 'spell', 'zone', 'faction', 'itemset'];
+/** A guide's path under /<branch>/guide/ (the crawler's parseKey takes the same). */
+const WOWHEAD_GUIDE_QUERY = '#^[a-z0-9-]{1,80}(/[a-z0-9-]{1,80}){0,3}$#';
+/** Wowhead's Craftsman's Writs guide: each writ with its tier (Journeyman 1, Expert 2, Artisan 3). */
+const WOWHEAD_WRIT_GUIDE = 'professions/craftsmans-writs-overview-recipes-rewards';
+/** The tier names of the writ guide, by the number the crawler keeps. */
+const WOWHEAD_WRIT_TIERS = [1 => 'Journeyman', 2 => 'Expert', 3 => 'Artisan'];
 const WOWHEAD_PAGES_BRANCHES = ['forever', 'classic'];
 
 /** Where a crawler line is kept (tools/wowhead_pages.py shelf_of): 'item' for Forever's item pages, as before there
@@ -44,13 +50,14 @@ function wowhead_pages_shelf(array $raw): string
 {
     $branch = (string)($raw['branch'] ?? 'forever');
     if (($raw['kind'] ?? '') === 'list') return "$branch-list";
+    if (($raw['kind'] ?? '') === 'guide') return "$branch-guide";
     return $branch === 'forever' ? (string)$raw['kind'] : $branch . '-' . $raw['kind'];
 }
 
 /** What a record is one of on its shelf: a page's id, a list's query. */
 function wowhead_pages_entity(array $record): int|string|null
 {
-    if (($record['kind'] ?? '') === 'list') return is_string($record['query'] ?? null) ? $record['query'] : null;
+    if (in_array($record['kind'] ?? '', ['list', 'guide'], true)) return is_string($record['query'] ?? null) ? $record['query'] : null;
     return is_int($record['id'] ?? null) && $record['id'] > 0 ? $record['id'] : null;
 }
 
@@ -493,6 +500,16 @@ function wowhead_pages_clean($record): ?array
         if (is_int($record['cr'] ?? null)) $out['cr'] = $record['cr'];
         return $out;
     }
+    if (($record['kind'] ?? null) === 'guide') {
+        // a guide: its path, and the items its tables link to with the tier their row names (numbers only)
+        $query = $record['query'] ?? null;
+        if (!is_string($query) || !preg_match(WOWHEAD_GUIDE_QUERY, $query)) return null;
+        $out = ['kind' => 'guide', 'query' => $query, 'fetched' => $fetched, 'v' => (int)($record['v'] ?? 0), 'status' => $record['status']] + $branch;
+        if ($record['status'] === 'missing') return $out;
+        if (!is_array($record['rows'] ?? null)) return null;
+        $out['rows'] = array_values(array_filter($record['rows'], fn($r) => is_array($r) && is_int($r['id'] ?? null) && $r['id'] > 0 && wowhead_pages_numbers_only($r)));
+        return $out;
+    }
     if (!in_array($record['kind'] ?? null, WOWHEAD_PAGES_KINDS, true)) return null;
     $id = $record['id'] ?? null;
     if (!is_int($id) || $id <= 0 || $id > 2147483647) return null;
@@ -793,6 +810,8 @@ function wowhead_pages_queue(): array
         $left = array_values(array_filter($ids, fn($id) => !isset($have[$id])));
         if ($left) $queue['wanted'][$kind] = $left;
     }
+    // the Craftsman's Writs: their item pages and Wowhead's writ guide, read again every [wowhead] writ_days
+    [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), wowhead_pages('item'), wowhead_pages('forever-guide'));
     foreach (wowhead_pages_missing_data() as $kind => $list) {
         $have = [];
         foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
@@ -811,8 +830,9 @@ function wowhead_pages_queue(): array
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $counted = array_filter($queue, fn($v, $k) => is_array($v) && $k !== 'wanted', ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
-    $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))];
+    $counted = array_filter($queue, fn($v, $k) => is_array($v) && $k !== 'wanted' && $k !== 'writ', ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
+    $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))
+        . (empty($queue['writ']) ? '' : ', ' . count($queue['writ']) . ' writ pages')];
     $lines[] = '(async () => {';
     // $kind may carry a branch: 'classic/item'
     $put = function (string $kind, array $ids, string $tier) use (&$lines) {
@@ -824,6 +844,11 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $season = array_values($queue['classic/item'] ?? []);
     $seasonBlocking = (int)($queue['classicBlocking'] ?? 0);
     foreach ($queue['wanted'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'wanted');
+    // the Craftsman's Writs: read again when this tab read them longer ago than the tracker waits between two reads
+    $writs = array_values($queue['writ'] ?? []);
+    $again = json_encode(['again' => wowhead_writ_seconds() - 6 * 3600]);
+    if ($writs) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => 'item:' . (int)$id, $writs)) . ", 'gap', $again);";
+    if (!empty($queue['writGuide'])) $lines[] = '  await WHC.prioritize(' . json_encode(['guide:' . WOWHEAD_WRIT_GUIDE], JSON_UNESCAPED_SLASHES) . ", 'gap', $again);";
     $put('quest', $queue['quest'] ?? [], 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
@@ -942,4 +967,76 @@ function wowhead_extension_zip(string $tracker, string $key, ?string $dir = null
     $bytes = (string)file_get_contents($tmp);
     @unlink($tmp);
     return $bytes;
+}
+
+// ---------------------------------------------------------------- Craftsman's Writs
+//
+// A Craftsman's Writ is a tradable item that starts a crafting quest. Wowhead's Forever guide calls them world drops
+// that suit the zone and level, and gives each its tier (Journeyman, Expert, Artisan); no item page names a creature
+// or a chest yet. So the crawl reads the writs' pages and the guide again every [wowhead] writ_days, and The Forge ›
+// Writs shows what they say: the day Wowhead names a source, it is there, for a world-data file to turn into loot rows.
+
+/** {item id => quest id} of the Craftsman's Writs, from the last analysis (ft_meta writ_items). */
+function wowhead_writ_items(?array $meta = null): array
+{
+    $out = [];
+    foreach ((array)(($meta ?? meta())['writ_items'] ?? []) as $item => $quest) if ((int)$item > 0) $out[(int)$item] = (int)$quest;
+    ksort($out);
+    return $out;
+}
+
+/** {item id => tier} of the writs as the client names them under the name (1 Journeyman, 2 Expert, 3 Artisan; ft_meta
+ *  writ_tiers): the client's word, before the guide's. */
+function wowhead_writ_tiers(?array $meta = null): array
+{
+    $out = [];
+    foreach ((array)(($meta ?? meta())['writ_tiers'] ?? []) as $item => $tier) if ((int)$item > 0 && isset(WOWHEAD_WRIT_TIERS[(int)$tier])) $out[(int)$item] = (int)$tier;
+    return $out;
+}
+
+/** How long a writ page is kept before it is read again: [wowhead] writ_days (3), in seconds; at least a day. */
+function wowhead_writ_seconds(?float $days = null): int
+{
+    $days ??= (float)config('wowhead', 'writ_days', 3);
+    return (int)max(86400, $days * 86400);
+}
+
+/** [the writ items whose page is due (none kept, or older than wowhead_writ_seconds), whether the guide is due].
+ *  $items: Forever's item pages [id => record]; $guides: the guide shelf [query => record]. */
+function wowhead_pages_writ_queue(array $writs, array $items, array $guides, ?int $now = null, ?int $seconds = null): array
+{
+    $now ??= time();
+    $seconds ??= wowhead_writ_seconds();
+    $due = fn(?array $page) => !$page || $now - (int)($page['fetched'] ?? 0) > $seconds;
+    $ids = array_values(array_filter(array_keys($writs), fn($id) => $due($items[$id] ?? null)));
+    return [$ids, $writs ? $due($guides[WOWHEAD_WRIT_GUIDE] ?? null) : false];
+}
+
+/** The tabs of an item page that name where a writ comes from: [tab => what it is], the ones the import reads first. */
+const WOWHEAD_WRIT_SOURCE_TABS = ['dropped-by' => 'npc', 'contained-in-object' => 'object', 'contained-in-item' => 'item', 'mined-from-object' => 'object',
+    'gathered-from-object' => 'object', 'skinned-from' => 'npc', 'pick-pocketed-from' => 'npc', 'sold-by' => 'npc', 'reward-from-q' => 'quest', 'fished-in' => 'zone'];
+
+/**
+ * What Wowhead says of each writ: [item => ['quest', 'tier' (the client's, else the guide's: 1-3, 0 unknown), 'guideTier'
+ * (the guide's, 0 when it names none), 'fetched' (0: not read),
+ * 'status' ('ok', 'missing', '' not read), 'sources' => [tab => rows {id, count?, outof?}], 'zones' => [zone ids of
+ * its map pins]]], in item order. Facts only: no row is made up where a page shows none.
+ */
+function wowhead_pages_writs(array $writs, array $items, array $guides, array $clientTiers = []): array
+{
+    $tiers = [];
+    foreach ((array)($guides[WOWHEAD_WRIT_GUIDE]['rows'] ?? []) as $row) if (is_int($row['id'] ?? null)) $tiers[$row['id']] = (int)($row['tier'] ?? 0);
+    $out = [];
+    foreach ($writs as $item => $quest) {
+        $page = $items[$item] ?? null;
+        $sources = [];
+        foreach (WOWHEAD_WRIT_SOURCE_TABS as $tab => $_) {
+            $rows = array_values(array_filter((array)($page['tabs'][$tab]['rows'] ?? []), fn($r) => is_int($r['id'] ?? null)));
+            if (!$rows) continue;
+            $sources[$tab] = array_map(fn($r) => array_filter(['id' => $r['id'], 'count' => $r['count'] ?? null, 'outof' => $r['outof'] ?? null], fn($v) => $v !== null), $rows);
+        }
+        $out[$item] = ['quest' => $quest, 'tier' => $clientTiers[$item] ?? $tiers[$item] ?? 0, 'guideTier' => $tiers[$item] ?? 0, 'fetched' => (int)($page['fetched'] ?? 0), 'status' => (string)($page['status'] ?? ''),
+            'sources' => $sources, 'zones' => array_values(array_map('intval', array_filter(array_keys((array)($page['map'] ?? [])), 'is_numeric')))];
+    }
+    return $out;
 }

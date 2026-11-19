@@ -211,6 +211,32 @@ for them yet; its Classic pages, which hold Season of Discovery's data, do (the 
   Classic's page says the Undermine Real buys), so only Forever's own npc pages give it, and stock paid with an item or a currency needs an extended
   cost the client knows. Neither the client nor its hotfixes (build 70938) hold one paid in the Undermine Real yet.
 
+## Craftsman's Writs
+
+A Craftsman's Writ is a tradable item that starts a crafting quest (the client's ItemSparse.StartQuestID). Wowhead's
+Forever guide ([Craftsman's Writs](https://www.wowhead.com/forever/guide/professions/craftsmans-writs-overview-recipes-rewards))
+calls them world drops that suit the zone and level, and sorts them in three tiers; as of November 2026 their item
+pages show who starts the quest and what it asks for, but no *Dropped by* or *Contained in* tab, and no public loot
+recording holds one. So the tracker keeps looking:
+
+- **What a writ is**: the analysis records every item that starts a quest and whose English name is a Craftsman's
+  Writ (`ft_meta.writ_items`, item => quest; 150 in Forever, 24 Argent Dawn ones of the original game), and the tier
+  the client writes under a writ's name (ItemSparse.ItemNameDescriptionID: `ft_meta.writ_tiers`, 1 Journeyman,
+  2 Expert, 3 Artisan). The client's tier comes first; the guide's is a second witness, shown where it differs.
+- **The queue**: each writ's item page, and the guide, in tier `gap`, read again every `[wowhead] writ_days` (3).
+  A crawl never reads a page twice by itself; for these the crawler is told to read a page again when its own copy
+  is older than that (`WHC.prioritize(keys, 'gap', {again: seconds})`).
+- **The guide**: of a guide page (`guide:<path>` in the queue, kept on the `forever-guide` shelf) only the items its
+  tables link to are kept, each with the tier word of its row as a number (Journeyman 1, Expert 2, Artisan 3). The
+  guide's zone list is where a writ is **handed in**, not where it drops, so it is not kept; its text never is.
+- **The Forge › Writs** (`admin/writs`, linked from The Forge › Crawl) lists each writ with its tier, its quest and the sources its page names
+  (creatures with their counts, chests, containers, vendors, the zones of its map pins). `?format=json` gives the same
+  for a world-data file that turns real drops into `creature_loot_template` rows. A writ whose page names nothing has
+  nothing there: nothing is guessed.
+
+The import card leaves writs out like any item 15 or more creatures drop (a world drop); the Writs page is where such
+a list shows.
+
 ## The pace
 
 Wowhead does not publish its limit. Asking too much gets the address refused for about eight minutes (HTTP 405).
