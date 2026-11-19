@@ -312,6 +312,11 @@ check(str_contains($crawlSrc, "'forever-list'") && str_contains($crawlSrc, 'Last
 [$st, $out] = ft_test_request('/api/wowhead-crawler', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
 check($st === 403 && str_contains($out, 'not allowed'), 'the crawler endpoint: past the gate, refused without a key: ' . $st);
 
+// ---- the items Later only because their page named no source are read again (wowhead_pages_queue)
+$listed = [1 => ['key' => 'first-raids'], 2 => ['key' => 'not-out', 'wowhead_no_source' => [263505, '5', 0]], 3 => ['key' => 'open', 'wowhead_no_source' => [7]]];
+check(wowhead_pages_unsourced_later($listed, [1, 2]) === [263505 => true, 5 => true], 'a closed phase\'s items without a source on Wowhead go back in the crawl; an open phase\'s do not');
+check(wowhead_pages_unsourced_later($listed, []) === [], 'every phase open: nothing');
+
 
 // ---- pages asked for by hand, a creature page's model, reading kept pages back
 $wf = tempnam(sys_get_temp_dir(), 'want');

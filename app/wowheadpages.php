@@ -743,11 +743,28 @@ function wowhead_pages_waiting(): array
     return $waiting;
 }
 
+/** The items the last analysis put in a closed phase because their Wowhead page named no source: [id => true].
+ *  $phases: [phase number => phase] as phases() gives them; $closed: the numbers not open (closed_phases()). */
+function wowhead_pages_unsourced_later(?array $phases = null, ?array $closed = null): array
+{
+    $phases ??= phases();          // [number => phase]
+    $closed ??= closed_phases();
+    $out = [];
+    foreach ($phases as $n => $phase) {
+        if (!in_array((int)$n, $closed, true)) continue;
+        foreach ((array)($phase['wowhead_no_source'] ?? []) as $id) if ((int)$id > 0) $out[(int)$id] = true;
+    }
+    return $out;
+}
+
 /** The pages this tracker wants next, from the last analysis (wowhead_pages_order), and the creatures and objects
  *  whose data is missing (wowhead_pages_missing_data): their pages are moved up in a running crawl. */
 function wowhead_pages_queue(): array
 {
     $gaps = source_gaps();
+    // the items Later only because their page named no source (ft.phases, wowhead_no_source) are read again like gaps:
+    // a source that appears on Wowhead brings them back
+    $gaps['items'] += wowhead_pages_unsourced_later();
     $waiting = wowhead_pages_waiting();
     $read = [];
     $pages = [];

@@ -22,6 +22,7 @@ import os
 import re
 
 from . import sqlio
+from . import config
 from .config import CONFIG, PROJECT
 from .server import log
 
@@ -69,7 +70,48 @@ def load(file=None):
             if kind in ('objects', 'quests', 'items', 'spells') and any(not str(v).isdigit() for v in values):
                 raise SystemExit(f'phases: "{kind}" of {key} takes ids only')
             phase[kind] = values
+        phase['wowhead_no_source'] = bool(phase.get('wowhead_no_source'))
     return phases
+
+
+# The tabs of a Wowhead item page that name a way to get the item (app/wowheadpages.php reads the same): a page with
+# none of them, read and found, names no source at all.
+WOWHEAD_SOURCE_TABS = ('dropped-by', 'contained-in-object', 'mined-from-object', 'gathered-from-object', 'skinned-from', 'pick-pocketed-from',
+                       'contained-in-item', 'sold-by', 'reward-from-q', 'created-by', 'fished-in', 'disenchanted-from', 'prospected-from',
+                       'milled-from', 'salvaged-from')
+
+
+def wowhead_page_folders():
+    """Where Wowhead's pages are kept, as app/wowheadpages.php reads them: the copy beside the tracker, then data/."""
+    return [os.path.join(config.PROJECT, 'tools', 'wowhead-pages', 'cache'), os.path.join(config.DATA, 'wowhead-pages')]
+
+
+def wowhead_unsourced_items(folders=None):
+    """The items whose Forever page on Wowhead was read and names no source ({id}): the newest answer of each page
+    (by its 'fetched' time) across the folders. A page Wowhead does not have, or one not read, is not in it."""
+    newest = {}
+    for folder in folders if folders is not None else wowhead_page_folders():
+        try:
+            handle = open(os.path.join(folder, 'item.jsonl'), encoding='utf-8')
+        except OSError:
+            continue
+        with handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(record, dict) or not str(record.get('id', '')).isdigit():
+                    continue
+                item, fetched = int(record['id']), record.get('fetched') or 0
+                if item not in newest or fetched >= (newest[item].get('fetched') or 0):
+                    newest[item] = record
+    out = set()
+    for item, record in newest.items():
+        tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
+        if record.get('status') == 'ok' and not any((tabs.get(tab) or {}).get('rows') for tab in WOWHEAD_SOURCE_TABS):
+            out.add(item)
+    return out
 
 
 def closed(phases, current='', today=None):
@@ -289,6 +331,16 @@ def assign(content, ctx, phases, facts):
         if source and obj:
             objectives.setdefault(quest, set()).add((source, obj))
 
+    # An item the server gives in no way and whose Wowhead page, read, names no source either: live WoW Forever does not
+    # hand it out yet (user decision 2026-11-18). It waits in the phase marked wowhead_no_source until a page read again
+    # names a source; what only it gives (a recipe it teaches) waits with it.
+    unsourced = next((number for number, phase in enumerate(phases, 1) if phase.get('wowhead_no_source')), 0)
+    if unsourced:
+        for item in facts.get('wowhead_no_source', ()):
+            if item in content.get('item', {}) and item not in sources and item not in fixed['item']:
+                fixed['item'][item] = unsourced
+                facts.setdefault('wowhead_no_source_tagged', set()).add(item)
+
     item_phase, quest_phase, spell_phase = dict(fixed['item']), dict(fixed['quest']), dict(fixed['spell'])
     phase_of = {'npc': npc_phase, 'go': go_phase, 'item': item_phase, 'quest': quest_phase, 'spell': spell_phase}
 
@@ -382,7 +434,12 @@ def run(content, ctx):
         return [], {}
     for key, value in unmatched_maps(phases, content):
         log(f'phases: no instance named "{value}" in the client ({key}): encrypted, renamed or a typo')
-    tagged = assign(content, ctx, phases, world_facts(phases, content))
+    facts = world_facts(phases, content)
+    if any(p.get('wowhead_no_source') for p in phases):
+        facts['wowhead_no_source'] = wowhead_unsourced_items()
+        log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source")
+    tagged = assign(content, ctx, phases, facts)
+    by_rule = sorted(facts.get('wowhead_no_source_tagged', ()))
     counts = {}
     for (kind, _id), number in tagged.items():
         counts.setdefault(phases[number - 1]['key'], {}).setdefault(kind, 0)
@@ -390,6 +447,8 @@ def run(content, ctx):
     for phase in phases:
         found = counts.get(phase['key'], {})
         log(f"phase {phase['key']} ({phase.get('opens') or 'no date'}): " + (', '.join(f'{k}={v}' for k, v in sorted(found.items())) or 'nothing tagged'))
+    # the items the rule tagged go with their phase: the website keeps their pages in the crawl, so a source that
+    # appears on Wowhead brings them back (app/wowheadpages.php wowhead_pages_queue)
     listing = [{'key': p['key'], 'name': p.get('name') or p['key'], 'opens': p.get('opens'), 'source': p.get('source', ''),
-                'counts': counts.get(p['key'], {})} for p in phases]
+                'counts': counts.get(p['key'], {}), **({'wowhead_no_source': by_rule} if p.get('wowhead_no_source') else {})} for p in phases]
     return listing, tagged
