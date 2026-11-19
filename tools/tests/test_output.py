@@ -235,5 +235,22 @@ class NeverGiven(unittest.TestCase):
         self.assertEqual(internal(1134), 0)    # players can get it here after all
 
 
+class Summary(unittest.TestCase):
+    """The analysis log counts what the website lists: internal rows and rows of a closed phase apart."""
+
+    def test_internal_and_later_rows_are_counted_apart(self):
+        rows = [
+            {'type': 'boss', 'status': 'ok', 'internal': '0', 'phase': '0', 'n': '332'},
+            {'type': 'boss', 'status': 'missing', 'internal': '1', 'phase': '0', 'n': '41'},   # Season of Discovery
+            {'type': 'boss', 'status': 'missing', 'internal': '0', 'phase': '3', 'n': '3'},    # a raid not open yet
+            {'type': 'boss', 'status': 'ok', 'internal': '0', 'phase': '3', 'n': '2'},         # there already: counted
+            {'type': 'quest', 'status': 'partial', 'internal': '0', 'phase': '1', 'n': '5'},   # phase 1 is open
+        ]
+        out = output.summary(rows, [2, 3])
+        self.assertEqual(out['boss'], ({'ok': 334}, 41, 3))
+        self.assertEqual(out['quest'], ({'partial': 5}, 0, 0))
+
+
+
 if __name__ == '__main__':
     unittest.main()

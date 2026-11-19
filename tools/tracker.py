@@ -728,12 +728,13 @@ def analyse(args):
                      phase_list, phase_of)
     log(f"loading {os.path.getsize(path) // 1024} KB into {CONFIG.db('tracker')}")
     sqlio.execute_file(path, 'tracker')
-    summary = {}
-    for (kind, _id), (status, _s, _c) in results.items():
-        summary.setdefault(kind, {}).setdefault(status, 0)
-        summary[kind][status] += 1
-    for kind, counts in sorted(summary.items()):
-        log(f'{kind:12} ' + '  '.join(f'{k}={v}' for k, v in sorted(counts.items())))
+    # The counts the website shows: internal / test rows and rows of a phase not open yet are no gap players meet, so
+    # they are counted apart (Season of Discovery bosses the client still lists were 41 of 44 "missing" bosses).
+    rows = sqlio.query('SELECT type, status, internal, phase, COUNT(*) n FROM ft_entities GROUP BY type, status, internal, phase', 'tracker')
+    summary = output.summary(rows, phases.closed(phase_list, CONFIG.get('phases', 'current')))
+    for kind, (counts, internal, later) in sorted(summary.items()):
+        aside = '  '.join(f'{k}={v}' for k, v in (('internal', internal), ('later', later)) if v)
+        log(f'{kind:12} ' + '  '.join(f'{k}={v}' for k, v in sorted(counts.items())) + (f'  (not counted: {aside})' if aside else ''))
     log(f'done in {time.time() - started:.0f} s')
 
 

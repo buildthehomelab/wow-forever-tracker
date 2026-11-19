@@ -31,6 +31,25 @@ TABLES = ('ft_builds', 'ft_entities', 'ft_changes', 'ft_meta', 'ft_tooltips', 'f
 NEVER_GIVEN_QUESTS = {785, 1390, 7221, 7222, 912, 9065, 9556, 8290, 1289, 7961, 7790}
 
 
+def summary(rows, closed):
+    """{kind: ({status: count}, internal, later)} from ft_entities rows (type, status, internal, phase, n), counted as the
+    website lists them: internal / test rows apart, and rows waiting for a phase not open yet (closed: the phase numbers)
+    apart unless the server already provides them."""
+    out = {}
+    closed = {int(p) for p in closed}
+    for row in rows:
+        counts, internal, later = out.get(row['type'], ({}, 0, 0))
+        n, status = int(row['n']), row['status']
+        if int(row.get('internal') or 0):
+            internal += n
+        elif int(row.get('phase') or 0) in closed and status != 'ok':
+            later += n
+        else:
+            counts[status] = counts.get(status, 0) + n
+        out[row['type']] = (counts, internal, later)
+    return out
+
+
 def named_internal(name):
     """A placeholder or test name ([PH] Brown Prideclaw, NOT USED); an empty name says nothing either way."""
     return bool(name and INTERNAL_NAME.search(name))
