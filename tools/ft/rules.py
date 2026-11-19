@@ -30,6 +30,7 @@ SOURCES = {
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
     'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
     'use': L('Made by using an item', 'Fait en utilisant un objet'),
+    'talk': L('Given in a conversation', 'Donné lors d’une conversation'),
 }
 
 
@@ -172,6 +173,11 @@ def evaluate_all(content, ctx):
         for spell, items in spell_loot.items():
             if spell in learnable:
                 add(items, 'craft')
+        # handed over in a conversation: a choice makes the player cast a spell that creates the item (the Spirit of
+        # Azuregos's Magical Ledger)
+        for item, spells in ctx['creates'].items():
+            if spells & cast.keys():
+                add([item], 'talk')
         # made by using an item players hold: the spell it casts (or one that spell triggers) creates it
         held = set(sources)
         for item, spells in ctx['creates'].items():

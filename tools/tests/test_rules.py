@@ -553,6 +553,14 @@ class Conversations(unittest.TestCase):
         ctx = world(conversation_casts=[('npc', 14338, 22814)], spell_teaches={(22814, 22813)}, spawned_npc={14338}, creates={18258: {22813}})
         self.assertEqual(evaluate({'item': {18258: {}}}, ctx)[('item', 18258)][0], 'ok')
 
+    def test_an_item_a_conversation_makes_is_obtainable(self):
+        # the Spirit of Azuregos's last choice makes the player cast 25600, which creates the Magical Ledger 20949
+        ctx = world(conversation_casts=[('npc', 15481, 25600)], spawned_npc={15481}, creates={20949: {25600}})
+        result = evaluate({'item': {20949: {}}}, ctx)[('item', 20949)]
+        self.assertEqual(result[0], 'ok')
+        ctx = world(conversation_casts=[('npc', 15481, 25600)], creates={20949: {25600}})   # the spirit is not spawned
+        self.assertNotEqual(evaluate({'item': {20949: {}}}, ctx)[('item', 20949)][0], 'ok')
+
 
 class TreeSpells(unittest.TestCase):
     """The spells of the talent and perk trees (the Trait tables): a definition counts once it sits on a node."""
