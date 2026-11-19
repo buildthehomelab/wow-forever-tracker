@@ -101,6 +101,14 @@ class MadeByUse(unittest.TestCase):
         self.ctx['spawned_npc'] = set()
         self.assertEqual(failed(evaluate({'item': {1: {}, 2: {}}}, self.ctx)[('item', 2)]), ['source'])
 
+    def test_a_credit_an_item_gives(self):
+        # quest 10 asks for creature 300, a credit marker no one spawns: using item 1 casts spell 50, which credits it
+        self.ctx.update(quests={10: quest_row()}, objectives=[(10, 0, 300, 1)], q_start_npc=[(100, 10)], q_end_npc=[(100, 10)],
+                        quest_turn_in_text={10}, credit_spells={300: {51}})
+        self.assertEqual(evaluate({'quest': {10: {}}, 'item': {1: {}}}, self.ctx)[('quest', 10)][0], 'ok')
+        self.ctx['credit_spells'] = {300: {77}}
+        self.assertEqual(failed(evaluate({'quest': {10: {}}, 'item': {1: {}}}, self.ctx)[('quest', 10)]), ['objectives'])
+
     def test_the_server_reads_what_an_item_casts(self):
         # a learn effect (36) teaches its spell, it does not cast it: a recipe makes nothing by being used
         effects = [{'SpellID': 50, 'Effect': 64, 'EffectTriggerSpell': 51, 'EffectItemType': 0, 'EffectMiscValue1': 0},

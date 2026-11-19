@@ -8,6 +8,7 @@ from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
+EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 
@@ -297,7 +298,7 @@ def server_state():
         'mount': ids('Mount') | hot('mount'), 'toy': ids('Toy') | hot('toy'), 'pet': ids('BattlePetSpecies') | hot('battle_pet_species'),
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
-    learn, creates, spell_summons, cast_by = {}, {}, set(), {}
+    learn, creates, spell_summons, cast_by, credit_spells = {}, {}, set(), {}, {}
     spell_effects = srv('SpellEffect')
     for e in spell_effects:
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
@@ -308,6 +309,8 @@ def server_state():
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
         if e['Effect'] == EFFECT_SUMMON and e['EffectMiscValue1'] > 0:
             spell_summons.add(e['EffectMiscValue1'])
+        if e['Effect'] in EFFECT_KILL_CREDIT and e['EffectMiscValue1'] > 0:
+            credit_spells.setdefault(e['EffectMiscValue1'], set()).add(e['SpellID'])
     effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
     for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
         effects[int(row['ID'])] = int(row['SpellID'])
@@ -323,6 +326,7 @@ def server_state():
                 teaches.setdefault(target, set()).add(item_id)
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
     ctx['used_spells'] = used_spells(item_spells, spell_effects)
+    ctx['credit_spells'] = credit_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     acquire = {}
     for r in srv('SkillLineAbility'):
