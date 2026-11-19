@@ -103,7 +103,8 @@ def find(boss_id, boss, spawned, templates=(), summoned=(), instance_scripted=Fa
 
     how:
       'spawned'   it stands in the instance: the creature the instance script names, else one of that exact name,
-                  else one whose name is close (an exact name always wins: C'Thun before Eye of C'Thun).
+                  else one whose name is close (an exact name always wins: C'Thun before Eye of C'Thun). A close name
+                  comes after a creature the script names that a script brings in (Nefarian before Nefarian's Troops).
       'summoned'  not spawned, and known to be brought in: the instance script names it as this encounter, or a
                   summon group, a SmartAI summon, a summoning spell or a C++ script summons it.
       'scripted'  not spawned and nothing is known to summon it, but it has a C++ script in an instance that has one
@@ -119,12 +120,12 @@ def find(boss_id, boss, spawned, templates=(), summoned=(), instance_scripted=Fa
     for npc in spawned:
         if normal(npc['name']) in exact:
             return npc, 'spawned'
+    for npc in templates:
+        if npc['id'] in bound:
+            return npc, 'summoned'   # before a close name: Nefarian is no spawned Nefarian's Troops
     for npc in spawned:
         if any(close_name(title, npc['name']) for title in wanted):
             return npc, 'spawned'
-    for npc in templates:
-        if npc['id'] in bound:
-            return npc, 'summoned'
     guess = None
     for npc in templates:
         name = normal(npc['name'])
