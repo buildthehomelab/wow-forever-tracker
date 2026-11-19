@@ -459,17 +459,30 @@ function source_drop_changes(string $source, array $measured, array $current, fl
 }
 
 /** The server's drop rows for the creatures and chests of the evidence, and the evidence keyed like them: [measured, current]. */
-function source_drops_now(array $ev): array
+/** The loot a source may measure again: a corpse's and a chest's. Skinning, pick pocketing and containers are left as
+ *  they are: their tables are mostly a guaranteed item or a group rolled once (one skin gives one leather), so a rate
+ *  per item from players' counts would empty them (Thick Leather 100% -> 18.75% on a 2026-11-19 card). New rows for
+ *  items the server lacks are still written there (source_tables). */
+const SOURCE_REFRESH_KINDS = ['npc', 'go'];
+
+/** The drops of $ev worth measuring again: [kind => [id => [item => best chance]]], the kinds of SOURCE_REFRESH_KINDS. */
+function source_refresh_drops(array $ev): array
 {
-    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []];
+    $drops = array_fill_keys(SOURCE_REFRESH_KINDS, []);
     foreach ($ev['drop'] ?? [] as $d) {
         [$kind, $id, $item, $chance] = $d;
         if (!empty($d[4]) || !isset($drops[$kind])) continue;   // an even share AtlasLoot guessed is no measure
         $drops[$kind][(int)$id][(int)$item] = max($drops[$kind][(int)$id][(int)$item] ?? 0, (float)$chance);
     }
-    [$found, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']), array_keys($drops['item']));
+    return $drops;
+}
+
+function source_drops_now(array $ev): array
+{
+    $drops = source_refresh_drops($ev);
+    [$found, $known] = source_loot_entries(array_keys($drops['npc']), array_keys($drops['go']));
     $measured = []; $current = [];
-    foreach (SOURCE_LOOT_TABLES as $kind => $table) {
+    foreach (array_intersect_key(SOURCE_LOOT_TABLES, $drops) as $kind => $table) {
         // a creature's table under its own entry when its template names none (an import made it so); an object only as a chest or node
         $entryOf = [];
         foreach ($found[$kind] as $id => $entry) if ($entry || $kind !== 'go') $entryOf[$id] = $entry ?: $id;
