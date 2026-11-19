@@ -42,6 +42,14 @@ check($ev['left'] === ['wowhead_item_unknown' => 1, 'wowhead_no_source' => 1, 'w
     'wowhead_drop_not_counted' => 1, 'wowhead_vendor_other_cost' => 3, 'wowhead_quest_unknown' => 1, 'wowhead_quest_started_by_item' => 1], 'what was left out is counted for the gap items only: ' . json_encode($ev['left']));
 check(!array_filter($ev['drop'], fn($d) => $d[3] > 100), 'no chance above 100 (more drops than loots, several in one corpse, is capped)');
 
+// a gap item seen dropping once only: that rate is written when nothing better gives it (Blue Suede Shoulders, 1 in 158)
+$seen = [800 => ['id' => 800, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 1831, 'count' => 1, 'outof' => 158], ['id' => 1832, 'count' => 1, 'outof' => 5]])]],
+         801 => ['id' => 801, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 1831, 'count' => 1, 'outof' => 158]]), 'sold-by' => $tab([['id' => 3413, 'stock' => -1, 'cost' => [500]]])]],
+         802 => ['id' => 802, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['dropped-by' => $tab([['id' => 1831, 'count' => 1, 'outof' => 158]])]]];
+[$evSeen] = wowhead_pages_evidence($seen, [], array_fill_keys([800, 801], true));
+check($evSeen['drop'] === [['npc', 1831, 800, 0.6329]], 'a sighting of an item nothing else gives, on ten loots or more; not one a vendor gives, not one that is no gap: ' . json_encode($evSeen['drop']));
+check($evSeen['left'] === ['wowhead_drop_few' => 2], 'the sighting on five loots and the one a vendor makes needless are left out: ' . json_encode($evSeen['left']));
+
 // ---- npc and object pages: whole loot tables, vendors, quests
 $npcPages = [
     // a creature's own page: its drops counted on each row, what it sells (one way to pay a list), the quests it gives and takes

@@ -261,6 +261,17 @@ class HowASpellIsLearned(unittest.TestCase):
         done = dict(waiting, q_start_npc=[(100, 2771)], q_end_npc=[(100, 2771)], spawned_npc={100}, quest_turn_in_text={2771})
         self.assertEqual(evaluate({'spell': {9980: {'sub': 'class'}}, 'quest': {2771: {}}}, world(**done))[('spell', 9980)][0], 'ok')
 
+    def test_a_quest_outside_the_official_list_still_gives_its_reward(self):
+        # quest 8878 (Festive Recipes) is on the server but not in the client's QuestV2: its pattern teaches spell 26403
+        ctx = world(spawned_npc={100}, q_start_npc=[(100, 8878)], q_end_npc=[(100, 8878)], quests={8878: quest_row(RewardChoiceItemID1=21722)},
+                    quest_turn_in_text={8878}, teaches={26403: {21722}})
+        results = evaluate({'item': {21722: {}}, 'spell': {26403: {'sub': 'profession'}}}, ctx)
+        self.assertEqual(results[('item', 21722)][0], 'ok')
+        self.assertEqual(results[('spell', 26403)][0], 'ok')
+        # nobody gives it: still nothing
+        ctx = world(q_end_npc=[(100, 8878)], spawned_npc={100}, quests={8878: quest_row(RewardChoiceItemID1=21722)}, teaches={26403: {21722}})
+        self.assertEqual(evaluate({'item': {21722: {}}}, ctx)[('item', 21722)][0], 'partial')
+
     def test_a_trainer_list_no_creature_uses(self):
         self.assertEqual(self.spell(10841, trainer_spells=[(7, 10841)])[1], 'A trainer list has it, but no creature uses that list.')
 

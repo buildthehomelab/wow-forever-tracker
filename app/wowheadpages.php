@@ -19,7 +19,8 @@
 require_once FT_APP . '/sources.php';
 
 const WOWHEAD_PAGES_MIN_LOOTS = 10;    // a drop counts from this many looted corpses (or opened chests) ...
-const WOWHEAD_PAGES_MIN_DROPS = 2;     // ... in which the item fell at least twice: once is a sighting, not a rate
+const WOWHEAD_PAGES_MIN_DROPS = 2;     // ... in which the item fell at least twice: once is a sighting, not a rate,
+                                       // used only for an item nothing else gives (wowhead_pages_evidence)
 const WOWHEAD_PAGES_WORLD_DROP = 15;   // an item this many different creatures drop is nobody's own loot
 /** The tabs of an item page that are loot of a creature or of a chest; every other source tab is counted only. */
 const WOWHEAD_PAGES_DROP_TABS = ['dropped-by' => 'npc', 'contained-in-object' => 'go', 'mined-from-object' => 'go', 'gathered-from-object' => 'go'];
@@ -189,6 +190,8 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
 
     // the drops, now that every page told how many creatures drop each item
     $given = [];
+    $sighted = [];      // gap item => its drops seen once (kept only when nothing better gives it)
+    $rated = [];        // items a counted drop or a money vendor gives
     foreach ($drops as [$kind, $id, $item, $count, $outof]) {
         $gap = isset($gapItems[$item]);
         // many creatures drop it: a world drop, which belongs to the shared tables no page describes
@@ -198,14 +201,27 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
         if ($kind === 'npc' && $gap && !isset($itemRead[$item])) { $left['wowhead_drop_item_page_not_read']++; continue; }
         $given[$item] = true;
         if ($count === null) { if ($gap) $left['wowhead_drop_not_counted']++; continue; }
-        if ($outof < WOWHEAD_PAGES_MIN_LOOTS || $count < WOWHEAD_PAGES_MIN_DROPS) { if ($gap) $left['wowhead_drop_few']++; continue; }
+        if ($outof < WOWHEAD_PAGES_MIN_LOOTS || $count < WOWHEAD_PAGES_MIN_DROPS) {
+            // a gap item seen dropping once on enough loots: kept aside, it is used when nothing better gives the item
+            if ($gap && $outof >= WOWHEAD_PAGES_MIN_LOOTS && $count >= 1) $sighted[$item][] = [$kind, $id, $item, round(min(100, 100 * $count / $outof), 4)];
+            elseif ($gap) $left['wowhead_drop_few']++;
+            continue;
+        }
         $ev['drop'][] = [$kind, $id, $item, round(min(100, 100 * $count / $outof), 4)];
+        $rated[$item] = true;
     }
     foreach ($sells as [$npc, $item, $stock, $money]) {
         $given[$item] = true;
         // paid with a currency or with items: the server's rules have no cost to give it
         if (!$money) { if (isset($gapItems[$item])) $left['wowhead_vendor_other_cost']++; continue; }
         $ev['sell'][] = [$npc, $item, $stock];
+        $rated[$item] = true;
+    }
+    // sightings (one drop in WOWHEAD_PAGES_MIN_LOOTS or more loots) of an item nobody can get and that no counted drop
+    // or vendor gives: players' one count is a better rate than no source at all (user decision 2026-11-18)
+    foreach ($sighted as $item => $rows) {
+        if (isset($rated[$item])) { $left['wowhead_drop_few'] += count($rows); continue; }
+        foreach ($rows as $row) $ev['drop'][] = $row;
     }
     foreach ($noSource as $item => $why) if (!isset($given[$item])) $left[$why]++;
 

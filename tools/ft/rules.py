@@ -171,8 +171,10 @@ def evaluate_all(content, ctx):
             if spell in learnable:
                 add(items, 'craft')
         obtainable = set(sources)
-        for quest in quests:
-            if quest in ctx['quests'] and quest not in disabled_quests:
+        # every quest the server has, not only the official list's: the client's QuestV2 leaves out many quests live
+        # Forever runs (Lunar Festival's Festive Recipes, WRIGGLE.), and what they hand out is still in players' hands
+        for quest in ctx['quests']:
+            if quest not in disabled_quests:
                 start_ok = any(s[2] for s in starters.get(quest, [])) or ctx['start_quest_item'].get(quest) in obtainable
                 end_ok = any(e[2] for e in enders.get(quest, []))
                 if start_ok and end_ok:
