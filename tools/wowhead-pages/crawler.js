@@ -637,6 +637,12 @@
     if (typeof tier === 'string') tier = TIERS[tier];
     if (!Number.isInteger(tier)) throw new Error('unknown tier');
     const have = new Set(await pages('readonly', s => s.getAllKeys()));
+    if (tier === TIERS.wanted) {
+      // a page asked for by hand that this tab read with an older record version (no model yet) is read again
+      const held = [...new Set(keys)].filter(k => have.has(k));
+      const records = held.length ? await pages('readonly', s => { const out = []; for (const k of held) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; }) : [];
+      for (const r of records) if ((r.v || 0) < VERSION && r.key) have.delete(r.key);
+    }
     const queued = new Set(state.queue);
     const want = [...new Set(keys)].filter(k => parseKey(k) && !have.has(k) && !(queued.has(k) && tierOf(state.tiers, k) <= tier));
     if (!want.length) return { moved: 0, queued: state.queue.length };
