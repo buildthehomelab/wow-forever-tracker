@@ -197,6 +197,23 @@ class Zones(unittest.TestCase):
         results = evaluate({'zone': {16941: {'map': 0}}}, world(map_tiles={0: 900}))
         self.assertEqual(failed(results[('zone', 16941)]), ['graveyard'])
 
+    def test_a_map_of_buildings_only_has_its_terrain_in_the_vmaps(self):
+        # the Deeprun Tram (map 369) has no ground tiles: mapextractor writes no .map for it, the vmaps carry it all
+        content = {'zone': {2257: {'map': 369}}}
+        self.assertEqual(failed(evaluate(content, world(graveyards={2257}))[('zone', 2257)]), ['terrain'])
+        self.assertEqual(failed(evaluate(content, world(vmaps={369}, graveyards={2257}))[('zone', 2257)]), [])
+
+    def test_unused_quests_do_not_count_against_their_zone(self):
+        # Azshara: fourteen "<UNUSED>" quests nobody gives kept the zone under 80 % with every real quest done
+        quests = {10: quest_row(QuestSortID=16, LogTitle='Poisoned Water')}
+        quests.update({20 + i: quest_row(QuestSortID=16, LogTitle='<UNUSED>') for i in range(3)})
+        ctx = world(map_tiles={1: 900}, graveyards={16}, spawned_npc={100}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)],
+                    quests=quests, quest_turn_in_text={10})
+        content = {'zone': {16: {'map': 1}}, 'quest': {q: {} for q in quests}}
+        result = evaluate(content, ctx)[('zone', 16)]
+        self.assertEqual(failed(result), [])
+        self.assertIn('1 / 1', next(c for c in result[2] if c['code'] == 'zone_quests')['detail']['en'])
+
 
 class Vendors(unittest.TestCase):
     def test_a_borrowed_list_is_written_out(self):
