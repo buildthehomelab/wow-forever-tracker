@@ -2,9 +2,12 @@
 // Changelog of an official build: every resource added, changed or removed, with Blizzard's notes.
 $builds = builds();
 $withChanges = array_map('intval', array_column(rows('SELECT DISTINCT build FROM ft_changes' . (hotfix_entries() ? ' WHERE hotfix = 0' : '') . ' ORDER BY build DESC'), 'build'));
-$build = (int)($_GET['build'] ?? ($withChanges[0] ?? 0));
+// with no build asked for, the newest entry with changes: a build, or a hotfix update after it (as the overview's
+// "Latest changes"), so a build that changed nothing itself does not hide the hotfixes that came after it
+$newest = isset($_GET['build']) ? null : row(hotfix_entries() ? 'SELECT build, hotfix FROM ft_changes ORDER BY build DESC, hotfix DESC LIMIT 1' : 'SELECT build, 0 hotfix FROM ft_changes ORDER BY build DESC LIMIT 1');
+$build = (int)($_GET['build'] ?? ($newest['build'] ?? 0));
 // a hotfix update of the build (1, 2, ...): what one day's hotfix cache changed against the one before (docs/CLIENT.md)
-$hotfix = hotfix_entries() ? max(0, (int)($_GET['hotfix'] ?? 0)) : 0;
+$hotfix = hotfix_entries() ? max(0, (int)($_GET['hotfix'] ?? ($newest['hotfix'] ?? 0))) : 0;
 $updates = hotfix_updates();
 $update = null;
 foreach ($updates as $u) if ((int)$u['build'] === $build && (int)$u['hotfix'] === $hotfix) $update = $u;

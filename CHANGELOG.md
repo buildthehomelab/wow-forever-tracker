@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The changelog opens on the newest entry.** With no build in the address, the Changelog page now opens on the
+  newest entry with changes, a hotfix update included, as the overview's *Latest changes* link does. Before, it
+  opened on the newest build that changed something itself, so a build with the same game data as the one before
+  (1.60.1.70959 after 70938) sent readers back a build, past the hotfixes that came after it.
+
 - **Keys from every region.** The client check also takes the decryption keys wago.tools saw handed out by hotfix in
   any region (its `TactKey` and `TactKeyLookup` tables), next to wowdev's TACTKeys list: a key that reaches Europe,
   Korea, Taiwan or China before the US hotfix cache, or before the list is updated by hand, opens the build's hidden
