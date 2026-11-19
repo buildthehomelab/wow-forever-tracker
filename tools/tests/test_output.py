@@ -251,6 +251,31 @@ class Summary(unittest.TestCase):
         self.assertEqual(out['quest'], ({'partial': 5}, 0, 0))
 
 
+class TaughtOnlyByInternalItems(unittest.TestCase):
+    """An item made only by a spell that only internal items teach or cast is filed with them."""
+
+    def internal(self, teachers, content_more=None, never_given=()):
+        content = {'item': {5654: named('Instant Toxin', quality=1), 5657: named('Recipe: Instant Toxin', quality=1),
+                            2: named('Real Pattern', quality=1), **(content_more or {})}}
+        results = {('item', i): ('partial', 50, []) for i in content['item']}
+        ctx = {'quests': {}, 'quest_fr': {}, 'quest_level': {}, 'classic_never_given': set(never_given), 'teachers_only': {5654: teachers}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'import.sql')
+            output.write_sql(path, [], content, [], results, {}, {}, {}, {}, ctx, 0, {}, [])
+            with open(path, encoding='utf-8') as handle:
+                text = handle.read()
+        return int(re.search(r"\('item',5654,.*?\)(?=,\n|;\n)", text).group(0).split(',')[8])
+
+    def test_its_only_recipe_is_internal(self):
+        self.assertEqual(self.internal({5657}, never_given={5657}), 1)
+
+    def test_a_real_teacher_keeps_it_listed(self):
+        self.assertEqual(self.internal({5657, 2}, never_given={5657}), 0)
+        self.assertEqual(self.internal({5657}), 0)
+
+    def test_a_teacher_gone_from_the_client_says_nothing(self):
+        self.assertEqual(self.internal({5657, 999}, never_given={5657}), 0)
+
 
 if __name__ == '__main__':
     unittest.main()
