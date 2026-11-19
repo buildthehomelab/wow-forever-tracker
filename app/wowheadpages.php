@@ -784,7 +784,12 @@ function wowhead_pages_queue(): array
     $queue['wanted'] = [];
     foreach (wowhead_wanted() as $kind => $ids) {
         $have = [];
-        foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
+        foreach (wowhead_pages_each($kind) as $page) {
+            // a creature's or object's page read before the crawler kept models (record v1) is read again: the
+            // content these pages are asked for needs the model
+            if (in_array($kind, ['npc', 'object'], true) && ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < WOWHEAD_PAGES_MODEL_V) continue;
+            if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
+        }
         $left = array_values(array_filter($ids, fn($id) => !isset($have[$id])));
         if ($left) $queue['wanted'][$kind] = $left;
     }
@@ -840,6 +845,7 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
 // (tier 'wanted'); a page read and not due again drops out of the queue by itself.
 
 const WOWHEAD_WANTED_KINDS = ['npc', 'object', 'item', 'quest'];
+const WOWHEAD_PAGES_MODEL_V = 2;   // the crawler's record version that keeps a page's model
 const WOWHEAD_WANTED_MAX = 2000;
 
 function wowhead_wanted_file(): string { return FT_ROOT . '/data/wowhead-wanted.json'; }
