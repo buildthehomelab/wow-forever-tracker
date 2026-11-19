@@ -3,6 +3,7 @@
 import math
 
 from . import bosses, reports
+from .output import named_internal
 from .baseline import NEW_FROM
 from .server import log
 
@@ -429,7 +430,8 @@ def evaluate_all(content, ctx):
     official_quests_by_zone = {}
     for quest_id in quests:
         row = ctx['quests'].get(quest_id)
-        if row and int(row['QuestSortID'] or 0) > 0:
+        # a developer's leftover ("<UNUSED>", "[DNT]") is filed under Internal / test, not counted against its zone
+        if row and int(row['QuestSortID'] or 0) > 0 and not named_internal(row.get('LogTitle')):
             official_quests_by_zone.setdefault(int(row['QuestSortID']), []).append(quest_id)
 
     # Rows of the client that are no boss of their own (Season of Discovery's raid versions, the same fight listed
@@ -491,7 +493,10 @@ def evaluate_all(content, ctx):
     def zone_result(zone_id, entity):
         map_id = entity['map']
         entity['weak'] = zone_id not in boxes and not official_quests_by_zone.get(zone_id)
-        checks = [check(ctx['map_tiles'].get(map_id, 0) > 0, 'terrain', L(f'map {map_id}', f'carte {map_id}'), 1)]
+        # a map with no ground tiles, only buildings (the Deeprun Tram), has its terrain in the vmaps alone
+        tiles, vmap = ctx['map_tiles'].get(map_id, 0), map_id in ctx['vmaps']
+        checks = [check(tiles > 0 or vmap, 'terrain', L(f"map {map_id}: {tiles} .map tile(s), vmaps {'yes' if vmap else 'no'}",
+                                                        f"carte {map_id} : {tiles} tuile(s) .map, vmaps {'oui' if vmap else 'non'}"), 1)]
         if zone_id in boxes:
             n = zone_spawns.get(zone_id, 0)
             checks.append(check(n >= 20, 'spawns', L(f'≈{n} creatures inside the zone', f'≈{n} PNJ dans l’emprise de la zone'), 3))
