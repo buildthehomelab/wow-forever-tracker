@@ -24,6 +24,13 @@ DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach'
 TABLES = ('ft_builds', 'ft_entities', 'ft_changes', 'ft_meta', 'ft_tooltips', 'ft_fixes')
 
 
+# Quests of the original game nothing ever gave: VMaNGOS (db-70e38cd, checked 2026-11-19) has their row but no giver,
+# no start item and no object that starts them, and the realm has none either. A Strategic Alliance, Oops We Killed
+# Them Again, the Alterac Valley "Speak with..." pair, Stonesplinter Trogg Disguise, the "Chow" test quest, To The
+# Victor..., Vanquish the Invaders, Vimes's Report (1289, the copy 1288 replaced), Waskily Wabbits!, River Ends.
+NEVER_GIVEN_QUESTS = {785, 1390, 7221, 7222, 912, 9065, 9556, 8290, 1289, 7961, 7790}
+
+
 def named_internal(name):
     """A placeholder or test name ([PH] Brown Prideclaw, NOT USED); an empty name says nothing either way."""
     return bool(name and INTERNAL_NAME.search(name))
@@ -178,6 +185,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 if {'enabled', 'starter'} <= failed:
                     internal = 1
                 if 'starter' in failed and done_titles.get(name_en, set()) - {entity_id}:
+                    internal = 1
+                if 'starter' in failed and entity_id in NEVER_GIVEN_QUESTS:
                     internal = 1
                 # started only by an item the client itself marks unused ("<UNUSED> Glyphic Rune")
                 start_item = content.get('item', {}).get((ctx or {}).get('start_quest_item', {}).get(entity_id)) or {}

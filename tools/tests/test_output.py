@@ -43,16 +43,17 @@ class Written(unittest.TestCase):
             'pet': {3500: named('Gill\'el', spell=3)},
             'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants'), 2369: named('Herbalism'), 2330: named(''), 2337: named('#2337')},
             'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants'), 9572: named('<UNUSED> Glyphic Rune')},
-            'quest': {55296: named(''), 9999999: named(''), 2000: named(''), 5561: named(''), 8237: named(''), 9378: named(''), 909: named(''), 6922: named(''), 3111: named('')},
+            'quest': {55296: named(''), 9999999: named(''), 2000: named(''), 5561: named(''), 8237: named(''), 9378: named(''), 909: named(''), 6922: named(''), 3111: named(''), 785: named('')},
         }
         results = {(kind, i): ('missing', 0, []) for kind in cls.content for i in cls.content[kind]}
         off = [{'ok': False, 'code': 'enabled'}, {'ok': False, 'code': 'starter'}, {'ok': False, 'code': 'ender'}]
         results[('quest', 2000)] = ('missing', 0, off)
         results[('quest', 5561)] = ('missing', 0, off[1:])
+        results[('quest', 785)] = ('missing', 0, off[1:])
         results[('quest', 909)] = ('missing', 0, off[1:2])
         results[('quest', 6922)] = ('ok', 100, [])
         results[('quest', 3111)] = ('missing', 0, off[1:])
-        quests = {3111: {'LogTitle': 'Glyphic Rune'}, 909: {'LogTitle': 'Baron Aquanis'}, 6922: {'LogTitle': 'Baron Aquanis'}, 2000: {'LogTitle': 'Rokar Bladeshadow'}, 5561: {'LogTitle': 'Kodo Roundup'}, 8237: {'LogTitle': 'REUSE'},
+        quests = {3111: {'LogTitle': 'Glyphic Rune'}, 909: {'LogTitle': 'Baron Aquanis'}, 6922: {'LogTitle': 'Baron Aquanis'}, 2000: {'LogTitle': 'Rokar Bladeshadow'}, 785: {'LogTitle': 'A Strategic Alliance'}, 5561: {'LogTitle': 'Kodo Roundup'}, 8237: {'LogTitle': 'REUSE'},
                   9378: {'LogTitle': 'DND FLAG The Dread Citadel - Naxxramas'}}
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, 'import.sql')
@@ -129,6 +130,10 @@ class Written(unittest.TestCase):
         # the Strange Water Globe starts 6922 in the client: 909 of the same title is nobody's
         self.assertEqual(self.internal('quest', 909), 1)
         self.assertNotIn(",'missing'", self.row('quest', 6922))
+
+    def test_an_original_quest_nothing_ever_gave(self):
+        # A Strategic Alliance: VMaNGOS has no giver for it either
+        self.assertEqual(self.internal('quest', 785), 1)
 
     def test_started_only_by_an_unused_item(self):
         self.assertEqual(self.internal('quest', 3111), 1)
