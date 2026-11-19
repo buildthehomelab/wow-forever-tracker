@@ -205,7 +205,7 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                         or (wowhead or {}).get(('spell', entity_id)) == 'season')):
                     internal = 1  # its spell (the same id) is internal on the spell's line, for the same reasons: a Season of
                     #               Discovery addition, one the original game taught nowhere, or only items outside the game teach it
-                if kind == 'recipe' and status != 'ok' and not name and entity_id < NEW_FROM['recipe'] and entity_id not in content.get('spell', {}):
+                if kind == 'recipe' and status != 'ok' and name in ('', f'#{entity_id}') and entity_id < NEW_FROM['recipe'] and entity_id not in content.get('spell', {}):
                     internal = 1  # a profession line of the original game whose spell Forever's client no longer has (the old
                     #               healing potions): Forever removed it
             verdict = (wowhead or {}).get((kind, entity_id))
