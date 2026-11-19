@@ -28,6 +28,7 @@ SOURCES = {
     'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
     'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
+    'use': L('Made by using an item', 'Fait en utilisant un objet'),
 }
 
 
@@ -170,6 +171,11 @@ def evaluate_all(content, ctx):
         for spell, items in spell_loot.items():
             if spell in learnable:
                 add(items, 'craft')
+        # made by using an item players hold: the spell it casts (or one that spell triggers) creates it
+        held = set(sources)
+        for item, spells in ctx['creates'].items():
+            if any(ctx.get('used_spells', {}).get(spell, set()) & held for spell in spells):
+                add([item], 'use')
         obtainable = set(sources)
         # every quest the server has, not only the official list's: the client's QuestV2 leaves out many quests live
         # Forever runs (Lunar Festival's Festive Recipes, WRIGGLE.), and what they hand out is still in players' hands
@@ -370,7 +376,11 @@ def evaluate_all(content, ctx):
         checks.append(check(any(e[2] for e in end), 'ender', L(en or 'No quest ender.', fr or 'Aucun valideur.'), 2))
         problems = []
         for kind, obj, amount in objectives.get(quest_id, []):
-            if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned):
+            # a creature the objective only counts (a credit marker) is credited by a spell; one an item players hold
+            # casts when used gives the credit wherever the quest says (the Forever quest items that mark a spot)
+            credited = any(ctx.get('used_spells', {}).get(spell, set()) & obtainable for spell in ctx.get('credit_spells', {}).get(obj, ())) \
+                or obj in ctx.get('script_credits', ())
+            if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned) and not credited:
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
                 problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))

@@ -125,6 +125,15 @@ def candidates():
         for r in sqlio.query(f"SELECT d.Entry entry, MIN(l.Item) item FROM creature_loot_template l JOIN creature_template_difficulty d ON d.LootID = l.Entry AND d.DifficultyID IN (0, 1) "
                              f"WHERE l.ItemType = 0 AND l.Item IN ({part}) AND {unspawned_npc.format(col='d.Entry')} GROUP BY d.Entry"):
             add('npc', r['entry'], 'loot', 'item', r['item'])
+        # a chest (or fishing hole) whose loot holds it, and a creature or object that drops it for a quest
+        # (creature_questitem, gameobject_questitem): Gordunni Cobalt, Araj's Scarab and the like stand in the world
+        # database's loot, only their chest was never spawned
+        for r in sqlio.query(f"SELECT gt.entry, MIN(l.Item) item FROM gameobject_loot_template l JOIN gameobject_template gt ON gt.Data1 = l.Entry AND gt.type IN (3, 25) "
+                             f"WHERE l.ItemType = 0 AND l.Item IN ({part}) AND {unspawned_go.format(col='gt.entry')} GROUP BY gt.entry"):
+            add('go', r['entry'], 'loot', 'item', r['item'])
+        for table_name, column, kind, cond in (('creature_questitem', 'CreatureEntry', 'npc', unspawned_npc), ('gameobject_questitem', 'GameObjectEntry', 'go', unspawned_go)):
+            for r in sqlio.query(f"SELECT q.{column} entry, MIN(q.ItemId) item FROM {table_name} q WHERE q.ItemId IN ({part}) AND {cond.format(col='q.' + column)} GROUP BY q.{column}"):
+                add(kind, r['entry'], 'loot', 'item', r['item'])
 
     # ---- spells: trainers that teach them but stand nowhere
     spells = [(t, sid) for t in ('spell', 'recipe') for sid, _row, checks in entities.get(t, []) if failing(checks, 'learn')]
@@ -325,9 +334,10 @@ def run(args):
         info = found[key]
         roles = {r[0] for r in info['reasons']}
         priority = min(PRIORITY[r] for r in roles)
-        # only quest objectives come in packs (kill ten of them); anything else is one creature per place: Wowhead's
-        # several points around it are its wandering, not more copies
-        pack = 'objective' in roles
+        # only quest objectives come in packs (kill ten of them), and the chests a quest's items lie in (a field of dirt
+        # mounds); anything else is one creature per place: Wowhead's several points around it are its wandering, not
+        # more copies
+        pack = 'objective' in roles or (kind == 'go' and 'loot' in roles)
         service = roles <= SERVICE
         state, map_id, zone, points, note = 'pending', info.get('map'), None, [], ''
         wander = 0.0 if service else 5.0

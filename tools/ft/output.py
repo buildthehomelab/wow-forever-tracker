@@ -16,7 +16,8 @@ INTERNAL_NAME = re.compile(
     r'|\bTEST\b|\btest\b|^Test (?!of\b)|\(Test\)|\bTest (?:Item|Dungeon|Quest|Spell|NPC|Mount|Pet|Zone|Vendor|Realm|Character|Creature|Object)s?\b|Test\d|Test[A-Z]'
     r'|^Monster - |^Monstre - '
     r'|\b(OLD|Deprecated|DEPRECATED|DEP|PH|DNT|QA|UNUSED|NYI|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\(Unused\)|- Unused\b|\bUnused$'
-    r'|^Copy of\b|\(copy\)|- copy\b|\bcopy$|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b')
+    r'|^Copy of\b|\(copy\)|- copy\b|\bcopy$|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b'
+    r'|^REUSE$|\bDND\b')
 # Flight paths a quest flies you along (TaxiNodes rows named "Quest Path 11512: ..."), not flight points.
 QUEST_PATH = re.compile(r'^Quest Path \d+')
 DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach', 'creates')
@@ -139,6 +140,13 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
         granted = ctx.get('granted_spells', ())
         trained = {spell for _trainer, spell in ctx.get('trainer_spells', ())}
         batch = Batch(out, 'ft_entities_new')
+        # The titles of the quests players can do: a copy nobody gives under the same title is an older number the
+        # game moved on from (the Strange Water Globe starts Baron Aquanis 6922, not 909; the Arena Master trinket 7810)
+        done_titles = {}
+        for (kind, entity_id), (status, _score, _checks) in results.items():
+            title = ((ctx or {}).get('quests', {}).get(entity_id) or {}).get('LogTitle') if kind == 'quest' and status == 'ok' else None
+            if title:
+                done_titles.setdefault(title, set()).add(entity_id)
         for (kind, entity_id), (status, score, checks) in results.items():
             entity = content[kind][entity_id]
             name = entity.get('name') or ''
@@ -164,6 +172,17 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # is only asked about Forever's own quests, so no answer would ever hide it. No title is no quest players take.
                 classic_unnamed = not name and not baseline.is_new(kind, entity_id, entity)
                 internal = 1 if unknown_everywhere or classic_unnamed or (name and INTERNAL_NAME.search(name)) else 0
+                # The server's own disables table switches it off and nothing gives it: a quest the core keeps out on
+                # purpose (Rokar Bladeshadow, Da Foo, Kill 'Em With Sleep Deprivation), not content waiting for a fix.
+                failed = {c['code'] for c in checks if not c['ok']}
+                if {'enabled', 'starter'} <= failed:
+                    internal = 1
+                if 'starter' in failed and done_titles.get(name_en, set()) - {entity_id}:
+                    internal = 1
+                # started only by an item the client itself marks unused ("<UNUSED> Glyphic Rune")
+                start_item = content.get('item', {}).get((ctx or {}).get('start_quest_item', {}).get(entity_id)) or {}
+                if 'starter' in failed and named_internal(start_item.get('name_en') or start_item.get('name')):
+                    internal = 1
                 if not name:
                     data['unnamed'] = True
                 name = name or f'#{entity_id}'

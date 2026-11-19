@@ -8,6 +8,7 @@ from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
+EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 
@@ -260,6 +261,27 @@ def zone_rectangles(assignments):
     return out
 
 
+def used_spells(item_spells, effects):
+    """{spell: {item}}: what using an item casts, the spells those trigger included (a learn effect teaches its spell,
+    it casts nothing). The Empty Leaden Collection Phial fills itself into the Full one, the Heated Ancient Blade
+    becomes the Treated one: the item a spell of these creates is made by using an item."""
+    triggers = {}
+    for e in effects:
+        if e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID'] and e['Effect'] != EFFECT_LEARN_SPELL:
+            triggers.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
+    used = {}
+    for item_id, spells in item_spells.items():
+        todo, seen = list(spells), set()
+        while todo:
+            spell = todo.pop()
+            if spell not in seen:
+                seen.add(spell)
+                todo.extend(triggers.get(spell, ()))
+        for spell in seen:
+            used.setdefault(spell, set()).add(item_id)
+    return used
+
+
 def server_state():
     log(f'server: DB2 of the running server ({server_dbc()})')
     for key in ('maps', 'vmaps'):
@@ -276,8 +298,9 @@ def server_state():
         'mount': ids('Mount') | hot('mount'), 'toy': ids('Toy') | hot('toy'), 'pet': ids('BattlePetSpecies') | hot('battle_pet_species'),
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
-    learn, creates, spell_summons, cast_by = {}, {}, set(), {}
-    for e in srv('SpellEffect'):
+    learn, creates, spell_summons, cast_by, credit_spells = {}, {}, set(), {}, {}
+    spell_effects = srv('SpellEffect')
+    for e in spell_effects:
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
             learn.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
         elif e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID']:
@@ -286,6 +309,8 @@ def server_state():
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
         if e['Effect'] == EFFECT_SUMMON and e['EffectMiscValue1'] > 0:
             spell_summons.add(e['EffectMiscValue1'])
+        if e['Effect'] in EFFECT_KILL_CREDIT and e['EffectMiscValue1'] > 0:
+            credit_spells.setdefault(e['EffectMiscValue1'], set()).add(e['SpellID'])
     effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
     for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
         effects[int(row['ID'])] = int(row['SpellID'])
@@ -300,6 +325,8 @@ def server_state():
             for target in {spell} | learn.get(spell, set()):
                 teaches.setdefault(target, set()).add(item_id)
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
+    ctx['used_spells'] = used_spells(item_spells, spell_effects)
+    ctx['credit_spells'] = credit_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     acquire = {}
     for r in srv('SkillLineAbility'):
@@ -336,6 +363,7 @@ def server_state():
     ctx['summoned_npc'], ctx['summoned_go'] = summoned, summoned_go
     ctx['encounter_npc'] = core['encounters']
     ctx['summon_script'] = core['creatures']
+    ctx['script_credits'] = set(core.get('credits', {}))   # kill credits a C++ script gives (Arathi Basin's bases)
     bound = {entry for entries in core['encounters'].values() for entry in entries}
     ctx['unspawned_npc'] = [{'id': int(r['entry']), 'name': r['name'] or '', 'script': bool(r['ScriptName'])}
                             for r in q("SELECT ct.entry, ct.name, ct.ScriptName FROM creature_template ct WHERE NOT EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry)")

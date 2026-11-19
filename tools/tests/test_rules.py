@@ -86,6 +86,39 @@ class Summoned(unittest.TestCase):
         self.assertEqual(evaluate({'item': {3: {}}}, ctx)[('item', 3)][0], 'ok')
 
 
+class MadeByUse(unittest.TestCase):
+    """An item made by using another one players hold: the Empty Leaden Collection Phial fills itself."""
+
+    def setUp(self):
+        # creature 100 drops the empty phial 1; using it casts spell 50, which triggers 51, which creates the full phial 2
+        self.ctx = world(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)], item_spells={1: {50}}, creates={2: {51}}, used_spells={50: {1}, 51: {1}})
+        self.ctx['loot']['creature'] = [(900, 0, 1, 0)]
+
+    def test_using_a_held_item_makes_it(self):
+        self.assertEqual(evaluate({'item': {1: {}, 2: {}}}, self.ctx)[('item', 2)][0], 'ok')
+
+    def test_an_item_nobody_holds_makes_nothing(self):
+        self.ctx['spawned_npc'] = set()
+        self.assertEqual(failed(evaluate({'item': {1: {}, 2: {}}}, self.ctx)[('item', 2)]), ['source'])
+
+    def test_a_credit_an_item_gives(self):
+        # quest 10 asks for creature 300, a credit marker no one spawns: using item 1 casts spell 50, which credits it
+        self.ctx.update(quests={10: quest_row()}, objectives=[(10, 0, 300, 1)], q_start_npc=[(100, 10)], q_end_npc=[(100, 10)],
+                        quest_turn_in_text={10}, credit_spells={300: {51}})
+        self.assertEqual(evaluate({'quest': {10: {}}, 'item': {1: {}}}, self.ctx)[('quest', 10)][0], 'ok')
+        self.ctx['credit_spells'] = {300: {77}}
+        self.assertEqual(failed(evaluate({'quest': {10: {}}, 'item': {1: {}}}, self.ctx)[('quest', 10)]), ['objectives'])
+
+    def test_the_server_reads_what_an_item_casts(self):
+        # a learn effect (36) teaches its spell, it does not cast it: a recipe makes nothing by being used
+        effects = [{'SpellID': 50, 'Effect': 64, 'EffectTriggerSpell': 51, 'EffectItemType': 0, 'EffectMiscValue1': 0},
+                   {'SpellID': 51, 'Effect': 24, 'EffectTriggerSpell': 0, 'EffectItemType': 2, 'EffectMiscValue1': 0},
+                   {'SpellID': 60, 'Effect': 36, 'EffectTriggerSpell': 61, 'EffectItemType': 0, 'EffectMiscValue1': 0},
+                   {'SpellID': 61, 'Effect': 24, 'EffectTriggerSpell': 0, 'EffectItemType': 3, 'EffectMiscValue1': 0}]
+        used = server.used_spells({1: {50}, 4: {60}}, effects)
+        self.assertEqual(used, {50: {1}, 51: {1}, 60: {4}})
+
+
 class Quests(unittest.TestCase):
     def setUp(self):
         self.ctx = world(spawned_npc={100}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)], quests={10: quest_row()}, quest_turn_in_text={10})
