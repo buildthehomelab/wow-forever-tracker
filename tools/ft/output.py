@@ -50,6 +50,13 @@ def summary(rows, closed):
     return out
 
 
+# Items of the client's own systems, no content players get, checked by hand (2026-11-19): the transmog window's
+# "Hidden" pieces and its UI models, the WoW Token and the Customer Service Package. Wowhead Forever's list pages name
+# no source for any of them.
+SYSTEM_ITEMS = {122270, 122284, 134110, 134111, 134112, 135510, 135522, 135548, 135549, 135550, 142503, 142504, 143539,
+                158329, 168659, 168664, 168665, 172070}
+
+
 def named_internal(name):
     """A placeholder or test name ([PH] Brown Prideclaw, NOT USED); an empty name says nothing either way."""
     return bool(name and INTERNAL_NAME.search(name))
@@ -63,6 +70,22 @@ def item_internal(item_id, items, wowhead):
         return None
     name = item.get('name_en') or item.get('name') or ''
     return bool(not name or INTERNAL_NAME.search(name) or (wowhead or {}).get(('item', item_id)) == 'season')
+
+
+def filed_internal(item_id, content, results, ctx, wowhead):
+    """True when an item's own line is filed under Internal / test: a test name or none, an item the original game gave
+    out nowhere and nothing here gives, or one Wowhead marks as a Season of Discovery leftover. False for an item the
+    official list does not have: a pattern gone from the client says nothing about its recipe (ft.output.leftover)."""
+    item = content.get('item', {}).get(item_id)
+    if item is None:
+        return False
+    name = item.get('name') or ''
+    if INTERNAL_NAME.search(item.get('name_en') or name) or not name or item_id in SYSTEM_ITEMS:
+        return True
+    status = (results.get(('item', item_id)) or ('',))[0]
+    if status != 'ok' and item_id < NEW_FROM['item'] and item_id in ((ctx or {}).get('classic_never_given') or ()):
+        return True  # the original game gave it out nowhere (removed or never released) and nothing here does
+    return (wowhead or {}).get(('item', item_id)) == 'season'
 
 
 def leftover(kind, entity_id, entity, status, items, wowhead, baseline, trained=()):
@@ -219,9 +242,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 if entity_id in granted or leftover(kind, entity_id, entity, status, content.get('item', {}), wowhead, baseline, trained):
                     internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
-                internal = 1 if INTERNAL_NAME.search(name_en or name) or not name else 0
-                if status != 'ok' and entity_id < NEW_FROM['item'] and entity_id in (ctx.get('classic_never_given') or ()):
-                    internal = 1  # the original game gave it out nowhere (removed or never released) and nothing here does
+                internal = 1 if filed_internal(entity_id, content, results, ctx, wowhead) else 0
+                teachers = ((ctx or {}).get('teachers_only') or {}).get(entity_id)
+                if status != 'ok' and not internal and teachers and all(filed_internal(t, content, results, ctx, wowhead) for t in teachers):
+                    internal = 1  # made only by a spell that only test or Season of Discovery items teach or cast (ft.rules)
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
                 if kind == 'taxi' and (QUEST_PATH.search(name_en or name) or unused_taxi(entity_id, entity, baseline, content['dungeon'])):

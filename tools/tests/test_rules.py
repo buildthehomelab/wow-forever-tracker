@@ -612,5 +612,45 @@ class ZoneCreatures(unittest.TestCase):
         self.assertNotIn('spawns', failed(evaluate(content, world(spawns=inside, map_tiles={0: 1, 1: 1}, graveyards={12, 14}))[('zone', 14)]))
 
 
+class ScriptCreates(unittest.TestCase):
+    """An item the core's own script hands over when a spell players learn is cast (the healthstones)."""
+
+    def setUp(self):
+        # trainer 14 teaches Create Healthstone (Minor) 6201; the script makes Minor Healthstone 5512
+        self.ctx = world(trainers=[(300, 14)], trainer_spells=[(14, 6201)])
+        self.content = {'item': {5512: {}, 19004: {}}}
+
+    def test_made_once_the_spell_is_trained(self):
+        self.ctx['spawned_npc'] = {300}
+        results = evaluate(self.content, self.ctx)
+        self.assertEqual(results[('item', 5512)][0], 'ok')
+        self.assertEqual(results[('item', 19004)][0], 'ok')   # the Improved Healthstone copy
+
+    def test_not_while_nobody_trains_it(self):
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('item', 5512)]), ['source'])
+
+
+class TeachersOnly(unittest.TestCase):
+    """An item whose only way in is a spell only items teach: the rules name those items for ft.output."""
+
+    def test_named_when_only_items_teach(self):
+        ctx = world(creates={7: {70}}, teaches={70: {8}})
+        evaluate({'item': {7: {}, 8: {}}}, ctx)
+        self.assertEqual(ctx['teachers_only'], {7: {8}})
+
+    def test_a_trained_or_rewarded_spell_is_left_out(self):
+        ctx = world(creates={7: {70}}, teaches={70: {8}}, trainers=[(300, 1)], trainer_spells=[(1, 70)])
+        evaluate({'item': {7: {}, 8: {}}}, ctx)
+        self.assertEqual(ctx['teachers_only'], {})   # a trainer has it, even one not spawned: the realm can teach it
+        ctx = world(creates={7: {70}}, teaches={70: {8}}, quests={10: quest_row(RewardSpell=70)})
+        evaluate({'item': {7: {}, 8: {}}, 'quest': {10: {}}}, ctx)
+        self.assertEqual(ctx['teachers_only'], {})
+
+    def test_nothing_teaches_it_at_all(self):
+        ctx = world(creates={7: {70}})
+        evaluate({'item': {7: {}}}, ctx)
+        self.assertEqual(ctx['teachers_only'], {})   # no teacher to judge it by: it stays on the list
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -45,6 +45,17 @@ QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without bein
 # Valley's Korrak and Defusing the Threat, To Serve Kum'isha).
 NO_OFFICIAL_GIVER_TEXT = {78132, 78133, 91738, 94773, 94817, 94818, 97286, 98372, 96339, 96340, 96341, 96342}
 NO_OFFICIAL_TURN_IN_TEXT = {708, 1288, 7181, 7202, 7367, 7368, 93685}
+# Items the core's own C++ scripts hand over when a player casts one of these spells, checked by hand (2026-11-19): no
+# data row links the spell to the item, so the analysis cannot see it. Create Healthstone (6201, 6202, 5699, 11729,
+# 11730) is a script effect in the client; the core's warlock script (classic_talent_warl_create_healthstone) creates
+# the plain healthstone or, with Improved Healthstone rank 1 or 2, its stronger copy.
+SCRIPT_CREATES = {
+    5512: {6201}, 19004: {6201}, 19005: {6201},       # Minor Healthstone
+    5511: {6202}, 19006: {6202}, 19007: {6202},       # Lesser Healthstone
+    5509: {5699}, 19008: {5699}, 19009: {5699},       # Healthstone
+    5510: {11729}, 19010: {11729}, 19011: {11729},    # Greater Healthstone
+    9421: {11730}, 19012: {11730}, 19013: {11730},    # Major Healthstone
+}
 
 
 def evaluate_all(content, ctx):
@@ -180,6 +191,10 @@ def evaluate_all(content, ctx):
         for spell, items in spell_loot.items():
             if spell in learnable:
                 add(items, 'craft')
+        # made by one of the core's scripts when a spell players learn is cast (SCRIPT_CREATES: the healthstones)
+        for item, spells in SCRIPT_CREATES.items():
+            if spells & learnable:
+                add([item], 'craft')
         # handed over in a conversation: a choice makes the player cast a spell that creates the item (the Spirit of
         # Azuregos's Magical Ledger)
         for item, spells in ctx['creates'].items():
@@ -271,6 +286,21 @@ def evaluate_all(content, ctx):
             return L(f'Taught by item {some(items)}, which players cannot get.', f'Appris par l’objet {some(items)}, que les joueurs ne peuvent pas obtenir.')
         return None
     ctx['obtainable'], ctx['learnable'], ctx['item_sources'] = obtainable, learnable, sources
+    # Items nothing gives whose only way in is a spell no trainer, quest or conversation teaches and nothing casts: for
+    # each, the items that teach or cast those spells (a recipe, a deck's cards). ft.output files such an item with
+    # its teachers when every one of them is a test item or a Season of Discovery leftover: no way in is left.
+    teachers_only = {}
+    for item_id, spells in ctx['creates'].items():
+        if item_id in sources or item_id in SCRIPT_CREATES:
+            continue
+        if any(s in learnable or s in trained_any or s in reward_quests or s in talked or s in cast for s in spells):
+            continue
+        teachers = set()
+        for spell in spells:
+            teachers |= ctx['teaches'].get(spell, set()) | ctx.get('used_spells', {}).get(spell, set())
+        if teachers:
+            teachers_only[item_id] = teachers
+    ctx['teachers_only'] = teachers_only
     results = {}
 
     def item_result(item_id, entity):
