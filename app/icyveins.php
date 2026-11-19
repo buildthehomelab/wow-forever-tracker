@@ -26,6 +26,8 @@
 // is recorded), flight routes, quest chains.
 
 const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
+/** Icy Veins' placeholders in turn-in words, and the core's tokens for them. */
+const ICYVEINS_TEXT_TOKENS = ['<Class>' => '$C', '<class>' => '$c', '<Race>' => '$R', '<race>' => '$r', '<Name>' => '$N', '<name>' => '$n'];
 const ICYVEINS_MAX_FAILURES = 20;   // lookups failing in a row before a run stops (an outage, a block, no network)
 /** The kinds the mirror holds, in the order a run walks them. The rest of the API (spells, achievements, …) is the
  *  game client's own tables, which the tracker reads from the client itself. */
@@ -247,7 +249,8 @@ function icyveins_quest_evidence(array &$ev, int $quest, array $r): void
         if (!empty($g['ends'])) $ev['end'][] = [$kind, $id, $quest];
     }
     foreach ((array)($r['addon_dialog'] ?? []) as $d) {
-        $text = trim((string)($d['text'] ?? ''));
+        // the recording writes the player's class and race as <Class> and <Race> (its $B and $N are the core's already)
+        $text = strtr(trim((string)($d['text'] ?? '')), ICYVEINS_TEXT_TOKENS);
         if (in_array($d['kind'] ?? '', ['complete', 'progress'], true) && $text !== '' && strlen($text) <= 8000) $ev['text'][] = [$quest, (string)$d['kind'], $text];
     }
 }
