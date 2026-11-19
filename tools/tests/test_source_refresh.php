@@ -80,4 +80,10 @@ forge_merge($ops, ['db' => 'world', 'table' => 'creature_loot_template', 'column
 forge_merge($ops, ['db' => 'world', 'table' => 'creature_loot_template', 'columns' => ['Entry', 'Chance', 'Item'], 'match' => ['Entry'], 'set' => 'Chance', 'rows' => [[1, 3.0, 2]]]);
 check($ops === [], 'the column it sets is the last one and never part of the key: anything else is refused');
 
+// ---- only a corpse's and a chest's loot is measured again: skinning, pick pocketing and containers are a guaranteed
+// item or a group rolled once, which a rate per item would empty
+$again = source_refresh_drops(['drop' => [['npc', 1, 10, 20.0], ['npc', 1, 10, 25.0], ['go', 2, 11, 50.0], ['skin', 3, 8167, 18.75],
+    ['pick', 4, 12, 5.0], ['item', 5, 13, 30.0], ['npc', 6, 14, 12.5, true]]]);
+check($again === ['npc' => [1 => [10 => 25.0]], 'go' => [2 => [11 => 50.0]]], 'corpse and chest drops, the best measure; no skinning, pick pocketing, container or guessed share: ' . json_encode($again));
+
 ft_test_done();

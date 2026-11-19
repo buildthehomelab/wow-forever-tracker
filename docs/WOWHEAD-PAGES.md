@@ -259,6 +259,8 @@ choice; drops without counts.
 **Rows the server already has** are measured again, as for the other sources: where a drop an import brought has
 another chance on Wowhead now, the card proposes it (*Creature drop chances that moved*). Wowhead is the most trusted
 source after the game client itself, so it may correct any import's row; it never changes a row no import brought.
+Only a corpse's and a chest's loot is measured again (every source): skinning, pick pocketing and container tables
+are mostly a guaranteed item or a group rolled once, which a rate per item would empty, so they only get new rows.
 
 Each loot row's `Comment` is `Wowhead <date of the newest page>`, which is how a later import knows whose row it is.
 
