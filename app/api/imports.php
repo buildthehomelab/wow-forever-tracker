@@ -127,6 +127,19 @@ switch ($action) {
         catch (RuntimeException $e) { json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]); }
         json_out(['ok' => true, 'file' => base64_encode(wowhead_extension_zip($origin, $key)), 'name' => 'wowhead-crawl.zip', 'type' => 'application/zip',
                   'message' => sprintf(t('Unzip it, then in Chrome: chrome://extensions › Developer mode › Load unpacked › the wowhead-crawl folder. It calls this tracker at %s.', 'Décompressez-la, puis dans Chrome : chrome://extensions › Mode développeur › Charger l’extension non empaquetée › le dossier wowhead-crawl. Elle appelle ce tracker à %s.'), $origin)]);
+    case 'wowhead_wanted':
+        // pages asked for first (a dungeon being built): {kind, ids, replace}; the next crawler load reads them first
+        require_once FT_APP . '/wowheadpages.php';
+        try { $all = wowhead_wanted_set((string)($input['kind'] ?? ''), array_slice((array)($input['ids'] ?? []), 0, WOWHEAD_WANTED_MAX), !empty($input['replace'])); }
+        catch (InvalidArgumentException $e) { json_out(['ok' => false, 'message' => t('Unknown kind of page.', 'Type de page inconnu.')]); }
+        catch (RuntimeException $e) { json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]); }
+        json_out(['ok' => true, 'wanted' => $all, 'queued' => wowhead_pages_queue()['wanted'] ?? []]);
+    case 'wowhead_pages_get':
+        // the kept pages of some ids, as the crawler sent them (ids and counts only)
+        require_once FT_APP . '/wowheadpages.php';
+        $kind = (string)($input['kind'] ?? '');
+        if (!in_array($kind, WOWHEAD_PAGES_KINDS, true)) json_out(['ok' => false, 'message' => t('Unknown kind of page.', 'Type de page inconnu.')]);
+        json_out(['ok' => true, 'pages' => wowhead_pages_get($kind, array_slice((array)($input['ids'] ?? []), 0, 1000))]);
     case 'wowhead_push':
         // pages a crawl in a linked tab sent (The Forge › Crawl): kept, and the cards made again when due
         require_once FT_APP . '/wowheadpages.php';

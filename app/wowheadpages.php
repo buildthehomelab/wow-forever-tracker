@@ -465,6 +465,9 @@ function wowhead_pages_clean($record): ?array
     }
     if (!$out['tabs']) $out['tabs'] = new stdClass();
     foreach (['map', 'series'] as $extra) if (!empty($record[$extra]) && wowhead_pages_numbers_only($record[$extra])) $out[$extra] = $record[$extra];
+    // the model display ids of a creature's or object's page (crawler v2)
+    if (!empty($record['model']) && is_array($record['model']) && array_is_list($record['model']))
+        $out['model'] = array_values(array_slice(array_filter($record['model'], fn($m) => is_int($m) && $m > 0), 0, 8));
     return $out;
 }
 
@@ -711,6 +714,14 @@ function wowhead_pages_queue(): array
     $blocking = array_flip(array_slice($all['item'], 0, $all['blocking']));
     $queue['classic/item'] = $season;
     $queue['classicBlocking'] = count(array_filter($season, fn($id) => isset($blocking[$id])));   // in front: $all['item'] has the blocking items first
+    // pages an administrator asked for first (wowhead_wanted): those not read yet, or due again
+    $queue['wanted'] = [];
+    foreach (wowhead_wanted() as $kind => $ids) {
+        $have = [];
+        foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
+        $left = array_values(array_filter($ids, fn($id) => !isset($have[$id])));
+        if ($left) $queue['wanted'][$kind] = $left;
+    }
     foreach (wowhead_pages_missing_data() as $kind => $list) {
         $have = [];
         foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
@@ -729,7 +740,7 @@ function wowhead_pages_queue(): array
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $counted = array_filter($queue, 'is_array');
+    $counted = array_filter($queue, fn($v, $k) => is_array($v) && $k !== 'wanted', ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))];
     $lines[] = '(async () => {';
     // $kind may carry a branch: 'classic/item'
@@ -741,6 +752,7 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     // the Classic pages of Season of Discovery items Forever kept, each after its Forever page (same tier)
     $season = array_values($queue['classic/item'] ?? []);
     $seasonBlocking = (int)($queue['classicBlocking'] ?? 0);
+    foreach ($queue['wanted'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'wanted');
     $put('quest', $queue['quest'] ?? [], 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
@@ -753,6 +765,54 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";
     $lines[] = '})();';
     return $js . implode("\n", $lines) . "\n";
+}
+
+// ---------------------------------------------------------------- pages asked for by hand
+//
+// An administrator building content the gaps do not name (a new dungeon's creatures) asks for their pages first:
+// data/wowhead-wanted.json {kind: [ids]}, kinds npc, object, item, quest. The crawl reads them before anything else
+// (tier 'wanted'); a page read and not due again drops out of the queue by itself.
+
+const WOWHEAD_WANTED_KINDS = ['npc', 'object', 'item', 'quest'];
+const WOWHEAD_WANTED_MAX = 2000;
+
+function wowhead_wanted_file(): string { return FT_ROOT . '/data/wowhead-wanted.json'; }
+
+/** {kind: [ids]} asked for first; empty when none. */
+function wowhead_wanted(?string $file = null): array
+{
+    $raw = @json_decode((string)@file_get_contents($file ?? wowhead_wanted_file()), true);
+    $out = [];
+    foreach (WOWHEAD_WANTED_KINDS as $kind) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)($raw[$kind] ?? [])), fn($id) => $id > 0 && $id <= 2147483647)));
+        if ($ids) $out[$kind] = $ids;
+    }
+    return $out;
+}
+
+/** Adds ids of one kind to the pages asked for first (or replaces that kind's list). Returns the whole list. */
+function wowhead_wanted_set(string $kind, array $ids, bool $replace = false, ?string $file = null): array
+{
+    if (!in_array($kind, WOWHEAD_WANTED_KINDS, true)) throw new InvalidArgumentException('unknown kind');
+    $all = wowhead_wanted($file);
+    $ids = array_values(array_filter(array_map('intval', $ids), fn($id) => $id > 0 && $id <= 2147483647));
+    $list = array_values(array_unique(array_merge($replace ? [] : ($all[$kind] ?? []), $ids)));
+    $all[$kind] = array_slice($list, 0, WOWHEAD_WANTED_MAX);
+    if (!$all[$kind]) unset($all[$kind]);
+    $path = $file ?? wowhead_wanted_file();
+    @mkdir(dirname($path), 0775, true);
+    if (@file_put_contents($path, json_encode($all, JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX) === false) throw new RuntimeException('not writable');
+    return $all;
+}
+
+/** The kept pages of one kind for some ids: {id: record} (only those read). */
+function wowhead_pages_get(string $kind, array $ids, ?array $dirs = null): array
+{
+    $want = array_flip(array_map('intval', $ids));
+    $out = [];
+    foreach (wowhead_pages_each($kind, $dirs) as $page) if (isset($want[(int)($page['id'] ?? 0)])) $out[(int)$page['id']] = $page;
+    ksort($out);
+    return $out;
 }
 
 // ---------------------------------------------------------------- the Chrome extension (tools/wowhead-pages/extension)

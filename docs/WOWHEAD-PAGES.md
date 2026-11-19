@@ -27,6 +27,8 @@ Facts lines (`Level: 13`, `Start: [url=/forever/npc=253812]`) with the text of t
 Names, descriptions, quest text, comments, screenshots and guides are never kept: the crawler drops every text value
 before it stores a row, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both.
 A page Wowhead does not have is kept as `"status": "missing"`, so that it is not asked again.
+A creature's or object's page also keeps the model display ids its model viewer shows (`"model": [140708]`, record
+version 2): a creature the server has no template for needs one.
 
 ## Reading pages
 
@@ -111,6 +113,13 @@ tracker instead:
    the cards again when they are due.
 
 ## What is read first
+
+Pages asked for by hand come before everything: `data/wowhead-wanted.json` (`{"npc": [247195, ...]}`; kinds npc,
+object, item, quest), set with the admin call `POST api/imports {"action": "wowhead_wanted", "kind": "npc", "ids":
+[...], "replace": false}`. That is for content no gap names yet, such as the creatures of a dungeon being built; the
+next crawler load (the extension loads it after every page) reads them first (tier `wanted`), and a page read and not
+due again leaves the list by itself. `{"action": "wowhead_pages_get", "kind": "npc", "ids": [...]}` returns the kept
+pages of those ids.
 
 A whole crawl is days of pages, so the queue is always in the order of what a page is worth to the server, most first
 (the crawler's `TIERS`; `WHC.status()` counts the queue by tier):
