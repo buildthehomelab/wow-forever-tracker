@@ -10,6 +10,34 @@
    "quests": [7509]
   },
   {
+   "key": "winter-veil",
+   "name": "Feast of Winter Veil",
+   "opens": "2026-12-16",
+   "source": "Feast of Winter Veil: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: Filled Festive Mug, Fresh Holly, Mistletoe (2026-11-19)",
+   "items": [21171, 21212, 21519]
+  },
+  {
+   "key": "love-is-in-the-air",
+   "name": "Love is in the Air",
+   "opens": "2027-02-11",
+   "source": "Love is in the Air: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: the Bag of Candies and its Heart Candies, the guards' cards, pledges and gifts of Loyalty, Adoration and Friendship and their collections, the Friendship Bracelets, Love Fool, Lovely Black Dress, Forever-Lovely Rose (2026-11-19)",
+   "items": [21813, 21816, 21817, 21818, 21819, 21820, 21821, 21822, 21823, 21960, 21975, 21979, 21980, 21981, 22117, 22119, 22120, 22121, 22122, 22132, 22133, 22134, 22135, 22140, 22141, 22142, 22143, 22144, 22145, 22154, 22155, 22156, 22157, 22158, 22159, 22160, 22161, 22162, 22163, 22164, 22165, 22166, 22167, 22168, 22169, 22170, 22171, 22172, 22173, 22174, 22175, 22177, 22178, 22259, 22260, 22261, 22279, 22284, 22285, 22286, 22287, 22288, 22289, 22290, 22291, 22292, 22293, 22295, 22296, 22297, 22298, 22299, 22300, 49715]
+  },
+  {
+   "key": "midsummer",
+   "name": "Midsummer Fire Festival",
+   "opens": "2027-06-21",
+   "source": "Midsummer Fire Festival: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: the six capital city flames that start the Stealing ... Flame quests (2026-11-19)",
+   "items": [23179, 23180, 23181, 23182, 23183, 23184]
+  },
+  {
+   "key": "hallows-end",
+   "name": "Hallow's End",
+   "opens": "2027-10-18",
+   "source": "Hallow's End: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: the Treat Bag and its candies, the Flimsy masks, the Hallowed Wands, the mints, nougats, gumdrops and marzipans of the innkeepers' emote quests (2026-11-19)",
+   "items": [20388, 20389, 20390, 20391, 20392, 20393, 20397, 20398, 20399, 20409, 20410, 20411, 20413, 20414, 20490, 20491, 20492, 20493, 20494, 20495, 20496, 20497, 20561, 20562, 20563, 20564, 20565, 20566, 20567, 20568, 20569, 20570, 20571, 20572, 20573, 20574]
+  },
+  {
    "key": "later-dungeons",
    "name": "Later dungeons",
    "opens": null,
@@ -20,9 +48,11 @@
    "key": "later-raids",
    "name": "Later raids",
    "opens": null,
-   "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in; the Ahn'Qiraj war effort and gates (The Alliance/Horde Needs Singed Corestones!, The Champion Returns, Bang a Gong!) and Naxxramas' Fall of Kel'Thuzad and Omarion's Handbook, whose givers or items stand outside the raids (2026-11-18)",
+   "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in; the Ahn'Qiraj war effort and gates (The Alliance/Horde Needs Singed Corestones!, The Champion Returns, Bang a Gong!) and Naxxramas' Fall of Kel'Thuzad and Omarion's Handbook, whose givers or items stand outside the raids (2026-11-18). Creatures: Zul'Gurub's Edge of Madness bosses Gri'lek, Hazza'rah, Renataki and Wushoolay, which the core's Zul'Gurub script summons at the Brazier of Madness (no spawn row, and the summon list cannot see a summon whose entry the script computes) (2026-11-19). Items: the Cenarion Circle field duty of the Ahn'Qiraj war effort in Silithus (Logistics and Combat Task Briefings and Assignments, Cenarion Logistics Badge, Unsigned and Prepared Field Duty Papers, Mark of Remulos: Wowhead Forever's list pages name only Silithus or the war effort's own quests for them), and Omarion's Handbook, which only Naxxramas' quest 9233 hands out (2026-11-19)",
    "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"],
-   "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271, 8530, 8617, 8741, 8743, 9120, 9233]
+   "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271, 8530, 8617, 8741, 8743, 9120, 9233],
+   "npcs": [15082, 15083, 15084, 15085],
+   "items": [20800, 20805, 20806, 20807, 20808, 20939, 20940, 20941, 20942, 21132, 21143, 21248, 21249, 21250, 21251, 21252, 21253, 21255, 21256, 21257, 21258, 21259, 21260, 21261, 21262, 21263, 21264, 21265, 21266, 21378, 21379, 21380, 21381, 21382, 21384, 21385, 21386, 21514, 21515, 21750, 22719, 23024]
   },
   {
    "key": "later-battlegrounds",
@@ -45,8 +75,8 @@
    "key": "promo",
    "name": "Promotions",
    "opens": null,
-   "source": "Items live WoW Forever gives only outside the game (2026-11-18): Wowhead's Forever pages name a promotion as their only source (trading card loot: Riding Turtle, White Tiger Cub, Hippogryph Hatchling; the Lashling buds, Tiny Bronze Whelpling), or the server's only quests for them have no giver because the game hands them out by code (collector's edition 'Welcome!' pets 13582-13584, iCoke voucher pets 22780, 22781). The collector's edition Gift Vouchers 14646-14651 that start those 'Welcome!' quests: the game puts them in a new character's bags by code (2026-11-18)",
-   "items": [13582, 13583, 13584, 14646, 14647, 14648, 14649, 14650, 14651, 22780, 22781, 23712, 23713, 23720, 249895, 249896, 249897, 268502]
+   "source": "Items live WoW Forever gives only outside the game (2026-11-18): Wowhead's Forever pages name a promotion as their only source (trading card loot: Riding Turtle, White Tiger Cub, Hippogryph Hatchling; the Lashling buds, Tiny Bronze Whelpling), or the server's only quests for them have no giver because the game hands them out by code (collector's edition 'Welcome!' pets 13582-13584, iCoke voucher pets 22780, 22781). The collector's edition Gift Vouchers 14646-14651 that start those 'Welcome!' quests: the game puts them in a new character's bags by code (2026-11-18). Items live WoW Forever gives only outside the game (2026-11-19): the iCoke vouchers 19642, 22822 and 23227 and the Summer Gift Package the voucher's quest (Redeem iCoke Gift Box Voucher) hands out; the trading card loot Tabard of Flame, Tabard of Frost, Upperdeck Tabard #3, Perpetual Purple Firework and Carved Ogre Idol, which Wowhead Forever's list pages give one source code (14) and nothing else",
+   "items": [13582, 13583, 13584, 14646, 14647, 14648, 14649, 14650, 14651, 19642, 22780, 22781, 22822, 23224, 23227, 23705, 23709, 23710, 23712, 23713, 23714, 23716, 23720, 249895, 249896, 249897, 268502]
   }
  ]
 }
