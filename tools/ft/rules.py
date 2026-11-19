@@ -38,6 +38,13 @@ SOURCES = {
 # script places it), so no spawn row is expected.
 TOWER_TAXI = {84, 85, 86, 87}
 QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without being accepted, so no giver's text
+# Quests the official game shows without one of its texts, checked by hand (2026-11-19): nothing to copy, so the
+# missing text is no gap. Giver's text: Wowhead Forever's page opens on the progress or completion text (Dragonslayer's
+# Helm and Shield, An Apple Treat, the paladin lessons, Research Access, An Unfortunate End, the Legacy Rewards).
+# Turn-in text: neither Wowhead Forever nor VMaNGOS's newest row has one (The Black Box, Vimes's Report, Alterac
+# Valley's Korrak and Defusing the Threat, To Serve Kum'isha).
+NO_OFFICIAL_GIVER_TEXT = {78132, 78133, 91738, 94773, 94817, 94818, 97286, 98372, 96339, 96340, 96341, 96342}
+NO_OFFICIAL_TURN_IN_TEXT = {708, 1288, 7181, 7202, 7367, 7368, 93685}
 
 
 def evaluate_all(content, ctx):
@@ -403,9 +410,10 @@ def evaluate_all(content, ctx):
         # asked for: the giver's text (a quest taken from a giver; an auto-complete one has none by design) and the
         # turn-in text (a quest handed in to someone).
         lacking = []
-        if start and int(row.get('QuestType') or 0) != QUEST_TYPE_AUTOCOMPLETE and not int(row.get('HasText') or 0):
+        if start and int(row.get('QuestType') or 0) != QUEST_TYPE_AUTOCOMPLETE and not int(row.get('HasText') or 0) \
+                and quest_id not in NO_OFFICIAL_GIVER_TEXT:
             lacking.append(L('no quest text (description, objectives)', 'pas de texte de quête (description, objectifs)'))
-        if end and quest_id not in ctx.get('quest_turn_in_text', ()):
+        if end and quest_id not in ctx.get('quest_turn_in_text', ()) and quest_id not in NO_OFFICIAL_TURN_IN_TEXT:
             lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
         if start or end:
             checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))

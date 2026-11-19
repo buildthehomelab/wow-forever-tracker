@@ -135,6 +135,14 @@ class Quests(unittest.TestCase):
         self.assertEqual((result[0], failed(result)), ('partial', ['texts']))
         self.assertGreaterEqual(result[1], 85)   # a doable quest without its words stays near the top
 
+    def test_a_text_the_official_game_lacks_is_no_gap(self):
+        # The Black Box (708) has no turn-in text anywhere; An Apple Treat (91738) no giver's text
+        for quest, change in ((708, lambda ctx: ctx.update(quest_turn_in_text=set())), (91738, lambda ctx: ctx['quests'][quest].update(HasText=0))):
+            self.ctx = world(spawned_npc={100}, q_start_npc=[(100, quest)], q_end_npc=[(100, quest)], quests={quest: quest_row()},
+                             quest_turn_in_text={quest})
+            change(self.ctx)
+            self.assertEqual(evaluate({'quest': {quest: {}}}, self.ctx)[('quest', quest)][0], 'ok', quest)
+
     def test_no_turn_in_text(self):
         self.ctx['quest_turn_in_text'] = set()
         self.assertEqual(failed(self.run_quest()), ['texts'])
