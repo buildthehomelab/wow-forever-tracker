@@ -432,6 +432,12 @@
     for (const [key, tier] of Object.entries(tiers || {})) out[key] = tier in was ? was[tier] : tier;
     return out;
   }
+  /** Where pages queued "first" go: after the leading pages asked for by hand (tier below the lists). */
+  function headAfterWanted(queue, tiers) {
+    let i = 0;
+    while (i < queue.length && tierOf(tiers, queue[i]) < TIERS.list) i++;
+    return i;
+  }
   /** The queue in tier order, keeping the order within a tier. */
   const sortQueue = (queue, tiers) => queue.map((key, i) => [tierOf(tiers, key), i, key]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 
@@ -516,7 +522,7 @@
     return { p, wait };
   }
 
-  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
@@ -619,7 +625,9 @@
     const queued = new Set(state.queue);
     const fresh = [];
     for (const key of keys) if (parseKey(key) && !queued.has(key) && !have.has(key)) { queued.add(key); fresh.push(key); }
-    if (options.first) state.queue.unshift(...fresh);
+    // "first" (a whole crawl's lists, the parts of a cut list) is first after the pages asked for by hand: those stay
+    // at the head, or a crawl in its list phase would put new parts ahead of them after every list page
+    if (options.first) state.queue.splice(headAfterWanted(state.queue, state.tiers), 0, ...fresh);
     else {
       // each after every page worth as much: a Forever page before the Classic ones already queued
       const byTier = new Map();
@@ -644,7 +652,9 @@
       for (const r of records) if ((r.v || 0) < VERSION && r.key) have.delete(r.key);
     }
     const queued = new Set(state.queue);
-    const want = [...new Set(keys)].filter(k => parseKey(k) && !have.has(k) && !(queued.has(k) && tierOf(state.tiers, k) <= tier));
+    // a page asked for by hand is always put back at the head: pages queued "first" before this crawler kept them
+    // behind it may stand in front of it
+    const want = [...new Set(keys)].filter(k => parseKey(k) && !have.has(k) && !(queued.has(k) && tierOf(state.tiers, k) <= tier && tier !== TIERS.wanted));
     if (!want.length) return { moved: 0, queued: state.queue.length };
     const set = new Set(want);
     state.queue = state.queue.filter(k => !set.has(k));

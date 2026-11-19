@@ -282,4 +282,12 @@ test('a creature page keeps its model display ids, numbers only', () => {
   assert.equal(crawler.insertAt(['list:npcs', 'list:items', 'item:5'], tiers, crawler.TIERS.wanted), 0);
 });
 
+test('a list part queued first goes after the pages asked for by hand, not before them', () => {
+  const T = crawler.TIERS;
+  const tiers = { 'npc:247195': T.wanted, 'npc:247198': T.wanted, 'item:5': T.gap };
+  assert.equal(crawler.headAfterWanted(['npc:247195', 'npc:247198', 'list:npcs', 'item:5'], tiers), 2);
+  assert.equal(crawler.headAfterWanted(['list:npcs', 'item:5'], tiers), 0);
+  assert.equal(crawler.headAfterWanted([], tiers), 0);
+});
+
 console.log(passed + ' tests passed');
