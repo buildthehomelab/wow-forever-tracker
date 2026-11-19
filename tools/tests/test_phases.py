@@ -115,6 +115,34 @@ class Assign(unittest.TestCase):
         self.assertNotIn(('item', 6), self.tagged)
         self.assertNotIn(('toy', 30), self.tagged)
 
+    def test_wowhead_names_no_source(self):
+        # item 6 has no source on the server (a toy's item); item 9 a vendor; item 8888 is listed by id; 77 is no item
+        listed = [dict(p) for p in PHASES] + [{'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [],
+                                               'quests': [], 'items': [], 'wowhead_no_source': True}]
+        facts = dict(FACTS, wowhead_no_source={6, 9, 8888, 77})
+        tagged = phases.assign(content(), ctx(), listed, facts)
+        self.assertEqual(tagged[('item', 6)], 3)     # no source anywhere: it waits until a page names one
+        self.assertEqual(tagged[('toy', 30)], 3)     # and what only it gives waits with it
+        self.assertNotIn(('item', 9), tagged)        # the server sells it: the rule is only for items nothing gives
+        self.assertEqual(tagged[('item', 8888)], 2)  # a list names its phase first
+        self.assertEqual(facts['wowhead_no_source_tagged'], {6})
+        # without a phase marked for it, the pages change nothing
+        self.assertNotIn(('item', 6), phases.assign(content(), ctx(), PHASES, dict(FACTS, wowhead_no_source={6})))
+
+    def test_unsourced_pages(self):
+        with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
+            def write(folder, records):
+                with open(os.path.join(folder, 'item.jsonl'), 'w', encoding='utf-8') as handle:
+                    handle.write('\n'.join(json.dumps(r) for r in records) + '\nnot json\n')
+            write(old, [{'id': 1, 'fetched': 10, 'status': 'ok', 'tabs': {}},                      # read again later with a vendor
+                        {'id': 2, 'fetched': 10, 'status': 'ok', 'tabs': {'sold-by': {'rows': [{'id': 5}]}}},   # read again later, no source now
+                        {'id': 3, 'fetched': 10, 'status': 'ok', 'tabs': {'same-model-as': {'rows': [{'id': 1}]}, 'dropped-by': {'rows': []}}}])
+            write(new, [{'id': 1, 'fetched': 20, 'status': 'ok', 'tabs': {'sold-by': {'rows': [{'id': 5}]}}},
+                        {'id': 2, 'fetched': 20, 'status': 'ok', 'tabs': {}},
+                        {'id': 4, 'fetched': 20, 'status': 'missing'},                              # Wowhead has no page: not "no source"
+                        {'id': 5, 'fetched': 20, 'status': 'ok', 'tabs': {'reward-from-q': {'rows': [{'id': 9}]}}}])
+            self.assertEqual(phases.wowhead_unsourced_items([old, new, os.path.join(new, 'none')]), {2, 3})
+
     def test_lowest_phase_wins(self):
         c, x = content(), ctx()
         x['npc_maps'][ONY] = [{'id': TRASH}]

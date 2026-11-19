@@ -29,6 +29,7 @@ It stays out of the coverage figures and the work list, but you can still browse
 | `maps` | Instances, by English name or map id |
 | `npcs` | Creatures, by id or English name (world bosses, event creatures outside an instance) |
 | `objects`, `quests`, `items`, `spells` | Ids, for what the rules below miss (a spell nothing teaches on the live game yet) |
+| `wowhead_no_source` | `true` on one phase (the shipped file: *Not out yet*): see below |
 
 You only list the instances. The analysis works out the rest from the server's data:
 
@@ -44,6 +45,14 @@ You only list the instances. The analysis works out the rest from the server's d
 One source in the open world keeps a thing released: a trainer, fishing, a vendor outside, or a creature that also
 stands outside. When a thing has sources in several phases, it opens with the earliest one. Anything the rules can't
 place stays a normal gap. The tracker would rather show one gap too many than hide a real one.
+
+**Items Wowhead names no source for.** An item the server gives in no way, whose Forever page on Wowhead was read and
+names no source either (no drop, vendor, quest, craft, container, skinning or fishing tab), goes to the phase marked
+`wowhead_no_source`, with what only it gives (a recipe it teaches). Live WoW Forever does not hand those out yet: they
+are not gaps of the server. The pages are those of the cache the Imports page keeps (`tools/wowhead-pages/cache` and
+`data/wowhead-pages`, the newest answer of each). The website keeps these items in the crawl queue, so their pages are
+read again when they get old (about a month); once one names a source, the next analysis puts the item back among the
+gaps and the Wowhead import writes its rows. A page not read yet, or one Wowhead does not have, changes nothing.
 
 The analysis log lists what each phase tagged. It also names any instance in the list that the client doesn't carry:
 an encrypted map, a renamed one, or a typo.
