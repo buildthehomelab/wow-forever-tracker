@@ -117,7 +117,7 @@ tracker instead:
 Pages asked for by hand come before everything: `data/wowhead-wanted.json` (`{"npc": [247195, ...]}`; kinds npc,
 object, item, quest), set with the admin call `POST api/imports {"action": "wowhead_wanted", "kind": "npc", "ids":
 [...], "replace": false}`. That is for content no gap names yet, such as the creatures of a dungeon being built; the
-next crawler load (the extension loads it after every page) reads them first (tier `wanted`), and a page read and not
+next crawler load (the extension loads it after every page) reads them first (tier `wanted`, ahead of a whole crawl's list pages too), and a page read and not
 due again leaves the list by itself. `{"action": "wowhead_pages_get", "kind": "npc", "ids": [...]}` returns the kept
 pages of those ids.
 
