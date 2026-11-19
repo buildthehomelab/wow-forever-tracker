@@ -277,7 +277,9 @@ test('what a page names is worth the tier after its own, for the gaps only', () 
 test('a creature page keeps its model display ids, numbers only', () => {
   assert.deepEqual(crawler.models('<script>WH.ModelViewer.show({ displayId = 140708 })</script><a data-mv-display-id="140708"></a><a data-mv-display-id="5435">'), [140708, 5435]);
   assert.deepEqual(crawler.models('<p>no model</p>'), []);
-  assert.equal(crawler.TIERS.wanted, crawler.TIERS.list);   // pages asked for by hand come with the lists, before the gaps
+  assert.ok(crawler.TIERS.wanted < crawler.TIERS.list);   // pages asked for by hand come first, before the lists of a whole crawl
+  const tiers = { 'list:npcs': crawler.TIERS.list, 'list:items': crawler.TIERS.list, 'item:5': crawler.TIERS.gap };
+  assert.equal(crawler.insertAt(['list:npcs', 'list:items', 'item:5'], tiers, crawler.TIERS.wanted), 0);
 });
 
 console.log(passed + ' tests passed');

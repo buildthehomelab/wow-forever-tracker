@@ -405,7 +405,7 @@
    *  (Download the crawler); a page nobody named is 'bulk' (Forever) or 'classic'. */
   const TIERS = {
     list: 0,       // the lists: they name everything else
-    wanted: 0,     // pages an administrator asked for (The Forge: a dungeon being built), as early as the lists
+    wanted: -1,    // pages an administrator asked for (The Forge: a dungeon being built), before everything, the lists too
     gap: 1,        // an item a quest, recipe, mount, toy or spell waits for; a quest without giver or ender
     named: 2,      // a creature, vendor or chest a tier-1 page names
     gapOther: 3,   // an item that only lacks a source
