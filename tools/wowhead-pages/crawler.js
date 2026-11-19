@@ -262,6 +262,45 @@
     return record;
   }
 
+  // ------------------------------------------------------------------ guides (pure)
+  //
+  // A guide is text people wrote, and none of it is kept. Some guides hold a table that says what the database pages
+  // do not: Wowhead's Craftsman's Writs guide gives each writ its tier (Journeyman, Expert, Artisan), which is the
+  // band of levels it drops in. Of a guide's tables only the item links are kept, each with the tier its row names.
+
+  /** The tier words a guide's row may hold, as numbers. */
+  const GUIDE_TIERS = { journeyman: 1, expert: 2, artisan: 3 };
+
+  /** A guide page as a record: {kind: 'guide', query, status, rows: [{id, tier?}]}: every item a table row of the
+   *  guide links to (once; the first row with a tier gives it), with the tier word of a cell of that row. A guide's
+   *  page holds its text as Wowhead markup in a script ([tr][td][item=264019][/td]...[td]Journeyman[/td][/tr], its
+   *  slashes escaped); a table already turned into HTML (<tr><td><a href=".../item=264019/...">) is read too. */
+  function extractGuide(query, html, httpStatus, finalUrl) {
+    const record = { kind: 'guide', query, v: VERSION };
+    if (httpStatus === 404 || /[?&]notFound=/.test(finalUrl || '')) return Object.assign(record, { status: 'missing' });
+    if (httpStatus !== 200 || html.length < 5000 || !/wowhead/i.test(html)) return Object.assign(record, { status: 'blocked', http: httpStatus, bytes: html.length });
+    const text = html.replace(/\\\//g, '/').replace(/\\[rnt]/g, ' ');
+    const byId = new Map();
+    const rows = (text.match(/\[tr\b[^\]]*\][\s\S]*?\[\/tr\]/gi) || []).concat(text.match(/<tr\b[\s\S]*?<\/tr>/gi) || []);
+    for (const row of rows) {
+      const ids = [...row.matchAll(/\[item=(\d+)|\/item=(\d+)/g)].map(m => Number(m[1] || m[2])).filter(id => id > 0);
+      if (!ids.length) continue;
+      let tier = null;
+      for (const cell of row.match(/\[td\b[^\]]*\][\s\S]*?\[\/td\]|<td\b[^>]*>[\s\S]*?<\/td>/gi) || []) {
+        const word = cell.replace(/\[[^\]]*\]|<[^>]*>/g, '').trim().toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(GUIDE_TIERS, word)) { tier = GUIDE_TIERS[word]; break; }
+      }
+      for (const id of new Set(ids)) {
+        const have = byId.get(id);
+        if (!have) byId.set(id, tier === null ? { id } : { id, tier });
+        else if (have.tier === undefined && tier !== null) have.tier = tier;
+      }
+    }
+    // a Wowhead page that says nothing of a guide is not understood; a guide without item tables is an empty answer
+    if (!byId.size && !/guide/i.test(text)) return Object.assign(record, { status: 'odd', bytes: html.length });
+    return Object.assign(record, { status: 'ok', rows: [...byId.values()].sort((a, b) => a.id - b.id) });
+  }
+
   // ------------------------------------------------------------------ list pages and the whole database (pure)
   //
   // A list page (/forever/npcs) shows at most 1,000 rows of a search and says how many it found. Filtered by an id
@@ -447,6 +486,8 @@
     if (!m) return null;
     const branch = m[1] || 'forever';
     if (m[2] === 'list') return { branch, kind: 'list', query: m[3], path: '/' + branch + '/' + m[3] };
+    // a guide: 'guide:professions/craftsmans-writs-overview-recipes-rewards'
+    if (m[2] === 'guide') return /^[a-z0-9-]{1,80}(\/[a-z0-9-]{1,80}){0,3}$/.test(m[3]) ? { branch, kind: 'guide', query: m[3], path: '/' + branch + '/guide/' + m[3] } : null;
     const id = Number(m[3]);
     return Number.isInteger(id) && id > 0 ? { branch, kind: m[2], id, path: '/' + branch + '/' + m[2] + '=' + id } : null;
   }
@@ -522,7 +563,7 @@
     return { p, wait };
   }
 
-  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
@@ -639,12 +680,21 @@
   }
 
   /** Makes pages worth $tier (a TIERS name or number) and moves them there, in their order: after every page worth as
-   *  much or more. A page already worth more stays where it is; pages not queued yet are queued, pages read are not. */
-  async function prioritize(keys, tier = TIERS.named) {
+   *  much or more. A page already worth more stays where it is; pages not queued yet are queued, pages read are not,
+   *  unless {again: seconds}: then a page this tab read more than that long ago is read again (the tracker asks so for
+   *  pages it wants to follow, such as the Craftsman's Writs, whose sources Wowhead may learn any day). */
+  async function prioritize(keys, tier = TIERS.named, options = {}) {
     await ready;
     if (typeof tier === 'string') tier = TIERS[tier];
     if (!Number.isInteger(tier)) throw new Error('unknown tier');
     const have = new Set(await pages('readonly', s => s.getAllKeys()));
+    const again = Number(options && options.again) || 0;
+    if (again > 0) {
+      const held = [...new Set(keys)].filter(k => have.has(k));
+      const records = held.length ? await pages('readonly', s => { const out = []; for (const k of held) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; }) : [];
+      const before = Math.floor(Date.now() / 1000) - again;
+      for (const r of records) if (r.key && (r.fetched || 0) < before) have.delete(r.key);
+    }
     if (tier === TIERS.wanted) {
       // a page asked for by hand that this tab read with an older record version (no model yet) is read again
       const held = [...new Set(keys)].filter(k => have.has(k));
@@ -708,7 +758,7 @@
     const k = parseKey(key);
     if (!k) return { answer: 'skip', note: 'not a key' };
     // a Classic page whose Forever page already says enough is not asked
-    if (k.branch !== 'forever' && k.kind !== 'list') {
+    if (k.branch !== 'forever' && k.kind !== 'list' && k.kind !== 'guide') {
       const forever = await pages('readonly', s => s.get(keyOf('forever', k.kind, k.id)));
       if (richEnough(forever)) return { answer: 'skip', note: 'Forever has it' };
     }
@@ -724,7 +774,9 @@
     } catch (error) {
       return { answer: 'error', note: error && error.name === 'AbortError' ? 'no answer within a minute' : String(error) };
     } finally { clearTimeout(timer); }
-    const record = k.kind === 'list' ? extractList(k.query, html, response.status) : extract(k.kind, k.id, html, response.status, response.url);
+    const record = k.kind === 'list' ? extractList(k.query, html, response.status)
+      : k.kind === 'guide' ? extractGuide(k.query, html, response.status, response.url)
+      : extract(k.kind, k.id, html, response.status, response.url);
     if (k.branch !== 'forever') record.branch = k.branch;
     const answer = classify(response.status, html.length, record);
     // a page this reader does not understand, three times: kept as 'odd' so that the queue goes on

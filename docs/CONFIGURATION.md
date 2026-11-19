@@ -88,6 +88,7 @@ The worldserver needs the ForeverTracker core module (`core/forge_commands.cpp`)
 | `pause` | `0.4` | Seconds between two requests to Wowhead |
 | `push_token` | empty | The key a script sends the crawler's batch files with (`api/wowhead-push`, header `X-Push-Token`, [WOWHEAD-PAGES.md](WOWHEAD-PAGES.md)); 16 characters or more. Empty: only the Chrome extension's own key (`data/wowhead-extension.key`, made when it is first downloaded) opens it. Docker: `FT_WOWHEAD_PUSH_TOKEN` |
 | `card_minutes` | `30` | A linked crawl (The Forge › Crawl, [WOWHEAD-PAGES.md](WOWHEAD-PAGES.md)) makes the import cards again at most this often as pages come |
+| `writ_days` | `3` | The Craftsman's Writs' item pages and Wowhead's writ guide are read again this often (The Forge › Writs, [WOWHEAD-PAGES.md](WOWHEAD-PAGES.md#craftsmans-writs)); 1 at least. Docker: `FT_WOWHEAD_WRIT_DAYS` |
 | `crawl_min_item` | `190000` | The page crawler ([WOWHEAD-PAGES.md](WOWHEAD-PAGES.md)) queues the gap items from this id up, after the items other content waits for. `0`: every gap item |
 
 ## `[phases]`

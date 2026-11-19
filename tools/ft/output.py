@@ -62,6 +62,32 @@ def named_internal(name):
     return bool(name and INTERNAL_NAME.search(name))
 
 
+# Craftsman's Writs: tradable items that start a crafting quest and drop in the world. Wowhead knows no creature that
+# drops them yet, so the tracker keeps reading their pages (app/wowheadpages.php wowhead_pages_writs).
+WRIT_NAME = re.compile(r"^Craftsman's Writ\b", re.I)
+
+
+def writ_items(items):
+    """{item id: quest id} of the Craftsman's Writs among the client's items (content['item']): an item that starts a
+    quest (ItemSparse.StartQuestID) and whose English name is a Craftsman's Writ."""
+    out = {}
+    for item_id, item in items.items():
+        quest = (item.get('facts') or {}).get('startquest') or 0
+        if quest and WRIT_NAME.match(item.get('name_en') or item.get('name') or ''):
+            out[int(item_id)] = int(quest)
+    return dict(sorted(out.items()))
+
+
+WRIT_TIERS = {'journeyman': 1, 'expert': 2, 'artisan': 3}
+
+
+def writ_tiers(items):
+    """{item id: 1 Journeyman, 2 Expert, 3 Artisan} of the writs whose tier the client writes under their name
+    (ItemSparse.ItemNameDescriptionID; content keeps it as namedesc_en)."""
+    return {i: WRIT_TIERS[items[i].get('namedesc_en', '').strip().lower()] for i in writ_items(items)
+            if items[i].get('namedesc_en', '').strip().lower() in WRIT_TIERS}
+
+
 def item_internal(item_id, items, wowhead):
     """True for a test item or a Season of Discovery leftover (as the item's own line is filed), False for an item of
     the game, None when the client has no such item."""
@@ -322,6 +348,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
                 'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else [],
+                # the Craftsman's Writs: {item: the quest it starts} (writ_items), whose Wowhead pages the crawl follows
+                'writ_items': {str(i): q for i, q in writ_items(content.get('item', {})).items()},
+                # and their tier as the client writes it under the name (1 Journeyman, 2 Expert, 3 Artisan)
+                'writ_tiers': {str(i): n for i, n in writ_tiers(content.get('item', {})).items()},
                 # the days each hotfix entry covers (ft.dating): {'build:hotfix': {'from', 'until', 'days', 'rows', 'next'}}
                 'hotfix_windows': {f"{h['build']}:{h['hotfix']}": h['window'] for h in (((ctx.get('changelog') or {}).get('hotfixes') or []) if ctx else []) if h.get('window')},
                 # resources that exist by hotfix alone and that the changelog therefore does not call "added": {kind: count}

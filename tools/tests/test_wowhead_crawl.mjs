@@ -290,4 +290,29 @@ test('a list part queued first goes after the pages asked for by hand, not befor
   assert.equal(crawler.headAfterWanted([], tiers), 0);
 });
 
+// a made-up guide in the two forms a guide's table comes in: Wowhead markup in a script (its slashes escaped, as the
+// page's JSON writes them) and HTML
+const guideMarkup = pad + `<script>WH.markup.printHtml("[h3 toc=\\"Alchemy\\"]Alchemy[\\/h3]\\r\\n[table class=grid]\\r\\n`
+  + `[tr background=black][td][b]Item[\\/b][\\/td][td][b]Hand In Zone[\\/b][\\/td][td][b]Level[\\/b][\\/td][\\/tr]\\r\\n`
+  + `[tr][td][item=264019][\\/td][td]Wetlands[\\/td][td]Journeyman[\\/td][\\/tr]\\r\\n`
+  + `[tr][td][item=264081][\\/td][td]Tanaris[\\/td][td]Expert[\\/td][\\/tr]\\r\\n`
+  + `[tr][td][item=264160][\\/td][td]Winterspring[\\/td][td] Artisan [\\/td][\\/tr]\\r\\n`
+  + `[tr][td][item=264081][\\/td][td]Tanaris[\\/td][\\/tr]\\r\\n[\\/table]", "guide-body");</script> a guide`;
+const guideHtml = pad + '<div class="guide"><table><tr><td><a href="https://www.wowhead.com/forever/item=264020/x">A writ</a></td><td>Kixxle</td><td>Expert</td></tr>'
+  + '<tr><td><a href="/forever/item=5">No tier</a></td><td>Someone</td></tr></table></div>';
+
+test('a guide: the items its tables link to, each with the tier its row names, and no text', () => {
+  const query = 'professions/craftsmans-writs-overview-recipes-rewards';
+  assert.deepEqual(crawler.extractGuide(query, guideMarkup, 200, ''), { kind: 'guide', query, v: crawler.VERSION, status: 'ok',
+    rows: [{ id: 264019, tier: 1 }, { id: 264081, tier: 2 }, { id: 264160, tier: 3 }] });
+  assert.deepEqual(crawler.extractGuide(query, guideHtml, 200, '').rows, [{ id: 5 }, { id: 264020, tier: 2 }]);
+  assert.ok(!JSON.stringify(crawler.extractGuide(query, guideMarkup, 200, '')).match(/Wetlands|Alchemy|Journeyman/));
+  assert.equal(crawler.extractGuide(query, 'short', 405, '').status, 'blocked');
+  assert.equal(crawler.extractGuide(query, guideHtml, 404, '').status, 'missing');
+  assert.equal(crawler.extractGuide(query, pad.replace('wowhead', 'wowhead page'), 200, '').status, 'odd');
+  assert.deepEqual(crawler.parseKey('guide:' + query), { branch: 'forever', kind: 'guide', query, path: '/forever/guide/' + query });
+  assert.equal(crawler.parseKey('guide:../admin'), null);
+  assert.equal(crawler.parseKey('guide:a//b'), null);
+});
+
 console.log(passed + ' tests passed');

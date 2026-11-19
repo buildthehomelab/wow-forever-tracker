@@ -338,4 +338,35 @@ $got = wowhead_pages_get('npc', [247195, 9], [$gd]);
 check(array_keys($got) === [247195] && $got[247195]['model'] === [140708], 'read back: only the ids asked for that were read');
 @unlink("$gd/npc.jsonl"); @rmdir($gd);
 
+// the Craftsman's Writs: the analysis' list, which pages are due, the crawler lines, what the Writs page shows
+$writMeta = ['writ_items' => ['264081' => 94281, '264011' => 94004, 'x' => 5]];
+check(wowhead_writ_items($writMeta) === [264011 => 94004, 264081 => 94281], 'the writs from the analysis, by item');
+check(wowhead_writ_seconds(3) === 259200 && wowhead_writ_seconds(0.1) === 86400, 'a writ page is read again after writ_days, a day at least');
+$writItems = [264011 => ['id' => 264011, 'fetched' => 1000, 'status' => 'ok', 'tabs' => []],
+              264081 => ['id' => 264081, 'fetched' => 900000, 'status' => 'ok', 'map' => ['33' => [['count' => 1]]], 'tabs' => [
+                  'dropped-by' => $tab([['id' => 939, 'count' => 2, 'outof' => 400], ['id' => 940]]), 'starts' => ['template' => 'quest', 'rows' => [['id' => 94281]]]]]];
+$writGuide = [WOWHEAD_WRIT_GUIDE => ['kind' => 'guide', 'query' => WOWHEAD_WRIT_GUIDE, 'fetched' => 900000, 'status' => 'ok', 'rows' => [['id' => 264081, 'tier' => 2], ['id' => 264011, 'tier' => 1]]]];
+$writs = [264011 => 94004, 264081 => 94281, 264160 => 94360];
+check(wowhead_pages_writ_queue($writs, $writItems, $writGuide, 1000000, 259200) === [[264011, 264160], false], 'due: a writ page read long ago and one never read; the guide read lately is not');
+check(wowhead_pages_writ_queue($writs, $writItems, [], 1000000, 259200)[1] === true && wowhead_pages_writ_queue([], [], [], 1000000)[1] === false, 'the guide is due when not kept, and only when there are writs');
+$shown = wowhead_pages_writs($writs, $writItems, $writGuide, [264081 => 2, 264160 => 3, 264011 => 2]);
+check(wowhead_writ_tiers(['writ_tiers' => ['264081' => 2, '264011' => 9]]) === [264081 => 2], 'the client tiers from the analysis, known tiers only');
+check($shown[264081] === ['quest' => 94281, 'tier' => 2, 'guideTier' => 2, 'fetched' => 900000, 'status' => 'ok', 'sources' => ['dropped-by' => [['id' => 939, 'count' => 2, 'outof' => 400], ['id' => 940]]], 'zones' => [33]],
+    'a writ whose page names creatures: its tier from the guide, the rows with their counts, the zones of its pins: ' . json_encode($shown[264081]));
+check($shown[264011]['sources'] === [] && $shown[264011]['tier'] === 2 && $shown[264011]['guideTier'] === 1, 'the client\'s tier comes first, the guide\'s is kept beside it');
+check($shown[264160] === ['quest' => 94360, 'tier' => 3, 'guideTier' => 0, 'fetched' => 0, 'status' => '', 'sources' => [], 'zones' => []],
+    'a page that names nothing gives nothing; one not read is not read');
+$jsWrit = wowhead_pages_crawler(['item' => [], 'writ' => [264011, 264160], 'writGuide' => true]);
+check(str_contains($jsWrit, 'await WHC.prioritize(["item:264011","item:264160"], \'gap\', {"again":237600});') && str_contains($jsWrit, 'await WHC.prioritize(["guide:' . WOWHEAD_WRIT_GUIDE . '"], \'gap\', {"again":237600});')
+    && str_contains($jsWrit, '2 writ pages'), 'the crawler reads the writs and the guide again when this tab read them longer ago');
+check(!str_contains(wowhead_pages_crawler(['item' => [], 'writ' => [], 'writGuide' => false]), '{"again":'), 'nothing due: no line');
+$guideLine = json_encode(['kind' => 'guide', 'query' => WOWHEAD_WRIT_GUIDE, 'fetched' => 1000, 'v' => 2, 'status' => 'ok', 'rows' => [['id' => 264081, 'tier' => 2], ['id' => 5, 'name' => 'text']]]);
+check(wowhead_pages_clean(json_decode($guideLine, true)) === ['kind' => 'guide', 'query' => WOWHEAD_WRIT_GUIDE, 'fetched' => 1000, 'v' => 2, 'status' => 'ok', 'rows' => [['id' => 264081, 'tier' => 2]]]
+    && wowhead_pages_shelf(json_decode($guideLine, true)) === 'forever-guide', 'a guide is kept on its own shelf, items and tiers only');
+check(wowhead_pages_clean(['kind' => 'guide', 'query' => '../x', 'fetched' => 1000, 'status' => 'ok', 'rows' => []]) === null, 'a guide path that is no path is refused');
+$wd = sys_get_temp_dir() . '/ft-writ-' . getmypid();
+wowhead_pages_append([$guideLine], $wd);
+check(array_keys(wowhead_pages('forever-guide', [$wd])) === [WOWHEAD_WRIT_GUIDE], 'a pushed guide is read back by its path');
+@unlink("$wd/forever-guide.jsonl"); @rmdir($wd);
+
 ft_test_done();

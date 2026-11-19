@@ -131,6 +131,12 @@ def official(folder, read=None):
     # ---- items
     items_base = {r['ID']: r for r in t('Item')}
     names_en = {i: r['Display'] for i, r in en('ItemSparse').items()}
+    # the line under an item's name (a Craftsman's Writ's tier: Journeyman, Expert, Artisan), in English; kept beside
+    # the facts, not in them, so that no build's changes list it
+    try:
+        name_desc_en = {i: r['Description'] for i, r in en('ItemNameDescription').items()}
+    except (KeyError, OSError, ValueError):
+        name_desc_en = {}
     items = {}
     for r in t('ItemSparse'):
         base = items_base.get(r['ID'], {})
@@ -142,6 +148,8 @@ def official(folder, read=None):
                                     'slot': r['InventoryType'], 'bonding': r['Bonding'], 'set': r['ItemSet'], 'stats': stats,
                                     'sell': r['SellPrice'], 'buy': r['BuyPrice'], 'classes': r['AllowableClass'], 'desc': r['Description'],
                                     'startquest': r['StartQuestID'], 'skill': [r['RequiredSkill'], r['RequiredSkillRank']]}}
+        if r['StartQuestID'] and name_desc_en.get(r['ItemNameDescriptionID']):
+            items[r['ID']]['namedesc_en'] = name_desc_en[r['ItemNameDescriptionID']]
     out['item'] = items
 
     # ---- skill lines & abilities (class spells, professions, recipes)
