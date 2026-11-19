@@ -98,6 +98,10 @@ class Find(unittest.TestCase):
         # spawned under another name than the client's: the script's word is enough
         found, how = bosses.find(2810, boss('Ras Frostwhisperer', 289), [npc(1, 'Scholomance Student'), npc(10508, 'Ras Frostwhisper')], bound=[10508])
         self.assertEqual((found['id'], how), (10508, 'spawned'))
+        # brought in by a script: the creature the script names wins over a spawned one of a close name
+        nefarian = npc(11583, 'Nefarian', script=True)
+        found, how = bosses.find(617, boss('Nefarian', 469), [npc(14459, "Nefarian's Troops")], [nefarian], bound=[11583])
+        self.assertEqual((found['id'], how), (11583, 'summoned'))
 
     def test_an_exact_name_wins_over_a_longer_one(self):
         spawned = [npc(15589, "Eye of C'Thun"), npc(15727, "C'Thun")]
