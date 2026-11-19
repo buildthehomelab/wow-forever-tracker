@@ -6,7 +6,7 @@ The database knows some summons (SmartAI, summon groups, summoning spells), but 
 `instance->SummonCreature(NPC_GANDLING, ...)`. Such a boss has no spawn row and never will, so without this list
 the analysis calls it missing and the locator offers to spawn it for good.
 
-Four lists:
+Five lists:
   creatures   entry -> script, for every SummonCreature / DoSummon call with a known entry (also a script's own
               helper named Summon...Creature, every entry of an array the call picks from, and what an instance's
               GetCreatureEntry hook swaps a spawn for)
@@ -17,6 +17,8 @@ Four lists:
               boss without comparing names, and it covers a boss the script creates from a variable.
   credits     entry -> script, for every KilledMonsterCredit / RewardPlayerAndGroupAtEvent call: a quest objective's
               marker the script credits (Arathi Basin's bases, 15001-15005), which no spawn stands for
+  teleports   map id -> script, for every `TeleportTo(map, ...)` with a known map: an instance a script takes the
+              player into (City of Dalaran's sewer grate) has an entrance no table shows.
 
     python tools/make_summoned.py /path/to/TrinityCore            (reads src/server/scripts)
 
@@ -336,6 +338,41 @@ def scan(scripts):
     return creatures, objects, encounters, credits
 
 
+TELEPORT = re.compile(r'\bTeleportTo\s*\(\s*([A-Za-z_][\w:]*|\d+)\s*,')
+
+
+def teleports(scripts):
+    """{map id: script} for every TeleportTo(map, x, y, ...) whose map is a number or a constant the scripts define
+    with one value (in the file, else its folder, else anywhere). A map given by a variable is left out."""
+    texts = {}
+    for folder, _dirs, files in os.walk(scripts):
+        for name in files:
+            if name.endswith(('.cpp', '.h')):
+                path = os.path.join(folder, name)
+                texts[path] = read(path)
+    by_file, by_folder, everywhere = {}, {}, {}
+    for path, text in texts.items():
+        for name, value in CONSTANT.findall(text):
+            by_file.setdefault(path, {}).setdefault(name, set()).add(int(value))
+            by_folder.setdefault(os.path.dirname(path), {}).setdefault(name, set()).add(int(value))
+            everywhere.setdefault(name, set()).add(int(value))
+    out = {}
+    for path in sorted(texts):
+        script = os.path.relpath(path, scripts).replace(os.sep, '/')
+        for token in TELEPORT.findall(texts[path]):
+            if token.isdigit():
+                out.setdefault(int(token), script)
+                continue
+            name = token.rsplit('::', 1)[-1]
+            for scope in (by_file.get(path, {}), by_folder.get(os.path.dirname(path), {}), everywhere):
+                values = scope.get(name)
+                if values:
+                    if len(values) == 1:
+                        out.setdefault(next(iter(values)), script)
+                    break
+    return out
+
+
 def commit(core):
     try:
         return subprocess.run(['git', '-C', core, 'rev-parse', '--short=10', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
@@ -351,17 +388,19 @@ def main(argv):
     if not os.path.isdir(scripts):
         raise SystemExit(f'{scripts}: not a TrinityCore source tree')
     creatures, objects, encounters, credits = scan(scripts)
+    maps = teleports(scripts)
     out = {'source': 'TrinityCore C++ scripts (src/server/scripts): entries a script summons',
            'commit': argv[2] if len(argv) > 2 else commit(core),
            'creatures': {str(k): creatures[k] for k in sorted(creatures)},
            'objects': {str(k): objects[k] for k in sorted(objects)},
            'encounters': {str(k): sorted(encounters[k]) for k in sorted(encounters)},
-           'credits': {str(k): credits[k] for k in sorted(credits)}}
+           'credits': {str(k): credits[k] for k in sorted(credits)},
+           'teleports': {str(k): maps[k] for k in sorted(maps)}}
     with open(OUT, 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(out, handle, indent=0, sort_keys=False)
         handle.write('\n')
     print(f'{len(creatures)} creatures and {len(objects)} world objects summoned by scripts, {len(encounters)} boss encounters tied to a creature, '
-          f'{len(credits)} creatures whose kill credit a script gives -> {OUT}')
+          f'{len(credits)} creatures whose kill credit a script gives, {len(maps)} maps scripts teleport into -> {OUT}')
 
 
 if __name__ == '__main__':

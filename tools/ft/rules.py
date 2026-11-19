@@ -452,7 +452,7 @@ def evaluate_all(content, ctx):
         if kind in (1, 2):
             script = ctx['instance_template'].get(map_id)
             checks.append(check(script is not None, 'instance_template', L(script or 'Row present', script or 'Ligne présente') if script is not None else L('No row: the instance cannot be created.', 'Aucune ligne : l’instance ne peut pas être créée.'), 2))
-            checks.append(check(map_id in ctx['entrances'], 'entrance', L('areatrigger_teleport to this map.', 'areatrigger_teleport vers cette carte.') if map_id in ctx['entrances']
+            checks.append(check(map_id in ctx['entrances'], 'entrance', L('An entrance teleports into this map (areatrigger_teleport, a server area trigger or a script).', 'Une entrée téléporte dans cette carte (areatrigger_teleport, un déclencheur serveur ou un script).') if map_id in ctx['entrances']
                                 else L('No entrance teleporter.', 'Aucun téléporteur d’entrée.'), 2))
         else:
             checks.append(check(map_id in ctx['battlegrounds'] or kind == 4, 'battleground', L('battleground_template', 'battleground_template'), 2))
