@@ -50,7 +50,17 @@ class Rows(unittest.TestCase):
         self.assertEqual(quests.targets(quest), {'npc': [4421, 4422], 'object': [99]})
         self.assertEqual(quest.unread, [])
         more = dict(RECORD, conditionalDescriptions=[{'playerConditionId': 1, 'text': 'x'}], treasurePickerIds=[5], rewards=dict(RECORD['rewards'], somethingNew=1))
-        self.assertEqual(quests.rows(79360, more)[0].unread, ['conditionalDescriptions', 'treasurePickerIds', 'rewards.somethingNew'])     # carried, not written: named
+        self.assertEqual(quests.rows(79360, more)[0].unread, ['conditionalDescriptions', 'rewards.somethingNew'])     # carried, not written: named
+
+    def test_a_treasure_picker(self):
+        # the picker row is written; what it gives goes in the first free reward slot where the file names it
+        bare = {'title': 'Writ', 'flags': 0, 'level': 60, 'minLevel': 1, 'questType': 2, 'raceMask': 'ffffffffffffffff', 'rewards': {}}
+        quest, problems = quests.rows(94281, dict(bare, treasurePickerIds=[4818]), {4818: (284585, 1)})
+        self.assertEqual((problems, quest.pickers, quest.template['RewardItem1'], quest.template['RewardAmount1']), ([], [4818], 284585, 1))
+        quest, _ = quests.rows(94332, dict(bare, treasurePickerIds=[4819]), {4818: (284585, 1)})
+        self.assertEqual((quest.pickers, quest.template['RewardItem1']), ([4819], 0))          # not named: the row only
+        self.assertEqual(quests.rows(1, dict(bare, treasurePickerIds=['x']), {})[1], ['treasurePickerIds is not a list of distinct numbers above 0'])
+        self.assertEqual(quests.picker_items()[4817], (284584, 1))                              # the shipped file
 
     def test_every_row_names_the_same_columns(self):
         bare, problems = quests.rows(5, {'title': 'Bare', 'flags': 0, 'level': 1, 'minLevel': 1, 'questType': 0, 'raceMask': 'ffffffffffffffff', 'rewards': {}})

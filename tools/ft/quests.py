@@ -26,6 +26,10 @@ world's recording).
     quest_template_classic_level    LevelType 2, QuestLevel            the level shown in the quest log
     quest_classic_money             RewardMoney                        when the record states money
     quest_reward_display_spell      SpellID, Type                      in the record's order
+    quest_treasure_pickers          TreasurePickerID, OrderIndex      the record's treasure pickers, in its order
+    quest_template                  RewardItemN, RewardAmountN         also the item a picker gives, where
+                                    tools/world/treasure_pickers.json names it (Wowhead's quest pages), in the first
+                                    free slot: the core does not open a picker itself, so the reward is a plain item
     quest_template_addon            AllowableClasses                   the class of a class category: a quest filed
                                     under "Paladin" is a paladin's quest (303 of the 308 such rows the world holds
                                     from a Forever recording carry exactly that class); QuestieDB's word comes first
@@ -34,6 +38,8 @@ Every row carries VerifiedBuild 0 where the table has the column: it is written 
 of this server.
 """
 import collections
+import json
+import os
 import re
 
 MAX32 = 2 ** 32 - 1
@@ -52,8 +58,9 @@ SLOTS = tuple(name.format(i) for names, most in ((('RewardItem{}', 'RewardAmount
 LEFT = ('quest_template.RewardMoneyDifficulty, RewardMoneyMultiplier and RewardBonusMoney (the money is written exactly, in quest_classic_money)',
         'quest_template.RewardFactionFlags, SuggestedGroupNum, ContentTuningID, QuestPackageID, the honor, title, skill and artifact rewards, RewardChoiceItemDisplayID',
         'quest_template.POI and Portrait columns',
-        'the texts and rewards a record gives for a player condition (conditionalDescriptions, conditionalCompletionTexts, treasurePickerIds): '
-        'quest_description_conditional, quest_completion_log_conditional, quest_treasure_pickers. A quest that has any names them under "unread"',
+        'the texts a record gives for a player condition (conditionalDescriptions, conditionalCompletionTexts): '
+        'quest_description_conditional, quest_completion_log_conditional. A quest that has any names them under "unread"',
+        'the reward of a treasure picker tools/world/treasure_pickers.json does not name: the picker row is written, no reward item',
         f'quest_objectives.Flags is {OBJECTIVE_FLAGS} for every objective: what four in five recorded Forever objectives hold, not this quest\'s own',
         'quest_template_addon beyond the classes (QuestieDB\'s word, else the class of a class category) and the one quest before it that QuestieDB states',
         'quest_offer_reward and quest_request_items where no recording of the live game has the text in one wording, and their emotes always; '
@@ -64,10 +71,22 @@ CLASS_OF_CATEGORY = {81: 1, 141: 2, 261: 4, 162: 8, 262: 16, 82: 64, 161: 128, 6
 
 # the fields of a record that are read; any other a record carries is named in the quest's `unread`
 READ = frozenset(name for _column, name, _high in NUMBERS) | frozenset(name for _column, name in TEXTS) | frozenset(
-    ('zoneAreaId', 'categoryId', 'raceMask', 'rewards', 'objectives', 'itemDrops', 'level', 'minLevel', 'sources'))
+    ('zoneAreaId', 'categoryId', 'raceMask', 'rewards', 'objectives', 'itemDrops', 'level', 'minLevel', 'sources', 'treasurePickerIds'))
 READ_REWARDS = frozenset(('xpDifficulty', 'xpMultiplier', 'spellId', 'money', 'items', 'choices', 'currencies', 'reputation', 'displaySpells'))
 
-Quest = collections.namedtuple('Quest', 'template objectives level money spells classes unread')
+Quest = collections.namedtuple('Quest', 'template objectives level money spells classes unread pickers')
+
+# what a treasure picker gives: {picker: (item, count)}, read from Wowhead's quest pages ("You will receive")
+PICKERS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'world', 'treasure_pickers.json')
+
+
+def picker_items(path=PICKERS_FILE):
+    try:
+        with open(path, encoding='utf-8') as handle:
+            data = json.load(handle).get('pickers', {})
+    except (OSError, ValueError):
+        return {}
+    return {int(k): (int(v['item']), int(v.get('count', 1))) for k, v in data.items() if isinstance(v, dict) and str(v.get('item', '')).isdigit()}
 
 
 def _text(value):
@@ -106,8 +125,9 @@ def _pairs(entries, name, first, second, problems, high=MAX32):
     return out
 
 
-def rows(quest, record):
-    """(Quest, problems) for one record. With problems the quest cannot be written and they say why."""
+def rows(quest, record, pickers=None):
+    """(Quest, problems) for one record. With problems the quest cannot be written and they say why.
+    `pickers` is picker_items()' map (read from the file when not given)."""
     problems = []
     if not isinstance(record, dict):
         return None, ['its record is not a record']
@@ -194,10 +214,22 @@ def rows(quest, record):
             problems.append('displaySpells: spellId or type is not a number')
             break
         spells.append((entry['spellId'], entry.get('type', 0)))
+    chosen = record.get('treasurePickerIds', [])
+    if not isinstance(chosen, list) or not all(_number(p, 2 ** 31 - 1, 1) for p in chosen) or len(set(chosen)) != len(chosen):
+        problems.append('treasurePickerIds is not a list of distinct numbers above 0')
+        chosen = []
+    given = picker_items() if pickers is None else pickers
+    for picker in chosen:
+        if picker in given:
+            free = next((i for i in range(1, 5) if not template[f'RewardItem{i}']), None)
+            if free is None:
+                problems.append(f'treasure picker {picker}: no free reward item slot for what it gives')
+                break
+            template[f'RewardItem{free}'], template[f'RewardAmount{free}'] = given[picker]
     if problems:
         return None, problems
     unread = sorted(set(record) - READ) + sorted(f'rewards.{name}' for name in set(rewards) - READ_REWARDS)
-    return Quest(template, objectives, (level, least), money, spells, CLASS_OF_CATEGORY.get(-template['QuestSortID'], 0), unread), []
+    return Quest(template, objectives, (level, least), money, spells, CLASS_OF_CATEGORY.get(-template['QuestSortID'], 0), unread, list(chosen)), []
 
 
 def targets(quest):

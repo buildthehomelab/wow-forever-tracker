@@ -1,0 +1,10 @@
+{
+ "about": "What a quest's treasure picker gives, read from the quest's Wowhead Forever page (\"You will receive\"), 2026-11-19. The core does not open a picker itself, so the export writes this item as a plain reward item. A picker not listed here gets its quest_treasure_pickers row and no reward item.",
+ "pickers": {
+  "4817": {"item": 284584, "count": 1, "name": "Coin Pouch", "seen_on": "quest=94245"},
+  "4818": {"item": 284585, "count": 1, "name": "Coin Pouch", "seen_on": "quest=94281"}
+ },
+ "not_listed": {
+  "4819": "quests 94332, 94348, 94357: Wowhead shows no reward"
+ }
+}

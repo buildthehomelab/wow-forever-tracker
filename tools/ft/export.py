@@ -63,7 +63,8 @@ NPC_CHILDREN = (('creature_template_difficulty', 'Entry', ('Entry', 'DifficultyI
                 ('creature_classic_level', 'entry', ('entry',)))
 # the tables a quest's own rows go to, with the column that names the quest and the key the ledger records
 CHILDREN = (('quest_objectives', 'QuestID', ('ID',)), ('quest_classic_level', 'ID', ('ID',)), ('quest_template_classic_level', 'ID', ('ID', 'LevelType')),
-            ('quest_classic_money', 'ID', ('ID',)), ('quest_reward_display_spell', 'QuestID', ('QuestID', 'Idx')), ('quest_template_addon', 'ID', ('ID',)))
+            ('quest_classic_money', 'ID', ('ID',)), ('quest_reward_display_spell', 'QuestID', ('QuestID', 'Idx')), ('quest_template_addon', 'ID', ('ID',)),
+            ('quest_treasure_pickers', 'QuestID', ('QuestID', 'TreasurePickerID')))
 # what the quest's NPC says when it is handed in and while it is not done yet: (table, the moment a recording calls it, the text's column).
 # These come with a quest where a recording has them, and a quest is not refused for a text the world holds already.
 TEXTS = (('quest_offer_reward', 'complete', 'RewardText'), ('quest_request_items', 'progress', 'CompletionText'))
@@ -327,9 +328,11 @@ def settle(rows, world, present=()):
     - what needs an NPC that is written with it (its quest pairs, its vendor items, a quest with an objective on it)
       is dropped when the NPC is, and private when the NPC is.
 
-    `present` holds the (table, key) of rows an earlier export carries: they reach the world before this file."""
+    `present` holds the (table, key) of rows an earlier export carries: they reach the world before this file.
+    world['item_starts'], when given, are the quests an item starts in the client (a Craftsman's Writ): they have a giver."""
     rows, dropped = list(rows), []
     there = {'giver': {quest for _kind, _subject, quest in world.get('gives', ())}, 'ender': {quest for _kind, _subject, quest in world.get('takes', ())}}
+    there['giver'] |= set(world.get('item_starts', ()))   # the client starts it from an item (ItemSparse.StartQuestID): no NPC gives it
     for table, key in present:
         if table in RELATIONS.values():
             there['giver' if 'starter' in table else 'ender'].add(key[1])
@@ -470,6 +473,8 @@ def quest_block(rows, file):
         'quest_reward_display_spell': [collections.OrderedDict(QuestID=q.template['ID'], Idx=index, SpellID=spell, PlayerConditionID=0, Type=kind)
                                        for q in made for index, (spell, kind) in enumerate(q.spells)],
         'quest_template_addon': [collections.OrderedDict(ID=row.key[0], **row.data['addon']) for row in rows if row.data['addon']],
+        'quest_treasure_pickers': [collections.OrderedDict(QuestID=q.template['ID'], TreasurePickerID=picker, OrderIndex=index)
+                                   for q in made for index, picker in enumerate(q.pickers)],
     }
     # No statement reads a stage table or the ledger twice: MySQL cannot reopen a temporary table, and a trial's ledger may be one.
     keyed = ', '.join(literal(table) for table in (QUEST,) + tuple(table for table, _column, _key in CHILDREN if table != 'quest_objectives'))
@@ -713,6 +718,7 @@ def described(row):
         return {}
     quest, addon = row.data['quest'], row.data['addon']
     return {'record': row.data['record'], 'with': {'quest_objectives': len(quest.objectives), 'quest_reward_display_spell': len(quest.spells),
+                                                  **({'quest_treasure_pickers': len(quest.pickers)} if quest.pickers else {}),
                                                   'quest_classic_money': int(bool(quest.money)), 'quest_template_addon': int(bool(addon))},
             'texts': dict(sorted(row.data['texts_from'].items())),          # each goes in unless the world holds a text there already
             'from_questiedb': row.data['from_questiedb'], 'classes': (addon or {}).get('AllowableClasses', 0), 'unread': list(quest.unread)}

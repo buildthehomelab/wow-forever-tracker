@@ -307,6 +307,8 @@ class Quests(unittest.TestCase):
         # an earlier export carries the quest: its pairs can follow alone
         self.assertEqual(export.settle([giver, ender], WORLD, {('quest_template', (200,))}), ([giver, ender], []))
         self.assertEqual(len(export.settle([giver, ender], WORLD)[1]), 2)
+        # the client starts it from an item (a Craftsman's Writ): no NPC need give it
+        self.assertEqual(export.settle([quest, ender], dict(WORLD, item_starts={200})), ([quest, ender], []))
 
     def test_whose_word_a_quest_s_row_is(self):
         both = [ready('gives', 'npc', 1, 200), ready('takes', 'npc', 1, 200)]
@@ -394,7 +396,7 @@ class Quests(unittest.TestCase):
                       "NOT EXISTS (SELECT 1 FROM `quest_objectives` c WHERE c.`QuestID` = s.`ID`)", "NOT EXISTS (SELECT 1 FROM `quest_classic_level` c WHERE c.`ID` = s.`ID`)",
                       "NOT EXISTS (SELECT 1 FROM `quest_template_addon` c WHERE c.`ID` = s.`ID`)",
                       "r.`tbl` IN ('quest_template', 'quest_classic_level', 'quest_template_classic_level', 'quest_classic_money', 'quest_reward_display_spell', "
-                      "'quest_template_addon') AND r.`k1` = s.`ID`)",
+                      "'quest_template_addon', 'quest_treasure_pickers') AND r.`k1` = s.`ID`)",
                       "UPDATE `everlake_build_objectives` p SET p.`taken` = 1 WHERE EXISTS (SELECT 1 FROM `quest_objectives` o WHERE o.`ID` = p.`ID`) "
                       "OR EXISTS (SELECT 1 FROM `everlake_import_rows` r WHERE r.`tbl` = 'quest_objectives' AND r.`k1` = p.`ID`);",
                       "NOT EXISTS (SELECT 1 FROM `everlake_build_objectives` p WHERE p.`QuestID` = s.`ID` AND p.`taken` = 1)"):
