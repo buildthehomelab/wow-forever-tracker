@@ -66,6 +66,9 @@ COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
 NAME = r'[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*'
 # { DATA_X, {{ 271 }} }: a boss slot of the instance and its DungeonEncounter ids
 ENCOUNTER = re.compile(r'\{\s*(' + NAME + r')\s*,\s*\{\s*\{\s*([\d,\s]+?)\s*\}\s*\}\s*\}')
+# { 1, {{ 3499 }} }: the same with a numbered slot, and { 1, 261811 }: that slot's creature
+ENCOUNTER_NUMBERED = re.compile(r'\{\s*(\d+)\s*,\s*\{\s*\{\s*([\d,\s]+?)\s*\}\s*\}\s*\}')
+SLOT_ENTRY = re.compile(r'\{\s*(\d+)\s*,\s*(\d+)\s*\}')
 # { NPC_X, DATA_X } or { ENC_X, 7273 } or { ENC_X, 7797, FLAGS }: two names or numbers at the start of a table row
 PAIR = re.compile(r'\{\s*(' + NAME + r'|\d+)\s*,\s*(' + NAME + r'|\d+)\s*(?:,[^{}]*)?\}')
 SLOT_PREFIX = re.compile(r'^(?:DATA|BOSS|TYPE|ENCOUNTER|ENC|[A-Z0-9]+_ENC)_')
@@ -319,6 +322,22 @@ def scan(scripts):
             for encounter in ids:
                 if entries:
                     encounters.setdefault(encounter, set()).update(entries)
+    # A script that numbers its boss slots (`{ 1, {{ 3499 }} }`) names each boss's creature in a table of the same
+    # file, `{ 1, 261811 }`: two numbers alone, the slot then the entry. Read in that file only, since a number says
+    # far less than a name; an encounter of two creatures (Tor'Rel and Izha'Rel) has two such rows.
+    for path, text in texts.items():
+        numbered = {}
+        for slot, ids in ENCOUNTER_NUMBERED.findall(text):
+            found = {int(x) for x in re.findall(r'\d+', ids)} - {0}
+            if found and int(slot) < MIN_ENTRY:
+                numbered.setdefault(int(slot), set()).update(found)
+        if not numbered:
+            continue
+        for slot, entry in SLOT_ENTRY.findall(text):
+            slot, entry = int(slot), int(entry)
+            if slot in numbered and entry >= MIN_ENTRY:
+                for encounter in numbered[slot]:
+                    encounters.setdefault(encounter, set()).add(entry)
     credits = {}
     for path in sorted(texts):
         script = os.path.relpath(path, scripts).replace(os.sep, '/')
