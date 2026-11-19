@@ -292,4 +292,25 @@ check(str_contains($crawlSrc, "'forever-list'") && str_contains($crawlSrc, 'Last
 [$st, $out] = ft_test_request('/api/wowhead-crawler', "[site]\npublic = 0\n[wowhead]\npush_token = \"0123456789abcdef0123\"\n");
 check($st === 403 && str_contains($out, 'not allowed'), 'the crawler endpoint: past the gate, refused without a key: ' . $st);
 
+
+// ---- pages asked for by hand, a creature page's model, reading kept pages back
+$wf = tempnam(sys_get_temp_dir(), 'want');
+@unlink($wf);
+check(wowhead_wanted($wf) === [], 'no file: nothing asked for');
+wowhead_wanted_set('npc', [247195, '247198', 0, -3, 247195], false, $wf);
+$all = wowhead_wanted_set('npc', [247206], false, $wf);
+check($all === ['npc' => [247195, 247198, 247206]], 'ids added once, bad ones dropped: ' . json_encode($all));
+check(wowhead_wanted_set('npc', [1], true, $wf) === ['npc' => [1]], 'replace keeps only the new list');
+$thrown = false; try { wowhead_wanted_set('spell', [1], false, $wf); } catch (InvalidArgumentException $e) { $thrown = true; }
+check($thrown, 'an unknown kind is refused');
+@unlink($wf);
+$clean = wowhead_pages_clean(['kind' => 'npc', 'id' => 247195, 'fetched' => 1795000000, 'v' => 2, 'status' => 'ok', 'quick' => [], 'tabs' => [], 'model' => [140708, 'x', 0, 5435]]);
+check(($clean['model'] ?? null) === [140708, 5435], 'a model list keeps its positive numbers: ' . json_encode($clean['model'] ?? null));
+$gd = sys_get_temp_dir() . '/whp-' . getmypid();
+@mkdir($gd);
+file_put_contents("$gd/npc.jsonl", '{"id":247195,"fetched":1795000000,"v":2,"status":"ok","quick":[],"tabs":{},"model":[140708]}' . "\n" . '{"id":5,"fetched":1795000000,"v":2,"status":"ok","quick":[],"tabs":{}}' . "\n");
+$got = wowhead_pages_get('npc', [247195, 9], [$gd]);
+check(array_keys($got) === [247195] && $got[247195]['model'] === [140708], 'read back: only the ids asked for that were read');
+@unlink("$gd/npc.jsonl"); @rmdir($gd);
+
 ft_test_done();

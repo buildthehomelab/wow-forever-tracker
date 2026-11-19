@@ -17,7 +17,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 1;                 // of what a page record holds: raise it when extract() keeps more
+  const VERSION = 2;                 // of what a page record holds: raise it when extract() keeps more (2: model)
   const SKIPPED = Symbol('expression');
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
@@ -208,6 +208,18 @@
     } catch (error) { return null; }
   }
 
+  /** The model display ids the page's model viewer shows (`displayId = 140708`, `data-mv-display-id="140708"`): numbers
+   *  only, at most eight, in the order the page gives them. */
+  function models(html) {
+    const out = [];
+    for (const m of html.matchAll(/\bdisplayId\s*=\s*(\d+)|data-mv-display-id="(\d+)"/g)) {
+      const id = Number(m[1] || m[2]);
+      if (id > 0 && !out.includes(id)) out.push(id);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
   /** Where the page places things on its maps: g_mapperData's numbers ({zone: [{count, coords: [[x, y]...]}]}), or null. */
   function mapper(html) {
     const m = /\bg_mapperData\s*=\s*\{/.exec(html);
@@ -245,6 +257,7 @@
     record.tabs = listviews(html);
     const map = mapper(html);
     if (map) record.map = map;
+    if (kind === 'npc' || kind === 'object') { const model = models(html); if (model.length) record.model = model; }
     if (kind === 'quest') { const series = questSeries(html); if (series) record.series = series; }
     return record;
   }
@@ -392,6 +405,7 @@
    *  (Download the crawler); a page nobody named is 'bulk' (Forever) or 'classic'. */
   const TIERS = {
     list: 0,       // the lists: they name everything else
+    wanted: 0,     // pages an administrator asked for (The Forge: a dungeon being built), as early as the lists
     gap: 1,        // an item a quest, recipe, mount, toy or spell waits for; a quest without giver or ender
     named: 2,      // a creature, vendor or chest a tier-1 page names
     gapOther: 3,   // an item that only lacks a source
@@ -502,7 +516,7 @@
     return { p, wait };
   }
 
-  const api = { namedBy, TIERS, defaultTier, tierOf, insertAt, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)
