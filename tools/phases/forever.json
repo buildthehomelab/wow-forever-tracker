@@ -25,6 +25,13 @@
    "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271, 8530, 8617, 8741, 8743, 9120, 9233]
   },
   {
+   "key": "later-battlegrounds",
+   "name": "Later battlegrounds",
+   "opens": null,
+   "source": "In the client since build 69876 but not announced (2026-11-19): Blizzard's new battleground is Darkspear Islands, and Wowhead Forever records no creature, object or quest in Battle for Gilneas, so nobody has played it on live",
+   "maps": ["Battle for Gilneas"]
+  },
+  {
    "key": "not-out",
    "name": "Not out yet",
    "opens": null,

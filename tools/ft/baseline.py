@@ -18,9 +18,9 @@ NEW_FROM = {'item': 190000, 'quest': 60000, 'spell': 400000, 'talent': 3000, 'du
 TABLE = {'item': 'ItemSparse', 'spell': 'SpellName', 'recipe': 'SpellName', 'quest': 'QuestV2', 'dungeon': 'Map', 'boss': 'DungeonEncounter',
          'zone': 'AreaTable', 'achievement': 'Achievement', 'taxi': 'TaxiNodes', 'talent': 'Talent'}
 VIA = {'mount': ('spell', 'SpellName'), 'pet': ('spell', 'SpellName'), 'toy': ('item', 'ItemSparse')}
-# Instances the client carries that no version of the game opened: the original game's unused Emerald Dream raid and
-# its Caverns of Time placeholder.
-UNRELEASED_MAPS = {169, 269}
+# Instances the client carries that no version of the game opened: the original game's unused Emerald Dream raid, its
+# Caverns of Time placeholder, and CashTest (29), a developers' test map.
+UNRELEASED_MAPS = {29, 169, 269}
 
 
 class Baseline:

@@ -30,6 +30,7 @@ class SeasonMap(unittest.TestCase):
     def test_never_opened(self):
         self.assertTrue(self.baseline.season_map(169))  # Emerald Dream
         self.assertTrue(self.baseline.season_map(269))  # Caverns of Time
+        self.assertTrue(self.baseline.season_map(29))   # CashTest, a test map
 
     def test_original_instances_stay(self):
         for map_id in (33, 36, 189, 230, 249, 309, 409, 429, 469, 489, 509, 529, 531, 533):
