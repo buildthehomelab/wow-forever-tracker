@@ -244,8 +244,9 @@ def assign(content, ctx, phases, facts):
         for spell in spells:
             add([item], ('spell', spell))
     # Only the quests the official client has: the world database also holds quests of other versions of the game,
-    # and a reward of one of those would release an item nobody can earn that way (the analysis' rules count the
-    # same quests).
+    # and a reward of one of those would release an item nobody can earn that way. (The analysis' rules count every
+    # server quest a spawned creature gives and takes; here nothing says whether one is doable, so a phase keeps to
+    # the official list.)
     official = content.get('quest') or {}
     quests = {quest: row for quest, row in ctx.get('quests', {}).items() if not official or quest in official}
     for quest, row in quests.items():
