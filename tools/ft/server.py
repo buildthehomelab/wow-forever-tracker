@@ -10,6 +10,7 @@ NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
+AREATRIGGER_ACTION_TELEPORT = 2   # areatrigger_template_actions.ActionType: ActionParam is a world_safe_locs ID
 
 
 def log(message):
@@ -421,6 +422,15 @@ def server_state():
     ctx['instance_template'] = {int(r['map']): r['script'] for r in q('SELECT map, script FROM instance_template')}
     safe_map = {int(r['ID']): int(r['MapID']) for r in q('SELECT ID, MapID FROM world_safe_locs')}
     ctx['entrances'] = {safe_map.get(int(r['PortLocID'])) for r in q('SELECT PortLocID FROM areatrigger_teleport')}
+    # A server-side area trigger placed in the world whose action teleports to a safe location (ActionType 2: the
+    # fork's own dungeon portals, Hall of Thanes and the others), and a map a C++ script teleports into (ft.summons)
+    if sqlio.has_table('areatrigger') and sqlio.has_table('areatrigger_template_actions') and sqlio.has_table('areatrigger_create_properties'):
+        ctx['entrances'] |= {safe_map.get(int(r['ActionParam'])) for r in q(
+            'SELECT act.ActionParam FROM areatrigger a JOIN areatrigger_create_properties p ON p.Id = a.AreaTriggerCreatePropertiesId '
+            'AND p.IsCustom = a.IsCustom JOIN areatrigger_template_actions act ON act.AreaTriggerId = p.AreaTriggerId '
+            f'AND act.IsCustom = p.IsAreatriggerCustom WHERE act.ActionType = {AREATRIGGER_ACTION_TELEPORT}')}
+    ctx['entrances'] |= set(core['teleports'])
+    ctx['entrances'].discard(None)
     declared = ints('SELECT ID FROM battleground_template')
     ctx['battlegrounds'] = {r['MapID'] for r in srv('BattlemasterListXMap') if r['BattlemasterListID'] in declared}
     listing = lambda key: os.listdir(CONFIG.server_path(key)) if CONFIG.server_path(key) and os.path.isdir(CONFIG.server_path(key)) else []

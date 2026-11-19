@@ -182,6 +182,24 @@ class Scan(unittest.TestCase):
         self.assertEqual(self.encounters[600], {7267, 7797})
 
 
+class Teleports(unittest.TestCase):
+    """A map a script teleports the player into: the instance has an entrance no table shows."""
+
+    def test_a_constant_a_number_and_a_variable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            os.makedirs(os.path.join(folder, 'cod'))
+            with open(os.path.join(folder, 'cod', 'cod.cpp'), 'w', encoding='utf-8') as handle:
+                handle.write('constexpr uint32 CLASSIC_COD_MAP_ID = 2959;\n'
+                             'void a(Player* player) { player->TeleportTo(CLASSIC_COD_MAP_ID, 1.0f, 2.0f, 3.0f, 0.0f); }\n'
+                             'void b(Player* player) { player->TeleportTo(3065, 1.0f, 2.0f, 3.0f, 0.0f); }\n'
+                             'void c(Player* player, uint32 mapId) { player->TeleportTo(mapId, 1.0f, 2.0f, 3.0f, 0.0f); }\n'
+                             '// player->TeleportTo(1234, 0, 0, 0, 0);\n')
+            self.assertEqual(make_summoned.teleports(folder), {2959: 'cod/cod.cpp', 3065: 'cod/cod.cpp'})
+
+    def test_the_shipped_list_knows_city_of_dalaran(self):
+        self.assertIn(2959, summons.core()['teleports'])
+
+
 class Shipped(unittest.TestCase):
     def test_the_list_reads_and_knows_the_classic_events(self):
         lists = summons.core()

@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "deee5f5393",
+"commit": "e705914a22",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -182,6 +182,7 @@
 "11450": "Custom/Classic/instances/dire_maul/classic_instance_dire_maul.cpp",
 "11460": "Custom/Classic/instances/dire_maul/classic_instance_dire_maul.cpp",
 "11502": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
+"11560": "Custom/Classic/kalimdor/classic_desolace.cpp",
 "11583": "Custom/Classic/instances/blackwing_lair/classic_boss_victor_nefarius.cpp",
 "11598": "Custom/Classic/instances/scholomance/classic_instance_scholomance.cpp",
 "11663": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
@@ -762,6 +763,7 @@
 "176147": "Kalimdor/zone_silithus.cpp",
 "176148": "Kalimdor/zone_silithus.cpp",
 "176211": "Custom/Classic/instances/stratholme/classic_boss_cannon_master_willey.cpp",
+"177749": "Custom/Classic/kalimdor/classic_desolace.cpp",
 "177807": "Custom/Classic/instances/blackwing_lair/classic_instance_blackwing_lair.cpp",
 "178088": "Custom/Classic/instances/molten_core/classic_boss_ragnaros.cpp",
 "178107": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
@@ -2537,6 +2539,12 @@
 "3357": [
 250631
 ],
+"3408": [
+255699
+],
+"3411": [
+256035
+],
 "3412": [
 256097
 ],
@@ -2621,5 +2629,11 @@
 "3644": [
 260808
 ]
+},
+"teleports": {
+"469": "Custom/Classic/instances/blackwing_lair/classic_instance_blackwing_lair.cpp",
+"571": "Battlefield/BattlefieldWG.cpp",
+"631": "Northrend/IcecrownCitadel/icecrown_citadel.cpp",
+"2959": "Custom/Classic/instances/city_of_dalaran/classic_instance_city_of_dalaran.cpp"
 }
 }
