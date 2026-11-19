@@ -41,7 +41,7 @@ class Written(unittest.TestCase):
                      3274: taxi('Powderfuse Port, Riverglades', FACTION_FREE), 3205: taxi('Tidegear Coast, Dun Morogh', 1152)},
             'mount': {3113: named('[PH] Brown Prideclaw', spell=1), 3000: named('Swift Hyjal Stag', spell=2), 7: named('Gray Wolf', spell=459)},
             'pet': {3500: named('Gill\'el', spell=3)},
-            'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants')},
+            'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants'), 2369: named('Herbalism'), 2330: named('')},
             'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants')},
             'quest': {55296: named(''), 9999999: named('')},
         }
@@ -49,7 +49,7 @@ class Written(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, 'import.sql')
             output.write_sql(path, [], cls.content, [], results, {}, {}, {}, {}, {'quests': {}, 'quest_fr': {}, 'quest_level': {},
-                                                                                    'granted_spells': {459}}, 0, {}, [])
+                                                                                    'granted_spells': {459, 2369}}, 0, {}, [])
             with open(path, encoding='utf-8') as handle:
                 cls.text = handle.read()
 
@@ -58,6 +58,16 @@ class Written(unittest.TestCase):
 
     def internal(self, kind, entity_id):
         return int(re.search(r",(\d),\d,'missing'", self.row(kind, entity_id)).group(1))
+
+    def test_a_recipe_follows_its_spell(self):
+        # spell 2369 is in granted_spells (nothing teaches it here or in the original game): its recipe goes with it
+        self.assertEqual(self.internal('recipe', 2369), 1)
+        self.assertEqual(self.internal('recipe', 1251000), 0)
+
+    def test_an_old_recipe_whose_spell_the_client_dropped(self):
+        # 2330 (an old healing potion): no name, no spell in the client, an id of the original game
+        self.assertEqual(self.internal('recipe', 2330), 1)
+        self.assertEqual(self.internal('recipe', 1252979), 0)   # a new one, unnamed: content still locked, stays
 
     def test_a_boss_of_a_test_instance_and_an_unused_row(self):
         self.assertEqual(self.internal('boss', 3078), 1)
@@ -85,6 +95,11 @@ class Written(unittest.TestCase):
         self.assertEqual(self.internal('pet', 3500), 0)
         self.assertEqual(self.internal('recipe', 1252000), 1)
         self.assertEqual(self.internal('recipe', 1251000), 0)
+
+    def test_an_old_recipe_whose_spell_the_client_dropped(self):
+        # 2330 (an old healing potion): no name, no spell in the client, an id of the original game
+        self.assertEqual(self.internal('recipe', 2330), 1)
+        self.assertEqual(self.internal('recipe', 1252979), 0)   # a new one, unnamed: content still locked, stays
 
     def test_an_unnamed_recipe_stays_visible(self):
         # the client keeps some content unnamed for players to discover: no name is no reason to hide it
