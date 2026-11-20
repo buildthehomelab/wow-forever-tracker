@@ -433,7 +433,7 @@ def server_state():
     ctx['trainers'] = pairs('SELECT CreatureID, TrainerID FROM creature_trainer')
     ctx['shop_items'] = ints('SELECT Param1 FROM shop_product_action WHERE Action = 1') if sqlio.has_table('shop_product_action') else set()
     # the Black Market Auction House's stock (TrinityCore blackmarket_template): (seller npc, item)
-    ctx['blackmarket_items'] = pairs('SELECT sellerNpc, itemId FROM blackmarket_template') if sqlio.has_table('blackmarket_template') else []
+    ctx['blackmarket_items'] = pairs('SELECT sellerNpc, itemEntry FROM blackmarket_template') if sqlio.has_table('blackmarket_template') else []
     ctx['create_spells'] = (ints('SELECT Spell FROM playercreateinfo_spell_custom') if sqlio.has_table('playercreateinfo_spell_custom') else set()) | \
                            (ints('SELECT spell FROM playercreateinfo_cast_spell') if sqlio.has_table('playercreateinfo_cast_spell') else set())
     ctx['learn_chain'] = pairs('SELECT entry, SpellID FROM spell_learn_spell')
