@@ -17,10 +17,15 @@
 //                  starts, ends: rows {id (the quest)}
 //   an object page tabs contains (the openings as the tab's total), mining, herbalism; starts, ends
 require_once FT_APP . '/sources.php';
+require_once FT_APP . '/gather.php';
 
 const WOWHEAD_PAGES_MIN_LOOTS = 10;    // a drop counts from this many looted corpses (or opened chests) ...
 const WOWHEAD_PAGES_MIN_DROPS = 2;     // ... in which the item fell at least twice: once is a sighting, not a rate,
                                        // used only for an item nothing else gives (wowhead_pages_evidence)
+/** A page the tracker queues that the crawl's tab read longer ago than this (seconds) is read again: the tracker
+ *  queues only pages it does not hold or holds and wants again, so a younger copy in the tab is one on its way to the
+ *  tracker (the tab sends what it read every few seconds to minutes). */
+const WOWHEAD_PAGES_AGAIN = 86400;
 const WOWHEAD_PAGES_WORLD_DROP = 15;   // an item this many different creatures drop is nobody's own loot
 /** The tabs of an item page that are loot of a creature or of a chest; every other source tab is counted only. */
 const WOWHEAD_PAGES_DROP_TABS = ['dropped-by' => 'npc', 'contained-in-object' => 'go', 'mined-from-object' => 'go', 'gathered-from-object' => 'go',
@@ -774,6 +779,37 @@ function wowhead_pages_unsourced_later(?array $phases = null, ?array $closed = n
     return $out;
 }
 
+/**
+ * The Wowhead pages the work list of data/gather.json wants (docs/GATHER.md), by tier: ['gap' => [kind => ids],
+ * 'later' => [kind => ids]]. The open phase ("now") and a phase that opened since the analysis go in 'gap', a phase
+ * still closed in 'later', in release order. $held(kind): [id => true] the pages held and not due again, left out.
+ * $closed: the numbers of the closed phases (closed_phases()), $phases the phases (phases()).
+ */
+function wowhead_pages_gather_queue(array $list, callable $held, ?array $phases = null, ?array $closed = null): array
+{
+    $phases ??= phases();
+    $closed ??= closed_phases();
+    $closedKeys = [];
+    foreach ($phases as $n => $p) if (in_array((int)$n, $closed, true)) $closedKeys[(string)$p['key']] = true;
+    $out = ['gap' => [], 'later' => []];
+    $have = [];
+    foreach ((array)($list['wowhead'] ?? []) as $key => $kinds) {
+        $tier = isset($closedKeys[(string)$key]) ? 'later' : 'gap';
+        foreach ((array)$kinds as $kind => $ids) {
+            if (!in_array($kind, ['quest', 'npc', 'object', 'item'], true)) continue;
+            $have[$kind] ??= $held($kind);
+            foreach ((array)$ids as $id) {
+                $id = (int)$id;
+                if ($id > 0 && !isset($have[$kind][$id])) $out[$tier][$kind][$id] = $id;
+            }
+        }
+    }
+    // a page the open phase wants is not asked again for a later one
+    foreach ($out['gap'] as $kind => $ids) if (isset($out['later'][$kind])) $out['later'][$kind] = array_diff_key($out['later'][$kind], $ids);
+    foreach ($out as $tier => $kinds) $out[$tier] = array_filter(array_map('array_values', $kinds));
+    return $out;
+}
+
 /** The pages this tracker wants next, from the last analysis (wowhead_pages_order), and the creatures and objects
  *  whose data is missing (wowhead_pages_missing_data): their pages are moved up in a running crawl. */
 function wowhead_pages_queue(): array
@@ -810,6 +846,16 @@ function wowhead_pages_queue(): array
         $left = array_values(array_filter($ids, fn($id) => !isset($have[$id])));
         if ($left) $queue['wanted'][$kind] = $left;
     }
+    // what the content still to come needs (data/gather.json, docs/GATHER.md): the open phase's in tier 'gap', a closed
+    // phase's in tier 'later', earliest phase first; pages held and not due again are left out
+    $queue['gather'] = wowhead_pages_gather_queue(gather_list(), function (string $kind) {
+        $have = [];
+        foreach (wowhead_pages_each($kind) as $page) {
+            if (in_array($kind, ['npc', 'object'], true) && ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < WOWHEAD_PAGES_MODEL_V) continue;
+            if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
+        }
+        return $have;
+    });
     // the Craftsman's Writs: their item pages and Wowhead's writ guide, read again every [wowhead] writ_days
     [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), wowhead_pages('item'), wowhead_pages('forever-guide'));
     foreach (wowhead_pages_missing_data() as $kind => $list) {
@@ -830,13 +876,18 @@ function wowhead_pages_queue(): array
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $counted = array_filter($queue, fn($v, $k) => is_array($v) && $k !== 'wanted' && $k !== 'writ', ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
+    $counted = array_filter($queue, fn($v, $k) => is_array($v) && !in_array($k, ['wanted', 'writ', 'gather'], true), ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))
-        . (empty($queue['writ']) ? '' : ', ' . count($queue['writ']) . ' writ pages')];
+        . (empty($queue['writ']) ? '' : ', ' . count($queue['writ']) . ' writ pages')
+        . implode('', array_map(fn($tier) => ', ' . array_sum(array_map('count', (array)($queue['gather'][$tier] ?? []))) . " $tier pages of the work list", array_keys(array_filter((array)($queue['gather'] ?? [])))))];
     $lines[] = '(async () => {';
-    // $kind may carry a branch: 'classic/item'
-    $put = function (string $kind, array $ids, string $tier) use (&$lines) {
-        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids)), JSON_UNESCAPED_SLASHES) . ', ' . json_encode($tier) . ');';
+    // $kind may carry a branch: 'classic/item'. Every page here is one the tracker does not hold, or holds and wants
+    // again (due by [wowhead] refresh_days or recheck_days): a tab that read it longer ago than WOWHEAD_PAGES_AGAIN reads
+    // it again. Without that a tab that crawls for weeks (the Chrome extension) never reads a page twice, and nothing
+    // the tracker holds ever came due again.
+    $againAll = json_encode(['again' => WOWHEAD_PAGES_AGAIN]);
+    $put = function (string $kind, array $ids, string $tier) use (&$lines, $againAll) {
+        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids)), JSON_UNESCAPED_SLASHES) . ', ' . json_encode($tier) . ", $againAll);";
     };
     $items = array_values($queue['item'] ?? []);
     $blocking = (int)($queue['blocking'] ?? count($items));
@@ -852,8 +903,12 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $put('quest', $queue['quest'] ?? [], 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
+    // the missing quests, their creatures and objects, and the items they ask for (data/gather.json, the open phase)
+    foreach ($queue['gather']['gap'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap');
     $put('item', array_slice($items, $blocking), 'gapOther');
     $put('classic/item', array_slice($season, $seasonBlocking), 'gapOther');
+    // what the release phases not open yet need, earliest phase first
+    foreach ($queue['gather']['later'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'later');
     $put('npc', $queue['npc'] ?? [], 'missing');
     $put('object', $queue['object'] ?? [], 'missing');
     if ($full) $lines[] = '  await WHC.full();';

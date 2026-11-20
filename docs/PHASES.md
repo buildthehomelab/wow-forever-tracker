@@ -88,6 +88,10 @@ The website decides this each time a page loads, so a phase opening needs no new
   quest or trainer spell whose phase is closed, and says how many it left out for that reason. Make the card again
   once the phase is open.
 
+- **The Forge, Later**: what each closed phase needs, gathered before it opens: its quests with who gives and takes
+  them, the creatures and objects the server lacks, its items with where they come from, and which source holds each
+  ([GATHER.md](GATHER.md)). The Wowhead crawl and Import Icy Veins read what it names.
+
 A resource the server already provides keeps its *Available* status, even if its phase is closed.
 
 ## Instances Forever does not use
