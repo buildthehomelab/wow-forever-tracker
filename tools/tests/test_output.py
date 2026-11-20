@@ -43,7 +43,7 @@ class Written(unittest.TestCase):
             'pet': {3500: named('Gill\'el', spell=3)},
             'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants'), 2369: named('Herbalism'), 2330: named(''), 2337: named('#2337')},
             'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants'), 9572: named('<UNUSED> Glyphic Rune')},
-            'quest': {55296: named(''), 9999999: named(''), 2000: named(''), 5561: named(''), 8237: named(''), 9378: named(''), 909: named(''), 6922: named(''), 3111: named(''), 785: named('')},
+            'quest': {55296: named(''), 9999999: named(''), 2000: named(''), 5561: named(''), 8237: named(''), 9378: named(''), 909: named(''), 6922: named(''), 3111: named(''), 785: named(''), 84394: named(''), 93045: named('Test Your Theory')},
         }
         results = {(kind, i): ('missing', 0, []) for kind in cls.content for i in cls.content[kind]}
         off = [{'ok': False, 'code': 'enabled'}, {'ok': False, 'code': 'starter'}, {'ok': False, 'code': 'ender'}]
@@ -58,7 +58,8 @@ class Written(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, 'import.sql')
             output.write_sql(path, [], cls.content, [], results, {}, {}, {}, {}, {'quests': quests, 'quest_fr': {}, 'quest_level': {},
-                                                                                    'granted_spells': {459, 2369}, 'start_quest_item': {3111: 9572}}, 0, {}, [])
+                                                                                    'granted_spells': {459, 2369}, 'start_quest_item': {3111: 9572},
+                                                                                    'wowhead_reward_quests': {84394, 93045}}, 0, {}, [])
             with open(path, encoding='utf-8') as handle:
                 cls.text = handle.read()
 
@@ -121,6 +122,13 @@ class Written(unittest.TestCase):
         # Wowhead says it does not know them either
         self.assertEqual(self.internal('quest', 55296), 1)
         self.assertEqual(self.internal('quest', 9999999), 0)
+
+    def test_a_quest_wowhead_shows_rewarding_items_is_content(self):
+        # 84394: unnamed in the client, an id the Classic Era client has too, yet Wowhead's item pages show its rewards
+        self.assertEqual(self.internal('quest', 84394), 0)
+        self.assertEqual(self.internal('quest', 55296), 1, 'an unnamed Classic-era quest Wowhead shows no reward of stays Internal')
+        # "Test Your Theory" fits the test-name pattern; Wowhead's rewards say it is a quest
+        self.assertEqual(self.internal('quest', 93045), 0)
 
     def test_a_quest_the_server_disables_and_nobody_gives(self):
         self.assertEqual(self.internal('quest', 2000), 1)

@@ -114,6 +114,39 @@ def wowhead_unsourced_items(folders=None):
     return out
 
 
+def wowhead_reward_quests(folders=None):
+    """The quests Wowhead's Forever item pages name as handing out an item ({quest id}: the Reward from tab), from the
+    newest answer of each page. The client keeps some real quests unnamed (Forever's Classic-era ids, 84394 with its
+    choice of Antique Bulwark or Museum Keeper's Chain): a quest Wowhead shows players being rewarded by is content,
+    not a tracking flag (ft.output keeps it off Internal / test)."""
+    newest = {}
+    for folder in folders if folders is not None else wowhead_page_folders():
+        try:
+            handle = open(os.path.join(folder, 'item.jsonl'), encoding='utf-8')
+        except OSError:
+            continue
+        with handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(record, dict) or not str(record.get('id', '')).isdigit():
+                    continue
+                item, fetched = int(record['id']), record.get('fetched') or 0
+                if item not in newest or fetched >= (newest[item].get('fetched') or 0):
+                    newest[item] = record
+    out = set()
+    for record in newest.values():
+        tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
+        if record.get('status') != 'ok':
+            continue
+        for row in ((tabs.get('reward-from-q') or {}).get('rows') or []):
+            if isinstance(row, dict) and str(row.get('id', '')).isdigit() and int(row['id']) > 0:
+                out.add(int(row['id']))
+    return out
+
+
 def closed(phases, current='', today=None):
     """Numbers (from 1) of the phases not open yet, by the website's rule (closed_phases() in app/bootstrap.php):
     [phases] current decides when set ("all", "none", or a key or number that opens it and every phase before it);

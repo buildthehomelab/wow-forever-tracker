@@ -705,6 +705,7 @@ def analyse(args):
             name = ctx['quest_fr'].get(qid) or (ctx['quests'].get(qid) or {}).get('LogTitle') or quest_names.get(str(qid), {}).get('fr') or ''
             hotfix_changes[index] = change[:6] + (name,)
     ctx['season'] = baseline.season
+    ctx['wowhead_reward_quests'] = phases.wowhead_reward_quests()   # quests Wowhead shows rewarding items: never Internal (ft.output)
     ctx['classic_taught'], ctx['classic_never_given'] = classic_facts()
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)

@@ -247,6 +247,10 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 # is only asked about Forever's own quests, so no answer would ever hide it. No title is no quest players take.
                 classic_unnamed = not name and not baseline.is_new(kind, entity_id, entity)
                 internal = 1 if unknown_everywhere or classic_unnamed or (name and INTERNAL_NAME.search(name)) else 0
+                # Wowhead's Forever item pages show players being rewarded by it: a real quest, whatever its name or
+                # its lack of one says (84394 unnamed in the client; "Test Your Theory" 93045 is no test)
+                if entity_id in ((ctx or {}).get('wowhead_reward_quests') or ()):
+                    internal = 0
                 # The server's own disables table switches it off and nothing gives it: a quest the core keeps out on
                 # purpose (Rokar Bladeshadow, Da Foo, Kill 'Em With Sleep Deprivation), not content waiting for a fix.
                 failed = {c['code'] for c in checks if not c['ok']}

@@ -143,6 +143,18 @@ class Assign(unittest.TestCase):
                         {'id': 5, 'fetched': 20, 'status': 'ok', 'tabs': {'reward-from-q': {'rows': [{'id': 9}]}}}])
             self.assertEqual(phases.wowhead_unsourced_items([old, new, os.path.join(new, 'none')]), {2, 3})
 
+    def test_wowhead_reward_quests(self):
+        with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
+            def write(folder, rows):
+                with open(os.path.join(folder, 'item.jsonl'), 'w', encoding='utf-8') as handle:
+                    handle.write('\n'.join(json.dumps(r) for r in rows) + '\nnot json\n')
+            write(old, [{'id': 1, 'fetched': 10, 'status': 'ok', 'tabs': {'reward-from-q': {'rows': [{'id': 77}]}}}])
+            write(new, [{'id': 1, 'fetched': 20, 'status': 'ok', 'tabs': {'reward-from-q': {'rows': [{'id': 84394}, {'id': 0}]}}},
+                        {'id': 2, 'fetched': 20, 'status': 'missing', 'tabs': {'reward-from-q': {'rows': [{'id': 5}]}}},
+                        {'id': 3, 'fetched': 20, 'status': 'ok', 'tabs': {'dropped-by': {'rows': [{'id': 9}]}}}])
+            # the newest page of item 1 wins (77 is gone from it); a page Wowhead does not have counts for nothing
+            self.assertEqual(phases.wowhead_reward_quests([old, new, os.path.join(new, 'none')]), {84394})
+
     def test_lowest_phase_wins(self):
         c, x = content(), ctx()
         x['npc_maps'][ONY] = [{'id': TRASH}]
