@@ -173,11 +173,19 @@ class Run(unittest.TestCase):
                 json.dump({'npcs': {'50': {'offers': {'100': {}}, 'takes': {'100': {}}}}}, f)
             entities = [{'type': 'quest', 'id': '100', 'name_en': 'New', 'status': 'missing', 'phase': '0', 'checks': None},
                         {'type': 'item', 'id': '300', 'name_en': 'Loot', 'status': 'missing', 'phase': '1', 'checks': ''}]
-            world = {'quest_template': [], 'creature_template': ['50'], 'creature': ['50'], 'gameobject_template': [], 'gameobject': []}
+            world = {'quest_template': [], 'creature_template': ['50', '205'], 'creature': ['50', '205'], 'gameobject_template': [], 'gameobject': []}
+            # the quest also asks for item 4234, which creature 205 (on the server, spawned) drops
+            icy = {('item', 4234): {'relations': {'addon_dropped_by': [{'npc_id': 205}]}}}
+            with open(os.path.join(build, 'quests.enUS.json')) as f:
+                quests = json.load(f)
+            quests['quests']['100']['objectives'].append({'type': 'item', 'objectId': 4234})
+            with open(os.path.join(build, 'quests.enUS.json'), 'w') as f:
+                json.dump(quests, f)
 
             def column(sql, database='world'):
                 table = sql.split('FROM `')[1].split('`')[0]
-                return world[table]
+                asked = sql.split('IN (')[1].rstrip(')').split(',')
+                return [entry for entry in world[table] if entry in asked]
 
             phase_list = [{'key': 'first-raids', 'name': 'First raids', 'opens': '2026-12-09', 'counts': {}}]
             with mock.patch.object(gather, 'DATA', data), mock.patch.object(gather, 'FILE', os.path.join(data, 'gather.json')), \
@@ -185,7 +193,7 @@ class Run(unittest.TestCase):
                     mock.patch.object(gather.sqlio, 'column', column), \
                     mock.patch.object(gather.facts, 'fetch_eglink', lambda *a, **k: 0), \
                     mock.patch.object(gather.phase_rules, 'load', lambda: []), \
-                    mock.patch.object(gather.icyveins, 'cached', lambda kind, entry, folder=None: None), \
+                    mock.patch.object(gather.icyveins, 'cached', lambda kind, entry, folder=None: icy.get((kind, entry))), \
                     mock.patch.object(gather, 'log', lambda message: None):
                 gather.run({'dungeon': {}}, phase_list, folders=[pages])
             with open(os.path.join(data, 'gather.json')) as f:
@@ -194,10 +202,10 @@ class Run(unittest.TestCase):
         now, raids = out['phases']
         self.assertEqual(now['quests'][0]['gives'], {'npc:50': ['eglink']})
         self.assertTrue(now['quests'][0]['ready'])
-        self.assertEqual([r['id'] for r in now['npcs']], [70])
+        self.assertEqual([r['id'] for r in now['npcs']], [70])      # 205 drops the objective item and stands on the server
         self.assertEqual(raids['key'], 'first-raids')
         self.assertEqual(raids['items'][0]['id'], 300)
-        self.assertEqual(out['wowhead'], {'now': {'quest': [100], 'npc': [70]}, 'first-raids': {'item': [300]}})
+        self.assertEqual(out['wowhead'], {'now': {'quest': [100], 'npc': [70], 'item': [4234]}, 'first-raids': {'item': [300]}})
 
 
 if __name__ == '__main__':
