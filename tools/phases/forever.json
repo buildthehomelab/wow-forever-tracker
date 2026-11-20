@@ -75,8 +75,15 @@
    "key": "promo",
    "name": "Promotions",
    "opens": null,
-   "source": "Items live WoW Forever gives only outside the game (2026-11-18): Wowhead's Forever pages name a promotion as their only source (trading card loot: Riding Turtle, White Tiger Cub, Hippogryph Hatchling; the Lashling buds, Tiny Bronze Whelpling), or the server's only quests for them have no giver because the game hands them out by code (collector's edition 'Welcome!' pets 13582-13584, iCoke voucher pets 22780, 22781). The collector's edition Gift Vouchers 14646-14651 that start those 'Welcome!' quests: the game puts them in a new character's bags by code (2026-11-18). Items live WoW Forever gives only outside the game (2026-11-19): the iCoke vouchers 19642, 22822 and 23227 and the Summer Gift Package the voucher's quest (Redeem iCoke Gift Box Voucher) hands out; the trading card loot Tabard of Flame, Tabard of Frost, Upperdeck Tabard #3, Perpetual Purple Firework and Carved Ogre Idol, which Wowhead Forever's list pages give one source code (14) and nothing else",
-   "items": [13582, 13583, 13584, 14646, 14647, 14648, 14649, 14650, 14651, 19642, 22780, 22781, 22822, 23224, 23227, 23705, 23709, 23710, 23712, 23713, 23714, 23716, 23720, 249895, 249896, 249897, 268502]
+   "source": "Items live WoW Forever gives only outside the game (2026-11-18): Wowhead's Forever pages name a promotion as their only source (trading card loot: Riding Turtle, White Tiger Cub, Hippogryph Hatchling; the Lashling buds, Tiny Bronze Whelpling), or the server's only quests for them have no giver because the game hands them out by code (collector's edition 'Welcome!' pets 13582-13584, iCoke voucher pets 22780, 22781). The collector's edition Gift Vouchers 14646-14651 that start those 'Welcome!' quests: the game puts them in a new character's bags by code (2026-11-18). Items live WoW Forever gives only outside the game (2026-11-19): the iCoke vouchers 19642, 22822 and 23227 and the Summer Gift Package the voucher's quest (Redeem iCoke Gift Box Voucher) hands out; the trading card loot Tabard of Flame, Tabard of Frost, Upperdeck Tabard #3, Perpetual Purple Firework and Carved Ogre Idol, which Wowhead Forever's list pages give one source code (14) and nothing else. Moved to Black Market (2026-11-20): the Riding Turtle, White Tiger Cub, Hippogryph Hatchling, three Lashling Buds and Tiny Bronze Whelpling, which Wowhead Forever says live sells on the Black Market",
+   "items": [13582, 13583, 13584, 14646, 14647, 14648, 14649, 14650, 14651, 19642, 22780, 22781, 22822, 23224, 23227, 23705, 23709, 23710, 23714, 23716]
+  },
+  {
+   "key": "black-market",
+   "name": "Black Market",
+   "opens": null,
+   "source": "Items live WoW Forever sells on the Black Market Auction House (bids in gold), as the Quick Facts of Wowhead Forever's item pages say (\"Sold on the Black Market\", 2026-11-20): the Riding Turtle, White Tiger Cub, Hippogryph Hatchling, the Lashling Buds, Tiny Bronze Whelpling and any other page that says the same. Filled by the rule (wowhead_black_market) from the crawled pages; an item leaves it once the realm's blackmarket_template stocks it (its seller spawned) or another source gives it",
+   "wowhead_black_market": true
   }
  ]
 }

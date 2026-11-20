@@ -26,7 +26,7 @@ SOURCES = {
     'pickpocket': L('Pickpocketing', 'Vol à la tire'), 'skinning': L('Skinning / gathering', 'Dépeçage / récolte'),
     'fishing': L('Fishing', 'Pêche'), 'mail': L('Mail', 'Courrier'), 'disenchant': L('Disenchanting', 'Désenchantement'),
     'prospecting': L('Prospecting', 'Prospection'), 'milling': L('Milling', 'Broyage'), 'questdrop': L('Quest loot', 'Butin de quête'),
-    'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'container': L('Container content', 'Contenu d’un conteneur'),
+    'vendor': L('Vendor', 'Marchand'), 'shop': L('Shop', 'Boutique'), 'blackmarket': L('Black Market', 'Marché noir'), 'container': L('Container content', 'Contenu d’un conteneur'),
     'quest': L('Quest reward', 'Récompense de quête'), 'craft': L('Crafting', 'Artisanat'),
     'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
     'use': L('Made by using an item', 'Fait en utilisant un objet'),
@@ -125,6 +125,7 @@ def evaluate_all(content, ctx):
     add({item for npc, item in ctx['quest_items_npc'] if npc in npc_spawned} | {item for go, item in ctx['quest_items_go'] if go in go_spawned}, 'questdrop')
     add({item for npc, item in ctx['vendors'] if npc in npc_spawned}, 'vendor')
     add(ctx['shop_items'], 'shop')
+    add({item for npc, item in ctx.get('blackmarket_items', ()) if npc in npc_spawned}, 'blackmarket')
     loot_unplaced = set()
     for items in table_items('creature').values():
         loot_unplaced |= items
