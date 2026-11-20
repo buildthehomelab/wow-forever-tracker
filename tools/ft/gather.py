@@ -391,8 +391,10 @@ def run(content, phase_list, folders=None):
                 ids[kind].add(entry)
         for kind in ('npc', 'object'):
             ids[kind] |= set(want[kind])
+    # the items: the listed ones and those the listed quests start with or ask for (build() lists them too), whose
+    # creatures and chests are looked up on the server like the rest
     for want in targets.values():
-        for item in want['item']:
+        for item in set(want['item']) | ids['item']:
             rel = (src.icy('item', item) or {}).get('relations') or {}
             for d in rel.get('addon_dropped_by') or []:
                 if d.get('gameobject_id'):
