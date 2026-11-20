@@ -150,7 +150,7 @@ $sForever = [
 check(wowhead_pages_season_queue([250000, 226404, 230001, 230002, 230003], $sForever, [230003 => true], $sb) === [226404, 230002],
     'the Classic pages queued: Season items whose Forever page names no source or is not read, not read on Classic yet');
 $js3 = wowhead_pages_crawler(['item' => [226404, 250000], 'blocking' => 1, 'classic/item' => [226404, 230002], 'classicBlocking' => 1]);
-check(str_contains($js3, 'await WHC.prioritize(["classic/item:226404"], "gap");') && str_contains($js3, 'await WHC.prioritize(["classic/item:230002"], "gapOther");')
+check(str_contains($js3, 'await WHC.prioritize(["classic/item:226404"], "gap", {"again":86400});') && str_contains($js3, 'await WHC.prioritize(["classic/item:230002"], "gapOther", {"again":86400});')
     && strpos($js3, '"item:226404"') < strpos($js3, '"classic/item:226404"'), 'a Season item\'s Classic page, in its tier, after its Forever page');
 $bosses = array_map(fn($i) => ['id' => 600 + $i, 'count' => 40, 'outof' => 200], range(1, 20));
 $sClassic = [
@@ -187,7 +187,20 @@ file_put_contents("$ld/forever-list.jsonl", implode("\n", array_map('json_encode
 check(wowhead_pages_listed('npcs', 'forever', [$ld]) === [7 => true, 9 => true] && wowhead_pages_listed('objects', 'forever', [$ld]) === [31 => true] && wowhead_pages_listed('npcs', 'classic', [$ld]) === null,
     'the ids whole list pages name; a cut list, another list, another branch not');
 $js2 = wowhead_pages_crawler(['item' => [3], 'quest' => [], 'npc' => [7, 9], 'object' => [31]]);
-check(str_contains($js2, 'await WHC.prioritize(["npc:7","npc:9"], "missing");') && str_contains($js2, 'await WHC.prioritize(["object:31"], "missing");') && !str_contains(strstr($js2, '// ---- queued by the tracker'), 'WHC.add('), 'creatures and objects with missing data are worth tier "missing"');
+check(str_contains($js2, 'await WHC.prioritize(["npc:7","npc:9"], "missing", {"again":86400});') && str_contains($js2, 'await WHC.prioritize(["object:31"], "missing", {"again":86400});') && !str_contains(strstr($js2, '// ---- queued by the tracker'), 'WHC.add('), 'creatures and objects with missing data are worth tier "missing"');
+
+// the work list of what the content still to come needs (data/gather.json): the open phase in tier gap, a closed one in
+// tier later, pages held and not due again left out, a page wanted now not asked again for later
+$gl = ['wowhead' => ['now' => ['quest' => [97404, 97405], 'npc' => [269275]], 'first-raids' => ['npc' => [269275, 300001], 'item' => [400]], 'bogus' => ['mount' => [1]]]];
+$gq = wowhead_pages_gather_queue($gl, fn(string $kind) => $kind === 'quest' ? [97405 => true] : [], [1 => ['key' => 'first-raids'], 2 => ['key' => 'bogus']], [1]);
+check($gq === ['gap' => ['quest' => [97404], 'npc' => [269275]], 'later' => ['npc' => [300001], 'item' => [400]]], 'work list pages by tier: ' . json_encode($gq));
+$gq2 = wowhead_pages_gather_queue($gl, fn(string $kind) => [], [1 => ['key' => 'first-raids']], []);
+check(!isset($gq2['later']['npc']) && $gq2['gap']['npc'] === [269275, 300001], 'a phase that opened since the analysis is read as a gap');
+$js4 = wowhead_pages_crawler(['item' => [3], 'blocking' => 0, 'gather' => $gq]);
+check(str_contains($js4, 'await WHC.prioritize(["quest:97404"], "gap", {"again":86400});') && str_contains($js4, 'await WHC.prioritize(["npc:300001"], "later", {"again":86400});')
+    && strpos($js4, '"gapOther"') < strpos($js4, '"later"'), 'the work list in the crawler: gaps with the gaps, later after the items that only lack a source');
+check(str_contains($js4, '2 gap pages of the work list, 2 later pages of the work list'), 'the queue comment counts them');
+check(gather_icyveins(['icyveins' => ['npc' => [5, 5, '7'], 'zone' => [1], 'item' => []]]) === ['npc' => [5, 7]], 'Icy Veins answers the work list wants');
 
 // a linked crawl's pages: added at the end, nothing rewritten, the newest answer still wins
 $ap = ft_test_dir();
@@ -272,7 +285,7 @@ $kept = wowhead_pages('forever-list', [$dir])['npcs?filter=37:37;2:4;1:20000'] ?
 check(($kept['rows'] ?? null) === [['id' => 7, 'minlevel' => 3]] && !isset($kept['branch']) && isset(wowhead_pages('classic-list', [$dir])['npcs?filter=37:37;2:4;1:20000']), 'a list by its query, rows with text or no id dropped');
 
 $js = wowhead_pages_crawler(['item' => [3, 4, 5], 'quest' => [7], 'blocking' => 2]);
-check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap");') && str_contains($js, 'await WHC.prioritize(["item:3","item:4"], "gap");') && str_contains($js, 'await WHC.prioritize(["item:5"], "gapOther");')
+check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap", {"again":86400});') && str_contains($js, 'await WHC.prioritize(["item:3","item:4"], "gap", {"again":86400});') && str_contains($js, 'await WHC.prioritize(["item:5"], "gapOther", {"again":86400});')
     && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its pages with what each is worth, then start');
 
 check(str_contains(wowhead_pages_crawler(['item' => [3]], true), "await WHC.full();\n  WHC.start();") && !str_contains($js, 'WHC.full'), 'the full crawl download also starts the whole database');

@@ -127,10 +127,11 @@ A whole crawl is days of pages, so the queue is always in the order of what a pa
 | Tier | Pages | Why |
 |---|---|---|
 | 0 | the list pages | they name every other page, and are few |
-| 1 `gap` | the items a quest, recipe, mount, toy or spell waits for; the quests without a giver or an ender | each unblocks something players cannot do |
+| 1 `gap` | the items a quest, recipe, mount, toy or spell waits for; the quests without a giver or an ender; the official quests the server has no record of, the creatures and objects they name that the server lacks, and the items they ask for ([GATHER.md](GATHER.md)) | each unblocks something players cannot do |
 | 2 `named` | the creatures, vendors and chests a tier-1 page names (not a world drop's fifteen and more), who gives or takes such a quest | their own pages count better, and a new drop row from an npc page waits for the item's page |
 | 3 `gapOther` | the items that only lack a source | each is an item players cannot get yet |
 | 4 `namedOther` | what a tier-3 page names | |
+| 4.5 `later` | what a release phase not open yet needs: its quests, the creatures and objects they name, its items ([GATHER.md](GATHER.md)) | read before the phase opens |
 | 5 `missing` | the server's creatures and objects whose data is missing: vendors that sell nothing, trainers that teach nothing, chests that hold nothing, creatures without loot (the ones with no service first) | fills holes in what is already in the world |
 | 6 | the rest of Forever | measures again what the server already has |
 | 8 | Classic | only where Forever's counts are thin |
@@ -144,6 +145,13 @@ lists name once they were read). In a crawl that already queued a page it moves 
 asked again. A crawl kept before 2026-11-16 (when tier 3 was the missing data) is put in this order once, the next
 time its crawler loads. The tiers 2 and 4 are made by the crawler itself, as it reads the pages that name them.
 `WHC.prioritize(['npc:7', 'object:2'], 'missing')` moves pages by hand.
+
+**Pages come due again.** The tracker queues only pages it does not hold, or holds and wants again (older than
+`[wowhead] refresh_days`, or a "no such page" older than `recheck_days`). A tab keeps every page it read, and
+`prioritize` leaves out a page it holds, so each queued page carries `{again: 86400}`: a page the tab read more than a
+day ago is read again (a younger copy is one still on its way to the tracker). Before 2026-11-20 the queue had no
+`again` (only the Craftsman's Writs did), so a tab that crawled for weeks, as the Chrome extension's does, never read a
+page twice and nothing the tracker held came due again in it.
 
 ## The whole database
 

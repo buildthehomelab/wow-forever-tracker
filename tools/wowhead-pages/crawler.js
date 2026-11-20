@@ -449,6 +449,7 @@
     named: 2,      // a creature, vendor or chest a tier-1 page names
     gapOther: 3,   // an item that only lacks a source
     namedOther: 4, // what a tier-3 page names
+    later: 4.5,    // what a release phase not open yet needs (docs/GATHER.md): read before it opens, after today's gaps
     missing: 5,    // a creature or object of the server whose data is missing (no stock, no loot, no trainer list)
     bulk: 6,       // the rest of Forever: the rows the server has, measured again
     classic: 8,    // Classic: only where Forever's counts are thin
@@ -686,7 +687,7 @@
   async function prioritize(keys, tier = TIERS.named, options = {}) {
     await ready;
     if (typeof tier === 'string') tier = TIERS[tier];
-    if (!Number.isInteger(tier)) throw new Error('unknown tier');
+    if (!Number.isFinite(tier)) throw new Error('unknown tier');   // a number: 'later' sits between two (4.5)
     const have = new Set(await pages('readonly', s => s.getAllKeys()));
     const again = Number(options && options.again) || 0;
     if (again > 0) {

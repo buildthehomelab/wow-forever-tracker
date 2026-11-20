@@ -735,6 +735,12 @@ def analyse(args):
     for kind, (counts, internal, later) in sorted(summary.items()):
         aside = '  '.join(f'{k}={v}' for k, v in (('internal', internal), ('later', later)) if v)
         log(f'{kind:12} ' + '  '.join(f'{k}={v}' for k, v in sorted(counts.items())) + (f'  (not counted: {aside})' if aside else ''))
+    # what the content still to come needs, listed and fetched now (docs/GATHER.md): a report, it never stops the analysis
+    try:
+        from ft import gather
+        gather.run(content, phase_list)
+    except Exception as error:
+        log(f'later: the work list was not made ({type(error).__name__}: {str(error)[:200]})')
     log(f'done in {time.time() - started:.0f} s')
 
 

@@ -266,6 +266,14 @@ test('a crawl kept before the items that lack a source came first is put in the 
     ['list:items', 'item:5', 'item:6', 'npc:4', 'npc:9', 'npc:8', 'npc:7', 'classic/npc:1']);
 });
 
+test('what a later release phase needs comes after the items that lack a source, before the missing data', () => {
+  const T = crawler.TIERS;
+  assert.ok(T.namedOther < T.later && T.later < T.missing);
+  const tiers = { 'item:6': T.gapOther, 'npc:4': T.namedOther, 'npc:9': T.missing };
+  assert.equal(crawler.insertAt(['item:6', 'npc:4', 'npc:9', 'npc:7'], tiers, T.later), 2);
+  assert.equal(crawler.namedTier(T.later), null);
+});
+
 test('what a page names is worth the tier after its own, for the gaps only', () => {
   const T = crawler.TIERS;
   assert.equal(crawler.namedTier(T.gap), T.named);

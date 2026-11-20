@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **What later phases need, gathered before they open.** After each analysis the tracker writes a work list
+  (`data/gather.json`, The Forge › Later): per release phase not open yet, and for the open game, the quests with
+  who gives and takes them and what they ask, the creatures and objects the server lacks with a template and a place,
+  the items with where they come from, and which source (EG Link, QuestieDB, Icy Veins, Wowhead) already holds each.
+  The analysis downloads the EG Link and QuestieDB files it needs; the Wowhead crawl reads the pages the list names
+  (the open game's as gaps, the later phases' in a new tier `later`), and Import Icy Veins asks its answers before the
+  rest of its mirror. The official quests the server has no record of, their creatures and objects and the items they
+  ask for are now in the crawl's queue too. docs/GATHER.md.
+
+- **Wowhead pages come due again in a long crawl.** A crawl's tab kept every page it read and skipped any it held, so
+  in the Chrome extension's tab, which crawls for weeks, no page the tracker wanted again (`[wowhead] refresh_days`,
+  `recheck_days`) was ever read twice. Each page the tracker queues now asks the tab to read it again when its own
+  copy is over a day old. docs/WOWHEAD-PAGES.md.
+
 - **The changelog opens on the newest entry.** With no build in the address, the Changelog page now opens on the
   newest entry with changes, a hotfix update included, as the overview's *Latest changes* link does. Before, it
   opened on the newest build that changed something itself, so a build with the same game data as the one before

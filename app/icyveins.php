@@ -25,6 +25,8 @@
 // Kept in the mirror and counted on the card, not written: levels, coin, gossip text, container contents (no chance
 // is recorded), flight routes, quest chains.
 
+require_once FT_APP . '/gather.php';
+
 const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
 /** Icy Veins' placeholders in turn-in words, and the core's tokens for them. */
 const ICYVEINS_TEXT_TOKENS = ['<Class>' => '$C', '<class>' => '$c', '<Race>' => '$R', '<race>' => '$r', '<Name>' => '$N', '<name>' => '$n'];
@@ -454,6 +456,12 @@ function icyveins_import(?callable $progress = null): array
         // replaces it unless something was applied from it (source_supersede)
         $early = icyveins_early_card($first, $gaps);
         if ($progress) $progress($early);
+        // then what the content still to come needs (data/gather.json, docs/GATHER.md): asked before the whole mirror,
+        // so that a phase's quests, creatures, objects and items are held before it opens
+        $later = gather_icyveins();
+        foreach ($later as $kind => $ids) foreach ($ids as $id) $get($kind, (int)$id);
+        if ($later) $say('work list asked');
+        foreach ($later as $kind => $ids) $first[$kind] = array_values(array_unique(array_merge($first[$kind] ?? [], $ids)));
         foreach (ICYVEINS_KINDS as $kind) {
             $mirror[$kind] = icyveins_ids($kind, $asked, $failures, $lastFailure);
             // items are listed only in part (the API's 10,000-row cap, from both ends): the rest come from what the
