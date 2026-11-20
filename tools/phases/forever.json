@@ -5,9 +5,9 @@
    "key": "first-raids",
    "name": "First raids",
    "opens": "2026-12-09",
-   "source": "Blizzard's raid preview: Barrow Deeps, Hyjal Summit and Onyxia's Lair open five weeks after launch. Map 3002: a raid the client keeps encrypted (no Map row, two raid encounters), so one of the two new raids. Quests: The Forging of Quel'Serrar, given in Dire Maul, whose blade only Onyxia's breath tempers (2026-11-18)",
+   "source": "Blizzard's raid preview: Barrow Deeps, Hyjal Summit and Onyxia's Lair open five weeks after launch. Map 3002: a raid the client keeps encrypted (no Map row, two raid encounters), so one of the two new raids. Quests: The Forging of Quel'Serrar, given in Dire Maul, whose blade only Onyxia's breath tempers (2026-11-18). The follow-ups of the Head of Onyxia turn-ins (For All To See, Celebrating Good Times, The Journey Has Just Begun), whose givers stand in the open world (2026-11-19)",
    "maps": ["Onyxia's Lair", "Hyjal Summit", "Barrow Deeps", 3002],
-   "quests": [7509]
+   "quests": [7491, 7493, 7496, 7497, 7509]
   },
   {
    "key": "winter-veil",
@@ -48,9 +48,9 @@
    "key": "later-raids",
    "name": "Later raids",
    "opens": null,
-   "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in; the Ahn'Qiraj war effort and gates (The Alliance/Horde Needs Singed Corestones!, The Champion Returns, Bang a Gong!) and Naxxramas' Fall of Kel'Thuzad and Omarion's Handbook, whose givers or items stand outside the raids (2026-11-18). Creatures: Zul'Gurub's Edge of Madness bosses Gri'lek, Hazza'rah, Renataki and Wushoolay, which the core's Zul'Gurub script summons at the Brazier of Madness (no spawn row, and the summon list cannot see a summon whose entry the script computes) (2026-11-19). Items: the Cenarion Circle field duty of the Ahn'Qiraj war effort in Silithus (Logistics and Combat Task Briefings and Assignments, Cenarion Logistics Badge, Unsigned and Prepared Field Duty Papers, Mark of Remulos: Wowhead Forever's list pages name only Silithus or the war effort's own quests for them), and Omarion's Handbook, which only Naxxramas' quest 9233 hands out (2026-11-19)",
+   "source": "In the client, no date announced. Quests: the Thunderfury (Rise, Thunderfury!) and Atiesh chains, taken and handed in outside the raids their pieces drop in; the Ahn'Qiraj war effort and gates (The Alliance/Horde Needs Singed Corestones!, The Champion Returns, Bang a Gong!) and Naxxramas' Fall of Kel'Thuzad and Omarion's Handbook, whose givers or items stand outside the raids (2026-11-18). Creatures: Zul'Gurub's Edge of Madness bosses Gri'lek, Hazza'rah, Renataki and Wushoolay, which the core's Zul'Gurub script summons at the Brazier of Madness (no spawn row, and the summon list cannot see a summon whose entry the script computes) (2026-11-19). Items: the Cenarion Circle field duty of the Ahn'Qiraj war effort in Silithus (Logistics and Combat Task Briefings and Assignments, Cenarion Logistics Badge, Unsigned and Prepared Field Duty Papers, Mark of Remulos: Wowhead Forever's list pages name only Silithus or the war effort's own quests for them), and Omarion's Handbook, which only Naxxramas' quest 9233 hands out (2026-11-19). Follow-ups of raid-only quests whose givers stand in the open world: Agent of Hydraxis, the rewards for the Head of Nefarian (The Lord of Blackrock), the Ahn'Qiraj scepter chain (The Path and The Hand of the Righteous, Anachronos, Long Forgotten Memories, A Pawn on the Eternal Board, The Might of Kalimdor), The Wrath of Neptulon and Ramaladni's chain (2026-11-19)",
    "maps": ["Molten Core", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Ahn'Qiraj Temple", "Naxxramas"],
-   "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271, 8530, 8617, 8741, 8743, 9120, 9233],
+   "quests": [7561, 7787, 9250, 9251, 9257, 9269, 9270, 9271, 8530, 8617, 8741, 8743, 9120, 9233, 6823, 7782, 7784, 8301, 8302, 8303, 8305, 8519, 8729, 8742, 9230, 9232],
    "npcs": [15082, 15083, 15084, 15085],
    "items": [20800, 20805, 20806, 20807, 20808, 20939, 20940, 20941, 20942, 21132, 21143, 21248, 21249, 21250, 21251, 21252, 21253, 21255, 21256, 21257, 21258, 21259, 21260, 21261, 21262, 21263, 21264, 21265, 21266, 21378, 21379, 21380, 21381, 21382, 21384, 21385, 21386, 21514, 21515, 21750, 22719, 23024]
   },
