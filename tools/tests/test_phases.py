@@ -129,6 +129,35 @@ class Assign(unittest.TestCase):
         # without a phase marked for it, the pages change nothing
         self.assertNotIn(('item', 6), phases.assign(content(), ctx(), PHASES, dict(FACTS, wowhead_no_source={6})))
 
+    def test_wowhead_says_black_market(self):
+        # item 6 has no source on the server and its page also names none: the Black Market rule comes first
+        listed = [dict(p) for p in PHASES] + [
+            {'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [], 'quests': [], 'items': [], 'wowhead_no_source': True},
+            {'key': 'black-market', 'name': 'Black Market', 'opens': None, 'maps': [], 'npcs': [], 'objects': [], 'quests': [], 'items': [], 'wowhead_black_market': True}]
+        facts = dict(FACTS, wowhead_no_source={6}, wowhead_black_market={6, 9})
+        tagged = phases.assign(content(), ctx(), listed, facts)
+        self.assertEqual(tagged[('item', 6)], 4)
+        self.assertEqual(tagged[('toy', 30)], 4)    # what only it gives waits with it
+        self.assertNotIn(('item', 9), tagged)       # the server's vendor sells it
+        self.assertEqual(facts['wowhead_black_market_tagged'], {6})
+        self.assertNotIn(6, facts.get('wowhead_no_source_tagged', set()))
+        # stocked on the realm's Black Market by a seller who stands in the world: released
+        x = ctx()
+        x['blackmarket_items'] = [(VENDOR, 6)]
+        self.assertNotIn(('item', 6), phases.assign(content(), x, listed, dict(FACTS, wowhead_black_market={6})))
+
+    def test_wowhead_black_market_items(self):
+        with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
+            def write(folder, rows):
+                with open(os.path.join(folder, 'item.jsonl'), 'w', encoding='utf-8') as handle:
+                    handle.write('\n'.join(json.dumps(r) for r in rows) + '\n')
+            write(old, [{'id': 1, 'fetched': 10, 'status': 'ok', 'quick': ['Sold on the Black Market']},
+                        {'id': 2, 'fetched': 10, 'status': 'ok', 'quick': ['New in Forever']}])
+            write(new, [{'id': 1, 'fetched': 20, 'status': 'ok', 'quick': ['Consumable']},          # the newer page no longer says it
+                        {'id': 2, 'fetched': 20, 'status': 'ok', 'quick': ['New in Forever', 'Sold on the Black Market']},
+                        {'id': 3, 'fetched': 20, 'status': 'missing', 'quick': ['Sold on the Black Market']}])
+            self.assertEqual(phases.wowhead_black_market_items([old, new]), {2})
+
     def test_unsourced_pages(self):
         with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
             def write(folder, records):

@@ -86,6 +86,16 @@ class Summoned(unittest.TestCase):
         self.assertEqual(evaluate({'item': {3: {}}}, ctx)[('item', 3)][0], 'ok')
 
 
+class BlackMarket(unittest.TestCase):
+    """The realm's Black Market Auction House (blackmarket_template) sells an item when its seller stands in the world."""
+
+    def test_stocked_by_a_spawned_seller(self):
+        ctx = world(blackmarket_items=[(300, 1)])
+        self.assertEqual(failed(evaluate({'item': {1: {}}}, ctx)[('item', 1)]), ['source'])   # the seller is nowhere
+        ctx = world(blackmarket_items=[(300, 1)], spawned_npc={300})
+        self.assertEqual(evaluate({'item': {1: {}}}, ctx)[('item', 1)][0], 'ok')
+
+
 class MadeByUse(unittest.TestCase):
     """An item made by using another one players hold: the Empty Leaden Collection Phial fills itself."""
 

@@ -71,6 +71,7 @@ def load(file=None):
                 raise SystemExit(f'phases: "{kind}" of {key} takes ids only')
             phase[kind] = values
         phase['wowhead_no_source'] = bool(phase.get('wowhead_no_source'))
+        phase['wowhead_black_market'] = bool(phase.get('wowhead_black_market'))
     return phases
 
 
@@ -86,9 +87,8 @@ def wowhead_page_folders():
     return [os.path.join(config.PROJECT, 'tools', 'wowhead-pages', 'cache'), os.path.join(config.DATA, 'wowhead-pages')]
 
 
-def wowhead_unsourced_items(folders=None):
-    """The items whose Forever page on Wowhead was read and names no source ({id}): the newest answer of each page
-    (by its 'fetched' time) across the folders. A page Wowhead does not have, or one not read, is not in it."""
+def newest_item_pages(folders=None):
+    """{item id: record}: the newest answer of each Wowhead Forever item page (by its 'fetched' time) across the folders."""
     newest = {}
     for folder in folders if folders is not None else wowhead_page_folders():
         try:
@@ -106,6 +106,22 @@ def wowhead_unsourced_items(folders=None):
                 item, fetched = int(record['id']), record.get('fetched') or 0
                 if item not in newest or fetched >= (newest[item].get('fetched') or 0):
                     newest[item] = record
+    return newest
+
+
+BLACK_MARKET_FACT = 'Sold on the Black Market'
+
+
+def wowhead_black_market_items(folders=None):
+    """The items whose Forever page on Wowhead says, in its Quick Facts, that they are sold on the Black Market ({id})."""
+    return {item for item, record in newest_item_pages(folders).items()
+            if record.get('status') == 'ok' and any(str(fact).strip() == BLACK_MARKET_FACT for fact in (record.get('quick') or []))}
+
+
+def wowhead_unsourced_items(folders=None):
+    """The items whose Forever page on Wowhead was read and names no source ({id}): the newest answer of each page
+    (by its 'fetched' time) across the folders. A page Wowhead does not have, or one not read, is not in it."""
+    newest = newest_item_pages(folders)
     out = set()
     for item, record in newest.items():
         tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
@@ -119,23 +135,7 @@ def wowhead_reward_quests(folders=None):
     newest answer of each page. The client keeps some real quests unnamed (Forever's Classic-era ids, 84394 with its
     choice of Antique Bulwark or Museum Keeper's Chain): a quest Wowhead shows players being rewarded by is content,
     not a tracking flag (ft.output keeps it off Internal / test)."""
-    newest = {}
-    for folder in folders if folders is not None else wowhead_page_folders():
-        try:
-            handle = open(os.path.join(folder, 'item.jsonl'), encoding='utf-8')
-        except OSError:
-            continue
-        with handle:
-            for line in handle:
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(record, dict) or not str(record.get('id', '')).isdigit():
-                    continue
-                item, fetched = int(record['id']), record.get('fetched') or 0
-                if item not in newest or fetched >= (newest[item].get('fetched') or 0):
-                    newest[item] = record
+    newest = newest_item_pages(folders)
     out = set()
     for record in newest.values():
         tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
@@ -311,6 +311,8 @@ def assign(content, ctx, phases, facts):
         for items in grouped(name).values():
             add(items, world)
     add(ctx.get('shop_items', ()), world)
+    for npc, item in ctx.get('blackmarket_items', ()):
+        add([item], ('npc', npc))
     for container, items in tables['item'].items():
         add(items, ('item', container))
     for spell, items in tables['spell'].items():
@@ -367,6 +369,15 @@ def assign(content, ctx, phases, facts):
     # An item the server gives in no way and whose Wowhead page, read, names no source either: live WoW Forever does not
     # hand it out yet (user decision 2026-11-18). It waits in the phase marked wowhead_no_source until a page read again
     # names a source; what only it gives (a recipe it teaches) waits with it.
+    # An item the server gives in no way that Wowhead says live sells on the Black Market (the Black Market Auction
+    # House, bids in gold): it waits in the phase marked wowhead_black_market until the realm's Black Market stocks it
+    # (blackmarket_template) or another source gives it. Before the no-source rule: such a page often names no source tab.
+    market = next((number for number, phase in enumerate(phases, 1) if phase.get('wowhead_black_market')), 0)
+    if market:
+        for item in facts.get('wowhead_black_market', ()):
+            if item in content.get('item', {}) and item not in sources and item not in fixed['item']:
+                fixed['item'][item] = market
+                facts.setdefault('wowhead_black_market_tagged', set()).add(item)
     unsourced = next((number for number, phase in enumerate(phases, 1) if phase.get('wowhead_no_source')), 0)
     if unsourced:
         for item in facts.get('wowhead_no_source', ()):
@@ -471,8 +482,12 @@ def run(content, ctx):
     if any(p.get('wowhead_no_source') for p in phases):
         facts['wowhead_no_source'] = wowhead_unsourced_items()
         log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source")
+    if any(p.get('wowhead_black_market') for p in phases):
+        facts['wowhead_black_market'] = wowhead_black_market_items()
+        log(f"phases: {len(facts['wowhead_black_market'])} item page(s) on Wowhead say sold on the Black Market")
     tagged = assign(content, ctx, phases, facts)
     by_rule = sorted(facts.get('wowhead_no_source_tagged', ()))
+    by_market = sorted(facts.get('wowhead_black_market_tagged', ()))
     counts = {}
     for (kind, _id), number in tagged.items():
         counts.setdefault(phases[number - 1]['key'], {}).setdefault(kind, 0)
@@ -483,5 +498,6 @@ def run(content, ctx):
     # the items the rule tagged go with their phase: the website keeps their pages in the crawl, so a source that
     # appears on Wowhead brings them back (app/wowheadpages.php wowhead_pages_queue)
     listing = [{'key': p['key'], 'name': p.get('name') or p['key'], 'opens': p.get('opens'), 'source': p.get('source', ''),
-                'counts': counts.get(p['key'], {}), **({'wowhead_no_source': by_rule} if p.get('wowhead_no_source') else {})} for p in phases]
+                'counts': counts.get(p['key'], {}), **({'wowhead_no_source': by_rule} if p.get('wowhead_no_source') else {}),
+                **({'wowhead_black_market': by_market} if p.get('wowhead_black_market') else {})} for p in phases]
     return listing, tagged
