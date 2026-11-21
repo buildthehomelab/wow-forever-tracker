@@ -102,7 +102,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_QUESTIE_QUEST_CHANCE` | `40` | Drop chance of a quest item QuestieDB names where the server gives that item nowhere yet |
 | `FT_QUESTIE_EVERY_HOURS` | `6` | Hours between checks of QuestieDB's newest release on GitHub; a new release becomes an import card for its drops. `0`: never |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
-| `FT_FOREVERCHANGES_EVERY_HOURS` | `24` | Hours between visits of foreverchanges.pro (up to `[foreverchanges] limit` files each, the gaps only); each makes an import card (never applied by itself). `0`: never |
+| `FT_FOREVERCHANGES_EVERY_HOURS` | `6` | Hours between visits of foreverchanges.pro (up to `[foreverchanges] limit` files each, the gaps first, then the rest of the site); each makes an import card (never applied by itself). `0`: never |
 | `FT_CLIENT_EVERY_HOURS` | `6` | Hours between checks of Blizzard's version server for a new client build, read from the CDN when there is one (docs/CLIENT.md); `0`: never. The first check follows the start's own analysis; **Check the client now** in the Forge does one at once |
 | `FT_CLIENT_HOTFIX_CACHE` | *(empty)* | The address of a hotfix cache (`DBCache.bin`) of the live game; empty: the public mirror of live WoW: Forever. It is downloaded with every client check and stored with the snapshot of its build (docs/CLIENT.md) |
 | `FT_CLIENT_PRODUCT` | `wowf` | The game whose live build is read (`wowf`: WoW: Forever) |

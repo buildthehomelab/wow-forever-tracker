@@ -1265,7 +1265,7 @@ function classicdb_import(string $source = 'classicdb'): array
 // ------------------------------------------------------------------ ForeverChanges (players' reports, from the site)
 // foreverchanges.pro collects what its players' addon saw on live WoW Forever, over a base of Classic's data. The
 // tracker reads the site slowly (tools/foreverchanges_pull.py: robots.txt obeyed, one request at a time, what the
-// gaps ask about first), keeps every file privately under data/, and makes of it a pack. The site names NPCs and
+// gaps ask about first, then the rest of the site), keeps every file privately under data/, and makes of it a pack. The site names NPCs and
 // places them on a map; tools/tracker.py matches those to the server's creatures (ft.reports), takes the quest givers
 // the site's map names by id as they are, and hands back the same evidence every other source gives.
 
@@ -1294,11 +1294,13 @@ function foreverchanges_pull(?callable $say = null): array
     @mkdir($dir, 0775, true);
     $wanted = foreverchanges_wanted(source_gaps(), wowhead_pages_waiting());
     file_put_contents("$dir/wanted.json", json_encode($wanted));
-    $say(sprintf('asking only about %d quest(s) and %d item(s) the server lacks', count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
+    $whole = (bool)(int)config('foreverchanges', 'whole', 1);
+    $say(sprintf($whole ? 'asking first about %d quest(s) and %d item(s) the server lacks, then the rest of the site' : 'asking only about %d quest(s) and %d item(s) the server lacks',
+        count($wanted['quests']), count($wanted['items_first']) + count($wanted['items'])));
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
     $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/foreverchanges_pull.py') . ' pull --wanted ' . escapeshellarg("$dir/wanted.json")
-        . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 1500)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))
-        . ' --older ' . max(1, (int)config('foreverchanges', 'older', 14)) . ' 2>&1';
+        . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 3000)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))
+        . ' --older ' . max(1, (int)config('foreverchanges', 'older', 14)) . ($whole ? '' : ' --gaps-only') . ' 2>&1';
     $code = 1; $last = '';
     $pipe = function_exists('popen') ? @popen($command, 'r') : false;
     if ($pipe) {

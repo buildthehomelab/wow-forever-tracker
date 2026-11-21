@@ -26,18 +26,25 @@ four seconds lengthens it, and it eases back after a run of quick answers. What 
 the next run. A 401, 403 or 451, a Cloudflare challenge, or three throttles or failures in a row stop the run:
 nothing is retried around a refusal and no script is dressed up as a browser.
 
-Only what the tracker lacks is read (`wanted`, from the analysis' gaps): the project's decision of 2026-11-16 to look
-up its gaps, never to mirror the site. In this order:
+The whole site is read, the gaps first. On 2026-11-16 the project decided to look up only its gaps and never to
+mirror the site; on 2026-11-21 it reversed that: the tracker held too little of it, so a visit now goes on through
+every quest page, every item page and every map's data files once the gaps are done, and everything read goes into
+the pack and the card's snapshot (ft_source_facts), where it can be queried. The order:
 
-  0 the three sitemaps and robots.txt (every run: they say where a gap's page is)
+  0 the three sitemaps and robots.txt (every run: they say where each page is)
   1 the two continents' map data files (24 files; who starts a quest, by id)
   2 the quests without a giver or an ender, the items other content waits for, then the other items players cannot
     get, as `wanted` lists them
-  then again whichever of those was read longer ago than `older` days, in the same order, oldest first.
+    then again whichever of those was read longer ago than `older` days, in the same order, oldest first
+  3 (`whole`, the default) the rest of the site: the other maps' data files, then every other quest page, then every
+    other item page, by id
+    then again whichever of those was read longer ago than `older` days, oldest first
 
-Nothing else is asked for: not Forever's own quests and items outside the gaps, not the other maps' files, the
-dungeons, the topic pages or Classic's pages. Files an earlier visit kept stay where they are and still go into the
-pack; they are not read again.
+Not read: the dungeons and topic pages, Classic's pages and the other languages. `whole=False` (`--gaps-only`, the
+website's `[foreverchanges] whole = 0`) is the old way: the gaps alone. At the site's pace (2.5 s a request) the
+whole site, about 20,000 files, is some 14 hours of requests: at 3,000 files a visit and a visit every 6 hours (the
+container's default) a first full pass takes two to three days, and then about 1,400 files a day keep it 14 days
+fresh.
 
 `limit` bounds a run; the next one goes on where the order left off.
 
@@ -254,9 +261,13 @@ def locs(sitemap):
 
 # What to read, in what order ----------------------------------------------------------------------------------------
 
-def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
-    """[(tier, path on the site, file kept)] of what the gaps ask about, most valuable first (the top of this file).
-    Without `wanted` that is the continents' map files only."""
+REST = 40   # the tiers from here on are the rest of the site, after every gap
+
+
+def plan(sitemap, quest_sitemap, item_sitemap, wanted=None, whole=False):
+    """[(tier, path on the site, file kept)] in the order of the top of this file: the gaps (tiers below REST), then
+    with `whole` the rest of the site (every other map's files, quest page and item page). Without `wanted` and
+    without `whole` that is the continents' map files only."""
     wanted = wanted or {}
     gap_quests = {int(q) for q in wanted.get('quests') or []}
     first_items = {int(i) for i in wanted.get('items_first') or []}
@@ -266,11 +277,13 @@ def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
         parts = [p for p in path.split('/') if p]
         if not parts or not all(SLUG.fullmatch(p) for p in parts):
             continue
-        if parts[0] == 'map' and len(parts) == 2 and parts[1] in CONTINENTS and parts[1] not in maps:
+        if parts[0] == 'map' and len(parts) == 2 and (whole or parts[1] in CONTINENTS) and parts[1] not in maps:
             maps.append(parts[1])
-    for slug in sorted(maps, key=lambda s: CONTINENTS[s]):
-        for name in MAP_FILES:      # who starts a quest, by id: what a quest without a giver is looked up in
-            out.append((10, f'/map/{slug}/{name}.json', f'map/{slug}/{name}.json'))
+    # the continents first (who starts a quest, by id: what a quest without a giver is looked up in), then the others
+    # in the sitemap's order
+    for rank, slug in enumerate(sorted(maps, key=lambda s: (CONTINENTS.get(s, len(CONTINENTS)), maps.index(s)))):
+        for name in MAP_FILES:
+            out.append((10 if slug in CONTINENTS else REST, f'/map/{slug}/{name}.json', f'map/{slug}/{name}.json', rank))
     for kind, text in (('quest', quest_sitemap), ('item', item_sitemap)):
         pages = {}
         for path in locs(text):
@@ -279,33 +292,37 @@ def plan(sitemap, quest_sitemap, item_sitemap, wanted=None):
                 pages.setdefault(int(m.group(1)), path)
         for number, path in pages.items():
             if kind == 'quest':
-                tier = 20 if number in gap_quests else None
+                tier = 20 if number in gap_quests else REST + 1 if whole else None
             else:
-                tier = 21 if number in first_items else 31 if number in gap_items else None
-            if tier is not None:            # a page no gap asks about is never read
+                tier = 21 if number in first_items else 31 if number in gap_items else REST + 2 if whole else None
+            if tier is not None:            # without `whole`, a page no gap asks about is never read
                 out.append((tier, path, f'{kind}/{number}.html.gz', number))
     seen = set()
     out = [row for row in out if not (row[2] in seen or seen.add(row[2]))]
     # within a tier: the maps in the order above, the quests and items by id
-    return [row[:3] for row in sorted(out, key=lambda row: (row[0], row[3] if len(row) > 3 else 0))]
+    return [row[:3] for row in sorted(out, key=lambda row: (row[0], row[3]))]
 
 
 def due(steps, read, older_days, now):
-    """The steps of a run: what was never read, in the plan's order; then what was read longer than older_days ago,
-    oldest first within each tier. A file the site did not have (404) is asked again four times less often: most maps
-    have three of their twelve files."""
-    fresh = [s for s in steps if s[2] not in read]
-
+    """The steps of a run. The gaps (tiers below REST) first: what was never read, in the plan's order, then what was
+    read longer than older_days ago, oldest first within each tier. Then the rest of the site the same way, its old
+    files oldest first whatever their tier, so that a full pass goes round evenly. A file the site did not have (404)
+    is asked again four times less often: most maps have three of their twelve files."""
     def old(row):
         return int(row.get('at') or 0) < now - older_days * 86400 * (4 if row.get('s') == 404 else 1)
-    stale = [s for s in steps if s[2] in read and old(read[s[2]])]
-    stale.sort(key=lambda s: (s[0], int(read[s[2]].get('at') or 0)))
-    return fresh + stale
+    out = []
+    for gaps in (True, False):
+        group = [s for s in steps if (s[0] < REST) == gaps]
+        fresh = [s for s in group if s[2] not in read]
+        stale = [s for s in group if s[2] in read and old(read[s[2]])]
+        stale.sort(key=lambda s: (s[0] if gaps else 0, int(read[s[2]].get('at') or 0)))
+        out += fresh + stale
+    return out
 
 
-def pull(data, wanted=None, pause=2.5, limit=1500, older=14, get=http_get, clock=time.time, sleep=time.sleep, log=print):
-    """One visit of the site (see the top of this file). Returns {'read', 'new', 'changed', 'missing', 'left',
-    'stopped', 'pause'}."""
+def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, get=http_get, clock=time.time, sleep=time.sleep, log=print):
+    """One visit of the site (see the top of this file): the gaps `wanted` names, then with `whole` the rest of the
+    site. Returns {'read', 'new', 'changed', 'missing', 'left', 'left_gaps', 'stopped', 'pause'}."""
     os.makedirs(folder(data), exist_ok=True)
     try:
         with open(os.path.join(folder(data), 'pacer.json'), encoding='utf-8') as handle:
@@ -355,10 +372,11 @@ def pull(data, wanted=None, pause=2.5, limit=1500, older=14, get=http_get, clock
             if status != 200:
                 raise Refused(f'{path}: {status}')
             maps.append(body.decode('utf-8', 'replace'))
-        steps = [s for s in plan(*maps, wanted=wanted) if allowed(s[1], closed)]
+        steps = [s for s in plan(*maps, wanted=wanted, whole=whole) if allowed(s[1], closed)]
         read = readings(data)
         todo = due(steps, read, older, clock())
         counts['left'] = max(0, len(todo) - limit)
+        counts['left_gaps'] = sum(1 for s in todo[limit:] if s[0] < REST)
         for tier, path, file in todo[:limit]:
             status, headers, body = ask(path)
             row = {'f': file, 'at': int(clock()), 's': status}

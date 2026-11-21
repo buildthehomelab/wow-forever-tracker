@@ -55,8 +55,8 @@ class Order(unittest.TestCase):
         self.assertFalse(site.allowed('/spell/1/x', closed))
         self.assertTrue(site.allowed('/quest/1/x', closed))
 
-    def test_plan_reads_only_what_the_gaps_ask_about(self):
-        steps = site.plan(SITEMAP, QUESTS, ITEMS, {'quests': [5000], 'items_first': [6000], 'items': [40]})
+    def test_gaps_only_reads_only_what_the_gaps_ask_about(self):
+        steps = site.plan(SITEMAP, QUESTS, ITEMS, {'quests': [5000], 'items_first': [6000], 'items': [40]}, whole=False)
         order = paths(steps)
         self.assertEqual(order[:12], [f'/map/kalimdor/{name}.json' for name in site.MAP_FILES], 'the continents\' map files first')
         self.assertEqual(order[12:], ['/quest/5000/q5000', '/item/6000/i6000', '/item/40/i40'], 'then the gaps, in the order asked')
@@ -65,6 +65,22 @@ class Order(unittest.TestCase):
             self.assertNotIn(never, order, 'no gap asks about it')
         self.assertFalse(any('..' in p for p in order))
         self.assertEqual(len(steps), len({s[2] for s in steps}))
+
+    def test_whole_reads_the_rest_of_the_site_after_the_gaps(self):
+        steps = site.plan(SITEMAP, QUESTS, ITEMS, {'quests': [5000], 'items_first': [6000], 'items': [40]}, whole=True)
+        order = paths(steps)
+        n = len(site.MAP_FILES)
+        self.assertEqual(order[:n], [f'/map/kalimdor/{name}.json' for name in site.MAP_FILES])
+        self.assertEqual(order[n:n + 3], ['/quest/5000/q5000', '/item/6000/i6000', '/item/40/i40'], 'the gaps before anything else')
+        self.assertTrue(all(s[0] < site.REST for s in steps[:n + 3]) and all(s[0] >= site.REST for s in steps[n + 3:]))
+        self.assertEqual(order[n + 3:2 * n + 3], [f'/map/deadmines/{name}.json' for name in site.MAP_FILES], 'then the other maps\' files')
+        self.assertEqual(order[2 * n + 3:], ['/quest/2/q2', '/quest/99001/q99001', '/quest/99002/q99002', '/item/274000/i274000', '/item/280000/i280000'],
+                         'then every other quest page, then every other item page, by id')
+        for never in ('/dungeons/deadmines', '/rares', '/library-books', '/quests/mulgore', '/fr/rares', '/talents/warrior', '/map', '/spell/1/x'):
+            self.assertNotIn(never, order, 'not a quest, an item or a map\'s data file')
+        self.assertFalse(any('..' in p for p in order))
+        self.assertEqual(len(steps), len({s[2] for s in steps}), 'a gap is not read twice')
+        self.assertEqual(len(site.plan(SITEMAP, QUESTS, ITEMS, None, whole=True)), 2 * n + 8, 'without gaps: the whole site')
 
     def test_without_gaps_only_the_continents_map_files(self):
         self.assertEqual({s[1].split('/')[2] for s in site.plan(SITEMAP, QUESTS, ITEMS)}, {'kalimdor'})
@@ -77,6 +93,16 @@ class Order(unittest.TestCase):
         self.assertEqual([s[2] for s in site.due(steps, read, 14, 101 * day)], ['b'])
         self.assertEqual([s[2] for s in site.due(steps, read, 14, 115 * day)], ['b', 'a', 'c'], 'a 404 waits four times as long')
         self.assertEqual([s[2] for s in site.due(steps, read, 14, 200 * day)], ['b', 'a', 'd', 'c'], 'oldest first within a tier')
+
+    def test_due_reads_every_gap_before_the_rest(self):
+        R = site.REST
+        steps = [(10, '/a', 'a'), (20, '/b', 'b'), (R, '/m', 'm'), (R + 1, '/q', 'q'), (R + 2, '/i', 'i'), (R + 2, '/j', 'j')]
+        day = 86400
+        read = {'a': {'at': 80 * day, 's': 200}, 'b': {'at': 99 * day, 's': 200}, 'm': {'at': 85 * day, 's': 200},
+                'q': {'at': 70 * day, 's': 200}, 'i': {'at': 75 * day, 's': 200}}
+        self.assertEqual([s[2] for s in site.due(steps, read, 14, 100 * day)], ['a', 'j', 'q', 'i', 'm'],
+                         'an old gap, then the rest never read, then the rest oldest read first, whatever its tier')
+        self.assertEqual([s[2] for s in site.due(steps, {}, 14, 100 * day)], ['a', 'b', 'm', 'q', 'i', 'j'], 'never read: the plan\'s order')
 
 
 class Pace(unittest.TestCase):
@@ -132,7 +158,8 @@ class Pull(unittest.TestCase):
 
     def pull(self, **kw):
         lines = []
-        out = site.pull(self.data, kw.pop('wanted', {'quests': [99001], 'items': [274000]}), kw.pop('pause', 1.0), kw.pop('limit', 100), get=self.get, clock=lambda: self.now[0],
+        out = site.pull(self.data, kw.pop('wanted', {'quests': [99001], 'items': [274000]}), kw.pop('pause', 1.0), kw.pop('limit', 100), whole=kw.pop('whole', True),
+                        get=self.get, clock=lambda: self.now[0],
                         sleep=lambda s: self.now.__setitem__(0, self.now[0] + s), log=lines.append)
         return out, lines
 
@@ -189,9 +216,41 @@ class Pull(unittest.TestCase):
 
     def test_wanted_and_limit(self):
         self.pages['/quest/sitemap.xml'] = (200, {}, f'<url><loc>{B}/quest/99001/q</loc></url><url><loc>{B}/quest/5000/q</loc></url>'.encode())
-        done, _ = self.pull(wanted={'quests': [5000, 99001]}, limit=13)
+        done, _ = self.pull(wanted={'quests': [5000, 99001]}, limit=13, whole=False)
         self.assertEqual(self.asked[-1], '/quest/5000/q', 'the gap quest right after the continent\'s twelve map files')
         self.assertEqual(done['left'], 1, 'the other gap quest, next visit; the item no gap asks about is not counted')
+
+    def test_the_whole_site_after_the_gaps_and_all_of_it_in_the_pack(self):
+        self.pages['/sitemap.xml'] = (200, {}, f'<url><loc>{B}/map/kalimdor</loc></url><url><loc>{B}/map/deadmines</loc></url>'.encode())
+        self.pages['/quest/sitemap.xml'] = (200, {}, f'<url><loc>{B}/quest/99001/q</loc></url><url><loc>{B}/quest/2/q</loc></url>'.encode())
+        self.pages['/item/sitemap.xml'] = (200, {}, f'<url><loc>{B}/item/274000/i</loc></url><url><loc>{B}/item/40/i</loc></url>'.encode())
+        self.pages['/map/deadmines/manifest.json'] = (200, {}, b'{"mapId": 36}')
+        self.pages['/map/deadmines/quest-givers.json'] = (200, {}, json.dumps({'givers': [['n639', 'Edwin', '', 'A', 1, 2, [373], 'addon']]}).encode())
+        self.pages['/quest/2/q'] = (200, {}, QUEST_CLASSIC.encode())
+        self.pages['/item/40/i'] = (200, {}, ITEM.replace('item 274000', 'item 40').encode())
+        n = len(site.MAP_FILES)
+        done, lines = self.pull(wanted={'items': [274000]}, limit=n + 1)
+        self.assertEqual(self.asked[4:], [f'/map/kalimdor/{name}.json' for name in site.MAP_FILES] + ['/item/274000/i'], 'the gaps first')
+        self.assertEqual((done['left'], done['left_gaps']), (n + 3, 0), 'the rest of the site, next visit')
+        self.asked.clear()
+        done, _ = self.pull(wanted={'items': [274000]}, limit=1000)
+        self.assertEqual(self.asked[4:], [f'/map/deadmines/{name}.json' for name in site.MAP_FILES] + ['/quest/2/q', '/quest/99001/q', '/item/40/i'],
+                         'then the other maps\' files, every other quest and every other item')
+        self.assertEqual(done['left'], 0)
+        content = site.write_pack(self.data)
+        self.assertEqual(sorted(q['id'] for q in content['quests']), [2, 99001], 'what no gap asked about is in the pack too')
+        self.assertEqual(sorted(i['id'] for i in content['items']), [40, 274000])
+        self.assertIn(('npc', 639, 36, [373]), [(g['kind'], g['entry'], g['map'], g['quests']) for g in content['givers']], 'a dungeon\'s givers, on its own map')
+        # a gap found later is read at the next visit, ahead of the rest that is due again
+        self.now[0] += 15 * 86400
+        self.pages['/quest/sitemap.xml'] = (200, {}, f'<url><loc>{B}/quest/99001/q</loc></url><url><loc>{B}/quest/2/q</loc></url><url><loc>{B}/quest/7/q</loc></url>'.encode())
+        self.asked.clear()
+        self.pull(wanted={'quests': [7], 'items': [274000]}, limit=1)
+        self.assertEqual(self.asked[4:], ['/quest/7/q'], 'a new gap before anything due again')
+        self.asked.clear()
+        self.pull(wanted={'quests': [7], 'items': [274000]}, limit=1000)
+        self.assertLess(self.asked.index('/item/274000/i'), self.asked.index('/map/deadmines/manifest.json'), 'the gaps due again before the rest')
+        self.assertIn('/quest/2/q', self.asked, 'the rest is read again too')
 
     def test_closed_paths_are_never_asked(self):
         self.pages['/item/sitemap.xml'] = (200, {}, b'')

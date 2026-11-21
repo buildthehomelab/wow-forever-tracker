@@ -13,7 +13,7 @@
 // --log: writes its lines to data/source-<source>.log (what the Imports page shows) instead of printing them, once it
 //   holds the lock: a start that lost the race leaves the log of the run that won alone.
 // foreverchanges: a visit of foreverchanges.pro (tools/foreverchanges_pull.py: up to [foreverchanges] limit files, the
-//   gaps first), then the card from everything kept. The container runs it every FT_FOREVERCHANGES_EVERY_HOURS.
+//   gaps first, then the rest of the site), then the card from everything kept. The container runs it every FT_FOREVERCHANGES_EVERY_HOURS.
 // --from-database: the card is made from what the source said at its last run (docs/SNAPSHOTS.md), nothing is
 //   downloaded or asked: seconds, where Icy Veins takes hours.
 // Says what the card holds and what was left out. Nothing is applied: preview and apply it from The Forge › Imports.
