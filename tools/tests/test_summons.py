@@ -80,6 +80,38 @@ class Shapes(unittest.TestCase):
             creatures, _objects, _encounters, _credits = make_summoned.scan(folder)
         self.assertEqual(set(creatures), {10264, 9027, 9028, 9029, 9596})   # no 1, 2, 3 or 11: indexes, a group, a slot
 
+    def test_a_helper_of_any_name_that_passes_its_parameter_on(self):
+        text = '''
+enum { NPC_UROK_MAGE = 10602, NPC_UROK_DOOMHOWL = 10584, GO_BANNER = 175584, NPC_NOBODY = 10999 };
+struct go_urok_challengeAI : public GameObjectAI
+{
+    void UpdateAI(uint32 diff) override
+    {
+        if (_step == 0)
+            SpawnAtRune(0, NPC_UROK_MAGE, 0);
+        else SpawnAtRune(5, NPC_UROK_DOOMHOWL);
+        PlaceBanner(GO_BANNER);
+        uint32 x = Pick(3, NPC_NOBODY);
+    }
+    void SpawnAtRune(uint32 rune, uint32 entry, int i = 0)
+    {
+        if (GameObject* go = GetRune(rune))
+            me->SummonCreature(entry, go->GetPositionX(), go->GetPositionY(), go->GetPositionZ());
+    }
+    void PlaceBanner(uint32 entry) { me->SummonGameObject(entry, pos, rot, 0s); }
+    uint32 Pick(uint32 slot, uint32 entry) { return entry; }
+    void SpawnAtRune(uint32 rune, uint32 entry, int i);
+};
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Custom', 'urok.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(text)
+            creatures, objects, _encounters, _credits = make_summoned.scan(folder)
+        self.assertEqual(set(creatures), {10602, 10584})   # not 10999: Pick summons nothing
+        self.assertEqual(set(objects), {175584})
+
     def test_numbered_boss_slots(self):
         text = '''
 constexpr Entry Bosses[] = { { 0, 253201 }, { 1, 261811 }, { 1, 253218 }, { 2, 7 } };
