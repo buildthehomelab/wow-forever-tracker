@@ -723,10 +723,18 @@ def world_extras(ask):
     if builds:
         from ft import geo as geography
         geo = geography.Geo(builds[-1]['dir'])
+        # a pool member stands as its share of the pool's spot: max_limit of the pool's members spawn at a time
+        share = {}
+        if sqlio.has_table('pool_members') and sqlio.has_table('pool_template'):
+            for r in sqlio.query('SELECT m.spawnId, t.max_limit, (SELECT COUNT(*) FROM pool_members o WHERE o.poolSpawnId = m.poolSpawnId) members '
+                                 'FROM pool_members m JOIN pool_template t ON t.entry = m.poolSpawnId WHERE m.type = 0'):
+                limit, members = int(r['max_limit'] or 0), int(r['members'] or 0)
+                if 0 < limit < members:
+                    share[int(r['spawnId'])] = limit / members
         by_place = {}
         for s in spawns:
             if s.kind == 'npc' and npc_counts[s.entry] > extras.CROWD_SLACK:
-                by_place.setdefault((s.entry, s.map), []).append((s.x, s.y))
+                by_place.setdefault((s.entry, s.map), []).append((s.x, s.y, share.get(s.guid, 1.0)))
         points = {}
         for entry in sorted({entry for entry, _map in by_place}):
             where = (lookup('npc', entry) or {}).get('map') or {}
@@ -735,7 +743,13 @@ def world_extras(ask):
                     w = geo.wowhead(where.get('zone'), int(floor), px, py)
                     if w:
                         points.setdefault(entry, {}).setdefault(w[0], []).append((w[1], w[2]))
-        found += extras.crowded(by_place, points, npc_names)
+        from ft import questie
+        try:
+            classic = questie.classic_npc_spots(questie.pinned_folder(log=log), log=log)
+        except Exception as error:   # a source that cannot be had leaves Wowhead alone to judge, as before
+            log(f'extras: QuestieDB unavailable ({error}): Crowded has Wowhead alone')
+            classic = {}
+        found += extras.crowded(by_place, points, npc_names, classic)
     server_pairs = set()
     for table_name, kind, role in (('creature_queststarter', 'npc', 'gives'), ('creature_questender', 'npc', 'takes'),
                                    ('gameobject_queststarter', 'go', 'gives'), ('gameobject_questender', 'go', 'takes')):

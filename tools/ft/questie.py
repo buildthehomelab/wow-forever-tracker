@@ -121,3 +121,74 @@ def spawns(folder):
                 if points:
                     found.setdefault((KINDS[entity], entry_id), {})[part] = points
     return found
+
+
+# QuestieDB's converted Classic base, its points moved onto Forever's maps (data/Forever/foreverNpcDB.lua, built at
+# each release). It says where creatures stood in Classic, not what anybody saw on Forever, so the locator never reads
+# it; the Extras page's *Crowded* check does, as a second witness: a creature the realm spawns no more often than
+# Classic did is Classic's own density (Wowhead's map merges spots that stand close), not an import's leftovers.
+CLASSIC_NPCS = 'data/Forever/foreverNpcDB.lua'
+NPC_SPAWNS_FIELD = 6         # QuestieDB.npcKeys.spawns = 7, counted from 1
+_NPC_ROW = re.compile(r'^\[(\d+)\] = \{(.*)\},?\s*$', re.M)
+_POINT = re.compile(r'\{\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\}')
+
+
+def _fields(text):
+    """The top-level fields of a Lua table body ("'a',1,{...},nil"), split at the commas outside strings and tables."""
+    fields, depth, quote, start, i = [], 0, None, 0, 0
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == '\\':
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in '\'"':
+            quote = c
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            fields.append(text[start:i])
+            start = i + 1
+        i += 1
+    fields.append(text[start:])
+    return fields
+
+
+def classic_spots(text):
+    """{npc entry: number of spots} of the converted Classic base's text: every point of the creature's `spawns`, in
+    every zone (a point below zero, Questie's "inside an instance", is no spot). Creatures without spawns are left out."""
+    found = {}
+    for entry, body in _NPC_ROW.findall(text):
+        fields = _fields(body)
+        if len(fields) <= NPC_SPAWNS_FIELD:
+            continue
+        spots = sum(1 for p in _POINT.findall(fields[NPC_SPAWNS_FIELD]) if not p.lstrip('{ ').startswith('-'))
+        if spots:
+            found[int(entry)] = spots
+    return found
+
+
+def classic_npc_spots(folder, fetch=True, log=lambda message: None):
+    """classic_spots() of the pinned QuestieDB's converted Classic base, downloaded into its folder when `fetch` and
+    missing. {} when there is no folder or the file cannot be had (the check then has Wowhead alone, as before)."""
+    if not folder:
+        return {}
+    target = os.path.join(folder, CLASSIC_NPCS)
+    if fetch and not os.path.isfile(target):
+        pin = os.path.basename(os.path.normpath(folder))
+        try:
+            body = facts.http_bytes(f'https://raw.githubusercontent.com/{facts.QUESTIE_REPO}/{pin}/{CLASSIC_NPCS}')
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target + '.part', 'wb') as handle:
+                handle.write(body)
+            os.replace(target + '.part', target)
+        except OSError as error:
+            log(f'extras: QuestieDB {CLASSIC_NPCS} could not be downloaded ({error}): Crowded has Wowhead alone')
+    try:
+        with open(target, encoding='utf-8') as handle:
+            return classic_spots(handle.read())
+    except OSError:
+        return {}

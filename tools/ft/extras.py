@@ -18,8 +18,11 @@ mean it is gone): each issue needs a witness that says something else stands in 
               own pumpkin on the same spot, never shown together). The spawn to keep is a live entry's, else the
               oldest guid.
     crowded   the server spawns a creature on a map at least CROWD_FACTOR times (plus CROWD_SLACK) as often as
-              Wowhead's Forever map shows it there: Wowhead marks every spot it saw, so far more spawns than spots
-              is an import's leftovers.
+              Wowhead's Forever map shows it there, and as often as Classic had it (QuestieDB's converted Classic
+              base). Wowhead marks the spots it saw but merges close ones, so a Classic zone's mobs run two to ten
+              times its marks; only a creature past Classic's count too is an import's leftovers. Spots, not rows,
+              are counted: copies on one spot (a pack) are one spot, and a pool's member counts as its share of the
+              pool's spot (a VMaNGOS random-entry spot is five rows of which one ever stands).
     invented  an entry the server spawns that nothing outside the server knows. A creature: not in the client's
               tables, in no recording of the game (beta or live), and Wowhead's Forever database answers "not found"
               (Wowhead lists every creature). An object is never judged by Wowhead: it lists only the objects
@@ -147,20 +150,36 @@ def stacked(spawns, pooled=frozenset(), live=frozenset()):
                           f'{same}: keep guid {keep.guid}' + (' (the live entry)' if (keep.kind, keep.entry) in live else ''))
 
 
-def crowded(spawns, points, names):
-    """Creatures spawned far more often than Wowhead's map shows them. spawns: {(entry, map): [(x, y)]}; points:
-    {entry: {map: [(x, y)]}} from Wowhead's Forever map; names: {entry: name}. Only spawns within CROWD_MARGIN of
-    Wowhead's points are counted (its map shows one zone). Yields one Finding per entry and map."""
+def crowded(spawns, points, names, classic=None):
+    """Creatures spawned far more often than Wowhead's map shows them and than Classic had them. spawns:
+    {(entry, map): [(x, y) or (x, y, share)]}, share a pool member's part of its pool's spot (1 outside pools);
+    points: {entry: {map: [(x, y)]}} from Wowhead's Forever map; names: {entry: name}; classic: {entry: spots} of the
+    converted Classic base (no entry, or no classic at all: Wowhead alone judges). Only spawns within CROWD_MARGIN of
+    Wowhead's points are counted (its map shows one zone), copies on one spot once. Yields one Finding per entry and
+    map."""
+    classic = classic or {}
     for (entry, map_id), ours in sorted(spawns.items()):
         theirs = (points.get(entry) or {}).get(map_id)
         if not theirs:
             continue
         lo_x, hi_x = min(p[0] for p in theirs) - CROWD_MARGIN, max(p[0] for p in theirs) + CROWD_MARGIN
         lo_y, hi_y = min(p[1] for p in theirs) - CROWD_MARGIN, max(p[1] for p in theirs) + CROWD_MARGIN
-        near = sum(1 for x, y in ours if lo_x <= x <= hi_x and lo_y <= y <= hi_y)
-        if near >= CROWD_FACTOR * len(theirs) + CROWD_SLACK:
-            yield Finding('crowded', 'npc', entry, names.get(entry) or '', None, map_id, None, None, None, near, [len(theirs)],
-                          f'{near} spawns on the server where Wowhead marks {len(theirs)}')
+        spots = {}
+        for spawn in ours:
+            x, y = spawn[0], spawn[1]
+            if lo_x <= x <= hi_x and lo_y <= y <= hi_y:
+                key = (round(x), round(y))
+                spots[key] = max(spots.get(key, 0.0), spawn[2] if len(spawn) > 2 else 1.0)
+        near = round(sum(spots.values()))
+        if near < CROWD_FACTOR * len(theirs) + CROWD_SLACK:
+            continue
+        had = classic.get(entry)
+        if had is not None and near < CROWD_FACTOR * had + CROWD_SLACK:
+            continue
+        note = f'{near} spawns on the server where Wowhead marks {len(theirs)}'
+        if had is not None:
+            note += f' and Classic had {had}'
+        yield Finding('crowded', 'npc', entry, names.get(entry) or '', None, map_id, None, None, None, near, [len(theirs)], note)
 
 
 def invented(spawned, names, known, wowhead):

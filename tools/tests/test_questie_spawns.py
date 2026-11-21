@@ -105,6 +105,18 @@ class QuestieSpawns(unittest.TestCase):
     def test_quest_relation_traces_are_read(self):
         self.assertEqual(facts.QUESTIE_FILES[f'{facts.QUESTIE_FOLDER}/traces/foreverQuestRelationTraces.lua'], ('quest', 'trace'))
 
+class ClassicSpots(unittest.TestCase):
+    TEXT = """QuestieDB.npcData = [[return {
+[1] = {'Waypoint (Only GM can see it)',42,42,1,1,0,nil,nil,0,nil,nil,35,"AH","Visual",0},
+[588] = {'Bloodscalp Scout',1,2,3,4,0,{[33]={{30.1,20.2},{31,21}},[1519]={{-1,-1}}},{[33]={{1,1},{2,2},{3,3}}},33,nil,nil,28,nil,nil,0},
+[600] = {'Grimtooth {the} "Big", Jr.',1,2,3,4,0,{[33]={{5,5}}},nil,33,{1,2},nil,28,nil,"A {sub}, title",0},
+}]]"""
+
+    def test_spots_of_the_spawns_field_only(self):
+        # the waypoints that follow are no spots; Questie's "inside an instance" point is none either; braces and
+        # commas inside a name or a title do not move the fields
+        self.assertEqual(questie.classic_spots(self.TEXT), {588: 2, 600: 1})
+
 
 if __name__ == '__main__':
     unittest.main()

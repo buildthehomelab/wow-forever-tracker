@@ -107,6 +107,24 @@ class Crowded(unittest.TestCase):
         ours = {(5, 0): [(i, 0) for i in range(6)], (6, 0): [(0, 0)] * 30}
         self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0), (8, 0)]}}, {})), [])
 
+    def test_classic_had_as_many(self):
+        # 9 spawns where Wowhead marks 2: Classic had 8 of them, so it is Classic's density, not an import's
+        ours = {(5, 0): [(i, 0) for i in range(9)]}
+        self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0), (8, 0)]}}, {}, {5: 8})), [])
+        found = list(extras.crowded(ours, {5: {0: [(0, 0), (8, 0)]}}, {5: 'Kobold'}, {5: 2}))
+        self.assertEqual([(f.entry, f.server) for f in found], [(5, 9)])
+        self.assertIn('Classic had 2', found[0].note)
+
+    def test_pool_members_count_as_their_share(self):
+        # nine random-entry spots of five members each: a fifth of a kobold stands on each
+        ours = {(5, 0): [(i * 10, 0, 0.2) for i in range(9)]}
+        self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0), (80, 0)]}}, {})), [])
+
+    def test_a_pack_on_one_spot_is_one_spot(self):
+        # four hyenas on each of three spots: three spots, as Wowhead and Classic count them
+        ours = {(5, 0): [(i * 20, 0) for i in range(3) for _copy in range(4)]}
+        self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0)]}}, {})), [])
+
 
 class Invented(unittest.TestCase):
     def test_stand_ins_and_unknown_creatures(self):
