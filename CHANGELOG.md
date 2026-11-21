@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **ForeverChanges: a visit cut short still counts.** A visit writes the pack every 500 files
+  (`[foreverchanges] pack_every`, `--pack-every`; 0: only at the end), not only when it ends. A visit is two hours or
+  more now that it reads the whole site, and a restart (a redeploy) used to lose its card: its files were kept, but
+  nothing reached the database until a later visit finished. The next visit now sees a pack no card was made of
+  (`data/foreverchanges/carded` notes the pack each card was made from) and makes that card, its snapshot and its
+  answers first. docs/SOURCES.md.
+
 - **Crowded asks every live witness.** Extras › Crowded judged a creature's spots against Wowhead's map pins (and
   Classic's count) alone. Wowhead marks only what its visitors saw, so a well-filled zone looked crowded. It now
   takes the most spots any live witness shows there: Wowhead's pins, QuestieDB's Forever player traces and hand
