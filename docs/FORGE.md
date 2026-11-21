@@ -162,15 +162,19 @@ changed from the page.
 
 | Tab | The server has | The witness |
 |---|---|---|
-| *Old twin* | a creature the live server never sent a record of | the live server sent the record of another entry with the same name (EG Link, live builds). Usually the Classic copy of a creature Forever remade, as the Steelgrill's Depot mechanostriders 12363-14553 beside 267683-276736 |
+| *Old twin* | a creature the live server never sent a record of | the live server sent the record of another entry with the same name (EG Link, live builds). Usually the Classic copy of a creature Forever remade, as the Steelgrill's Depot mechanostriders 12363-14553 beside 267683-276736. A name proves nothing on its own (chickens, credits, snakes), so each spawn is weighed: one within 15 yards of a spawn of the live entry, on its map, in its phase and world events, is that creature twice and is listed by its guid; the entry's other spawns are listed together and left alone |
 | *Stacked* | two spawns of one name on one spot (creatures 1 yard, objects 0.3), same phase, same world events, neither pooled | the spawn to keep: a live entry's, else the oldest guid |
 | *Crowded* | far more spawns of a creature (2x + 3) than ... | ... Wowhead's Forever map marks around that place |
-| *Invented* | an entry the server spawns | nothing else knows it: not in the client, in no EG Link recording (beta or live), Wowhead (Forever) answers "not found" |
+| *Invented* | a creature, or any entry from 1,000,000 up | a creature: nothing else knows it (not in the client, in no EG Link recording, Wowhead (Forever) answers "not found"). An entry from 1,000,000 up is the server's own (Blizzard's ids stay below): a stand-in an import made where the real data was missing, listed so the real entry can be found. Objects below 1,000,000 are not judged: Wowhead lists only objects players use, not the chairs, lamps, doors and holiday props (on Everlake, 3,550 of 3,638 findings before this rule were such objects) |
 | *Quest giver* | an NPC or object giving or taking a quest | live players saw only others give or take it (weaker: a second giver may not have been recorded) |
 
-*Removals as SQL* writes the stacked copies and the old twins whose live entry the server also spawns as an update
-file to review. Twins whose live entry the server does not spawn need the spawn moved to the live entry instead, by
-hand. Wowhead is asked at most 3,000 times per analysis for these (the rest waits for the next run); without an EG Link
+*Removals as SQL* writes the stacked copies and the old twins listed by guid (the ones within 15 yards of a live
+spawn) as an update file to review. The file weighs each twin again when it runs: a spawn goes only while it still
+holds its old entry and a spawn of the live entry still stands within 15 yards on its map. Twins whose live entry
+stands elsewhere are not removed (the live game may well have both places); twins whose live entry the server does
+not spawn need the spawn moved to the live entry instead, by hand. Nothing on the *Crowded*, *Invented* and *Quest
+giver* tabs is ever in the file: an invented entry may be a real one Wowhead has not shown yet, and removing it would
+leave a hole until its real data is in. Wowhead is asked at most 3,000 times per analysis for these (the rest waits for the next run); without an EG Link
 recording in `data/eglink` the check is not made.
 
 ## Filling the gaps from open data

@@ -704,7 +704,7 @@ def world_extras(ask):
     found = []
     npc_counts = {entry: n for (kind, entry), n in counts.items() if kind == 'npc'}
     npc_names = {entry: name for (kind, entry), name in names.items() if kind == 'npc'}
-    found += extras.twins(npc_counts, npc_names, live_npcs)
+    found += extras.twins(npc_counts, npc_names, live_npcs, spawns)
     found += extras.stacked(spawns, pooled, {('npc', entry) for entry in live_npcs} | {k for k in known if k[0] == 'go'})
 
     wh, asked = Wowhead(), [0]

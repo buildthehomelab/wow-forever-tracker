@@ -1,13 +1,14 @@
 <?php
 // Extras: what the server's world holds that the live game does not (tools/ft/extras.py fills ft_world_extras at each
 // analysis). A list to look at: nothing is changed from here. ?sql=1 gives the removals it is sure enough to write
-// (stacked copies, and the twins whose live entry the server spawns as well) as an update file to review.
+// (stacked copies, and the old twins standing beside a spawn of their live entry) as an update file to review.
+const EXTRAS_TWIN_YARDS = 15;   // tools/ft/extras.py TWIN_YARDS
 $have = table_exists('ft_world_extras');
 $issues = [
-    'twin' => [t('Old twin', 'Ancien jumeau'), t('The server spawns a creature the live server never sent to a client; live uses another entry of the same name (often Forever\'s copy of a Classic creature).', 'Le serveur place une créature que le serveur officiel n’a jamais envoyée ; le jeu utilise une autre entrée du même nom.')],
+    'twin' => [t('Old twin', 'Ancien jumeau'), t('The server spawns a creature the live server never sent to a client; live uses another entry of the same name (often Forever\'s copy of a Classic creature). A spawn within 15 yards of a spawn of the live entry (same map, phase and events) is listed by its guid: that one creature stands twice, and the removals take it. The others are listed by entry and left alone.', 'Le serveur place une créature que le serveur officiel n’a jamais envoyée ; le jeu utilise une autre entrée du même nom.')],
     'stacked' => [t('Stacked', 'Empilés'), t('Two spawns of the same name on one spot, in the same phase and the same world events, neither in a pool: one model inside another. The one to keep is named.', 'Deux placements du même nom au même endroit, même phase et mêmes événements, hors pool. Celui à garder est indiqué.')],
     'crowded' => [t('Crowded', 'Surpeuplé'), t('Far more spawns of a creature than Wowhead\'s Forever map marks in that place.', 'Bien plus de placements que la carte Forever de Wowhead n’en montre.')],
-    'invented' => [t('Invented', 'Inventé'), t('An entry nothing outside the server knows: not in the client, never recorded on the game, not on Wowhead (Forever).', 'Une entrée que rien hors du serveur ne connaît.')],
+    'invented' => [t('Invented', 'Inventé'), t('A creature nothing outside the server knows (not in the client, never recorded, not on Wowhead), or the server\'s own entry (an id from 1,000,000 up): a stand-in an import made where the real data was missing. Never removed: until the real entry is found, removing a stand-in leaves a hole. Objects below 1,000,000 are not judged: Wowhead does not list chairs, lamps or doors.', 'Une créature que rien hors du serveur ne connaît, ou une entrée propre au serveur (id dès 1 000 000) qui remplace une donnée manquante. Jamais supprimée.')],
     'giver' => [t('Quest giver', 'Donneur de quête'), t('The server has it give or take a quest that live players only saw others give or take. Weaker: a second giver may simply not have been recorded.', 'Le serveur lui fait donner ou rendre une quête que les joueurs n’ont vue que chez d’autres.')],
 ];
 $issue = isset($issues[$_GET['issue'] ?? '']) ? $_GET['issue'] : 'twin';
@@ -26,15 +27,42 @@ if ($have && ($_GET['sql'] ?? '') === '1') {
             $out[] = '';
         }
     }
-    $twins = rows("SELECT entry, name, live FROM ft_world_extras WHERE issue = 'twin' AND note LIKE '%remove these%' ORDER BY entry");
+    // old twins: only the spawns the analysis found within TWIN_YARDS of a spawn of their live entry (guid set). The
+    // file checks it again when it runs: a spawn goes only while it still holds its old entry and a spawn of the live
+    // entry still stands that close on its map, so a world changed since the analysis loses nothing it should keep.
+    $twins = rows("SELECT guid, entry, name, live, note FROM ft_world_extras WHERE issue = 'twin' AND kind = 'npc' AND guid IS NOT NULL ORDER BY entry, guid");
     if ($twins) {
-        $out[] = '-- creature: ' . count($twins) . ' old twins whose live entry the server spawns as well';
-        foreach ($twins as $x) $out[] = '-- ' . (int)$x['entry'] . ' ' . str_replace(["\n", "\r"], ' ', (string)$x['name']) . ' (live: ' . preg_replace('/[^0-9,]/', '', (string)$x['live']) . ')';
-        $list = implode(',', array_map(fn($x) => (int)$x['entry'], $twins));
-        $out[] = "DELETE FROM `creature_addon` WHERE `guid` IN (SELECT `guid` FROM `creature` WHERE `id` IN ($list));";
-        $out[] = "DELETE FROM `spawn_group` WHERE `spawnType` = 0 AND `spawnId` IN (SELECT `guid` FROM `creature` WHERE `id` IN ($list));";
-        $out[] = "DELETE FROM `creature` WHERE `id` IN ($list);";
+        $out[] = '-- creature: ' . count($twins) . ' old twins standing within ' . EXTRAS_TWIN_YARDS . ' yards of a spawn of their live entry';
+        $out[] = 'DROP TEMPORARY TABLE IF EXISTS `ft_old_twins`;';
+        $out[] = 'CREATE TEMPORARY TABLE `ft_old_twins` (`guid` bigint unsigned NOT NULL PRIMARY KEY, `old_id` int unsigned NOT NULL, `live_id` int unsigned NOT NULL);';
+        $values = [];
+        foreach ($twins as $i => $x) {
+            $live = (int)strtok((string)$x['live'], ',');
+            $values[] = '(' . (int)$x['guid'] . ', ' . (int)$x['entry'] . ', ' . $live . ')' . ($i === count($twins) - 1 ? ';' : ',')
+                . ' -- ' . str_replace(["\n", "\r"], ' ', (string)$x['name']) . ': ' . str_replace(["\n", "\r"], ' ', (string)$x['note']);
+        }
+        $out[] = 'INSERT IGNORE INTO `ft_old_twins` (`guid`, `old_id`, `live_id`) VALUES';
+        array_push($out, ...$values);
+        $yards2 = EXTRAS_TWIN_YARDS * EXTRAS_TWIN_YARDS;
+        $out[] = 'DROP TEMPORARY TABLE IF EXISTS `ft_old_twins_go`;';
+        $out[] = 'CREATE TEMPORARY TABLE `ft_old_twins_go` (`guid` bigint unsigned NOT NULL PRIMARY KEY);';
+        $out[] = "INSERT IGNORE INTO `ft_old_twins_go` (`guid`) SELECT c.`guid` FROM `ft_old_twins` t"
+            . " JOIN `creature` c ON c.`guid` = t.`guid` AND c.`id` = t.`old_id`"
+            . " JOIN `creature` x ON x.`id` = t.`live_id` AND x.`map` = c.`map` AND x.`guid` <> c.`guid`"
+            . " AND (x.`position_x` - c.`position_x`) * (x.`position_x` - c.`position_x`) + (x.`position_y` - c.`position_y`) * (x.`position_y` - c.`position_y`)"
+            . " + (x.`position_z` - c.`position_z`) * (x.`position_z` - c.`position_z`) <= $yards2;";
+        $out[] = 'DELETE g FROM `game_event_creature` g JOIN `ft_old_twins_go` t ON t.`guid` = g.`guid`;';
+        $out[] = 'DELETE a FROM `creature_addon` a JOIN `ft_old_twins_go` t ON t.`guid` = a.`guid`;';
+        $out[] = 'DELETE p FROM `pool_members` p JOIN `ft_old_twins_go` t ON t.`guid` = p.`spawnId` WHERE p.`type` = 0;';
+        $out[] = 'DELETE s FROM `spawn_group` s JOIN `ft_old_twins_go` t ON t.`guid` = s.`spawnId` WHERE s.`spawnType` = 0;';
+        $out[] = 'DELETE f FROM `creature_formations` f JOIN `ft_old_twins_go` t ON t.`guid` = f.`memberGUID`;';
+        $out[] = 'DELETE c FROM `creature` c JOIN `ft_old_twins_go` t ON t.`guid` = c.`guid`;';
+        $out[] = 'DROP TEMPORARY TABLE `ft_old_twins_go`;';
+        $out[] = 'DROP TEMPORARY TABLE `ft_old_twins`;';
+        $out[] = '';
     }
+    $left = (int)value("SELECT COUNT(*) FROM ft_world_extras WHERE issue = 'twin' AND guid IS NULL");
+    if ($left) $out[] = "-- not here: $left old twin entries whose spawns stand nowhere near a live spawn, or whose live entry the server does not spawn (the Extras page lists them)";
     header('Content-Type: text/plain; charset=utf-8');
     header('Content-Disposition: attachment; filename="world-extras-removals.sql"');
     echo implode("\n", $out), "\n";
