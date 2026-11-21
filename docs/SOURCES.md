@@ -16,7 +16,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
-| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project. Since 2026-11-16 a row needs a second source (Wowhead, ForeverDB.net, EG Link): alone it is a hint | only the pages of the tracker's gaps, read slowly in the background (robots.txt obeyed, one request at a time); every file kept privately in `data/` |
+| [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project. Since 2026-11-16 a row needs a second source (Wowhead, ForeverDB.net, EG Link): alone it is a hint | the whole site, the tracker's gaps first, read slowly in the background (robots.txt obeyed, one request at a time); every file kept privately in `data/` |
 | [VMaNGOS](https://github.com/vmangos/core) | the world database of the 1.12 game, not of Forever, kept patch by patch (the pack takes 1.12): the same questions as cmangos classic-db, asked just before it | GPL-2.0 | from a file you send: a pack made from the `db-….zip` of its `db_latest` release, the tracker never downloads it |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
@@ -124,22 +124,28 @@ as text.
 ## ForeverChanges: names and places, from the site
 
 The tracker reads foreverchanges.pro itself: *The Forge › Imports › Read the site*, and the container every
-`FT_FOREVERCHANGES_EVERY_HOURS` (24; `0` = never). A visit (`tools/foreverchanges_pull.py pull`, run in the background
-by `php tools/source-import.php foreverchanges`) reads up to `[foreverchanges] limit` files (1,500), then makes the
-pack (`data/foreverchanges/pack.fcpack`) and the card from everything kept so far. Only the pages of what the
-tracker lacks are read, never the whole site (19,828 files): the project's decision of 2026-11-16. A visit asks for
-the sitemaps, the two continents' map files and the page of each quest or item the gaps name, and reads a page again
-only once it is older than two weeks. There is no upload any more: the site was rebuilt in November 2026 and the data files
+`FT_FOREVERCHANGES_EVERY_HOURS` (6; `0` = never). A visit (`tools/foreverchanges_pull.py pull`, run in the background
+by `php tools/source-import.php foreverchanges`) reads up to `[foreverchanges] limit` files (3,000), then makes the
+pack (`data/foreverchanges/pack.fcpack`) and the card from everything kept so far. A visit asks for the sitemaps, the
+two continents' map files and the page of each quest or item the gaps name, then goes on through the rest of the
+site (every other map's data files, quest page and item page: about 20,000 files in all), and reads a file again only
+once it is older than two weeks. On 2026-11-16 the project decided to read only the gaps; on 2026-11-21 it reversed
+that, because the tracker held too little of the site: now everything read goes into the pack, the card's snapshot
+(`ft_source_facts`, source `foreverchanges`) and the answers table (`ft_source_answers`), where it can be queried; the card
+itself still lists only what is about a gap.
+`[foreverchanges] whole = 0` (`--gaps-only`) reads the gaps alone, as before. At 2.5 s a request the whole site is
+about 14 hours of requests: at 3,000 files a visit and a visit every 6 hours, a first full pass takes two to three
+days, and keeping it two weeks fresh takes about 1,400 requests a day. There is no upload any more: the site was rebuilt in November 2026 and the data files
 the old pack was made from (`quests.jsonl`, `items.jsonl`, `tracker-pages/…`) are gone.
 
-What the site holds (2026-11-15) and what is read of it (the requests are the site's whole; a visit asks only for the gaps' share):
+What the site holds (2026-11-15) and what is read of it (the gaps first, then the rest):
 
 | What | On the site | Read into the card | Gap it fills |
 |---|---|---|---|
 | the map's data files of the two continents (`/map/<map>/<file>.json`) | 24 | quest givers **by id** (`quest-givers.json`, the rows its players saw), NPCs its players saw and rares, commerce NPCs and books (places for the locator) | quests without a giver; things nobody spawned |
-| quest pages (`/quest/<id>/…`), only the gaps' | 5,729 (1,477 Forever's own) | who starts and ends it (name, zone, place), its side, whether players saw it, the hand-in and progress texts | quests without a giver or an ender, empty quest windows |
-| item pages (`/item/<id>/…`), only the gaps' | 13,340 (6,158 Forever's own) | vendors, drops counted in kills | items players cannot get |
-| the other maps' data files (dungeons, battlegrounds, cities: three files each of twelve) | 528 | not read any more; files kept earlier still go into the card | |
+| quest pages (`/quest/<id>/…`) | 5,729 (1,477 Forever's own) | who starts and ends it (name, zone, place), its side, whether players saw it, the hand-in and progress texts | quests without a giver or an ender, empty quest windows |
+| item pages (`/item/<id>/…`) | 13,340 (6,158 Forever's own) | vendors, drops counted in kills | items players cannot get |
+| the other maps' data files (dungeons, battlegrounds, cities: three files each of twelve) | 528 | after the gaps: NPCs its players saw, rares, commerce NPCs, books and quest givers by id of each map its manifest names | things nobody spawned; quests without a giver |
 | dungeons and topic pages (rares, library books, hidden items …) | 207 | not read any more | |
 | the rest of the map files (`services`, `nodes`, `creatures`, `pins`: inns, gathering nodes, flight paths, entrances) | in the above | kept, not read yet | |
 
@@ -152,11 +158,14 @@ throttles or failures in a row stop the visit: nothing is retried around a refus
 was kept. Measured on 2026-11-15: about 290 requests at 2.5 s over four visits, no throttle (the pause grew to 2.8 s
 once, for slow answers, and eased back).
 
-**In what order.** Only what the last analysis lacks: the continents' map files, then the quests without a giver or an
-ender, the items other content waits for, then the other items players cannot get. After that, those of them read
-longer than `[foreverchanges] older` days ago (14), oldest first; a file the site did not have (404) is asked again
-four times less often. Nothing else on the site is asked for. What an earlier visit kept of the rest stays in
-`data/` and still goes into the pack; it is not read again.
+**In what order.** First what the last analysis lacks: the continents' map files, then the quests without a giver
+or an ender, the items other content waits for, then the other items players cannot get; then those of them read
+longer than `[foreverchanges] older` days ago (14), oldest first. Then the rest of the site: the other maps' data
+files, every other quest page, every other item page (by id), never read first; then those of them read longer than
+`older` days ago, oldest first, so a full pass goes round evenly. A file the site did not have (404) is asked again
+four times less often. A visit that stops at `limit` goes on where the order left off at the next one; a new gap
+is read at the next visit, ahead of the rest. The dungeons and topic pages, Classic's pages and the other languages
+are not asked for.
 
 **What is kept, privately** (data/ is never committed): each file once in the content-named store
 (`data/sources/blobs/`, as app/store.php keeps every source's files), linked at `data/foreverchanges/site/<path>`; of

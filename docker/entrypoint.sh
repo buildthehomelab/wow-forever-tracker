@@ -362,12 +362,12 @@ questie_watch() {
 questie_watch &
 
 # ForeverChanges (foreverchanges.pro): every FT_FOREVERCHANGES_EVERY_HOURS (0 = never) a visit of the site reads up
-# to [foreverchanges] limit files of what the last analysis lacks (nothing else), and makes a card from everything kept (nothing
+# to [foreverchanges] limit files, what the last analysis lacks first, then the rest of the site, and makes a card from everything kept (nothing
 # is applied). It waits while an analysis runs, or while the website runs a visit (the same lock): the command then
 # exits 3. A visit the site stopped (a refusal) is said in the log and tried again at the next turn, not sooner.
 foreverchanges_watch() {
-    case "${FT_FOREVERCHANGES_EVERY_HOURS:-24}" in ''|*[!0-9]*|?????*) say "FT_FOREVERCHANGES_EVERY_HOURS must be a whole number up to 9999: no ForeverChanges visit"; return ;; esac
-    hours="$(expr "${FT_FOREVERCHANGES_EVERY_HOURS:-24}" + 0 || true)"
+    case "${FT_FOREVERCHANGES_EVERY_HOURS:-6}" in ''|*[!0-9]*|?????*) say "FT_FOREVERCHANGES_EVERY_HOURS must be a whole number up to 9999: no ForeverChanges visit"; return ;; esac
+    hours="$(expr "${FT_FOREVERCHANGES_EVERY_HOURS:-6}" + 0 || true)"
     if [ "$hours" -eq 0 ]; then say "FT_FOREVERCHANGES_EVERY_HOURS=0: no ForeverChanges visit"; return; fi
     log="$DATA/source-foreverchanges.log"
     sleep 1800

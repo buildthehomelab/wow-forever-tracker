@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **ForeverChanges: the whole site, the gaps first.** A visit of foreverchanges.pro no longer stops at what the last
+  analysis lacks: after the gaps it goes on through the other maps' data files, every other quest page and every
+  other item page (about 20,000 files), the never-read first, then the oldest read. Everything read goes into the
+  pack, the card's snapshot (`ft_source_facts`, source `foreverchanges`) and the answers table, so it can be queried.
+  This reverses the decision of 2026-11-16 to read only the gaps. The pace and the rules do not change (robots.txt,
+  one request at a time, the pacer, stop on a refusal); a visit reads up to 3,000 files (`[foreverchanges] limit`,
+  was 1,500) and the container visits every 6 hours (`FT_FOREVERCHANGES_EVERY_HOURS`, was 24): a first full pass
+  takes two to three days. `[foreverchanges] whole = 0` (`--gaps-only`) reads the gaps alone. docs/SOURCES.md.
+
 - **Extras › Crowded counts spots, and asks Classic too.** A pool's member now counts as its share of the pool's
   spot (VMaNGOS random-entry spots are five rows of which one ever stands: the Bloodscalp trolls, Woodpaw gnolls,
   Plaguehounds), copies on one spot count once (a pack), and a creature is crowded only when it also passes the count
