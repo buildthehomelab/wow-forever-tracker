@@ -152,10 +152,12 @@ class Wowhead:
             return cached
         if kind == 'npc' and data.get('tooltip'):
             data['facts'] = npc_facts(data['tooltip'])
-        data.pop('tooltip', None) if kind in ('npc', 'object') else None
+        # the whole answer is kept, a creature's or object's tooltip text too: the Wowhead table (app/wowheaddb.php)
+        # holds what Wowhead said, and its hash leaves that text out (older answers were kept without it)
         if cached is not None:
             self.reasked += 1
-            same = lambda d: {k: v for k, v in d.items() if k != 'fetched'}
+            left_out = ('fetched', 'tooltip') if kind in ('npc', 'object') else ('fetched',)
+            same = lambda d: {k: v for k, v in d.items() if k not in left_out}
             self.changed += same(cached) != same(data)
         data['fetched'] = int(time.time())
         save_json(self.path(kind, entity_id), data, separators=(',', ':'))

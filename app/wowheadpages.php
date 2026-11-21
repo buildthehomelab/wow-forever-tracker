@@ -18,6 +18,7 @@
 //   an object page tabs contains (the openings as the tab's total), mining, herbalism; starts, ends
 require_once FT_APP . '/sources.php';
 require_once FT_APP . '/gather.php';
+require_once FT_APP . '/wowheaddb.php';
 
 const WOWHEAD_PAGES_MIN_LOOTS = 10;    // a drop counts from this many looted corpses (or opened chests) ...
 const WOWHEAD_PAGES_MIN_DROPS = 2;     // ... in which the item fell at least twice: once is a sighting, not a rate,
@@ -543,18 +544,22 @@ function wowhead_pages_clean($record): ?array
 }
 
 /** What the crawler saved (one JSON line a page) into the cache: the newer answer of a page wins; each kind's file is
- *  written whole and sorted by id. Returns the counts: new, newer, older (kept the one we had), not_a_page. */
+ *  written whole and sorted by id. Returns the counts: new, newer, older (kept the one we had), not_a_page, and db (rows sent to
+ *  the Wowhead table, app/wowheaddb.php) when it is the tracker's own cache. */
 function wowhead_pages_merge(string $text, ?string $dir = null): array
 {
+    $record_db = $dir === null;   // the tracker's own cache: its pages go to the Wowhead table too
     $dir ??= wowhead_pages_dir();
     $counts = ['new' => 0, 'newer' => 0, 'older' => 0, 'not_a_page' => 0];
     $incoming = [];
+    $dbRows = [];   // for the Wowhead table (app/wowheaddb.php), the whole page too when the crawler kept it
     foreach (preg_split('/\r?\n/', $text) as $line) {
         if (trim($line) === '') continue;
         $raw = json_decode($line, true);
         $record = wowhead_pages_clean($raw);
         if ($record === null) { $counts['not_a_page']++; continue; }
         $incoming[wowhead_pages_shelf($raw)][] = $record;
+        if ($record_db) $dbRows[] = wowhead_db_page_rows([$raw])[0] ?? null;
     }
     foreach ($incoming as $kind => $records) {
         $pages = wowhead_pages($kind, [$dir]);
@@ -575,6 +580,7 @@ function wowhead_pages_merge(string $text, ?string $dir = null): array
         }
         if (file_put_contents($scratch, $out) === false || !rename($scratch, "$dir/$kind.jsonl")) { @unlink($scratch); throw new RuntimeException("cannot write $dir/$kind.jsonl"); }
     }
+    if ($record_db) $counts['db'] = wowhead_db_try($dbRows);
     return $counts;
 }
 
@@ -586,13 +592,16 @@ function wowhead_pages_merge(string $text, ?string $dir = null): array
  */
 function wowhead_pages_append(array $lines, ?string $dir = null): array
 {
+    $record_db = $dir === null;   // the tracker's own cache: its pages go to the Wowhead table too
     $dir ??= wowhead_pages_dir();
     $counts = ['pages' => 0, 'not_a_page' => 0];
     $out = [];
+    $dbRows = [];
     foreach ($lines as $line) {
         $raw = is_string($line) ? json_decode($line, true) : null;
         $record = is_array($raw) ? wowhead_pages_clean($raw) : null;
         if ($record === null) { $counts['not_a_page']++; continue; }
+        if ($record_db) $dbRows[] = wowhead_db_page_rows([$raw])[0] ?? null;
         if (($record['tabs'] ?? null) === []) $record['tabs'] = new stdClass();
         $out[wowhead_pages_shelf($raw)][] = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) . "\n";
         $counts['pages']++;
@@ -606,6 +615,7 @@ function wowhead_pages_append(array $lines, ?string $dir = null): array
         flock($handle, LOCK_UN);
         fclose($handle);
     }
+    if ($record_db) $counts['db'] = wowhead_db_try($dbRows);
     return $counts;
 }
 
@@ -858,6 +868,9 @@ function wowhead_pages_queue(): array
     });
     // the Craftsman's Writs: their item pages and Wowhead's writ guide, read again every [wowhead] writ_days
     [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), wowhead_pages('item'), wowhead_pages('forever-guide'));
+    // pages whose row in the Wowhead table is due to be read again ([wowhead] refresh_days, recheck_days; app/wowheaddb.php):
+    // the crawl reads them again, so that the table learns what changed on Wowhead
+    $queue['recheck'] = wowhead_db_due_pages();
     foreach (wowhead_pages_missing_data() as $kind => $list) {
         $have = [];
         foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
@@ -876,10 +889,11 @@ function wowhead_pages_queue(): array
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $counted = array_filter($queue, fn($v, $k) => is_array($v) && !in_array($k, ['wanted', 'writ', 'gather'], true), ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
+    $counted = array_filter($queue, fn($v, $k) => is_array($v) && !in_array($k, ['wanted', 'writ', 'gather', 'recheck'], true), ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))
         . (empty($queue['writ']) ? '' : ', ' . count($queue['writ']) . ' writ pages')
-        . implode('', array_map(fn($tier) => ', ' . array_sum(array_map('count', (array)($queue['gather'][$tier] ?? []))) . " $tier pages of the work list", array_keys(array_filter((array)($queue['gather'] ?? [])))))];
+        . implode('', array_map(fn($tier) => ', ' . array_sum(array_map('count', (array)($queue['gather'][$tier] ?? []))) . " $tier pages of the work list", array_keys(array_filter((array)($queue['gather'] ?? [])))))
+        . (empty($queue['recheck']) ? '' : ', ' . array_sum(array_map('count', (array)$queue['recheck'])) . ' pages due again')];
     $lines[] = '(async () => {';
     // $kind may carry a branch: 'classic/item'. Every page here is one the tracker does not hold, or holds and wants
     // again (due by [wowhead] refresh_days or recheck_days): a tab that read it longer ago than WOWHEAD_PAGES_AGAIN reads
@@ -911,6 +925,9 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     foreach ($queue['gather']['later'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'later');
     $put('npc', $queue['npc'] ?? [], 'missing');
     $put('object', $queue['object'] ?? [], 'missing');
+    // pages the Wowhead table holds that are due again (wowhead_db_due_pages): with the creatures and objects whose data
+    // is missing, before the rest of the database; a page already queued worth more stays where it is
+    foreach ($queue['recheck'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'missing');
     if ($full) $lines[] = '  await WHC.full();';
     $lines[] = '  WHC.start();';
     $lines[] = "  console.log('Wowhead crawler: ' + (await WHC.status()).queued + ' pages queued. WHC.status() says how far it is; WHC.save() saves what it read.');";

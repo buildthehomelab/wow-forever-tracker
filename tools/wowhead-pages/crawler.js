@@ -2,9 +2,12 @@
 //
 // Wowhead answers page requests from scripts with 403, and a browser that asks too fast with a block of several
 // minutes. So this runs inside a tab that is already on a Wowhead page (same-origin fetch), one page every 20 or so
-// seconds, and keeps only facts: the Quick Facts lines and the rows of each tab (who drops, who sells, ...) with their
-// numbers. No name, no description, no comment is kept. What it read stays in the tab's IndexedDB, so a reload, a
-// block or a closed tab loses nothing: load this file again and call WHC.start().
+// seconds. A record keeps the facts the imports read: the Quick Facts lines and the rows of each tab (who drops, who
+// sells, ...) with their numbers only. Since record v3 it also carries `full`, the whole page as Wowhead gives it
+// (names, Quick Facts with their text, every tab row whole, the map, the page's text, what its links name), which
+// the tracker keeps in its Wowhead table (app/wowheaddb.php) and never in the cache files; what users wrote (comments,
+// screenshots, guides) is never kept. What it read stays in the tab's IndexedDB, so a reload, a block or a closed tab
+// loses nothing: load this file again and call WHC.start().
 //
 //   1. open https://www.wowhead.com/forever in a tab, open the console, paste this file
 //   2. WHC.add('item', [213127, 216616]); WHC.start()
@@ -17,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 2;                 // of what a page record holds: raise it when extract() keeps more (2: model)
+  const VERSION = 3;                 // of what a page record holds: raise it when extract() keeps more (2: model; 3: full)
   const SKIPPED = Symbol('expression');
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
@@ -239,8 +242,130 @@
     return ids.length ? ids : null;
   }
 
+  // ------------------------------------------------------------------ the whole page (pure)
+  //
+  // Everything a database page says, for the tracker's Wowhead table: the same reading as above with the text kept.
+  // Tabs of what users wrote (NOT_DATA) are left out, and so are the comments, which are no part of the page's text.
+
+  const FULL_MAX = 3 * 1048576;   // a whole page past this many characters of JSON: the linked names, then the rows, are cut
+
+  /** The HTML entities a page's attributes and text use, as text. */
+  function unescapeHtml(text) {
+    return text.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (all, e) => {
+      const l = e.toLowerCase();
+      if (l[0] === '#') return String.fromCodePoint(l[1] === 'x' ? parseInt(l.slice(2), 16) : parseInt(l.slice(1), 10));
+      return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[l];
+    });
+  }
+
+  /** A <meta> tag's content ('og:title', 'description'), or null. */
+  function metaTag(html, name) {
+    const tag = new RegExp('<meta\\s[^>]*(?:property|name)="' + name.replace(/[.:]/g, '\\$&') + '"[^>]*>', 'i').exec(html);
+    const content = tag && /\scontent="([^"]*)"/i.exec(tag[0]);
+    return content ? unescapeHtml(content[1]).trim() : null;
+  }
+
+  /** The inner HTML of the first <div class="text"> (the page's own text: a quest's description, progress and
+   *  completion, an item's notes), as text with its line breaks, or null. Comments are written elsewhere. */
+  function pageText(html) {
+    const open = /<div class="text"[^>]*>/i.exec(html);
+    if (!open) return null;
+    const tag = /<(\/?)div\b[^>]*>/gi;
+    tag.lastIndex = open.index + open[0].length;
+    let depth = 1, end = html.length;
+    for (let m; (m = tag.exec(html));) { depth += m[1] ? -1 : 1; if (!depth) { end = m.index; break; } }
+    const inner = html.slice(open.index + open[0].length, end)
+      .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '')
+      .replace(/<br\s*\/?>|<\/(p|div|h\d|li|tr|table)>/gi, '\n')
+      .replace(/<[^>]+>/g, '');
+    const text = unescapeHtml(inner).replace(/[ \t\r\f\v]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    return text ? text.slice(0, 50000) : null;
+  }
+
+  /** The Quick Facts lines with their text: the markup as Wowhead writes it, link texts and all. */
+  function quickFactsText(html) {
+    const call = /printHtml\(\s*(["'])/g;
+    for (let m; (m = call.exec(html));) {
+      let text, after;
+      try { [text, after] = readString(html, m.index + m[0].length - 1); } catch (error) { continue; }
+      if (!/^\s*,\s*["']infobox-contents-0["']/.test(html.slice(after, after + 60))) continue;
+      const lines = [];
+      const open = [];
+      const emit = line => { line = line.replace(/\s+/g, ' ').trim(); if (line) lines.push(line.slice(0, 2000)); };
+      for (const part of text.split(/(\[li[^\]]*\]|\[\/li\]|\[ul[^\]]*\]|\[\/ul\])/)) {
+        if (/^\[li/.test(part)) open.push('');
+        else if (part === '[/li]') { if (open.length) emit(open.pop()); }
+        else if (/^\[ul/.test(part)) { if (open.length) { emit(open[open.length - 1]); open[open.length - 1] = ''; } }
+        else if (part !== '[/ul]' && open.length) open[open.length - 1] += part;
+      }
+      return lines;
+    }
+    return [];
+  }
+
+  /** What the page's links name (WH.Gatherer.addData(type, branch, {id: {name_enus, quality, icon, ...}})): {type: {id:
+   *  {...}}}, the names of every creature, item, quest and spell the page shows. */
+  function gathered(html) {
+    const out = {};
+    const call = /WH\.Gatherer\.addData\(\s*(\d+)\s*,\s*\d+\s*,\s*\{/g;
+    for (let m; (m = call.exec(html));) {
+      let data;
+      try { data = readLiteral(html, m.index + m[0].length - 1)[0]; } catch (error) { continue; }
+      if (data && typeof data === 'object' && !Array.isArray(data)) out[m[1]] = Object.assign(out[m[1]] || {}, data);
+    }
+    return out;
+  }
+
+  /** The tabs of a page whole: {id: {template, name?, rows}} with every row as Wowhead gives it, names and all. */
+  function listviewsWhole(html) {
+    const tabs = {};
+    for (const config of configs(html)) {
+      const id = typeof config.id === 'string' ? config.id : null;
+      const template = typeof config.template === 'string' ? config.template : '';
+      if (!id || NOT_DATA.has(template) || !/^[\w-]{1,60}$/.test(id) || !Array.isArray(config.data)) continue;
+      const tab = { template, rows: config.data.slice(0, MAX_ROWS).filter(r => r !== null && r !== undefined) };
+      if (typeof config.name === 'string') tab.name = config.name;
+      const { found } = counted(config, config.data.length);
+      if (found > tab.rows.length) tab.total = found;
+      tabs[id] = tab;
+    }
+    return tabs;
+  }
+
+  /** The whole page: {name, info, title, description, text, quick, tabs, map, links}, each only when the page has it;
+   *  cut to FULL_MAX characters of JSON (the linked names go first, then each tab's rows past 2000). */
+  function whole(html) {
+    const out = {};
+    let info = null;
+    const at = /g_pageInfo\s*=\s*\{/.exec(html);
+    if (at) { try { info = readLiteral(html, at.index + at[0].length - 1)[0]; } catch (error) { info = null; } }
+    const title = metaTag(html, 'og:title');
+    const name = info && typeof info.name === 'string' && info.name ? info.name : title;
+    if (name) out.name = name;
+    if (info && typeof info === 'object') out.info = info;
+    if (title) out.title = title;
+    const description = metaTag(html, 'description');
+    if (description) out.description = description;
+    const text = pageText(html);
+    if (text) out.text = text;
+    const quick = quickFactsText(html);
+    if (quick.length) out.quick = quick;
+    const tabs = listviewsWhole(html);
+    if (Object.keys(tabs).length) out.tabs = tabs;
+    const map = /\bg_mapperData\s*=\s*\{/.exec(html);
+    if (map) { try { const data = readLiteral(html, map.index + map[0].length - 1)[0]; if (data && Object.keys(data).length) out.map = data; } catch (error) { /* no map */ } }
+    const links = gathered(html);
+    if (Object.keys(links).length) out.links = links;
+    if (JSON.stringify(out).length > FULL_MAX) { delete out.links; out.cut = true; }
+    if (JSON.stringify(out).length > FULL_MAX && out.tabs) {
+      for (const tab of Object.values(out.tabs)) if (tab.rows.length > 2000) { tab.total = Math.max(tab.total || 0, tab.rows.length); tab.rows = tab.rows.slice(0, 2000); }
+    }
+    if (JSON.stringify(out).length > FULL_MAX) { delete out.tabs; delete out.text; }
+    return out;
+  }
+
   /**
-   * One page as a record: {kind, id, v, status: 'ok', quick, tabs, map?, series?}; status 'missing' when Wowhead has
+   * One page as a record: {kind, id, v, status: 'ok', quick, tabs, map?, series?, full}; status 'missing' when Wowhead has
    * no such page (the answer is another page, or none); 'blocked' when the answer is no Wowhead page at all; 'odd'
    * when it is a Wowhead page this reader does not understand.
    */
@@ -259,6 +384,7 @@
     if (map) record.map = map;
     if (kind === 'npc' || kind === 'object') { const model = models(html); if (model.length) record.model = model; }
     if (kind === 'quest') { const series = questSeries(html); if (series) record.series = series; }
+    record.full = whole(html);
     return record;
   }
 
@@ -564,7 +690,7 @@
     return { p, wait };
   }
 
-  const api = { namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { whole, pageText, quickFactsText, gathered, listviewsWhole, metaTag, FULL_MAX, namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)

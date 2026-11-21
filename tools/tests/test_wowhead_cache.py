@@ -148,6 +148,15 @@ class Counted(unittest.TestCase):
         self.assertGreaterEqual(self.client.changed, 1)
         self.assertIn('asked again', self.client.summary())
 
+    def test_the_tooltip_text_is_kept_and_its_return_is_no_change(self):
+        old = int(time.time()) - 60 * DAY
+        wowhead.save_json(self.client.path('npc', 641), {'name': 'Kept', 'facts': {'min': 5, 'max': 5, 'type': 'Humanoid', 'rank': 0}, 'fetched': old})
+        self.client._fetch = lambda kind, entity_id, locale: {'name': 'Kept', 'tooltip': '<td>Level 5 Humanoid (Normal)</td>'}
+        data = self.client.npc(641, True)
+        self.assertEqual(data['tooltip'], '<td>Level 5 Humanoid (Normal)</td>')    # the Wowhead table keeps the whole answer
+        self.assertEqual(wowhead.load_json(self.client.path('npc', 641), {})['tooltip'], data['tooltip'])
+        self.assertEqual(self.client.changed, 0)                                       # older answers were kept without it
+
     def test_a_fresh_answer_is_not_asked(self):
         wowhead.save_json(self.client.path('npc', 639), {'name': 'Edwin VanCleef', 'facts': {'level': 21}, 'fetched': int(time.time()) - DAY})
         self.client._fetch = lambda *a: self.fail('asked')
