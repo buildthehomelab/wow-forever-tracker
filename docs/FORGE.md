@@ -197,3 +197,20 @@ a data repository, safe to run twice: see [DATA-REPO.md](DATA-REPO.md).
 | *Everything selected is already on the server* | Nothing to do: the rows exist (applied before, or added by hand). |
 | *Table x.y does not exist on this server* | Your core has no such hotfix table (older or newer core). Those rows are left out; the rest is applied. |
 | A MySQL error during *Apply* | Nothing was kept (transaction). The error and the SQL are in the history; `forge-check.php --each` finds the fix. |
+
+## Read-only SQL (Query)
+
+*The Forge › Query* runs one statement on a database the tracker reads, for checks no page shows (how far a spawn
+stands from another, which rows a file would touch). It offers the `world`, `hotfixes` and `tracker` databases of
+config.ini's `[database]` section; Everlake's `world` is the test realm's.
+
+Only statements that read are taken: the first word must be SELECT, WITH, SHOW, EXPLAIN, DESCRIBE (DESC), TABLE or
+VALUES, after any comments. Executable comments (`/*! ... */`), `INTO OUTFILE` / `INTO DUMPFILE` and locking reads
+(`FOR UPDATE`, `FOR SHARE`, `LOCK IN SHARE MODE`) are refused. Each statement runs alone on its own connection, inside
+`START TRANSACTION READ ONLY` that is rolled back, so a `WITH ... DELETE` is refused by MySQL as well. It stops after
+30 seconds (`max_execution_time`) and shows at most 5,000 rows. Each query is written to the web server's error log.
+
+The same runs as `POST api/query` for an administrator's session: body `{"db": "world", "sql": "...", "format":
+"json"}` (or `"text"` for a table as `mysql -t` prints it) and the header `X-CSRF-Token`, which the Query page holds
+in its form's `data-csrf`.
+

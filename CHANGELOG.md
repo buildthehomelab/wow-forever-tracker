@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Query: read-only SQL from The Forge.** A new page, The Forge › Query (and `POST api/query` for scripts in an
+  administrator's browser), runs one statement that reads on the tracker's world, hotfixes or own database: SELECT,
+  WITH, SHOW, EXPLAIN, DESCRIBE. It runs on its own connection in a read-only transaction that is rolled back, stops
+  after 30 seconds and returns at most 5,000 rows, so nothing can be changed from it even where the tracker's user
+  may write. docs/FORGE.md.
+
 - **Extras: what the server has that the live game does not.** A new page, The Forge › Extras, lists what imports
   brought in that live Forever never had: Classic creatures whose Forever remake is the one live uses (*old twin*),
   two spawns of one name on one spot (*stacked*), far more spawns than Wowhead's map marks (*crowded*), entries nothing
