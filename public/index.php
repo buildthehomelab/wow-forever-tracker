@@ -73,7 +73,7 @@ switch (true) {
             maps_serve((int)($_GET['id'] ?? 0));
             exit;
         }
-        if (in_array($section, ['forge', 'notes', 'history', 'spawns', 'imports', 'checks', 'extras', 'checkout', 'crawl', 'writs', 'later'], true) && count($parts) <= 2) $page('admin/' . $section);
+        if (in_array($section, ['forge', 'notes', 'history', 'spawns', 'imports', 'checks', 'extras', 'checkout', 'crawl', 'writs', 'later', 'query'], true) && count($parts) <= 2) $page('admin/' . $section);
         break;
     case ($parts[0] ?? '') === 'api' && count($parts) === 4 && $parts[1] === 'tooltip':
         require FT_APP . '/api/tooltip.php';
@@ -86,6 +86,9 @@ switch (true) {
         exit;
     case $parts === ['api', 'imports']:
         require FT_APP . '/api/imports.php';
+        exit;
+    case $parts === ['api', 'query']:
+        require FT_APP . '/api/query.php';
         exit;
     case $parts === ['notes']:
         redirect(url('admin/notes', $_GET));

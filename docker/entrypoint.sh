@@ -14,7 +14,7 @@ LOCALE="${FT_DBC_LOCALE:-enUS}"
 say() { echo "[forever-tracker] $*"; }
 
 # config.ini quotes every value: a " or a line break inside one would break the file
-for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_SITE_NAME \
+for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB_WORLD FT_DB_HOTFIXES FT_DB_AUTH FT_BUILD_DB FT_BUILD_USER FT_BUILD_PASSWORD FT_DB_QUERY_USER FT_DB_QUERY_PASSWORD FT_SITE_NAME \
            FT_ADMIN_USER FT_ADMIN_PASSWORD FT_SOURCES_TRUST FT_CLIENT_PRODUCT FT_CLIENT_HOTFIX_CACHE FT_CLIENT_HISTORY FT_CLIENT_BUILD_LIST FT_CLIENT_VANILLA FT_CLIENT_MAP_IMAGES FT_RA_HOST FT_RA_USER FT_RA_PASSWORD FT_HOME_URL FT_HOME_LABEL FT_SERVER_DATA FT_CLIENT_DBC FT_PHASE FT_PHASES_FILE; do
     eval "value=\${$var:-}"
     case "$value" in
@@ -22,6 +22,11 @@ for var in FT_LANGUAGES FT_DB_HOST FT_DB_USER FT_DB_PASSWORD FT_DB_TRACKER FT_DB
 '*) say "ERROR: $var must not contain a double quote or a line break"; exit 1 ;;
     esac
 done
+# The Query page's read-only MySQL account: without a password of its own, one made from FT_DB_PASSWORD the same way
+# Everlake's tracker-setup.sh makes it (sha256 of "query:" and that password), so no second secret is needed
+if [ -n "${FT_DB_QUERY_USER:-}" ] && [ -z "${FT_DB_QUERY_PASSWORD:-}" ]; then
+    FT_DB_QUERY_PASSWORD="$(printf 'query:%s' "${FT_DB_PASSWORD:-}" | sha256sum | cut -c1-64)"
+fi
 case "${FT_ADMIN_USER:-admin}" in
     *[!A-Za-z0-9_.-]*) say "ERROR: FT_ADMIN_USER may hold only letters, digits, _ . -"; exit 1 ;;
 esac
@@ -59,6 +64,8 @@ tracker = "${FT_DB_TRACKER:-forever_tracker}"
 world = "${FT_DB_WORLD:-world}"
 hotfixes = "${FT_DB_HOTFIXES:-hotfixes}"
 auth = "${FT_DB_AUTH:-auth}"
+query_user = "${FT_DB_QUERY_USER:-}"
+query_password = "${FT_DB_QUERY_PASSWORD:-}"
 
 [build]
 database = "${FT_BUILD_DB:-ft_world_build}"
