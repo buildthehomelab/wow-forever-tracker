@@ -2,7 +2,7 @@
 """Reads foreverchanges.pro into the tracker's data folder, slowly, and makes the pack its import card is made from
 (tools/ft/foreverchanges_site.py says how; docs/SOURCES.md, ForeverChanges).
 
-    python tools/foreverchanges_pull.py pull [--wanted wanted.json] [--limit 3000] [--pause 2.5] [--older 14] [--gaps-only] [--data DIR]
+    python tools/foreverchanges_pull.py pull [--wanted wanted.json] [--limit 3000] [--pause 2.5] [--older 14] [--gaps-only] [--pack-every 500] [--data DIR]
     python tools/foreverchanges_pull.py pack [--data DIR] [--out pack.fcpack]
     python tools/foreverchanges_pull.py status [--data DIR]
 
@@ -10,7 +10,7 @@
 map files, then --wanted: the gaps the website writes, {"quests": [...], "items_first": [...], "items": [...]}), then
 the rest of the site (every other map's files, quest page and item page; not with --gaps-only). In each of the two,
 first what was never read, then what is older than --older days.
-It writes the pack at the end. `pack` writes it again from what is kept, with no network. The website runs both
+It writes the pack every --pack-every files and at the end. `pack` writes it again from what is kept, with no network. The website runs both
 (The Forge > Imports > Read the site; the container every FT_FOREVERCHANGES_EVERY_HOURS).
 """
 import argparse
@@ -35,6 +35,7 @@ def main(argv=None):
             command.add_argument('--limit', type=int, default=3000)
             command.add_argument('--pause', type=float, default=2.5)
             command.add_argument('--older', type=int, default=14)
+            command.add_argument('--pack-every', type=int, default=500, help='write the pack again every N files read (0: only at the end)')
             command.add_argument('--gaps-only', action='store_true', help='read only what the gaps ask about, not the rest of the site')
         if name == 'pack':
             command.add_argument('--out')
@@ -50,7 +51,7 @@ def main(argv=None):
                 wanted = json.load(handle)
         if args.pause < 1:
             sys.exit('--pause: one request a second at most')
-        done = site.pull(args.data, wanted, args.pause, max(0, args.limit), args.older, whole=not args.gaps_only, log=say)
+        done = site.pull(args.data, wanted, args.pause, max(0, args.limit), args.older, whole=not args.gaps_only, pack_every=max(0, args.pack_every), log=say)
         say(f"foreverchanges: {done.get('read', 0)} read ({done.get('new', 0)} new, {done.get('changed', 0)} changed, {done.get('missing', 0)} not there), "
             f"{done.get('left', 0)} left for the next visit ({done.get('left_gaps', 0)} of the gaps), one request every {done['pause']:.1f} s")
     content = site.write_pack(args.data, getattr(args, 'out', None))

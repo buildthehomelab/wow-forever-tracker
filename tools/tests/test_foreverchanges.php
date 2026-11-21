@@ -20,6 +20,17 @@ check($ev['train'] === [], 'nothing it does not make: no trainer rows');
 check($ev['left'] === ['report_name_unknown' => 3], 'only its own reasons are counted');
 check(foreverchanges_evidence([])['start'] === [] && foreverchanges_evidence(['ev' => 'x'])['sell'] === [], 'a result that is no result gives nothing');
 check(isset(SOURCES['foreverchanges'], SOURCE_MARKS['foreverchanges']) && source_named('ForeverChanges 2026-11-14') === 'foreverchanges', 'the source is known by its name in a row\'s comment');
+$tmp = sys_get_temp_dir() . '/ft-fc-' . getmypid();
+@mkdir($tmp);
+check(!foreverchanges_pack_pending("$tmp/pack.fcpack", "$tmp/carded"), 'no pack: nothing to catch up');
+file_put_contents("$tmp/pack.fcpack", 'x');
+touch("$tmp/pack.fcpack", 1800000000);
+check(foreverchanges_pack_pending("$tmp/pack.fcpack", "$tmp/carded"), 'a pack no card was made of: caught up at the next visit');
+file_put_contents("$tmp/carded", '1800000000');
+check(!foreverchanges_pack_pending("$tmp/pack.fcpack", "$tmp/carded"), 'its card made: nothing to catch up');
+touch("$tmp/pack.fcpack", 1800000500);
+check(foreverchanges_pack_pending("$tmp/pack.fcpack", "$tmp/carded"), 'written again by a visit cut short: caught up');
+@unlink("$tmp/pack.fcpack"); @unlink("$tmp/carded"); @rmdir($tmp);
 $trust = source_trust('');
 check(array_search('foreverchanges', $trust, true) > array_search('icyveins', $trust, true) && array_search('foreverchanges', $trust, true) < array_search('eglink', $trust, true) && $trust[0] === 'client', 'trusted after Icy Veins, before the rest; the client first');
 

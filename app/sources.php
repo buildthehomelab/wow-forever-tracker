@@ -1271,6 +1271,18 @@ function classicdb_import(string $source = 'classicdb'): array
 
 function foreverchanges_pack(): string { return FT_ROOT . '/data/foreverchanges/pack.fcpack'; }
 
+/** Where the pack's time is noted once its card is made: a pack newer than that is one no card was made of yet. */
+function foreverchanges_carded(): string { return FT_ROOT . '/data/foreverchanges/carded'; }
+
+/** Whether the pack holds reads no card was made of (a visit cut short after it wrote its pack). */
+function foreverchanges_pack_pending(?string $pack = null, ?string $carded = null): bool
+{
+    $pack ??= foreverchanges_pack();
+    if (!is_file($pack)) return false;
+    clearstatcache(true, $pack);
+    return (string)filemtime($pack) !== trim((string)@file_get_contents($carded ?? foreverchanges_carded()));
+}
+
 /** What the pull should read first, from the gaps: {"quests": [...], "items_first": [...], "items": [...]}. The
  *  quests without a giver or an ender, the items other content waits for, then the other items players cannot get. */
 function foreverchanges_wanted(array $gaps, array $waiting): array
@@ -1292,6 +1304,15 @@ function foreverchanges_pull(?callable $say = null): array
     $say ??= function (string $m) {};
     $dir = dirname(foreverchanges_pack());
     @mkdir($dir, 0775, true);
+    // a visit a restart cut short wrote its pack as it went (every [foreverchanges] pack_every files) but made no
+    // card: its card and its answers first, so what it read reaches the database whatever becomes of this visit
+    if (foreverchanges_pack_pending()) {
+        $say('the last visit was cut short: making the card of what it read first');
+        require_once FT_APP . '/sourceanswers.php';
+        source_answers_backfill_try(['foreverchanges']);
+        $caught = foreverchanges_import();
+        $say($caught['message'] ?? (empty($caught['ok']) ? 'that card could not be made' : 'card made'));
+    }
     $wanted = foreverchanges_wanted(source_gaps(), wowhead_pages_waiting());
     file_put_contents("$dir/wanted.json", json_encode($wanted));
     $whole = (bool)(int)config('foreverchanges', 'whole', 1);
@@ -1300,7 +1321,8 @@ function foreverchanges_pull(?callable $say = null): array
     $python = (string)config('tools', 'python', PHP_OS_FAMILY === 'Windows' ? 'python' : 'python3');
     $command = escapeshellarg($python) . ' -X utf8 ' . escapeshellarg(FT_ROOT . '/tools/foreverchanges_pull.py') . ' pull --wanted ' . escapeshellarg("$dir/wanted.json")
         . ' --limit ' . max(0, (int)config('foreverchanges', 'limit', 3000)) . ' --pause ' . max(1.0, (float)config('foreverchanges', 'pause', 2.5))
-        . ' --older ' . max(1, (int)config('foreverchanges', 'older', 14)) . ($whole ? '' : ' --gaps-only') . ' 2>&1';
+        . ' --older ' . max(1, (int)config('foreverchanges', 'older', 14)) . ' --pack-every ' . max(0, (int)config('foreverchanges', 'pack_every', 500))
+        . ($whole ? '' : ' --gaps-only') . ' 2>&1';
     $code = 1; $last = '';
     $pipe = function_exists('popen') ? @popen($command, 'r') : false;
     if ($pipe) {
@@ -1359,6 +1381,7 @@ function foreverchanges_import(): array
     $retrieved = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($result['retrieved'] ?? '')) ? (string)$result['retrieved'] : date('Y-m-d', (int)filemtime($pack));
     $ev = foreverchanges_evidence($result);
     snapshot_try('foreverchanges', $retrieved, $ev);
+    @file_put_contents(foreverchanges_carded(), (string)filemtime($pack));
     // where its maps show NPCs, rares and books nobody spawned here: kept for the locator, which prefers a reported
     // place to a looked-up one (the Spawns page, after the next "Locate")
     $places = foreverchanges_places($result);

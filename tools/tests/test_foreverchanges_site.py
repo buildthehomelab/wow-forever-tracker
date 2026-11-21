@@ -252,6 +252,30 @@ class Pull(unittest.TestCase):
         self.assertLess(self.asked.index('/item/274000/i'), self.asked.index('/map/deadmines/manifest.json'), 'the gaps due again before the rest')
         self.assertIn('/quest/2/q', self.asked, 'the rest is read again too')
 
+    def test_the_pack_is_written_as_the_visit_goes(self):
+        quests = ''.join(f'<url><loc>{B}/quest/{n}/q</loc></url>' for n in range(1, 6))
+        self.pages['/quest/sitemap.xml'] = (200, {}, quests.encode())
+        for n in range(1, 6):
+            self.pages[f'/quest/{n}/q'] = (200, {}, QUEST_SEEN.replace('99001', str(n)).encode())
+        pack = os.path.join(self.data, 'foreverchanges', 'pack.fcpack')
+        written = []
+
+        def get(path):
+            written.append((path, reports.load(pack)['quests'] if os.path.exists(pack) else None))
+            if path == '/quest/5/q':
+                raise KeyboardInterrupt('a restart')
+            return self.get(path)
+        with self.assertRaises(KeyboardInterrupt):
+            site.pull(self.data, {}, 1.0, 100, pack_every=3, get=get, clock=lambda: self.now[0], sleep=lambda s: self.now.__setitem__(0, self.now[0] + s), log=lambda m: None)
+        quests = reports.load(pack)['quests']
+        self.assertEqual(sorted(q['id'] for q in quests), [1, 2, 3], 'cut short at the 17th file (12 map files, 4 quests): the pack of the 15th holds quests 1 to 3')
+        self.assertIsNone(written[0][1], 'no pack before the first 3 files')
+
+    def test_no_pack_on_the_way_with_pack_every_0(self):
+        site.pull(self.data, {'quests': [99001], 'items': [274000]}, 1.0, 100, pack_every=0, get=self.get, clock=lambda: self.now[0],
+                  sleep=lambda s: self.now.__setitem__(0, self.now[0] + s), log=lambda m: None)
+        self.assertFalse(os.path.exists(os.path.join(self.data, 'foreverchanges', 'pack.fcpack')), 'pull leaves the last pack to its caller')
+
     def test_closed_paths_are_never_asked(self):
         self.pages['/item/sitemap.xml'] = (200, {}, b'')
         self.pages['/robots.txt'] = (200, {}, b'User-agent: *\nDisallow: /quest/\n')

@@ -135,7 +135,10 @@ that, because the tracker held too little of the site: now everything read goes 
 itself still lists only what is about a gap.
 `[foreverchanges] whole = 0` (`--gaps-only`) reads the gaps alone, as before. At 2.5 s a request the whole site is
 about 14 hours of requests: at 3,000 files a visit and a visit every 6 hours, a first full pass takes two to three
-days, and keeping it two weeks fresh takes about 1,400 requests a day. There is no upload any more: the site was rebuilt in November 2026 and the data files
+days, and keeping it two weeks fresh takes about 1,400 requests a day. A visit writes the pack again every
+`[foreverchanges] pack_every` files (500) as well as at its end: a visit a restart cuts short (a full visit is two
+hours or more) still leaves what it read in the pack, and the next visit makes the card of that pack, its snapshot
+and its answers first, before it reads anything. There is no upload any more: the site was rebuilt in November 2026 and the data files
 the old pack was made from (`quests.jsonl`, `items.jsonl`, `tracker-pages/…`) are gone.
 
 What the site holds (2026-11-15) and what is read of it (the gaps first, then the rest):

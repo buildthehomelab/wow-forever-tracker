@@ -46,7 +46,9 @@ whole site, about 20,000 files, is some 14 hours of requests: at 3,000 files a v
 container's default) a first full pass takes two to three days, and then about 1,400 files a day keep it 14 days
 fresh.
 
-`limit` bounds a run; the next one goes on where the order left off.
+`limit` bounds a run; the next one goes on where the order left off. Every `pack_every` files (500) the pack is
+written again, so that a visit a restart cuts short still leaves what it read in the pack: the website makes the card
+of such a pack at the start of the next visit (app/sources.php).
 
 Where it keeps things, all under the tracker's data/ folder, never in the repository:
 
@@ -320,9 +322,11 @@ def due(steps, read, older_days, now):
     return out
 
 
-def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, get=http_get, clock=time.time, sleep=time.sleep, log=print):
+def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, pack_every=500, get=http_get, clock=time.time, sleep=time.sleep, log=print):
     """One visit of the site (see the top of this file): the gaps `wanted` names, then with `whole` the rest of the
-    site. Returns {'read', 'new', 'changed', 'missing', 'left', 'left_gaps', 'stopped', 'pause'}."""
+    site. Every `pack_every` files read (0: never) the pack is written again, so a visit cut short (a restart) leaves
+    a pack of what it read; the caller writes it at the end. Returns {'read', 'new', 'changed', 'missing', 'left',
+    'left_gaps', 'stopped', 'pause'}."""
     os.makedirs(folder(data), exist_ok=True)
     try:
         with open(os.path.join(folder(data), 'pacer.json'), encoding='utf-8') as handle:
@@ -403,6 +407,12 @@ def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, get=htt
             counts['read'] += 1
             if counts['read'] % 100 == 0:
                 log(f"foreverchanges: {counts['read']} of {min(limit, len(todo))} read (tier {tier}), one request every {pacer.pause:.1f} s")
+            if pack_every > 0 and counts['read'] % pack_every == 0 and counts['read'] < min(limit, len(todo)):
+                try:
+                    content = write_pack(data)
+                    log(f"foreverchanges: pack written ({len(content['quests'])} quests, {len(content['items'])} items with a source)")
+                except (OSError, ValueError) as error:
+                    log(f'foreverchanges: the pack could not be written ({error}): kept for the end of the visit')
     except Refused as error:
         stopped = str(error)
         log(f'foreverchanges: stopped: {stopped}')
