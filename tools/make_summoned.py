@@ -126,6 +126,45 @@ def split_top(text):
     return parts
 
 
+FUNCTION = re.compile(r'\b([A-Za-z_]\w*)\s*\(([^()]*)\)\s*(?:const\s*)?(?:override\s*)?(?:final\s*)?\{')
+KEYWORDS = {'if', 'for', 'while', 'switch', 'catch', 'return', 'sizeof'}
+
+
+def is_call(text, start):
+    """Whether the name at text[start] is called there, not defined or declared: a definition has a type before it
+    (`void Name(`, `Creature* Name(`, `Class::Name(`), a call follows a statement, an operator or a keyword."""
+    before = text[:start].rstrip()
+    if not before or before.endswith(('->', '&&', '||', '.')):
+        return True
+    if before.endswith(('::', '*', '&', '>')):
+        return False   # Class::Name, Creature* Name, Foo& Name, std::vector<T> Name
+    if before[-1] in ';{}()=,!|?:<+-[':   # ')' ends an if (...) or for (...)
+        return True
+    word = re.search(r'([A-Za-z_]\w*)$', before)
+    return bool(word) and word.group(1) in ('return', 'else', 'do', 'co_return')
+
+
+def pass_through(text):
+    """[(function name, parameter index, is object)] for each function of the file whose body hands one of its own
+    parameters to a summoning call as the entry: `void SpawnAtRune(uint32 rune, uint32 entry, int i = 0) {
+    me->SummonCreature(entry, ...) }` gives ('SpawnAtRune', 1, False)."""
+    out = []
+    for m in FUNCTION.finditer(text):
+        name = m.group(1)
+        if name in KEYWORDS or name in CREATURE_CALLS + OBJECT_CALLS:
+            continue
+        params = [re.findall(r'[A-Za-z_]\w*', p.split('=')[0]) for p in split_top(m.group(2))]
+        params = [p[-1] if p else '' for p in params]
+        if not any(params):
+            continue
+        body = text[m.end():closing(text, m.end() - 1) - 1]
+        for call, token, _after in CALL.findall(body):
+            if call not in CREATURE_CALLS + OBJECT_CALLS or token not in params:
+                continue
+            out.append((name, params.index(token), call in OBJECT_CALLS))
+    return sorted(set(out))
+
+
 def fields(body):
     """The data members of a struct body, in order (methods, nested types and access labels left out)."""
     flat, depth = '', 0
@@ -268,6 +307,18 @@ def scan(scripts):
             for t in re.findall(r'\b[A-Za-z_][\w:]*', args):
                 if named(t, OBJECT_PREFIXES if is_object else CREATURE_PREFIXES):
                     entry = resolve(path, t)
+                    if entry and entry >= MIN_ENTRY:
+                        (objects if is_object else creatures).setdefault(entry, script)
+        # a script's own helper of any name that hands one of its parameters to a summoning call
+        # (`void SpawnAtRune(uint32 rune, uint32 entry) { me->SummonCreature(entry, ...); }`): every call of it in
+        # this file, the argument in that place
+        for name, index, is_object in pass_through(text):
+            for m in re.finditer(r'\b' + name + r'\s*\(', text):
+                if not is_call(text, m.start()):
+                    continue   # the helper's own definition or declaration
+                parts = split_top(text[m.end():closing(text, m.end() - 1) - 1])
+                if index < len(parts) and re.fullmatch(r'[A-Za-z_][\w:]*|\d+', parts[index]):
+                    entry = resolve(path, parts[index])
                     if entry and entry >= MIN_ENTRY:
                         (objects if is_object else creatures).setdefault(entry, script)
         for hook in ENTRY_HOOK.finditer(text):
