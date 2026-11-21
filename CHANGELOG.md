@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Crowded asks every live witness.** Extras › Crowded judged a creature's spots against Wowhead's map pins (and
+  Classic's count) alone. Wowhead marks only what its visitors saw, so a well-filled zone looked crowded. It now
+  takes the most spots any live witness shows there: Wowhead's pins, QuestieDB's Forever player traces and hand
+  fixes, and EG Link's sightings (sightings within 10 yards merge: one mob is seen again and again). The note names
+  each witness's count. The container analyses again once (marker 36).
+
 - **ForeverChanges: the whole site, the gaps first.** A visit of foreverchanges.pro no longer stops at what the last
   analysis lacks: after the gaps it goes on through the other maps' data files, every other quest page and every
   other item page (about 20,000 files), the never-read first, then the oldest read. Everything read goes into the

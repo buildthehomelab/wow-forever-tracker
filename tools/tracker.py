@@ -679,6 +679,7 @@ def world_extras(ask):
         return
     live_from = layers.load().live_from
     live_npcs, known, live_pairs = {}, set(), set()
+    sightings = collections.defaultdict(list)   # npc -> [(uiMap, u, v)] where players saw it on live (Crowded)
     for fact in recording:
         kind = 'go' if fact.subject_kind == 'object' else fact.subject_kind
         if kind not in ('npc', 'go'):
@@ -689,6 +690,10 @@ def world_extras(ask):
         name = (fact.data.get('name') if isinstance(fact.data, dict) else '') or ''
         if kind == 'npc' and fact.kind in ('creature', 'seen', 'talked'):
             live_npcs[fact.subject] = live_npcs.get(fact.subject) or name
+        if kind == 'npc' and fact.kind == 'seen' and isinstance(fact.data, dict):
+            for p in fact.data.get('positions') or []:
+                if isinstance(p, dict) and p.get('uiMap') and isinstance(p.get('mapX'), (int, float)) and isinstance(p.get('mapY'), (int, float)):
+                    sightings[fact.subject].append((int(p['uiMap']), float(p['mapX']), float(p['mapY'])))
         if fact.kind in ('gives', 'takes'):
             live_pairs.add((kind, fact.subject, fact.object, fact.kind))
     # the client's own lists (short: Creature holds a few hundred rows; GameObjects is read only where its layout is known)
@@ -745,11 +750,25 @@ def world_extras(ask):
                         points.setdefault(entry, {}).setdefault(w[0], []).append((w[1], w[2]))
         from ft import questie
         try:
-            classic = questie.classic_npc_spots(questie.pinned_folder(log=log), log=log)
-        except Exception as error:   # a source that cannot be had leaves Wowhead alone to judge, as before
-            log(f'extras: QuestieDB unavailable ({error}): Crowded has Wowhead alone')
-            classic = {}
-        found += extras.crowded(by_place, points, npc_names, classic)
+            folder = questie.pinned_folder(log=log)
+            classic = questie.classic_npc_spots(folder, log=log)
+            traced = questie.spawns(folder)
+        except Exception as error:   # a source that cannot be had leaves the others to judge
+            log(f'extras: QuestieDB unavailable ({error}): Crowded has Wowhead and EG Link only')
+            classic, traced = {}, {}
+        # the other live witnesses: QuestieDB's Forever traces and hand fixes, EG Link's sightings (ft.extras.crowded)
+        witnesses = {}
+        for entry in sorted({entry for entry, _map in by_place}):
+            for part in ('trace', 'fix'):
+                for zone, px, py in (traced.get(('npc', entry)) or {}).get(part, []):
+                    w = geo.wowhead(zone, 0, px, py)
+                    if w:
+                        witnesses.setdefault(entry, {}).setdefault(w[0], {}).setdefault('QuestieDB', []).append((w[1], w[2]))
+            for ui_map, u, v in sightings.get(entry, []):
+                w = geo.to_world(ui_map, u, v)
+                if w:
+                    witnesses.setdefault(entry, {}).setdefault(w[0], {}).setdefault('EG Link', []).append((w[1], w[2]))
+        found += extras.crowded(by_place, points, npc_names, classic, witnesses)
     server_pairs = set()
     for table_name, kind, role in (('creature_queststarter', 'npc', 'gives'), ('creature_questender', 'npc', 'takes'),
                                    ('gameobject_queststarter', 'go', 'gives'), ('gameobject_questender', 'go', 'takes')):

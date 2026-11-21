@@ -17,12 +17,15 @@ mean it is gone): each issue needs a witness that says something else stands in 
               creature. Spawns of world events count only beside spawns of the same events (each holiday has its
               own pumpkin on the same spot, never shown together). The spawn to keep is a live entry's, else the
               oldest guid.
-    crowded   the server spawns a creature on a map at least CROWD_FACTOR times (plus CROWD_SLACK) as often as
-              Wowhead's Forever map shows it there, and as often as Classic had it (QuestieDB's converted Classic
-              base). Wowhead marks the spots it saw but merges close ones, so a Classic zone's mobs run two to ten
-              times its marks; only a creature past Classic's count too is an import's leftovers. Spots, not rows,
-              are counted: copies on one spot (a pack) are one spot, and a pool's member counts as its share of the
-              pool's spot (a VMaNGOS random-entry spot is five rows of which one ever stands).
+    crowded   the server spawns a creature on a map at least CROWD_FACTOR times (plus CROWD_SLACK) as often as the
+              live game shows it there, and as often as Classic had it (QuestieDB's converted Classic base). What
+              live shows is the most spots any one witness gives: Wowhead's Forever map (it marks the spots it saw
+              but merges close ones), QuestieDB's Forever player traces and hand fixes, EG Link's sightings (a mob
+              seen again and again is one spot: points within WITNESS_MERGE yards merge). Wowhead alone undercounts
+              a busy zone two to ten times; only a creature past every witness and past Classic is an import's
+              leftovers. Spots, not rows, are counted: copies on one spot (a pack) are one spot, and a pool's member
+              counts as its share of the pool's spot (a VMaNGOS random-entry spot is five rows of which one ever
+              stands).
     invented  an entry the server spawns that nothing outside the server knows. A creature: not in the client's
               tables, in no recording of the game (beta or live), and Wowhead's Forever database answers "not found"
               (Wowhead lists every creature). An object is never judged by Wowhead: it lists only the objects
@@ -45,7 +48,8 @@ TWIN_YARDS = 15.0             # an old twin this close to a spawn of its live en
 STACK_YARDS_OBJECT = 0.3      # objects sit close on purpose (chairs at a table, candles): only near-exact copies
 CROWD_FACTOR, CROWD_SLACK = 2, 3
 CUSTOM_FROM = 1_000_000      # Blizzard's creature and object ids stay below this (Forever's reach about 700,000)
-CROWD_MARGIN = 150.0          # yards around Wowhead's points that still count as the same place
+CROWD_MARGIN = 150.0
+WITNESS_MERGE = 10.0         # sightings of one mob: points this close are one spot          # yards around Wowhead's points that still count as the same place
 ISSUES = ('twin', 'stacked', 'crowded', 'invented', 'giver')
 
 Spawn = collections.namedtuple('Spawn', 'kind guid entry name map x y z phase phase_group events', defaults=((),))
@@ -150,20 +154,38 @@ def stacked(spawns, pooled=frozenset(), live=frozenset()):
                           f'{same}: keep guid {keep.guid}' + (' (the live entry)' if (keep.kind, keep.entry) in live else ''))
 
 
-def crowded(spawns, points, names, classic=None):
-    """Creatures spawned far more often than Wowhead's map shows them and than Classic had them. spawns:
+def distinct(points, radius=WITNESS_MERGE):
+    """The spots among points: each point within `radius` of a spot already kept is that spot."""
+    kept = []
+    for p in points:
+        if not any(math.dist(p[:2], k[:2]) <= radius for k in kept):
+            kept.append(p)
+    return kept
+
+
+def crowded(spawns, points, names, classic=None, witnesses=None):
+    """Creatures spawned far more often than the live game shows them and than Classic had them. spawns:
     {(entry, map): [(x, y) or (x, y, share)]}, share a pool member's part of its pool's spot (1 outside pools);
     points: {entry: {map: [(x, y)]}} from Wowhead's Forever map; names: {entry: name}; classic: {entry: spots} of the
-    converted Classic base (no entry, or no classic at all: Wowhead alone judges). Only spawns within CROWD_MARGIN of
-    Wowhead's points are counted (its map shows one zone), copies on one spot once. Yields one Finding per entry and
-    map."""
-    classic = classic or {}
+    converted Classic base (no entry, or no classic at all: the live witnesses alone judge); witnesses: {entry: {map:
+    {source: [(x, y)]}}} of other live witnesses (QuestieDB's traces, EG Link's sightings), merged into spots here.
+    Only spawns within CROWD_MARGIN of the witnesses' points are counted (a witness shows one area), copies on one spot
+    once. Yields one Finding per entry and map."""
+    classic, witnesses = classic or {}, witnesses or {}
     for (entry, map_id), ours in sorted(spawns.items()):
+        shown = {}
         theirs = (points.get(entry) or {}).get(map_id)
-        if not theirs:
+        if theirs:
+            shown['Wowhead'] = list(theirs)
+        for source, where in sorted(((witnesses.get(entry) or {}).get(map_id) or {}).items()):
+            spots = distinct(where)
+            if spots:
+                shown[source] = spots
+        if not shown:
             continue
-        lo_x, hi_x = min(p[0] for p in theirs) - CROWD_MARGIN, max(p[0] for p in theirs) + CROWD_MARGIN
-        lo_y, hi_y = min(p[1] for p in theirs) - CROWD_MARGIN, max(p[1] for p in theirs) + CROWD_MARGIN
+        every = [p for spots in shown.values() for p in spots]
+        lo_x, hi_x = min(p[0] for p in every) - CROWD_MARGIN, max(p[0] for p in every) + CROWD_MARGIN
+        lo_y, hi_y = min(p[1] for p in every) - CROWD_MARGIN, max(p[1] for p in every) + CROWD_MARGIN
         spots = {}
         for spawn in ours:
             x, y = spawn[0], spawn[1]
@@ -171,15 +193,17 @@ def crowded(spawns, points, names, classic=None):
                 key = (round(x), round(y))
                 spots[key] = max(spots.get(key, 0.0), spawn[2] if len(spawn) > 2 else 1.0)
         near = round(sum(spots.values()))
-        if near < CROWD_FACTOR * len(theirs) + CROWD_SLACK:
+        most = max(len(v) for v in shown.values())
+        if near < CROWD_FACTOR * most + CROWD_SLACK:
             continue
         had = classic.get(entry)
         if had is not None and near < CROWD_FACTOR * had + CROWD_SLACK:
             continue
-        note = f'{near} spawns on the server where Wowhead marks {len(theirs)}'
+        note = f'{near} spawns on the server where ' + ', '.join(
+            f"{source} {'marks' if source == 'Wowhead' else 'shows'} {len(v)}" for source, v in shown.items())
         if had is not None:
             note += f' and Classic had {had}'
-        yield Finding('crowded', 'npc', entry, names.get(entry) or '', None, map_id, None, None, None, near, [len(theirs)], note)
+        yield Finding('crowded', 'npc', entry, names.get(entry) or '', None, map_id, None, None, None, near, [most], note)
 
 
 def invented(spawned, names, known, wowhead):
