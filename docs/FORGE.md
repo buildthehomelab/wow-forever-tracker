@@ -153,6 +153,26 @@ Nothing can be ticked: no source states which faction is the right one. The note
 each side saw, which is usually enough to pick the right faction by hand. `tools/ft/sides.py` holds the rules. Without
 an EG Link recording in `data/eglink` the check is not made, and the analysis log says so.
 
+## What the server has that the live game does not (Extras)
+
+Every other page looks for what is missing. *The Forge › Extras* looks the other way: rows an import brought in that
+live Forever never had. Each finding needs a witness that something else stands in its place; that nobody recorded a
+thing is never enough on its own. The analysis fills it (`tools/ft/extras.py`, table `ft_world_extras`); nothing is
+changed from the page.
+
+| Tab | The server has | The witness |
+|---|---|---|
+| *Old twin* | a creature the live server never sent a record of | the live server sent the record of another entry with the same name (EG Link, live builds). Usually the Classic copy of a creature Forever remade, as the Steelgrill's Depot mechanostriders 12363-14553 beside 267683-276736 |
+| *Stacked* | two spawns of one name on one spot (creatures 1 yard, objects 0.3), same phase, same world events, neither pooled | the spawn to keep: a live entry's, else the oldest guid |
+| *Crowded* | far more spawns of a creature (2x + 3) than ... | ... Wowhead's Forever map marks around that place |
+| *Invented* | an entry the server spawns | nothing else knows it: not in the client, in no EG Link recording (beta or live), Wowhead (Forever) answers "not found" |
+| *Quest giver* | an NPC or object giving or taking a quest | live players saw only others give or take it (weaker: a second giver may not have been recorded) |
+
+*Removals as SQL* writes the stacked copies and the old twins whose live entry the server also spawns as an update
+file to review. Twins whose live entry the server does not spawn need the spawn moved to the live entry instead, by
+hand. Wowhead is asked at most 3,000 times per analysis for these (the rest waits for the next run); without an EG Link
+recording in `data/eglink` the check is not made.
+
 ## Filling the gaps from open data
 
 NorgannonDB, EG Link, ForeverDB.net and Icy Veins each become an import aimed at the analysis' gaps, under the same

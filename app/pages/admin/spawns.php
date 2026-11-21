@@ -74,6 +74,7 @@ page_start(t('Spawns', 'Placements'), 'admin');
   <?php endforeach; ?>
   <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
+  <a href="<?= e(url('admin/extras')) ?>"><i class="fas fa-clone"></i><?= e(t('Extras', 'En trop')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>
 </nav>
 <p class="tab-desc"><i class="fas fa-circle-info"></i> <?= e([

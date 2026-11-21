@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Extras: what the server has that the live game does not.** A new page, The Forge › Extras, lists what imports
+  brought in that live Forever never had: Classic creatures whose Forever remake is the one live uses (*old twin*),
+  two spawns of one name on one spot (*stacked*), far more spawns than Wowhead's map marks (*crowded*), entries nothing
+  outside the server knows (*invented*), and quest givers live players never saw give the quest. Witnesses: EG Link's
+  recordings and Wowhead. *Removals as SQL* gives the sure removals as an update file to review. docs/FORGE.md.
+
 - **What later phases need, gathered before they open.** After each analysis the tracker writes a work list
   (`data/gather.json`, The Forge › Later): per release phase not open yet, and for the open game, the quests with
   who gives and takes them and what they ask, the creatures and objects the server lacks with a template and a place,

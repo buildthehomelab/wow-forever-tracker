@@ -43,6 +43,7 @@ Discovery leftovers, or does not know, count as internal and are never offered a
 are hidden: they are the game's invisible tracking quests.
 """
 import argparse
+import collections
 import datetime
 import json
 import os
@@ -497,23 +498,32 @@ def merge_checks(rows, sided):
     return [tuple(by_entry[entry]) for entry in sorted(by_entry)]
 
 
+def eglink_recording(wanted, check):
+    """The facts of EG Link's recording of the commit its import last read (data/eglink), only the datasets wanted,
+    with the files fetched that are not here yet; None when no recording was ever read (the check is then not made)."""
+    from ft import facts
+    root = os.path.join(DATA, 'eglink')
+    commits = [name for name in (os.listdir(root) if os.path.isdir(root) else []) if facts.COMMIT.fullmatch(name)]
+    if not commits:
+        log(f'{check}: no EG Link recording yet (Imports > Import EG Link reads one): not made')
+        return None
+    folder = os.path.join(root, max(commits, key=lambda name: os.path.getmtime(os.path.join(root, name))))
+    try:
+        facts.fetch_eglink(os.path.basename(folder), folder, datasets=wanted)
+    except facts.SourceError as error:
+        log(f'{check}: {str(error).strip()}; the files already here are read')
+    return facts.eglink(folder, datasets=wanted)
+
+
 def side_checks():
     """Compares whose side each creature is on with what players saw on the live game (ft.sides): [(entry, name,
     issue, note)]. The recordings are EG Link's, of the commit its import last read (data/eglink); without one the
     check is not made."""
-    from ft import facts, layers, sides
-    root = os.path.join(DATA, 'eglink')
-    commits = [name for name in (os.listdir(root) if os.path.isdir(root) else []) if facts.COMMIT.fullmatch(name)]
-    if not commits:
-        log('side check: no EG Link recording yet (Imports > Import EG Link reads one): not made')
+    from ft import layers, sides
+    recording = eglink_recording(('creatures', 'npcs'), 'side check')
+    if recording is None:
         return []
-    folder = os.path.join(root, max(commits, key=lambda name: os.path.getmtime(os.path.join(root, name))))
-    wanted = ('creatures', 'npcs')
-    try:
-        facts.fetch_eglink(os.path.basename(folder), folder, datasets=wanted)
-    except facts.SourceError as error:
-        log(f'side check: {str(error).strip()}; the files already here are read')
-    live = sides.recorded(facts.eglink(folder, datasets=wanted), layers.load().live_from)
+    live = sides.recorded(recording, layers.load().live_from)
     ids = sorted(live)
     creatures = {}
     for start in range(0, len(ids), 1000):
@@ -641,6 +651,114 @@ def npc_checks(ask):
     sqlio.execute_file(path, 'tracker')
 
 
+EXTRAS_ASKS = 3000   # Wowhead lookups one analysis may make for the extras (the rest waits for the next run)
+
+
+def server_spawns(table_name, kind):
+    """Every spawn of `creature` or `gameobject` as ft.extras.Spawn, with its template's name."""
+    from ft.extras import Spawn
+    template = 'creature_template' if table_name == 'creature' else 'gameobject_template'
+    events = {}
+    if sqlio.has_table(f'game_event_{table_name}'):
+        for r in sqlio.query(f'SELECT guid, eventEntry FROM `game_event_{table_name}`'):
+            events.setdefault(int(r['guid']), []).append(int(r['eventEntry']))
+    return [Spawn(kind, int(r['guid']), int(r['id']), r['name'] or '', int(r['map']), float(r['x']), float(r['y']), float(r['z']),
+                  int(r['PhaseId'] or 0), int(r['PhaseGroup'] or 0), tuple(events.get(int(r['guid']), ())))
+            for r in sqlio.query(f'SELECT s.guid, s.id, t.name, s.map, s.position_x x, s.position_y y, s.position_z z, s.PhaseId, s.PhaseGroup '
+                                 f'FROM `{table_name}` s JOIN `{template}` t ON t.entry = s.id')]
+
+
+def world_extras(ask):
+    """What the server's world holds that the live game does not (ft.extras): twins, stacked spawns, crowded
+    creatures, invented entries and quest givers live never used. Writes ft_world_extras (a report: nothing is
+    changed by it)."""
+    from ft import extras, layers
+    from ft.wowhead import Wowhead, verdict
+    recording = eglink_recording(('npcs', 'creatures', 'creature_details.enUS', 'object_details.enUS'), 'extras')
+    if recording is None:
+        return
+    live_from = layers.load().live_from
+    live_npcs, known, live_pairs = {}, set(), set()
+    for fact in recording:
+        kind = 'go' if fact.subject_kind == 'object' else fact.subject_kind
+        if kind not in ('npc', 'go'):
+            continue
+        known.add((kind, fact.subject))                      # any build, the beta's too: the entry is Blizzard's
+        if fact.build < live_from:
+            continue
+        name = (fact.data.get('name') if isinstance(fact.data, dict) else '') or ''
+        if kind == 'npc' and fact.kind in ('creature', 'seen', 'talked'):
+            live_npcs[fact.subject] = live_npcs.get(fact.subject) or name
+        if fact.kind in ('gives', 'takes'):
+            live_pairs.add((kind, fact.subject, fact.object, fact.kind))
+    # the client's own lists (short: Creature holds a few hundred rows; GameObjects is read only where its layout is known)
+    known |= {('npc', int(r['ID'])) for r in server.server_db2('Creature') if 'ID' in r}
+    known |= {('go', int(r['ID'])) for r in server.server_db2('GameObjects') if 'ID' in r}
+    spawns = server_spawns('creature', 'npc') + server_spawns('gameobject', 'go')
+    names = {(s.kind, s.entry): s.name for s in spawns}
+    counts = {}
+    for s in spawns:
+        counts[(s.kind, s.entry)] = counts.get((s.kind, s.entry), 0) + 1
+    pooled = {('npc' if int(r['type']) == 0 else 'go', int(r['spawnId'])) for r in sqlio.query('SELECT type, spawnId FROM pool_members WHERE type IN (0, 1)')} \
+        if sqlio.has_table('pool_members') else set()
+    found = []
+    npc_counts = {entry: n for (kind, entry), n in counts.items() if kind == 'npc'}
+    npc_names = {entry: name for (kind, entry), name in names.items() if kind == 'npc'}
+    found += extras.twins(npc_counts, npc_names, live_npcs)
+    found += extras.stacked(spawns, pooled, {('npc', entry) for entry in live_npcs} | {k for k in known if k[0] == 'go'})
+
+    wh, asked = Wowhead(), [0]
+
+    def lookup(kind, entry):
+        page = 'npc' if kind == 'npc' else 'object'
+        data = wh.cached(page, entry)
+        if ask and asked[0] < EXTRAS_ASKS and (data is None or wh.stale(data, entry)):
+            asked[0] += 1
+            data = wh.get(page, entry)
+        return data
+
+    found += extras.invented(counts, names, known, lambda kind, entry: verdict(lookup(kind, entry)))
+    # crowded: the creatures with more spawns than CROWD_SLACK, against the spots Wowhead's map marks
+    builds = official_content.builds()
+    if builds:
+        from ft import geo as geography
+        geo = geography.Geo(builds[-1]['dir'])
+        by_place = {}
+        for s in spawns:
+            if s.kind == 'npc' and npc_counts[s.entry] > extras.CROWD_SLACK:
+                by_place.setdefault((s.entry, s.map), []).append((s.x, s.y))
+        points = {}
+        for entry in sorted({entry for entry, _map in by_place}):
+            where = (lookup('npc', entry) or {}).get('map') or {}
+            for floor, coords in (where.get('coords') or {}).items():
+                for px, py in coords:
+                    w = geo.wowhead(where.get('zone'), int(floor), px, py)
+                    if w:
+                        points.setdefault(entry, {}).setdefault(w[0], []).append((w[1], w[2]))
+        found += extras.crowded(by_place, points, npc_names)
+    server_pairs = set()
+    for table_name, kind, role in (('creature_queststarter', 'npc', 'gives'), ('creature_questender', 'npc', 'takes'),
+                                   ('gameobject_queststarter', 'go', 'gives'), ('gameobject_questender', 'go', 'takes')):
+        server_pairs |= {(kind, int(r['id']), int(r['quest']), role) for r in sqlio.query(f'SELECT id, quest FROM `{table_name}`')}
+    found += extras.givers(server_pairs, live_pairs, names)
+    tally = collections.Counter(f.issue for f in found)
+    log('extras: ' + (', '.join(f'{issue}={tally[issue]}' for issue in extras.ISSUES if tally[issue]) or 'nothing found')
+        + f' ({len(live_npcs)} creatures recorded on live, {asked[0]} asked to Wowhead)')
+    e = sqlio.escape
+    path = os.path.join(DATA, 'world-extras.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_world_extras;\n'
+                'CREATE TABLE ft_world_extras (id INT AUTO_INCREMENT PRIMARY KEY, issue VARCHAR(12) NOT NULL, kind VARCHAR(4) NOT NULL, entry INT NOT NULL,'
+                ' name VARCHAR(255) NOT NULL, guid BIGINT NULL, map INT NULL, x FLOAT NULL, y FLOAT NULL, z FLOAT NULL, server INT NULL,'
+                ' live VARCHAR(255) NOT NULL, note TEXT NOT NULL, KEY ix_issue (issue), KEY ix_entry (kind, entry)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        rows = [f for f in found]
+        for chunk in range(0, len(rows), 500):
+            f.write('INSERT INTO ft_world_extras (issue, kind, entry, name, guid, map, x, y, z, server, live, note) VALUES '
+                    + ','.join('(' + ','.join(e(v) for v in (x.issue, x.kind, x.entry, (x.name or '')[:250], x.guid, x.map, x.x, x.y, x.z, x.server,
+                                                               ','.join(map(str, x.live))[:250], x.note)) + ')' for x in rows[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
+
+
 def known_server_build():
     """The build of the server's client data: [server] build_file or build in config.ini, else the client build the
     realms accept (auth.realmlist), the next best guess; 0 when neither is known."""
@@ -713,6 +831,10 @@ def analyse(args):
         npc_checks(args.wowhead)
     except Exception as error:  # a report only: it never stops the analysis
         log(f'npc check failed, skipped: {error}')
+    try:
+        world_extras(args.wowhead)
+    except Exception as error:  # a report only, like the checks
+        log(f'extras check failed, skipped: {error}')
     try:   # the zone maps the Forge's Spawns page draws the locator's positions on (app/maps.php)
         if geo.write_export(latest['dir'], os.path.join(DATA, 'ui-maps.json'), latest['build']):
             log('zone maps written for the Spawns page')
