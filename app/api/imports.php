@@ -44,6 +44,9 @@ if ($upload) {
         $pack = classicdb_pack($source);
         @mkdir(dirname($pack), 0775, true);
         if (!move_uploaded_file($file['tmp_name'], $pack)) json_out(['ok' => false, 'message' => t('The data folder cannot be written to.', 'Le dossier data n’est pas accessible en écriture.')]);
+        // the whole pack in the answers table (app/sourceanswers.php)
+        require_once FT_APP . '/sourceanswers.php';
+        source_answers_version_try($source);
         json_out(classicdb_import($source));
     }
     if (!preg_match('/\.(sql|lua)$/i', $name)) json_out(['ok' => false, 'message' => t('Send a .sql file in WowPacketParser\'s format, or ForeverScribe.lua.', 'Envoyez un fichier .sql au format de WowPacketParser, ou ForeverScribe.lua.')]);

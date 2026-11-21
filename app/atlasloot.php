@@ -53,6 +53,9 @@ function atlasloot_fetch(array $file): array
     $zips = glob(atlasloot_dir() . '/*.zip') ?: [];
     usort($zips, fn($a, $b) => (int)basename($b, '.zip') <=> (int)basename($a, '.zip'));
     if (atlasloot_keep()) foreach (array_slice($zips, atlasloot_keep()) as $old) @unlink($old);
+    // every file of the addon in the answers table (app/sourceanswers.php)
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_version_try('atlasloot');
     return [$path, ''];
 }
 

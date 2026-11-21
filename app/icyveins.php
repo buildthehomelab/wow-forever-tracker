@@ -26,6 +26,7 @@
 // is recorded), flight routes, quest chains.
 
 require_once FT_APP . '/gather.php';
+require_once FT_APP . '/sourceanswers.php';
 
 const ICYVEINS = 'https://db.icy-veins.com/api/catalog/wowf/';
 /** Icy Veins' placeholders in turn-in words, and the core's tokens for them. */
@@ -135,6 +136,8 @@ function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, st
     $failures = 0;
     $new['fetched'] = time();
     icyveins_store($kind, $id, $new);
+    // and in the answers table, the whole answer too (app/sourceanswers.php): the mirror keeps the parts that differ
+    source_answers_try([icyveins_answer_row($kind, $id, $new, isset($full) && is_array($full) && !empty($full['entity']) ? $full : null)]);
     return $new;
 }
 
@@ -180,7 +183,9 @@ function icyveins_ids(string $kind, int &$asked, int &$failures, string &$lastFa
     }
     $ids = array_keys($ids);
     @mkdir(icyveins_dir(), 0775, true);
-    file_put_contents($file, json_encode(['fetched' => time(), 'ids' => $ids, 'total' => $total]));
+    $list = ['fetched' => time(), 'ids' => $ids, 'total' => $total];
+    file_put_contents($file, json_encode($list));
+    source_answers_try([icyveins_list_row($kind, $list)]);
     return $ids;
 }
 

@@ -12,6 +12,16 @@ tracker does with each part. The site's pages are built from a JSON API, which i
   metadata, tooltips and a change history.
 - `GET /api/catalog/wowf/types` lists the kinds and how many of each.
 
+Every answer is kept twice: in the mirror (`data/icyveins/<kind>/<id>.json.gz`: `type`, `id`, `entity`, `children`,
+`relations`, what the cards read) and, whole, in the tracker's database (`ft_source_answers`, `source = 'icyveins'`:
+the mirror's record as `data`, the whole answer with its link metadata, tooltips and change history as `whole`). See
+[The answers table](SOURCES.md#the-answers-table).
+
+    -- what Icy Veins changed this week
+    SELECT kind, id, name, changed_at FROM ft_source_answers WHERE source = 'icyveins' AND changed_at > first_seen AND changed_at >= NOW() - INTERVAL 7 DAY;
+    -- what else a whole answer holds besides the mirror's parts
+    SELECT JSON_KEYS(whole) FROM ft_source_answers WHERE source = 'icyveins' AND kind = 'npc' AND id = 448;
+
 The HTML pages sit behind a Cloudflare check; the API does not. robots.txt allows everything; no licence is stated, so
 the data stays a reference for your own server.
 

@@ -864,24 +864,25 @@ def analyse(args):
         gather.run(content, phase_list)
     except Exception as error:
         log(f'later: the work list was not made ({type(error).__name__}: {str(error)[:200]})')
-    wowhead_table()
+    answers_table()
     log(f'done in {time.time() - started:.0f} s')
 
 
-def wowhead_table():
-    """The Wowhead answers this run asked for, into the tracker's table ft_wowhead (app/wowheaddb.php): PHP's backfill
-    reads the tooltip files written since its last run. Without PHP (a Windows install without it) the container's next
-    start or the next push does it; it never stops the analysis."""
+def answers_table():
+    """The outside sources' answers this run asked for (Wowhead's tooltips above all), into the tracker's table
+    ft_source_answers (app/sourceanswers.php): PHP's backfill reads what each source's files gained since its last run.
+    Without PHP (a Windows install without it) the container's next start or the next push does it; it never stops the
+    analysis."""
     php = shutil.which('php')
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wowhead-db.php')
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'source-answers.php')
     if not php or not os.path.isfile(script):
         return
     try:
         result = subprocess.run([php, script, 'backfill'], capture_output=True, timeout=3600)
         said = result.stdout.decode('utf-8', 'replace').strip().splitlines()
-        log('wowhead table: ' + (said[-1] if said and result.returncode == 0 else result.stderr.decode('utf-8', 'replace').strip()[:200] or 'not written'))
+        log('answers table: ' + (said[-1] if said and result.returncode == 0 else result.stderr.decode('utf-8', 'replace').strip()[:200] or 'not written'))
     except (OSError, subprocess.SubprocessError) as error:
-        log(f'wowhead table not written ({error})')
+        log(f'answers table not written ({error})')
 
 
 def checkout_cmd(args):

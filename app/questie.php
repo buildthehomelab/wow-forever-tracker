@@ -62,6 +62,9 @@ function questie_fetch(string $commit): array
         $problem = source_keep($target, $body, $length, fn($b) => questie_whole($path, $b));
         if ($problem !== '') return ['', 'QuestieDB ' . basename($path) . ': ' . $problem];
     }
+    // every file of the commit in the answers table (app/sourceanswers.php): nothing when it is there already
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_version_try('questie');
     return [$dir, ''];
 }
 

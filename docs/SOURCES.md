@@ -21,6 +21,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
 
 What every run of a source said is kept in the tracker's own database, never in the repository: [SNAPSHOTS.md](SNAPSHOTS.md).
+Every answer a source gave, whole, is a row of the [answers table](#the-answers-table) too.
 
 Questie and DungeonJournal come in through NorgannonDB, which is built from them: a second Questie import would only
 repeat its rows. The locator and the world build read QuestieDB's own Forever corrections (pinned by the commit of its
@@ -414,6 +415,7 @@ Answers are kept on disk so that a source is not asked the same thing at every r
 | Wowhead | about 30 days (`[wowhead] refresh_days`; each answer between three quarters and one and a quarter of it, by id, so that the answers of one run do not all come due on one day; 0: kept for good) | 7 days (`recheck_days`) |
 | Icy Veins | 14 days | 7 days |
 | EG Link, ForeverDB.net, AtlasLoot | their newest version is read at every import | |
+| ForeverChanges | 14 days (`[foreverchanges] older`) | four times that |
 | NorgannonDB | the pinned version (`[norgannondb] commit`) | |
 
 Before this, an answer Wowhead had given was kept for good: a level it corrected, a spawn point it moved or a "may not
@@ -424,6 +426,62 @@ used. The analysis log says how many answers were asked again and how many came 
 Nothing is asked at that moment and nothing is deleted: the next analysis asks Wowhead again, the next imports their
 sources, and AtlasLoot's current version is read again. Those runs take as long as the very first ones did; one that is
 cut short goes on from where it stopped, since what was asked since the button was pressed is not asked twice.
+
+## The answers table
+
+Every answer the tracker got from an outside source is also a row of `ft_source_answers` in the tracker's database:
+everything the source said, not only the facts a card takes (those are in `ft_source_facts`,
+[SNAPSHOTS.md](SNAPSHOTS.md)). It can be read with SQL (The Forge › Query, database *tracker*), and what a source
+changed since is a query. The files under `data/` stay what the analysis and the imports read; the table follows them.
+
+| Source | `feed` | One row is | From |
+|---|---|---|---|
+| Wowhead, Wowhead Classic | `tooltip`, `page` | a tooltip; a page the crawler read, the whole page too ([WOWHEAD-PAGES.md](WOWHEAD-PAGES.md#the-wowhead-rows)) | `data/wowhead/`, `data/wowhead-pages/` |
+| Icy Veins | `api` | one API answer: the mirror's record as `data`, the whole answer (link metadata and tooltips too) as `whole` | `data/icyveins/<kind>/<id>.json.gz` |
+| Icy Veins | `list` | a kind's list of ids | `data/icyveins/<kind>.ids.json` |
+| ForeverChanges | `site` | the last reading of a page or a map file: a page's `data` is what it states (`parsed.jsonl`), its `whole` the page's text; a map file's `data` is the file | `data/foreverchanges/pages.jsonl`, `site/`, the blob store |
+| QuestieDB, NorgannonDB, EG Link, ForeverDB.net | `file` | a record of a file of the version downloaded: an entry of a Lua table (`[25] = {...}`, NorgannonDB's `R(25, ...)`), a key of a JSON file (an EG Link creature's loot, a vendor), a whole small file | `data/<source>/<commit or release>/` |
+| AtlasLoot | `file` | the same, of every file of the addon's zip | `data/atlasloot/<file id>.zip` |
+| VMaNGOS, Classic database | `file` | the same, of the pack you sent | `data/<source>/pack.cdbpack` |
+
+| Column | What it holds |
+|---|---|
+| `source`, `feed`, `branch`, `kind`, `ref` | the key. `source` is the source's name in `app/sources.php` (`wowhead`, `icyveins`, `questie`, `norgannondb`, `eglink`, `foreverdb`, `atlasloot`, `foreverchanges`, `vmangos`, `classicdb`). `branch`: Wowhead's `forever` or `classic`, Icy Veins' `wowf`, else empty. `kind`: the entity's kind, or a file's name without its extensions (`foreverItemDB`, `loot`, `NPCs`). `ref`: the id; a list's query; a file's path, then `#` and the record (`data/wowf/1.15.8.65424/loot.json#/sources/npc:448`, `items.lua#42`, `Data/NPCs.lua#ns.npcs/2299`) |
+| `id`, `name` | the entity's id (NULL when there is none) and the name the answer gives |
+| `status` | `found`; `missing` when the source does not know it (a 404); `gone` when a newer version of a downloaded source no longer holds that record |
+| `version` | the version the answer is of: a commit, a release, a CurseForge file id, Wowhead's crawler record version, the blob key of a ForeverChanges reading |
+| `data` | the answer, as JSON. A text record of a file is `{"text": ...}`; a small binary file `{"base64", "size"}` |
+| `whole`, `whole_at` | the whole answer when `data` is less, and when it was read: Wowhead's whole page, Icy Veins' whole API answer, a ForeverChanges page's text. A later answer without one keeps the one held |
+| `hash`, `whole_hash` | SHA-1 of `data` and of `whole` (keys sorted, the time left out). Icy Veins' `whole` has none: its link metadata is not compared |
+| `fetched_at`, `first_seen`, `changed_at` | when the answer held was read (a version: when it was downloaded), when the tracker first had one, when what the source says last changed |
+| `due_at` | when the source's own rules ask it again ([How old an answer may be](#how-old-an-answer-may-be)): Wowhead's, Icy Veins' (14 days, 7 for *does not know it*, a list after a day, at once after *ask every source again*), ForeverChanges' (`[foreverchanges] older`, 14 days; a page the site did not have four times later). NULL for a downloaded version: a new version is looked for as a whole, by its import |
+
+`changed_at` moves only when the hash of `data` differs from the row's, or the status, or that of `whole` when both
+answers carry one with a hash: an answer read again that says the same moves `fetched_at` alone, and an answer older
+than the one held changes nothing. A large downloaded file is cut into records (of about 256 kB at most; what lies
+between the entries is kept as `~rest` records), so that a new version moves `changed_at` of the records it changed
+only, and what it dropped becomes `gone`.
+
+    -- what changed this week, by source
+    SELECT source, kind, COUNT(*) FROM ft_source_answers WHERE changed_at > first_seen AND changed_at >= NOW() - INTERVAL 7 DAY GROUP BY source, kind;
+    -- everything every source says about one creature
+    SELECT source, feed, ref, data FROM ft_source_answers WHERE id = 448 AND kind IN ('npc', 'loot', 'vendors', 'npcs', 'NPCs');
+    -- Icy Veins' gossip recording of a creature
+    SELECT JSON_EXTRACT(data, '$.relations.addon_gossip') FROM ft_source_answers WHERE source = 'icyveins' AND kind = 'npc' AND id = 448;
+    -- what the newest QuestieDB release dropped
+    SELECT ref, version, changed_at FROM ft_source_answers WHERE source = 'questie' AND status = 'gone' ORDER BY changed_at DESC;
+
+**How rows come.** At once, when the answer reaches the tracker: a Wowhead page or tooltip, an Icy Veins answer or
+list, a version an import downloaded (QuestieDB, NorgannonDB, EG Link, ForeverDB.net, AtlasLoot, a pack you sent),
+the pages a ForeverChanges visit read. What the files already held is written by `php tools/source-answers.php
+backfill`: the container runs it at every start, the analysis at its end. The first run reads everything (of a
+downloaded source, the newest version kept: the older ones were superseded before the table); later runs only what
+each source's files gained since (`data/source-answers.json` remembers where each stopped). `--all` reads everything
+again; `backfill icyveins questie` only those sources. `php tools/source-answers.php count` counts the rows by
+source, `changed [date]` what changed since.
+
+The first version of the table, `ft_wowhead`, moves in by itself (its rows become `source = 'wowhead'`) and is
+dropped.
 
 ## Running them
 

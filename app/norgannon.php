@@ -75,6 +75,9 @@ function norgannon_fetch(string $commit): array
         $problem = $status !== 200 ? ($status ? "HTTP $status" : t('no answer', 'pas de réponse')) : source_keep($path, $body, $length, fn(string $b) => norgannon_whole($name, $b));
         if ($problem !== '') return [null, sprintf(t('Could not download %s (%s).', 'Impossible de télécharger %s (%s).'), $url, $problem)];
     }
+    // every file of the commit in the answers table (app/sourceanswers.php): nothing when it is there already
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_version_try('norgannondb');
     return [$dir, ''];
 }
 

@@ -292,12 +292,12 @@ icyveins_resume() {
     tail -n 1 "$DATA/source-icyveins.log" 2>/dev/null | sed 's/^/[forever-tracker] Icy Veins: /'
 }
 
-# Every Wowhead answer the files hold, in the tracker's table ft_wowhead (app/wowheaddb.php, docs/WOWHEAD-PAGES.md): the
-# first start reads them all, later ones only the tooltip files written since and the page shelves that changed.
-wowhead_table() {
-    if ! mysql_wait "the Wowhead table is filled at the next start"; then rm -f "$cnf"; return 0; fi
+# Every answer the outside sources' files hold, in the tracker's table ft_source_answers (app/sourceanswers.php,
+# docs/SOURCES.md): the first start reads them all, later ones only what each source's files gained since.
+answers_table() {
+    if ! mysql_wait "the answers table is filled at the next start"; then rm -f "$cnf"; return 0; fi
     rm -f "$cnf"
-    as_www php "$ROOT/tools/wowhead-db.php" backfill 2>&1 | tail -n 1 | sed 's/^/[forever-tracker] Wowhead table: /' || true
+    as_www php "$ROOT/tools/source-answers.php" backfill 2>&1 | tail -n 1 | sed 's/^/[forever-tracker] answers table: /' || true
 }
 
 # In the background, one after the other: the first analysis, then the import a restart cut short.
@@ -309,7 +309,7 @@ start_work() {
         wait $! || true   # whatever became of the analysis, the import below does not depend on it
     fi
     : > "$STARTED"
-    wowhead_table
+    answers_table
     icyveins_resume
 }
 start_work &

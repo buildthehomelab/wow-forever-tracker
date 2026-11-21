@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Every source's answers in one table, whole.** The Wowhead table becomes the answers table, `ft_source_answers`,
+  and every outside source now writes to it: Icy Veins (each API answer, the whole answer too: the mirror on disk
+  keeps only the parts the cards read), ForeverChanges (each page or map file the visit read: what a page states and
+  its text), and every file of the version an import downloads of QuestieDB, NorgannonDB, EG Link, ForeverDB.net and
+  AtlasLoot, and of the VMaNGOS and Classic database packs you send. A large file is cut into records (an entry of a
+  Lua table, a key of a JSON file: an EG Link creature's loot, a vendor), so that a new version moves `changed_at` of
+  the records it changed only, and what it dropped becomes `gone`. Everything a source said can be read with SQL
+  (The Forge › Query), not only the facts that reach `ft_source_facts`. `due_at` follows each source's own rules
+  (Icy Veins 14 days, 7 for not known; ForeverChanges `[foreverchanges] older`; a downloaded version never by
+  itself). Rows land as the answers come; `php tools/source-answers.php backfill` (replaces `tools/wowhead-db.php`;
+  the container at start, the analysis at its end) writes what the files already hold, the newest version of each
+  downloaded source the first time. `ft_wowhead`'s rows move in (`source = 'wowhead'`) and the old table is dropped.
+  No new analysis. docs/SOURCES.md, *The answers table*.
+
 - **Every Wowhead answer in a table, the whole page too.** The tracker's database has a new table, `ft_wowhead`: a
   row for every tooltip and every page the crawler read, with the answer, its name, when it was fetched, first seen
   and last changed, and when it is due to be read again. The crawler (record version 3) now also keeps the whole
@@ -10,7 +24,7 @@
   content are never kept. `changed_at` moves only when Wowhead's answer changed, so *what changed since* is a query
   (The Forge › Query). Pages due again by `[wowhead] refresh_days` / `recheck_days` go to the crawl's queue
   (`[wowhead] recheck_pages`, 300); the tracker still never asks Wowhead for a page. Tooltips of creatures and
-  objects now keep their text. The container fills the table from the files at start (`php tools/wowhead-db.php
+  objects now keep their text. The container fills the table from the files at start (`php tools/source-answers.php
   backfill`); no new analysis. docs/WOWHEAD-PAGES.md.
 
 - **Old twins are weighed by distance.** A name is no proof that one creature stands twice (chickens, credits and
