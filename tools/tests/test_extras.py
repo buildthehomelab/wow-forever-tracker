@@ -126,6 +126,28 @@ class Crowded(unittest.TestCase):
         self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0)]}}, {})), [])
 
 
+    def test_a_live_witness_that_shows_more_clears_it(self):
+        # Wowhead marks 2 spots; QuestieDB's player traces show 8 there: 9 spawns are live's own density
+        ours = {(5, 0): [(i * 20, 0) for i in range(9)]}
+        traces = {5: {0: {'QuestieDB': [(i * 20, 0) for i in range(8)]}}}
+        self.assertEqual(list(extras.crowded(ours, {5: {0: [(0, 0), (160, 0)]}}, {}, None, traces)), [])
+
+    def test_sightings_of_one_mob_are_one_spot(self):
+        # EG Link saw one wandering mob forty times within a few yards: still one spot, so 9 spawns are crowded
+        ours = {(5, 0): [(i * 20, 0) for i in range(9)]}
+        seen = {5: {0: {'EG Link': [(80 + (i % 5), i % 3) for i in range(40)]}}}
+        found = list(extras.crowded(ours, {5: {0: [(0, 0), (160, 0)]}}, {5: 'Burrower'}, None, seen))
+        self.assertEqual([(f.entry, f.server, f.live) for f in found], [(5, 9, [2])])
+        self.assertIn('Wowhead marks 2', found[0].note)
+        self.assertIn('EG Link shows 1', found[0].note)
+
+    def test_other_witnesses_judge_without_wowhead(self):
+        ours = {(5, 0): [(i * 20, 0) for i in range(12)]}
+        found = list(extras.crowded(ours, {}, {5: 'Kobold'}, None, {5: {0: {'QuestieDB': [(0, 0), (200, 0)]}}}))
+        self.assertEqual([(f.server, f.live) for f in found], [(12, [2])])
+        self.assertEqual(list(extras.crowded(ours, {}, {}, None, {})), [])
+
+
 class Invented(unittest.TestCase):
     def test_stand_ins_and_unknown_creatures(self):
         spawned = {('go', 8380101): 1, ('go', 8380102): 1, ('go', 2061): 1585, ('go', 652087): 1, ('npc', 70): 2, ('npc', 71): 1,
