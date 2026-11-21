@@ -7,8 +7,11 @@ mean it is gone): each issue needs a witness that says something else stands in 
 
     twin      the server spawns creature A; the live server never sent A's record to a client, but did send the
               record of B, which has the same name. Live uses B (Forever's copy of a Classic creature, as the
-              mechanostriders 12363-14553 against 267683-276736). The fix: A's spawns go, or become B's when the
-              server has no B.
+              mechanostriders 12363-14553 against 267683-276736). A name is no proof that one creature stands twice
+              (chickens, credits and snakes share names across the world), so each of A's spawns is weighed: one
+              with a spawn of B within TWIN_YARDS, on its map, in its phase and world events, is the same creature
+              shown twice and is listed by its guid, to remove. A's other spawns are listed together, by entry: B
+              stands elsewhere (left alone, a person decides) or nowhere (give these spawns B's entry).
     stacked   two spawns of the same name on one map within STACK_YARDS (objects: STACK_YARDS_OBJECT) of each other, in the same phase, neither
               in a pool (a pool's members share a spot on purpose). Two models in one place read as one broken
               creature. Spawns of world events count only beside spawns of the same events (each holiday has its
@@ -30,6 +33,7 @@ import math
 import re
 
 STACK_YARDS = 1.0             # a creature this close to another of its name stands in it
+TWIN_YARDS = 15.0             # an old twin this close to a spawn of its live entry is that creature twice
 STACK_YARDS_OBJECT = 0.3      # objects sit close on purpose (chairs at a table, candles): only near-exact copies
 CROWD_FACTOR, CROWD_SLACK = 2, 3
 CROWD_MARGIN = 150.0          # yards around Wowhead's points that still count as the same place
@@ -44,24 +48,57 @@ def normal(name):
     return re.sub(r'[^a-z0-9]+', ' ', (name or '').lower()).strip()
 
 
-def twins(spawned, names, recorded):
+def twins(spawned, names, recorded, spawns=()):
     """Creatures the server spawns that the live game shows under another entry of the same name.
     spawned: {entry: number of spawns}; names: {entry: name} of the server's templates; recorded: {entry: name} of
-    the creatures the live server sent records of. Yields Finding rows (one per entry)."""
+    the creatures the live server sent records of; spawns: the server's Spawn rows (creatures). Yields Finding rows:
+    one per spawn that stands within TWIN_YARDS of a live entry's spawn (its guid set: remove it), and one per entry
+    for its other spawns (guid None). Without spawns, one row per entry, as before positions were weighed."""
     live_by_name = collections.defaultdict(set)
     for entry, name in recorded.items():
         if normal(name):
             live_by_name[normal(name)].add(entry)
+    by_entry = collections.defaultdict(list)
+    for s in spawns:
+        if s.kind == 'npc':
+            by_entry[s.entry].append(s)
     for entry in sorted(spawned):
         if entry in recorded:
             continue
         live = sorted(live_by_name.get(normal(names.get(entry)), ()))
         if not live:
             continue
+        name = names.get(entry) or ''
         has_live = [e for e in live if spawned.get(e)]
-        note = ('the server spawns ' + ', '.join(map(str, has_live)) + ' as well: remove these' if has_live
-                else 'the server spawns no live entry: give these spawns the live entry')
-        yield Finding('twin', 'npc', entry, names.get(entry) or '', None, None, None, None, None, spawned[entry], live, note)
+        if not has_live:
+            yield Finding('twin', 'npc', entry, name, None, None, None, None, None, spawned[entry], live,
+                          'the server spawns no live entry: give these spawns the live entry')
+            continue
+        if not spawns:
+            yield Finding('twin', 'npc', entry, name, None, None, None, None, None, spawned[entry], live,
+                          'the server spawns ' + ', '.join(map(str, has_live)) + ' as well: remove these')
+            continue
+        alone = 0
+        for s in sorted(by_entry.get(entry, ()), key=lambda s: s.guid):
+            place = (s.map, s.phase, s.phase_group, tuple(sorted(s.events)))
+            best = None
+            for e in has_live:
+                for o in by_entry.get(e, ()):
+                    if (o.map, o.phase, o.phase_group, tuple(sorted(o.events))) != place:
+                        continue
+                    d = math.dist((s.x, s.y, s.z), (o.x, o.y, o.z))
+                    if d <= TWIN_YARDS and (best is None or d < best[0]):
+                        best = (d, o)
+            if best is None:
+                alone += 1
+                continue
+            d, o = best
+            yield Finding('twin', 'npc', entry, name, s.guid, s.map, s.x, s.y, s.z, 1, [o.entry],
+                          f'live entry {o.entry} (guid {o.guid}) stands {d:.1f} yd away: remove this spawn')
+        if alone:
+            yield Finding('twin', 'npc', entry, name, None, None, None, None, None, alone, has_live,
+                          f'no spawn of the live entry within {TWIN_YARDS:g} yd of these {alone}: it stands elsewhere, '
+                          'so they are not one creature twice; left alone, check by hand')
 
 
 def _cell(x, y):

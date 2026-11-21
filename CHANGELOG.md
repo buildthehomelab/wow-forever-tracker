@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Old twins are weighed by distance.** A name is no proof that one creature stands twice (chickens, credits and
+  snakes share names across the world): Extras › Old twin now lists by guid only the spawns that stand within 15
+  yards of a spawn of the live entry, on the same map, phase and world events, and *Removals as SQL* removes only
+  those, checking the distance again when the file runs. Before, it removed every spawn of an entry whose live twin
+  stood anywhere, Stratholme's 42 Mangled Cadavers included. The other spawns are listed by entry and left alone.
+  The container analyses again once (marker 35).
+
 - **Query: read-only SQL from The Forge.** A new page, The Forge › Query (and `POST api/query` for scripts in an
   administrator's browser), runs one statement that reads on the tracker's world, hotfixes or own database: SELECT,
   WITH, SHOW, EXPLAIN, DESCRIBE. It runs only as a MySQL account of its own whose grants are checked before every

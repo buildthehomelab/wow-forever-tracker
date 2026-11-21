@@ -29,6 +29,36 @@ class Twins(unittest.TestCase):
     def test_recorded_or_unmatched_is_left_alone(self):
         self.assertEqual(list(extras.twins({1: 1, 2: 1}, {1: 'A', 2: 'B'}, {1: 'A'})), [])
 
+    def test_only_spawns_beside_a_live_spawn_are_removed(self):
+        # Ironforge's Red Mechanostrider stands on Forever's; Bub's live copy is 1,300 yards away (2026-11-21 check)
+        rows = [spawn(20001725, 12365, 'Red Mechanostrider', -5461.2, -619.6), spawn(46110001, 267683, 'Red Mechanostrider', -5461.3, -619.6),
+                spawn(27467700, 274677, 'Bub', 0.0, 0.0), spawn(21200445, 274854, 'Bub', 1336.8, 0.0)]
+        names = {12365: 'Red Mechanostrider', 267683: 'Red Mechanostrider', 274677: 'Bub', 274854: 'Bub'}
+        found = list(extras.twins({12365: 1, 267683: 1, 274677: 1, 274854: 1}, names, {267683: 'Red Mechanostrider', 274854: 'Bub'}, rows))
+        removed = [f for f in found if f.guid is not None]
+        self.assertEqual([(f.guid, f.live) for f in removed], [(20001725, [267683])])
+        self.assertIn('guid 46110001', removed[0].note)
+        bub = [f for f in found if f.entry == 274677]
+        self.assertEqual((bub[0].guid, bub[0].server), (None, 1))
+        self.assertIn('left alone', bub[0].note)
+
+    def test_distance_phase_and_events_count(self):
+        names = {1: 'Chicken', 2: 'Chicken'}
+        live = {2: 'Chicken'}
+        near = [spawn(10, 1, 'Chicken', 0, 0), spawn(20, 2, 'Chicken', 14.9, 0)]
+        far = [spawn(10, 1, 'Chicken', 0, 0), spawn(20, 2, 'Chicken', 15.1, 0)]
+        other_map = [spawn(10, 1, 'Chicken', 0, 0), spawn(20, 2, 'Chicken', 0, 0, map_id=1)]
+        other_phase = [spawn(10, 1, 'Chicken', 0, 0), spawn(20, 2, 'Chicken', 0, 0, phase=169)]
+        holiday = [spawn(10, 1, 'Chicken', 0, 0, events=(12,)), spawn(20, 2, 'Chicken', 0, 0)]
+        for rows, removed in ((near, [10]), (far, []), (other_map, []), (other_phase, []), (holiday, [])):
+            found = list(extras.twins({1: 1, 2: 1}, names, live, rows))
+            self.assertEqual([f.guid for f in found if f.guid is not None], removed)
+
+    def test_no_live_spawn_still_says_swap(self):
+        found = list(extras.twins({100: 3}, {100: 'Guard'}, {900: 'guard'}, [spawn(1, 100, 'Guard', 0, 0)]))
+        self.assertEqual((found[0].guid, found[0].server), (None, 3))
+        self.assertIn('give these spawns the live entry', found[0].note)
+
 
 def spawn(guid, entry, name, x, y, z=0.0, kind='npc', phase=0, group=0, map_id=0, events=()):
     return Spawn(kind, guid, entry, name, map_id, x, y, z, phase, group, events)
