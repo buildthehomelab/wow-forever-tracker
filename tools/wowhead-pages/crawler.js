@@ -5,7 +5,7 @@
 // seconds. A record keeps the facts the imports read: the Quick Facts lines and the rows of each tab (who drops, who
 // sells, ...) with their numbers only. Since record v3 it also carries `full`, the whole page as Wowhead gives it
 // (names, Quick Facts with their text, every tab row whole, the map, the page's text, what its links name), which
-// the tracker keeps in its Wowhead table (app/wowheaddb.php) and never in the cache files; what users wrote (comments,
+// the tracker keeps in its answers table (app/wowheaddb.php) and never in the cache files; what users wrote (comments,
 // screenshots, guides) is never kept. What it read stays in the tab's IndexedDB, so a reload, a block or a closed tab
 // loses nothing: load this file again and call WHC.start().
 //
@@ -244,7 +244,7 @@
 
   // ------------------------------------------------------------------ the whole page (pure)
   //
-  // Everything a database page says, for the tracker's Wowhead table: the same reading as above with the text kept.
+  // Everything a database page says, for the tracker's answers table: the same reading as above with the text kept.
   // Tabs of what users wrote (NOT_DATA) are left out, and so are the comments, which are no part of the page's text.
 
   const FULL_MAX = 3 * 1048576;   // a whole page past this many characters of JSON: the linked names, then the rows, are cut

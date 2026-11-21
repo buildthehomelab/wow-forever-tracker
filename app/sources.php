@@ -1305,6 +1305,9 @@ function foreverchanges_pull(?callable $say = null): array
         while (($line = fgets($pipe)) !== false) { $last = trim($line); if ($last !== '') $say($last); }
         $code = pclose($pipe);
     }
+    // what the visit read, in the answers table (app/sourceanswers.php)
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_backfill_try(['foreverchanges']);
     if (!is_file(foreverchanges_pack())) return ['ok' => false, 'message' => t('ForeverChanges could not be read: ', 'ForeverChanges n’a pas pu être lu : ') . ($last ?: t('the pull did not start (is Python installed?)', 'la lecture n’a pas démarré (Python est-il installé ?)'))];
     $card = foreverchanges_import();
     if ($code === 2) $card['message'] = trim(($card['message'] ?? '') . ' ' . t('The site stopped the visit: the card is made from what was kept; see the log.', 'Le site a arrêté la visite : la carte est faite de ce qui a été conservé ; voir le journal.'));
@@ -1591,6 +1594,10 @@ function eglink_evidence(): array
             }
         }
     }
+    unset($d);
+    // every file of the commit in the answers table (app/sourceanswers.php): nothing when it is there already
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_version_try('eglink');
     return ['ev' => $ev, 'commit' => $commit];
 }
 
@@ -1674,6 +1681,9 @@ function foreverdb_evidence(): array
             foreach ($m as [, $k, $id]) $ev[$role][] = [$k === 'n' ? 'npc' : 'go', (int)$id, (int)$quest];
         }
     }
+    // every file of the release in the answers table (app/sourceanswers.php): nothing when it is there already
+    require_once FT_APP . '/sourceanswers.php';
+    source_answers_version_try('foreverdb');
     return ['ev' => $ev, 'version' => $version];
 }
 

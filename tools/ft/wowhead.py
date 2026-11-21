@@ -152,7 +152,7 @@ class Wowhead:
             return cached
         if kind == 'npc' and data.get('tooltip'):
             data['facts'] = npc_facts(data['tooltip'])
-        # the whole answer is kept, a creature's or object's tooltip text too: the Wowhead table (app/wowheaddb.php)
+        # the whole answer is kept, a creature's or object's tooltip text too: the answers table (app/wowheaddb.php)
         # holds what Wowhead said, and its hash leaves that text out (older answers were kept without it)
         if cached is not None:
             self.reasked += 1

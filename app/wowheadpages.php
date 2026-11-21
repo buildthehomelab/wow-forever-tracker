@@ -545,14 +545,14 @@ function wowhead_pages_clean($record): ?array
 
 /** What the crawler saved (one JSON line a page) into the cache: the newer answer of a page wins; each kind's file is
  *  written whole and sorted by id. Returns the counts: new, newer, older (kept the one we had), not_a_page, and db (rows sent to
- *  the Wowhead table, app/wowheaddb.php) when it is the tracker's own cache. */
+ *  the answers table, app/wowheaddb.php) when it is the tracker's own cache. */
 function wowhead_pages_merge(string $text, ?string $dir = null): array
 {
-    $record_db = $dir === null;   // the tracker's own cache: its pages go to the Wowhead table too
+    $record_db = $dir === null;   // the tracker's own cache: its pages go to the answers table too
     $dir ??= wowhead_pages_dir();
     $counts = ['new' => 0, 'newer' => 0, 'older' => 0, 'not_a_page' => 0];
     $incoming = [];
-    $dbRows = [];   // for the Wowhead table (app/wowheaddb.php), the whole page too when the crawler kept it
+    $dbRows = [];   // for the answers table (app/wowheaddb.php), the whole page too when the crawler kept it
     foreach (preg_split('/\r?\n/', $text) as $line) {
         if (trim($line) === '') continue;
         $raw = json_decode($line, true);
@@ -592,7 +592,7 @@ function wowhead_pages_merge(string $text, ?string $dir = null): array
  */
 function wowhead_pages_append(array $lines, ?string $dir = null): array
 {
-    $record_db = $dir === null;   // the tracker's own cache: its pages go to the Wowhead table too
+    $record_db = $dir === null;   // the tracker's own cache: its pages go to the answers table too
     $dir ??= wowhead_pages_dir();
     $counts = ['pages' => 0, 'not_a_page' => 0];
     $out = [];
@@ -868,7 +868,7 @@ function wowhead_pages_queue(): array
     });
     // the Craftsman's Writs: their item pages and Wowhead's writ guide, read again every [wowhead] writ_days
     [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), wowhead_pages('item'), wowhead_pages('forever-guide'));
-    // pages whose row in the Wowhead table is due to be read again ([wowhead] refresh_days, recheck_days; app/wowheaddb.php):
+    // pages whose row in the answers table is due to be read again ([wowhead] refresh_days, recheck_days; app/wowheaddb.php):
     // the crawl reads them again, so that the table learns what changed on Wowhead
     $queue['recheck'] = wowhead_db_due_pages();
     foreach (wowhead_pages_missing_data() as $kind => $list) {
@@ -925,7 +925,7 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     foreach ($queue['gather']['later'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'later');
     $put('npc', $queue['npc'] ?? [], 'missing');
     $put('object', $queue['object'] ?? [], 'missing');
-    // pages the Wowhead table holds that are due again (wowhead_db_due_pages): with the creatures and objects whose data
+    // pages the answers table holds that are due again (wowhead_db_due_pages): with the creatures and objects whose data
     // is missing, before the rest of the database; a page already queued worth more stays where it is
     foreach ($queue['recheck'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'missing');
     if ($full) $lines[] = '  await WHC.full();';
