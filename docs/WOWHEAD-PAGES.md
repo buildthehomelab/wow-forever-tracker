@@ -5,8 +5,8 @@ creatures and chests drop an item and how often players saw it, who sells it, wh
 server data no client file carries, and Wowhead is the most complete public copy of it.
 
 A script cannot read those pages: Wowhead answers 403, and a headless browser gets the same before any page loads
-(it says it is one). A real browser can, slowly. So the pages are read in your own browser tab, kept as facts only,
-and the import reads that copy. **The tracker itself never asks Wowhead for a page**, and nothing here disguises a
+(it says it is one). A real browser can, slowly. So the pages are read in your own browser tab; the import reads the
+facts kept in the cache files, and the whole page goes to the tracker's [Wowhead table](#the-wowhead-table). **The tracker itself never asks Wowhead for a page**, and nothing here disguises a
 crawler as something else.
 
 | Piece | What it does |
@@ -14,18 +14,21 @@ crawler as something else.
 | The Forge › Imports › *Wowhead pages* | *Download the crawler* (crawler.js with the pages this tracker wants next queued), *Download the full crawl* (the same, then the whole database: [below](#the-whole-database)), *Send wowhead-pages.jsonl* (into the cache, then an import card), *Import Wowhead pages* (a card from the cache as it is) |
 | `tools/wowhead-pages/crawler.js` | runs in a browser tab on wowhead.com: learns how fast it may go, keeps what it read in the tab's storage, saves it as a file |
 | `data/wowhead-pages/<shelf>.jsonl` | the pages read so far, one line a page, sorted by id: `item.jsonl` holds Forever's item pages, `classic-npc.jsonl` Classic's npc pages, `forever-list.jsonl` the list pages (one line a list query). Outside the repository: a copy of Wowhead's data is kept for your server, not republished with the code |
+| `ft_wowhead` (tracker database) | every tooltip and page the tracker holds, the whole page too, with when it changed and when it is due again: [The Wowhead table](#the-wowhead-table) |
 | `app/wowheadpages.php` | the queue, the merge, and the cache as an import card (also `php tools/source-import.php wowhead`) |
 | `tools/wowhead_pages.py` | the same queue and merge from the command line (`todo`, `merge`, `stats`) |
 
 ## What is kept of a page
 
-Every number, and nothing else. A page costs seconds of a slow crawl and its numbers a few kilobytes of disk, so all of
+In the cache files, every number, and nothing else (the whole page is in the [Wowhead table](#the-wowhead-table)). A page costs seconds of a slow crawl and its numbers a few kilobytes of disk, so all of
 them are kept, also the ones no import reads yet (per-season and per-mode counts, an item's stats): a later import
 reads the cache, it does not ask Wowhead again. Of each tab (*Dropped by*, *Sold by*, *Contained in*, ...) the rows
 with all their numbers (up to 20,000 rows a tab); the Quick
 Facts lines (`Level: 13`, `Start: [url=/forever/npc=253812]`) with the text of their links removed; the map pins.
-Names, descriptions, quest text, comments, screenshots and guides are never kept: the crawler drops every text value
-before it stores a row, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both.
+Names, descriptions and quest text are not in the cache files: the crawler keeps the facts with every text value
+dropped, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both. Since record
+version 3 a crawler line also carries `full`, the whole page, which goes to the Wowhead table only. Comments,
+screenshots, videos and guides are never kept anywhere.
 A page Wowhead does not have is kept as `"status": "missing"`, so that it is not asked again.
 A creature's or object's page also keeps the model display ids its model viewer shows (`"model": [140708]`, record
 version 2): a creature the server has no template for needs one.
@@ -298,6 +301,50 @@ are mostly a guaranteed item or a group rolled once, which a rate per item would
 
 Each loot row's `Comment` is `Wowhead <date of the newest page>`, which is how a later import knows whose row it is.
 
+## The Wowhead table
+
+Every Wowhead answer the tracker holds is also a row of `ft_wowhead` in the tracker's database, so that it can be
+read with SQL (The Forge › Query, database *tracker*) and so that what changed on Wowhead is a question SQL answers.
+The files stay what the analysis and the imports read; the table follows them.
+
+| Column | What it holds |
+|---|---|
+| `source` | `tooltip` (Wowhead's tooltip service, `data/wowhead/<kind>/<id>.json`) or `page` (the crawler) |
+| `branch`, `kind`, `ref`, `id` | `forever` or `classic`; `npc`, `object`, `item`, `quest`, `spell`, ... or `list` / `guide`; the id as text, or a list's or guide's query; the id as a number (NULL for a list or guide) |
+| `name` | the page's or the tooltip's name; a page without one of its own takes its tooltip's |
+| `status` | `found`, or `missing` when Wowhead has no such page |
+| `data` | the answer as the files keep it: the whole tooltip answer; a page's facts (numbers only) |
+| `page`, `page_at` | the whole page as the crawler read it (record version 3 on), and when: `name`, `info` (g_pageInfo), `title`, `description`, `text` (a quest's description and completion, an item's notes), `quick` (Quick Facts with their links' text), `tabs` (every row whole, names and all), `map`, `links` (what the page's links name: `{type: {id: {name_enus, quality, ...}}}`). NULL for pages read by an older crawler; a later answer without it keeps the one held |
+| `version` | the crawler's record version |
+| `hash`, `page_hash` | SHA-1 of `data` and of `page`, keys sorted, the time left out |
+| `fetched_at`, `first_seen`, `changed_at` | when the answer held was read, when the tracker first had one, when what Wowhead says last changed |
+| `due_at` | when it is to be read again, by the rules every Wowhead answer follows: `[wowhead] refresh_days` (30) give or take a quarter by id, `recheck_days` (7) for `missing`, at once after *ask every source again*; NULL when `refresh_days` is 0 |
+
+`changed_at` moves only when the hash of `data` differs from the row's, or that of `page` when the row already held
+a whole page: an answer read again that says the same moves `fetched_at` alone, and an answer older than the one held
+changes nothing. A creature's or object's tooltip text is left out of the hash (older answers were kept without it).
+
+    -- what Wowhead changed this week
+    SELECT kind, id, name, changed_at FROM ft_wowhead WHERE changed_at > first_seen AND changed_at >= NOW() - INTERVAL 7 DAY;
+    -- a creature's map pins and models
+    SELECT JSON_EXTRACT(data, '$.map'), JSON_EXTRACT(data, '$.model') FROM ft_wowhead WHERE source = 'page' AND kind = 'npc' AND id = 1365;
+    -- who drops an item, with the creatures' names
+    SELECT JSON_EXTRACT(page, '$.tabs."dropped-by".rows') FROM ft_wowhead WHERE source = 'page' AND kind = 'item' AND id = 216616;
+    -- what is due again
+    SELECT source, kind, COUNT(*) FROM ft_wowhead WHERE due_at <= NOW() GROUP BY source, kind;
+
+**How rows come.** A page lands the moment it reaches the tracker (a linked crawl, the extension's push, *Send
+wowhead-pages.jsonl*); a tooltip the moment the website asks Wowhead, and the analysis' own tooltips at the end of
+each analysis. What the files already held is written by `php tools/wowhead-db.php backfill`: the container runs it
+at every start (the first one reads everything; later ones only the tooltip files written since and the page shelves
+that changed), the analysis after it asked Wowhead. `--all` reads everything again.
+
+**What is due again.** Tooltips due again are asked by the analysis as before. Pages are never asked by the tracker:
+Forever's npc, object, item and quest pages whose `due_at` passed go to the crawl's queue, oldest first, at most
+`[wowhead] recheck_pages` (300) at a time, with the creatures and objects whose data is missing (tier `missing`); a
+page already queued for more stays where it is. `php tools/wowhead-db.php due` lists them, `php tools/wowhead-db.php
+changed [date]` counts what changed since.
+
 ## Tests
 
 - `node tools/tests/test_wowhead_crawl.mjs`: what the crawler keeps of a page, on a made-up page.
@@ -305,4 +352,7 @@ Each loot row's `Comment` is `Wowhead <date of the newest page>`, which is how a
   errors) and the whole database: the three ways a list page is written, the splitting of a cut list, the pages a list
   names, when a Classic page is read, the queue keys.
 - `python -m unittest tools/tests/test_wowhead_pages.py`: the cache and the to-do list.
+- `php tools/tests/test_wowhead_db.php`: the Wowhead table's rows, hashes and due times; with
+  `FT_TEST_MYSQL=host:port:root:password:db` also the upserts on a real MySQL (changed_at, an older answer, the whole
+  page kept, the backfill).
 - `php tools/tests/test_wowhead_pages.php`: the evidence and what is left out, the queue order, the merge, the crawler download and the extension's (its key, its zip, `api/wowhead-crawler`).

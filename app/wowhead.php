@@ -76,6 +76,9 @@ function wowhead_get(string $kind, int $id, bool $ask = true): ?array
     $data['fetched'] = time();
     @mkdir(dirname($path), 0775, true);
     file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    // and in the Wowhead table, for The Forge › Query and "what changed" (app/wowheaddb.php)
+    require_once FT_APP . '/wowheaddb.php';
+    wowhead_db_try([wowhead_db_tooltip_row($kind, $id, $data)]);
     return $data;
 }
 

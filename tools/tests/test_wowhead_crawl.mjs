@@ -39,9 +39,44 @@ test('a page: its tabs with counts, vendors with stock and cost', () => {
   assert.deepEqual(page.tabs['reward-from-q'].rows, []);
 });
 
-test('no name and no comment is kept anywhere', () => {
-  const kept = JSON.stringify(page);
+test('no name and no comment is kept in the facts the imports read', () => {
+  const { full, ...facts } = page;
+  const kept = JSON.stringify(facts);
   for (const text of ['Kurzen', 'Vendor', 'Quoted', 'never kept', 'someone', 'Fixture Item', 'Shared Row']) assert.ok(!kept.includes(text), text);
+});
+
+test('the whole page: names, text, Quick Facts with their links, every tab row whole, what its links name', () => {
+  const full = page.full;
+  assert.equal(full.name, 'Fixture Item');
+  assert.equal(full.title, 'Fixture Item & Co');
+  assert.equal(full.description, 'A fixture "item" for tests.');
+  assert.equal(full.info.typeId, 216616);
+  assert.equal(full.text, 'Fixture Item\nBind on pickup\nRequires Level 13\nDrops in <Stranglethorn>.');
+  assert.deepEqual(full.quick, ['Level: 13', 'Added in patch 1.60.1', 'Requires:', '[url=/forever/quest=77 class=q1]A "Quoted" Name[/url]', 'Sell Price: [money=125]']);
+  assert.equal(full.tabs['dropped-by'].rows[1].name, 'Kurzen\'s "Agent"');
+  assert.equal(full.tabs['dropped-by'].rows[0].pctstack, '{1: 100}');
+  assert.equal(full.tabs['sold-by'].rows[0].name, 'Vendor A');
+  assert.equal(full.tabs['contained-in-object'].rows[0].name, 'Shared Row');
+  assert.deepEqual(full.links, { 1: { 939: { name_enus: 'Kurzen Elite' } }, 3: { 216616: { name_enus: 'Fixture Item', quality: 3 }, 20558: { name_enus: 'Warsong Mark', quality: 1 } } });
+  assert.deepEqual(full.map, { 33: [{ count: 2, coords: [[41.2, 9.4], [42, 10]] }] });
+  assert.equal(page.v, 3);
+});
+
+test('what users wrote is never kept, not even in the whole page', () => {
+  const kept = JSON.stringify(page.full);
+  for (const text of ['never kept', 'someone', 'comments']) assert.ok(!kept.includes(text), text);
+  assert.ok(!('comments' in page.full.tabs));
+});
+
+test('a whole page past FULL_MAX loses the linked names first, then rows past 2000', () => {
+  const rows = Array.from({ length: 30000 }, (_, i) => ({ id: i + 1, name: 'Row ' + 'x'.repeat(200) + i }));
+  const big = html.replace('var g_mapperData', 'new Listview({template: \'npc\', id: \'big\', data: ' + JSON.stringify(rows) + '});\nvar g_mapperData');
+  const full = crawler.whole(big);
+  assert.ok(full.cut);
+  assert.ok(!('links' in full));
+  assert.equal(full.tabs.big.rows.length, 2000);
+  assert.equal(full.tabs.big.total, 30000);   // how many Wowhead has, not how many were kept
+  assert.ok(JSON.stringify(full).length <= crawler.FULL_MAX);
 });
 
 test('the Quick Facts lines, a nested list as its label then its children, link texts removed', () => {

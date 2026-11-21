@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Every Wowhead answer in a table, the whole page too.** The tracker's database has a new table, `ft_wowhead`: a
+  row for every tooltip and every page the crawler read, with the answer, its name, when it was fetched, first seen
+  and last changed, and when it is due to be read again. The crawler (record version 3) now also keeps the whole
+  page: names, the page's text, Quick Facts with their links' text, every tab row whole, the map, the names its links
+  give; the cache files keep the facts as before, the whole page goes to the table only. Comments and other user
+  content are never kept. `changed_at` moves only when Wowhead's answer changed, so *what changed since* is a query
+  (The Forge › Query). Pages due again by `[wowhead] refresh_days` / `recheck_days` go to the crawl's queue
+  (`[wowhead] recheck_pages`, 300); the tracker still never asks Wowhead for a page. Tooltips of creatures and
+  objects now keep their text. The container fills the table from the files at start (`php tools/wowhead-db.php
+  backfill`); no new analysis. docs/WOWHEAD-PAGES.md.
+
 - **Old twins are weighed by distance.** A name is no proof that one creature stands twice (chickens, credits and
   snakes share names across the world): Extras › Old twin now lists by guid only the spawns that stand within 15
   yards of a spawn of the live entry, on the same map, phase and world events, and *Removals as SQL* removes only
