@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Extras › Crowded counts spots, and asks Classic too.** A pool's member now counts as its share of the pool's
+  spot (VMaNGOS random-entry spots are five rows of which one ever stands: the Bloodscalp trolls, Woodpaw gnolls,
+  Plaguehounds), copies on one spot count once (a pack), and a creature is crowded only when it also passes the count
+  Classic had, from QuestieDB's converted Classic base (`data/Forever/foreverNpcDB.lua`, downloaded once into the
+  pinned QuestieDB folder; without it Wowhead judges alone, as before). Wowhead's map merges spots that stand close,
+  so Classic zones' mobs ran two to ten times its marks and filled the tab: Prairie Wolf 116 where Wowhead marks 56
+  and Classic had 118, Nethergarde Miner 151 / 15 / 130. On Everlake the tab goes from 171 to about 25, nearly all
+  Forever-only creatures that imports placed. Next analysis. docs/FORGE.md.
+
 - **Every source's answers in one table, whole.** The Wowhead table becomes the answers table, `ft_source_answers`,
   and every outside source now writes to it: Icy Veins (each API answer, the whole answer too: the mirror on disk
   keeps only the parts the cards read), ForeverChanges (each page or map file the visit read: what a page states and
