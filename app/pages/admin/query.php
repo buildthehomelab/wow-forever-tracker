@@ -16,7 +16,7 @@ page_start(t('Query', 'Requête'), 'admin');
 ?>
 <section class="page-head"><div class="page-title"><span class="page-icon is-gold"><i class="fas fa-database"></i></span>
   <div><span class="eyebrow"><a href="<?= e(url('admin')) ?>"><?= e(t('The Forge', 'La Forge')) ?></a></span><h1><?= e(t('Query', 'Requête')) ?></h1>
-  <p><?= e(sprintf(t('One statement that reads (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE) on a database the tracker reads. It runs in a read-only transaction that is rolled back, stops after %d seconds and shows at most %s rows. Nothing can be changed from here.', 'Une requête de lecture sur une base que le tracker lit, dans une transaction en lecture seule annulée ensuite ; %d secondes et %s lignes au plus. Rien ne peut être modifié ici.'), QUERY_SECONDS, number(QUERY_MAX_ROWS))) ?></p></div></div></section>
+  <p><?= e(sprintf(t('One statement that reads (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE) on a database the tracker reads, as a MySQL account that may only read (checked before every query), in a read-only transaction that is rolled back, stops after %d seconds and shows at most %s rows. Nothing can be changed from here.', 'Une requête de lecture sur une base que le tracker lit, dans une transaction en lecture seule annulée ensuite ; %d secondes et %s lignes au plus. Rien ne peut être modifié ici.'), QUERY_SECONDS, number(QUERY_MAX_ROWS))) ?></p></div></div></section>
 <?php if ($error): ?><div class="alert is-warn"><i class="fas fa-triangle-exclamation"></i><div><?= e($error) ?></div></div><?php endif; ?>
 <form method="post" class="block form" id="query-form" data-csrf="<?= e(csrf_token()) ?>">
   <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">

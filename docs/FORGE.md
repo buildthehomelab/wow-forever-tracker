@@ -204,13 +204,25 @@ a data repository, safe to run twice: see [DATA-REPO.md](DATA-REPO.md).
 stands from another, which rows a file would touch). It offers the `world`, `hotfixes` and `tracker` databases of
 config.ini's `[database]` section; Everlake's `world` is the test realm's.
 
-Only statements that read are taken: the first word must be SELECT, WITH, SHOW, EXPLAIN, DESCRIBE (DESC), TABLE or
-VALUES, after any comments. Executable comments (`/*! ... */`), `INTO OUTFILE` / `INTO DUMPFILE` and locking reads
-(`FOR UPDATE`, `FOR SHARE`, `LOCK IN SHARE MODE`) are refused. Each statement runs alone on its own connection, inside
-`START TRANSACTION READ ONLY` that is rolled back, so a `WITH ... DELETE` is refused by MySQL as well. It stops after
-30 seconds (`max_execution_time`) and shows at most 5,000 rows. Each query is written to the web server's error log.
+Nothing can be written from it. Four locks, each enough alone:
+
+1. **An account that may only read.** Queries never run as the tracker's own MySQL user (which writes the test
+   realm's world for the Forge), only as `[database] query_user` / `query_password` (Docker: `FT_DB_QUERY_USER`,
+   `FT_DB_QUERY_PASSWORD`). Before every query the page reads that account's grants back (`SHOW GRANTS`); anything
+   but SELECT, SHOW VIEW or USAGE (a write right, a role, a proxy, GRANT OPTION) and it runs nothing. Without the
+   account the page runs nothing either. Give it `GRANT SELECT ON <db>.*` on the databases it offers, nothing more.
+2. **Only statements that read.** The first word, after any comments, must be SELECT, WITH, SHOW, EXPLAIN, DESCRIBE
+   (DESC), TABLE or VALUES. Executable comments (`/*! ... */`), `INTO OUTFILE` / `INTO DUMPFILE` and locking reads
+   (`FOR UPDATE`, `FOR SHARE`, `LOCK IN SHARE MODE`) are refused.
+3. **A read-only transaction.** One statement, on its own connection, inside `START TRANSACTION READ ONLY`, rolled
+   back after.
+4. **Limits.** 30 seconds (`max_execution_time`) and at most 5,000 rows. Each query is written to the web server's
+   error log.
+
+In Docker, with `FT_DB_QUERY_USER` set and no `FT_DB_QUERY_PASSWORD`, the entrypoint makes the password from
+`FT_DB_PASSWORD`: the first 64 characters of `sha256("query:" + FT_DB_PASSWORD)`, as Everlake's `tracker-setup.sh`
+does when it creates the account, so no second secret is needed.
 
 The same runs as `POST api/query` for an administrator's session: body `{"db": "world", "sql": "...", "format":
 "json"}` (or `"text"` for a table as `mysql -t` prints it) and the header `X-CSRF-Token`, which the Query page holds
 in its form's `data-csrf`.
-
