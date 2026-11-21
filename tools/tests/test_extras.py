@@ -109,11 +109,22 @@ class Crowded(unittest.TestCase):
 
 
 class Invented(unittest.TestCase):
-    def test_only_wowheads_unknown_counts(self):
-        spawned = {('go', 8380101): 1, ('go', 8380102): 1, ('go', 31): 1, ('npc', 70): 2}
-        verdict = {('go', 8380101): 'unknown', ('go', 31): 'unknown', ('npc', 70): None}
-        found = list(extras.invented(spawned, {('go', 8380101): 'Portal to Stormwind'}, {('go', 31)}, lambda k, e: verdict.get((k, e))))
-        self.assertEqual([(f.kind, f.entry, f.name) for f in found], [('go', 8380101, 'Portal to Stormwind')])
+    def test_stand_ins_and_unknown_creatures(self):
+        spawned = {('go', 8380101): 1, ('go', 8380102): 1, ('go', 2061): 1585, ('go', 652087): 1, ('npc', 70): 2, ('npc', 71): 1,
+                   ('npc', 8110000): 26, ('npc', 72): 1}
+        verdict = {('go', 2061): 'unknown', ('go', 652087): 'unknown', ('npc', 70): None, ('npc', 71): 'unknown', ('npc', 72): 'forever'}
+        asked = []
+
+        def wowhead(kind, entry):
+            asked.append((kind, entry))
+            return verdict.get((kind, entry))
+        found = list(extras.invented(spawned, {('go', 8380101): 'Portal to Stormwind'}, {('npc', 999)}, wowhead))
+        # the campfire and Forever's Ironforge plaque: Wowhead lists neither, which proves nothing for an object
+        self.assertEqual([(f.kind, f.entry) for f in found], [('go', 8380101), ('go', 8380102), ('npc', 71), ('npc', 8110000)])
+        self.assertIn('Keep it until the real entry is found', found[0].note)
+        self.assertIn('not on Wowhead', found[2].note)
+        # objects and stand-ins cost no Wowhead question
+        self.assertEqual(sorted(asked), [('npc', 70), ('npc', 71), ('npc', 72)])
 
 
 class Givers(unittest.TestCase):

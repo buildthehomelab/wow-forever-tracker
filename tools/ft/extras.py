@@ -20,8 +20,13 @@ mean it is gone): each issue needs a witness that says something else stands in 
     crowded   the server spawns a creature on a map at least CROWD_FACTOR times (plus CROWD_SLACK) as often as
               Wowhead's Forever map shows it there: Wowhead marks every spot it saw, so far more spawns than spots
               is an import's leftovers.
-    invented  an entry the server spawns that neither the client's tables, any recording of the game (beta or
-              live) nor Wowhead's Forever database knows: made up by an import (the city portals 8380101-8380102).
+    invented  an entry the server spawns that nothing outside the server knows. A creature: not in the client's
+              tables, in no recording of the game (beta or live), and Wowhead's Forever database answers "not found"
+              (Wowhead lists every creature). An object is never judged by Wowhead: it lists only the objects
+              players use, not a chair, a lamp, a door or a holiday pumpkin, on any of its databases. Any entry from
+              CUSTOM_FROM up is the server's own (Blizzard's ids stay far below): a stand-in an import made where the
+              real data was missing (the city portals 8380101-8380102, spell focus objects). Listed to find the real
+              entry, never to remove: until it is in, removing the stand-in leaves a hole.
     giver     the server has an NPC or object give (or take) a quest that the live game's players saw given (taken)
               only by others. Weaker: a quest with two givers may have had only one recorded.
 
@@ -36,6 +41,7 @@ STACK_YARDS = 1.0             # a creature this close to another of its name sta
 TWIN_YARDS = 15.0             # an old twin this close to a spawn of its live entry is that creature twice
 STACK_YARDS_OBJECT = 0.3      # objects sit close on purpose (chairs at a table, candles): only near-exact copies
 CROWD_FACTOR, CROWD_SLACK = 2, 3
+CUSTOM_FROM = 1_000_000      # Blizzard's creature and object ids stay below this (Forever's reach about 700,000)
 CROWD_MARGIN = 150.0          # yards around Wowhead's points that still count as the same place
 ISSUES = ('twin', 'stacked', 'crowded', 'invented', 'giver')
 
@@ -160,12 +166,20 @@ def crowded(spawns, points, names):
 def invented(spawned, names, known, wowhead):
     """Entries nothing outside the server knows. spawned: {(kind, entry): spawns}; known: {(kind, entry)} the
     client's tables or any recording hold; wowhead: (kind, entry) -> 'unknown', 'forever', 'season' or None (not
-    asked). Only Wowhead's 'unknown' makes a finding: a lookup that did not happen proves nothing."""
+    asked). A creature below CUSTOM_FROM needs Wowhead's 'unknown' (a lookup that did not happen proves nothing); an
+    object below it is never listed (Wowhead's silence on objects proves nothing); an entry from CUSTOM_FROM up is a
+    stand-in, listed without asking Wowhead. Nothing here is to be removed: see the module's docstring."""
     for (kind, entry), count in sorted(spawned.items()):
-        if (kind, entry) in known or wowhead(kind, entry) != 'unknown':
+        if (kind, entry) in known:
             continue
-        yield Finding('invented', kind, entry, names.get((kind, entry)) or '', None, None, None, None, None, count, [],
-                      'not in the client, never recorded on the game, not on Wowhead (Forever)')
+        if entry >= CUSTOM_FROM:
+            note = ("the server's own entry (an id beyond Blizzard's): a stand-in an import made where the real data "
+                    'was missing. Keep it until the real entry is found; removing it leaves a hole')
+        elif kind == 'npc' and wowhead(kind, entry) == 'unknown':
+            note = 'not in the client, never recorded on the game, not on Wowhead (Forever)'
+        else:
+            continue
+        yield Finding('invented', kind, entry, names.get((kind, entry)) or '', None, None, None, None, None, count, [], note)
 
 
 def givers(server, live, names):

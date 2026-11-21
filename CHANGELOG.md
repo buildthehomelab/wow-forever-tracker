@@ -9,6 +9,12 @@
   stood anywhere, Stratholme's 42 Mangled Cadavers included. The other spawns are listed by entry and left alone.
   The container analyses again once (marker 35).
 
+- **Invented lists stand-ins, not Blizzard's decorations.** Wowhead lists only the objects players use: a campfire,
+  a chair, a door or a holiday pumpkin is on none of its databases, so 3,550 of Everlake's 3,638 *invented* entries
+  were Blizzard's own objects (about 17,000 spawns). Objects are no longer judged by Wowhead; creatures still are, and
+  any entry from 1,000,000 up (the server's own ids) is listed as a stand-in to keep until its real entry is found.
+  Invented entries are never in *Removals as SQL*.
+
 - **Query: read-only SQL from The Forge.** A new page, The Forge › Query (and `POST api/query` for scripts in an
   administrator's browser), runs one statement that reads on the tracker's world, hotfixes or own database: SELECT,
   WITH, SHOW, EXPLAIN, DESCRIBE. It runs only as a MySQL account of its own whose grants are checked before every
