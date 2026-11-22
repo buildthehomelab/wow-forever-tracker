@@ -309,7 +309,39 @@ class Pull(unittest.TestCase):
             done, _ = self.pull()
             self.assertTrue(done['stopped'])
             self.assertEqual(self.asked.count('/quest/99001/q'), 1, 'nothing is retried around a refusal')
-            self.assertNotIn('quest/99001.html.gz', site.readings(self.data))
+            noted = site.readings(self.data).get('quest/99001.html.gz')
+            if answer[0] == 403:
+                self.assertEqual((noted['s'], noted['refused']), (403, 403), 'a refused page is noted')
+                self.assertNotIn('key', noted)
+            else:
+                self.assertIsNone(noted, 'a challenge is about the visitor, not the page')
+
+    def test_the_next_run_begins_past_a_refused_page(self):
+        self.pages['/quest/99001/q'] = (403, {}, b'')
+        done, _ = self.pull()
+        self.assertIn('403', done['stopped'])
+        self.pages['/quest/99001/q'] = (200, {}, QUEST_SEEN.encode())
+        self.asked.clear()
+        done, _ = self.pull()
+        self.assertEqual(done['stopped'], '')
+        self.assertNotIn('/quest/99001/q', self.asked, 'not asked again before `older` days')
+        self.now[0] += 15 * 86400
+        self.asked.clear()
+        done, _ = self.pull()
+        self.assertIn('/quest/99001/q', self.asked, 'asked again with the rest after `older` days')
+
+    def test_a_refused_page_read_before_keeps_what_it_said(self):
+        self.pull()
+        before = site.readings(self.data)['quest/99001.html.gz']
+        self.assertIn('key', before)
+        self.now[0] += 15 * 86400
+        self.pages['/quest/99001/q'] = (403, {}, b'')
+        self.asked.clear()
+        done, _ = self.pull()
+        self.assertIn('403', done['stopped'])
+        after = site.readings(self.data)['quest/99001.html.gz']
+        self.assertEqual((after['s'], after['key'], after['refused']), (200, before['key'], 403))
+        self.assertGreater(after['at'], before['at'])
 
     def test_an_answer_that_is_not_the_page_stops_the_run(self):
         self.pages['/map/kalimdor/npcs.json'] = (200, {}, b'<html>soon</html>')

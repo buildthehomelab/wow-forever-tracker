@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **ForeverChanges: a refused page no longer stops every visit.** A page the site refuses (401, 403, 451) still
+  stops the visit, but it is noted first. It was not, so the next visit began with the same never-read page and
+  stopped on it again: on 2026-11-22 one item page answered 403 and the visits after it read nothing new. It is asked
+  again with the rest after two weeks; a page read before keeps what it said. docs/SOURCES.md.
+
 - **ForeverChanges: a visit cut short still counts.** A visit writes the pack every 500 files
   (`[foreverchanges] pack_every`, `--pack-every`; 0: only at the end), not only when it ends. A visit is two hours or
   more now that it reads the whole site, and a restart (a redeploy) used to lose its card: its files were kept, but
