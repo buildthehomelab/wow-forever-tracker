@@ -167,6 +167,64 @@ def choice_spells(choices, lists):
     return sorted(out)
 
 
+SMART_KILLED_MONSTER = 33   # smart_scripts.action_type: CALL_KILLEDMONSTER, the credit creature is action_param1
+SMART_TARGET_SELF = 1
+
+
+def smart_credits(rows, credit_spells, entry_of=None):
+    """{credit creature: {(kind, entry)}}: the creatures ('npc') and world objects ('go') whose SmartAI gives a kill
+    credit to a player: CALL_KILLEDMONSTER, or a cast of a spell with a kill-credit effect (credit_spells: {credit:
+    {spells}}), at a target other than the scripted thing itself. A timed action list counts for every script that
+    calls it. rows: smart_scripts dicts (entryorguid, source_type, action_type, action_param1..6, target_type);
+    entry_of: {(kind, -guid): entry} for one spawn's own script (a negative entryorguid)."""
+    entry_of = entry_of or {}
+    gives = {}
+    for credit, spells in credit_spells.items():
+        for spell in spells:
+            gives.setdefault(spell, set()).add(credit)
+    kinds = {0: 'npc', 1: 'go'}
+    credits_of, callers = {}, {}
+    for r in rows:
+        source, guid, action = int(r['source_type']), int(r['entryorguid']), int(r['action_type'])
+        params = [int(r.get(f'action_param{i}') or 0) for i in range(1, 7)]
+        if source in kinds:
+            owner = (kinds[source], guid if guid > 0 else entry_of.get((kinds[source], guid)))
+        elif source == SMART_TIMED_LIST:
+            owner = ('list', guid)
+        else:
+            continue
+        if owner[1] is None:
+            continue
+        if action == SMART_CALL_LIST:
+            callers.setdefault(params[0], set()).add(owner)
+        elif action == SMART_CALL_RANDOM_LIST:
+            for p in params:
+                p and callers.setdefault(p, set()).add(owner)
+        elif action == SMART_CALL_RANGE_LIST and 0 < params[0] <= params[1] and params[1] - params[0] <= 1000:
+            for p in range(params[0], params[1] + 1):
+                callers.setdefault(p, set()).add(owner)
+        if int(r.get('target_type') or 0) == SMART_TARGET_SELF:
+            continue
+        found = {params[0]} if action == SMART_KILLED_MONSTER and params[0] else gives.get(params[0], set()) if action in SMART_CASTS else set()
+        for credit in found:
+            credits_of.setdefault(owner, set()).add(credit)
+    out = {}
+    for owner, credits in credits_of.items():
+        owners, todo, seen = set(), [owner], set()
+        while todo:
+            o = todo.pop()
+            if o in seen:
+                continue
+            seen.add(o)
+            if o[0] == 'list':
+                todo.extend(callers.get(o[1], ()))
+            else:
+                owners.add(o)
+        for credit in credits:
+            out.setdefault(credit, set()).update(owners)
+    return out
+
+
 def read_conversations(q, has_table):
     """conversation_casts() from the world database."""
     whole = lambda v: int(v or 0)
@@ -375,6 +433,18 @@ def server_state():
         for credit in {int(r['KillCredit1'] or 0), int(r['KillCredit2'] or 0)} - {0}:
             kill_credit.setdefault(credit, set()).add(int(r['entry']))
     ctx['kill_credit'] = kill_credit
+    # kill credits the database's own scripts give (SmartAI): the Tarantula Eggs of Alther's Mill, Ott, Ayessa
+    if sqlio.has_table('smart_scripts'):
+        rows = q(f"SELECT entryorguid, source_type, action_type, action_param1, action_param2, action_param3, action_param4, action_param5, "
+                 f"action_param6, target_type FROM smart_scripts WHERE source_type IN (0, 1, {SMART_TIMED_LIST}) "
+                 f"AND action_type IN ({SMART_KILLED_MONSTER}, {','.join(map(str, SMART_CASTS))}, {SMART_CALL_LIST}, {SMART_CALL_RANDOM_LIST}, {SMART_CALL_RANGE_LIST})")
+        entry_of = {}
+        for kind, table, source in (('npc', 'creature', 0), ('go', 'gameobject', 1)):
+            guids = sorted({-int(r['entryorguid']) for r in rows if int(r['entryorguid']) < 0 and int(r['source_type']) == source})
+            if guids:
+                for r in q(f"SELECT guid, id FROM {table} WHERE guid IN ({','.join(map(str, guids))})"):
+                    entry_of[(kind, -int(r['guid']))] = int(r['id'])
+        ctx['smart_credits'] = smart_credits(rows, credit_spells, entry_of)
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]
