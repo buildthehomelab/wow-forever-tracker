@@ -103,4 +103,17 @@ check(source_trainer_fits([0 => 4, 165 => 2], 165, 2) && !source_trainer_fits([0
 check(!source_trainer_fits([0 => 4], 0, 2), 'a profession list takes no class spell');
 check(source_trainer_fits([0 => 30], 0, 0) && !source_trainer_fits([], 197, 0) && !source_trainer_fits([0 => 3], 129, 3), 'a class or pet list takes class spells, no recipe');
 
+// when an answer is asked again: a recorded kind with nothing from players' addons yet after a week
+$day = 86400;
+$bare = ['entity' => ['id' => 84179], 'relations' => ['rewards' => []]];
+$recorded = ['entity' => ['id' => 84147], 'relations' => ['rewards' => [], 'addon_givers' => [['npc_id' => 230319]]]];
+check(icyveins_fresh($bare + ['fetched' => time() - 6 * $day], 'quest') && !icyveins_fresh($bare + ['fetched' => time() - 8 * $day], 'quest'),
+      'a quest answer with no addon recording is good for a week');
+check(icyveins_fresh($recorded + ['fetched' => time() - 10 * $day], 'quest') && !icyveins_fresh($recorded + ['fetched' => time() - 15 * $day], 'quest'),
+      'a quest answer with an addon recording is good for two weeks');
+check(icyveins_fresh($bare + ['fetched' => time() - 10 * $day], 'zone') && !icyveins_fresh($bare + ['fetched' => time() - 10 * $day], 'quest'), 'a kind players\' addons do not record keeps the two weeks');
+check(icyveins_fresh(['missing' => true, 'fetched' => time() - 6 * $day], 'quest') && !icyveins_fresh(['missing' => true, 'fetched' => time() - 8 * $day], 'quest'),
+      '"not known" is asked again after a week');
+check(str_contains(source_answers_due_case('icyveins', ['epoch' => 0]), 'addon\\_%') , 'the answers table asks unrecorded answers again sooner too');
+
 ft_test_done();
