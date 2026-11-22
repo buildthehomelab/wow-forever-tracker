@@ -80,7 +80,9 @@ check($map['kind'] === 'map' && $map['id'] === null && str_contains($map['data']
 check(foreverchanges_answer_row(['f' => 'item/5.html.gz', 'at' => 7, 's' => 404], null)['status'] === 'missing' && foreverchanges_answer_row(['f' => 'x', 'at' => 7, 's' => 503], null) === null, '404: missing; anything else is no answer');
 
 // ---------------------------------------------------------------- due times
-check(str_contains(source_answers_due_case('icyveins', ['epoch' => 0]), "WHEN status = 'missing' THEN fetched_at + INTERVAL 604800 SECOND ELSE fetched_at + INTERVAL 1209600 SECOND"), 'Icy Veins: 7 days for not known, 14 for the rest');
+$icy = source_answers_due_case('icyveins', ['epoch' => 0]);
+check(str_contains($icy, "WHEN status = 'missing' THEN fetched_at + INTERVAL 604800 SECOND") && str_contains($icy, "WHEN kind IN ('quest', 'npc', 'gameobject', 'item')") && str_contains($icy, 'THEN fetched_at + INTERVAL 604800 SECOND ELSE fetched_at + INTERVAL 1209600 SECOND'),
+      'Icy Veins: 7 days for not known, 7 for a recorded kind with no addon recording, 14 for the rest');
 check(str_contains(source_answers_due_case('icyveins', ['epoch' => 1700000000]), 'WHEN fetched_at < FROM_UNIXTIME(1700000000) THEN fetched_at'), 'Icy Veins: "ask every source again"');
 check(source_answers_due_case('foreverchanges', ['older_days' => 14]) === "CASE WHEN status = 'missing' THEN fetched_at + INTERVAL 4838400 SECOND ELSE fetched_at + INTERVAL 1209600 SECOND END", 'ForeverChanges: older days, four times that for a 404');
 check(source_answers_due_case('eglink') === 'NULL', 'a versioned source: never by itself');

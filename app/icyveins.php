@@ -9,7 +9,8 @@
 // flight path and map Icy Veins lists, each answer whole (the entity, its children and every relation), so nothing it
 // knows is thrown away. The gaps are asked first (the items players cannot get, quests without giver / ender or turn-in
 // text, the server's trainers), then the rest. Polite: one request at a time, two a second. A full first pass is about
-// 67,000 lookups (nine hours); answers are asked again after 14 days (7 for "not found"): it keeps growing.
+// 67,000 lookups (nine hours); answers are asked again after 14 days (7 for "not found", 7 for a quest, NPC, object or
+// item answer that holds nothing players' addons recorded yet): it keeps growing.
 //
 // What the cards take from the mirror (docs/SOURCES.md, "Icy Veins"):
 //   NPC drops            creature_loot_template; Skinning -> skinning_loot_template; Pick Pocket -> pickpocketing_loot_template
@@ -86,14 +87,32 @@ function icyveins_store(string $kind, int $id, array $data): void
     @unlink(substr($path, 0, -3));   // the older plain file
 }
 
-/** Whether a kept answer is still good: two weeks (one for "not known"), never one of the older form that kept the
- *  relations alone, and never one older than "ask every source again". */
-function icyveins_fresh(?array $data): bool
+/** The kinds players' addons record (givers, drops, stock, points): their answers grow as recordings come in. */
+const ICYVEINS_RECORDED_KINDS = ['quest', 'npc', 'gameobject', 'item'];
+/** Days a recorded kind's answer with nothing from players' addons in it stays good: Icy Veins adds recordings every
+ *  day, and a quest read before anyone recorded its giver (the 841xx Tier 0.5 quests, read 2026-11-16 with rewards
+ *  alone) would otherwise wait two weeks for them. A week, not less: some 60,000 answers have none, and asking them all
+ *  more often would load Icy Veins for most of every day. */
+const ICYVEINS_UNRECORDED_DAYS = 7;
+
+/** Whether an answer holds anything players' addons recorded (an addon_* relation). */
+function icyveins_recorded(array $data): bool
+{
+    foreach (array_keys((array)($data['relations'] ?? [])) as $name) if (str_starts_with((string)$name, 'addon_')) return true;
+    return false;
+}
+
+/** Whether a kept answer is still good: two weeks (one for "not known", a week for a recorded kind's answer with
+ *  no players' recording in it yet), never one of the older form that kept the relations alone, and never one older
+ *  than "ask every source again". */
+function icyveins_fresh(?array $data, string $kind = ''): bool
 {
     if ($data === null) return false;
     if (empty($data['missing']) && !isset($data['entity'])) return false;
     $age = time() - (int)($data['fetched'] ?? 0);
-    return $age < (empty($data['missing']) ? 14 : 7) * 86400 && (int)($data['fetched'] ?? 0) >= source_refresh_epoch();
+    $days = !empty($data['missing']) ? 7
+        : (in_array($kind, ICYVEINS_RECORDED_KINDS, true) && !icyveins_recorded($data) ? ICYVEINS_UNRECORDED_DAYS : 14);
+    return $age < $days * 86400 && (int)($data['fetched'] ?? 0) >= source_refresh_epoch();
 }
 
 /** One request to the API, at two a second at most and slower after failures: [status, body]. */
@@ -115,7 +134,7 @@ function icyveins_max(): int { return (int)(config('icyveins', 'max', 100000) ?:
 function icyveins_get(string $kind, int $id, int &$asked, int &$failures = 0, string &$lastFailure = ''): ?array
 {
     $data = icyveins_cached($kind, $id);
-    if (icyveins_fresh($data) || $asked >= icyveins_max()) return $data;
+    if (icyveins_fresh($data, $kind) || $asked >= icyveins_max()) return $data;
     $asked++;
     [$status, $body] = icyveins_request("$kind/$id", $failures);
     if ($status === 404) $new = ['missing' => true];

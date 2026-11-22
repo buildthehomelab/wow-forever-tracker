@@ -150,8 +150,9 @@ function source_answers_insert_sql(mysqli $link, array $rows): string
  * configuration (the tests): refresh_days, recheck_days, older_days, epoch.
  *   wowhead          wowhead_stale(): older than "ask every source again" at once; missing after [wowhead]
  *                    recheck_days; the rest after [wowhead] refresh_days give or take a quarter by id (never when 0)
- *   icyveins         icyveins_fresh(): older than "ask every source again" at once; missing after 7 days, the rest
- *                    after 14; a kind's list of ids after a day
+ *   icyveins         icyveins_fresh(): older than "ask every source again" at once; missing after 7 days, a quest,
+ *                    NPC, object or item answer with no players' addon recording in it after 7, the rest after 14; a
+ *                    kind's list of ids after a day
  *   foreverchanges   the pull's due(): after [foreverchanges] older days (14), a page the site did not have four
  *                    times later
  *   the rest         NULL: a new version of the source is looked for as a whole (its import), never one answer
@@ -169,7 +170,12 @@ function source_answers_due_case(string $source, array $settings = []): string
             return "CASE$again WHEN status = 'missing' THEN " . $days($recheck)
                 . ($refresh > 0 ? ' ELSE fetched_at + INTERVAL ROUND(' . sprintf('%.6F', $refresh * 86400) . " * $spread) SECOND" : ' ELSE NULL') . ' END';
         case 'icyveins':
-            return "CASE$again WHEN feed = 'list' THEN " . $days(1) . " WHEN status = 'missing' THEN " . $days(7) . ' ELSE ' . $days(14) . ' END';
+            // a quest, NPC, object or item answer with nothing players' addons recorded in it: icyveins_fresh()'s week
+            // (JSON_KEYS fails on text that is not JSON: such a row keeps the two weeks)
+            $unrecorded = "kind IN ('quest', 'npc', 'gameobject', 'item') AND CASE WHEN JSON_VALID(data) THEN "
+                . "JSON_SEARCH(COALESCE(JSON_KEYS(data, '$.relations'), JSON_ARRAY()), 'one', 'addon\\_%') IS NULL ELSE 0 END";
+            return "CASE$again WHEN feed = 'list' THEN " . $days(1) . " WHEN status = 'missing' THEN " . $days(7)
+                . " WHEN $unrecorded THEN " . $days(7) . ' ELSE ' . $days(14) . ' END';
         case 'foreverchanges':
             $older = (float)($settings['older_days'] ?? max(1, (int)config('foreverchanges', 'older', 14)));
             return "CASE WHEN status = 'missing' THEN " . $days(4 * $older) . ' ELSE ' . $days($older) . ' END';
