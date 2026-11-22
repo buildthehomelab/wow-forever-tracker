@@ -52,6 +52,38 @@ def failed(result):
     return sorted(c['code'] for c in result[2] if not c['ok'])
 
 
+class ReplacedGiver(unittest.TestCase):
+    """A quest only an old twin gives (a creature live never sent, replaced by a spawned one of its name) is not given
+    on WoW: Forever; a giver that is merely unspawned still fails."""
+
+    def setUp(self):
+        # 16012 Mokvar: the Classic copy, no spawn; 230317 Mokvar: live's copy, spawned in Orgrimmar
+        self.ctx = world(spawned_npc={230317}, npc_maps={1: [{'id': 230317, 'n': 1, 'name': 'Mokvar', 'scripted': False}]},
+                         q_start_npc=[(16012, 10), (230317, 11)], q_end_npc=[(16012, 10), (230317, 11)],
+                         quests={10: quest_row(), 11: quest_row()}, quest_turn_in_text={10, 11},
+                         quest_npc_names={16012: 'Mokvar', 230317: 'Mokvar'}, live_npcs={230317: 'Mokvar'})
+        self.content = {'quest': {10: {}, 11: {}}}
+
+    def test_a_quest_only_the_replaced_giver_gives(self):
+        results = evaluate(self.content, self.ctx)
+        self.assertEqual(results[('quest', 10)][0], 'ok')
+        starter = [c for c in results[('quest', 10)][2] if c['code'] == 'starter'][0]
+        self.assertIn('230317', starter['detail']['en'])
+        self.assertEqual(results[('quest', 11)][0], 'ok')
+
+    def test_without_live_records_it_is_a_missing_giver(self):
+        self.ctx['live_npcs'] = {}
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
+
+    def test_live_sent_the_old_one_too(self):
+        self.ctx['live_npcs'] = {230317: 'Mokvar', 16012: 'Mokvar'}
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
+
+    def test_live_copy_not_spawned(self):
+        self.ctx['spawned_npc'], self.ctx['npc_maps'] = set(), {}
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
+
+
 class Summoned(unittest.TestCase):
     """A creature a script brings in is there: its loot, its stock and its quests count."""
 

@@ -668,6 +668,24 @@ def server_spawns(table_name, kind):
                                  f'FROM `{table_name}` s JOIN `{template}` t ON t.entry = s.id')]
 
 
+def live_npc_records():
+    """{entry: name} of the creatures the live server sent records of to players (EG Link's recording, live builds
+    only), as world_extras reads them for old twins; {} without a recording."""
+    from ft import layers
+    recording = eglink_recording(('npcs', 'creatures', 'creature_details.enUS'), 'replaced quest givers')
+    if recording is None:
+        return {}
+    live_from = layers.load().live_from
+    live = {}
+    for fact in recording:
+        if fact.subject_kind != 'npc' or fact.build < live_from or fact.kind not in ('creature', 'seen', 'talked'):
+            continue
+        name = (fact.data.get('name') if isinstance(fact.data, dict) else '') or ''
+        live[fact.subject] = live.get(fact.subject) or name
+    log(f'live creature records: {len(live)}')
+    return live
+
+
 def world_extras(ask):
     """What the server's world holds that the live game does not (ft.extras): twins, stacked spawns, crowded
     creatures, invented entries and quest givers live never used. Writes ft_world_extras (a report: nothing is
@@ -858,6 +876,10 @@ def analyse(args):
     ctx['season'] = baseline.season
     ctx['wowhead_reward_quests'] = phases.wowhead_reward_quests()   # quests Wowhead shows rewarding items: never Internal (ft.output)
     ctx['classic_taught'], ctx['classic_never_given'] = classic_facts()
+    try:
+        ctx['live_npcs'] = live_npc_records()
+    except Exception as error:  # without it no quest giver counts as replaced: the analysis goes on
+        log(f'live creature records not read ({error}): no quest giver counts as replaced on live')
     results = rules.evaluate_all(content, ctx)
     wowhead = wowhead_verdicts(content, results, baseline, args.wowhead)
     try:
