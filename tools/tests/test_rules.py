@@ -79,6 +79,22 @@ class ReplacedGiver(unittest.TestCase):
         self.ctx['live_npcs'] = {230317: 'Mokvar', 16012: 'Mokvar'}
         self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
 
+    def test_nobody_gives_it_and_only_the_replaced_one_takes_it(self):
+        # quest 12: its giver link was taken away, only the old copy takes it
+        self.ctx['q_end_npc'].append((16012, 12))
+        self.ctx['quests'][12] = quest_row()
+        self.ctx['quest_turn_in_text'].add(12)
+        self.content['quest'][12] = {}
+        results = evaluate(self.content, self.ctx)
+        self.assertEqual(results[('quest', 12)][0], 'ok')
+        self.assertIn('nobody gives it', [c for c in results[('quest', 12)][2] if c['code'] == 'starter'][0]['detail']['en'])
+
+    def test_an_ender_merely_unspawned_still_fails(self):
+        self.ctx['q_end_npc'].append((555, 13))
+        self.ctx['quests'][13] = quest_row()
+        self.content['quest'][13] = {}
+        self.assertIn('starter', failed(evaluate(self.content, self.ctx)[('quest', 13)]))
+
     def test_live_copy_not_spawned(self):
         self.ctx['spawned_npc'], self.ctx['npc_maps'] = set(), {}
         self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
