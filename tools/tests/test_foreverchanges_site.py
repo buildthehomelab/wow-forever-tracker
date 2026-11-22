@@ -82,6 +82,12 @@ class Order(unittest.TestCase):
         self.assertEqual(len(steps), len({s[2] for s in steps}), 'a gap is not read twice')
         self.assertEqual(len(site.plan(SITEMAP, QUESTS, ITEMS, None, whole=True)), 2 * n + 8, 'without gaps: the whole site')
 
+    def test_the_transmog_placeholders_are_never_asked_for(self):
+        items = ITEMS + f'<url><loc>{B}/item/135510/transmog-ui-trim-head-item</loc></url><url><loc>{B}/item/135522/transmog-ui-chest-item</loc></url>'
+        steps = site.plan(SITEMAP, QUESTS, items, {'items': [135522]}, whole=True)
+        self.assertFalse([s for s in steps if 'transmog-ui-' in s[1]], 'the site refuses them (403), even as a gap')
+        self.assertEqual(len(steps), len(site.plan(SITEMAP, QUESTS, ITEMS, None, whole=True)))
+
     def test_without_gaps_only_the_continents_map_files(self):
         self.assertEqual({s[1].split('/')[2] for s in site.plan(SITEMAP, QUESTS, ITEMS)}, {'kalimdor'})
         self.assertEqual(len(site.plan(SITEMAP, QUESTS, ITEMS, {})), len(site.MAP_FILES))
