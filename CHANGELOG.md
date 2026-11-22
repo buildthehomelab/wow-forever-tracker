@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **ForeverChanges: the transmog placeholders are never asked for.** The site refuses its item pages for the client's
+  transmog placeholders (`transmog-ui-chest-item`, `transmog-ui-trim-head-item` ...) with 403. A refusal stops a
+  visit, so each one cost a visit of its own (one every six hours) and nothing else was read meanwhile. They hold no
+  vendor or drop. Any other refusal still stops the visit. docs/SOURCES.md.
+
 - **ForeverChanges: a refused page no longer stops every visit.** A page the site refuses (401, 403, 451) still
   stops the visit, but it is noted first. It was not, so the next visit began with the same never-read page and
   stopped on it again: on 2026-11-22 one item page answered 403 and the visits after it read nothing new. It is asked

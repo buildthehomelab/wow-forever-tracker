@@ -160,7 +160,9 @@ ease it back. It is kept (`pacer.json`) for the next visit. A 401, 403 or 451, a
 throttles or failures in a row stop the visit: nothing is retried around a refusal, and the card is made from what
 was kept. The page the site refused (401, 403, 451) is noted first, so the next visit begins past it instead of
 stopping on it again; it is asked again with the rest after two weeks, and a page read before keeps what it said. On
-2026-11-22 one item page answered 403 while the pages around it were read, and every later visit stopped on it.
+2026-11-22 one item page answered 403 while the pages around it were read, and every later visit stopped on it. The
+next did too: the site refuses the client's transmog placeholders (`/item/<id>/transmog-ui-…`), so they are never
+asked for (`REFUSED_ITEM_SLUGS`); they hold no vendor or drop.
 Measured on 2026-11-15: about 290 requests at 2.5 s over four visits, no throttle (the pause grew to 2.8 s
 once, for slow answers, and eased back).
 

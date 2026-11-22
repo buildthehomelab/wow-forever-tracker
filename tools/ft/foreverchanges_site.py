@@ -27,7 +27,8 @@ the next run. A 401, 403 or 451, a Cloudflare challenge, or three throttles or f
 nothing is retried around a refusal and no script is dressed up as a browser. A page the site refused (401, 403, 451)
 is noted first, with the date (2026-11-22: one item page answered 403 while the pages around it were read): the next
 run begins past it instead of stopping on it again, and it is asked again with the rest after `older` days. A page
-read before keeps what it said.
+read before keeps what it said. The item pages the site always refuses (REFUSED_ITEM_SLUGS: the client's transmog
+placeholders) are never asked for.
 
 The whole site is read, the gaps first. On 2026-11-16 the project decided to look up only its gaps and never to
 mirror the site; on 2026-11-21 it reversed that: the tracker held too little of it, so a visit now goes on through
@@ -274,6 +275,12 @@ def locs(sitemap):
 REST = 40   # the tiers from here on are the rest of the site, after every gap
 
 
+# Item pages never asked for: the site refuses them (403). The client's transmog placeholders ("transmog-ui-chest-item",
+# "transmog-ui-trim-head-item" ...) answered 403 on 2026-11-22 while the pages around them were read; they hold no
+# vendor or drop. A refused page stops a visit, so each would cost a visit of its own.
+REFUSED_ITEM_SLUGS = ('transmog-ui-',)
+
+
 def plan(sitemap, quest_sitemap, item_sitemap, wanted=None, whole=False):
     """[(tier, path on the site, file kept)] in the order of the top of this file: the gaps (tiers below REST), then
     with `whole` the rest of the site (every other map's files, quest page and item page). Without `wanted` and
@@ -298,7 +305,7 @@ def plan(sitemap, quest_sitemap, item_sitemap, wanted=None, whole=False):
         pages = {}
         for path in locs(text):
             m = re.fullmatch(rf'/{kind}/(\d{{1,10}})/([a-z0-9-]{{1,160}})', path)
-            if m:
+            if m and not (kind == 'item' and m.group(2).startswith(REFUSED_ITEM_SLUGS)):
                 pages.setdefault(int(m.group(1)), path)
         for number, path in pages.items():
             if kind == 'quest':
