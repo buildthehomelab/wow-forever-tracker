@@ -158,7 +158,10 @@ starts at `[foreverchanges] pause` (2.5 s) and moves with what the site says: a 
 Retry-After asks (a minute at least), an answer slower than four seconds lengthens it, fifty quick answers in a row
 ease it back. It is kept (`pacer.json`) for the next visit. A 401, 403 or 451, a Cloudflare challenge, or three
 throttles or failures in a row stop the visit: nothing is retried around a refusal, and the card is made from what
-was kept. Measured on 2026-11-15: about 290 requests at 2.5 s over four visits, no throttle (the pause grew to 2.8 s
+was kept. The page the site refused (401, 403, 451) is noted first, so the next visit begins past it instead of
+stopping on it again; it is asked again with the rest after two weeks, and a page read before keeps what it said. On
+2026-11-22 one item page answered 403 while the pages around it were read, and every later visit stopped on it.
+Measured on 2026-11-15: about 290 requests at 2.5 s over four visits, no throttle (the pause grew to 2.8 s
 once, for slow answers, and eased back).
 
 **In what order.** First what the last analysis lacks: the continents' map files, then the quests without a giver

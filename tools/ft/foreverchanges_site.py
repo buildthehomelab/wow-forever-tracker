@@ -24,7 +24,10 @@ at a time, asked for compressed, English pages only. The pause between two reque
 what the site says: a 429 or 503 doubles it and waits what Retry-After asks (a minute at least), an answer slower than
 four seconds lengthens it, and it eases back after a run of quick answers. What it learnt is kept (pacer.json) for
 the next run. A 401, 403 or 451, a Cloudflare challenge, or three throttles or failures in a row stop the run:
-nothing is retried around a refusal and no script is dressed up as a browser.
+nothing is retried around a refusal and no script is dressed up as a browser. A page the site refused (401, 403, 451)
+is noted first, with the date (2026-11-22: one item page answered 403 while the pages around it were read): the next
+run begins past it instead of stopping on it again, and it is asked again with the rest after `older` days. A page
+read before keeps what it said.
 
 The whole site is read, the gaps first. On 2026-11-16 the project decided to look up only its gaps and never to
 mirror the site; on 2026-11-21 it reversed that: the tracker held too little of it, so a visit now goes on through
@@ -88,7 +91,12 @@ ITEM_SOURCES = ('Creature drop', 'From a rare', 'Sold by a vendor', 'Sold by a q
 
 
 class Refused(Exception):
-    """The site said "not you", or stopped answering: the run stops here."""
+    """The site said "not you", or stopped answering: the run stops here. `status` is the page's own answer (401, 403
+    or 451) when the site refused that page, so the page can be noted before the run stops."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 # Where things are kept ----------------------------------------------------------------------------------------------
@@ -359,7 +367,9 @@ def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, pack_ev
                     raise Refused(f'{path}: {status} three times in a row')
                 sleep(wait)
                 continue
-            if status in (401, 403, 451) or challenged(headers, body):
+            if status in (401, 403, 451):
+                raise Refused(f'{path}: {status} (the site refused; nothing is retried around a refusal)', status)
+            if challenged(headers, body):
                 raise Refused(f'{path}: {status} (the site refused; nothing is retried around a refusal)')
             pacer.answered(clock() - started)
             return status, headers, body
@@ -382,7 +392,16 @@ def pull(data, wanted=None, pause=2.5, limit=3000, older=14, whole=True, pack_ev
         counts['left'] = max(0, len(todo) - limit)
         counts['left_gaps'] = sum(1 for s in todo[limit:] if s[0] < REST)
         for tier, path, file in todo[:limit]:
-            status, headers, body = ask(path)
+            try:
+                status, headers, body = ask(path)
+            except Refused as error:
+                if error.status:
+                    # noted before the run stops, so the next run does not begin with it and stop there again: a page
+                    # read before keeps what it said, never read it stays empty; either way it waits `older` days
+                    row = dict(read.get(file) or {'s': error.status})
+                    row.update(f=file, at=int(clock()), refused=error.status)
+                    note(data, row)
+                raise
             row = {'f': file, 'at': int(clock()), 's': status}
             if status == 200:
                 if file.endswith('.json'):
