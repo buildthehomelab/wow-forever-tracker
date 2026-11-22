@@ -721,6 +721,36 @@ class QuestTaughtRecipe(unittest.TestCase):
         self.assertEqual(failed(evaluate(self.content, self.ctx)[('item', 7)]), ['source'])
 
 
+class SmartCredits(unittest.TestCase):
+    """A credit marker a SmartAI script gives: the Tarantula Eggs of Alther's Mill (673101 on use: CALL_KILLEDMONSTER
+    271912), Ott casting the credit spell 1282264 at whoever talks to him."""
+
+    def rows(self, *extra):
+        base = [{'entryorguid': 673101, 'source_type': 1, 'action_type': 33, 'action_param1': 271912, 'target_type': 7},
+                {'entryorguid': 3539, 'source_type': 0, 'action_type': 11, 'action_param1': 1282264, 'target_type': 7}]
+        return base + list(extra)
+
+    def test_the_reader(self):
+        got = server.smart_credits(self.rows(), {259966: {1282264}})
+        self.assertEqual(got, {271912: {('go', 673101)}, 259966: {('npc', 3539)}})
+
+    def test_a_cast_on_itself_credits_nobody(self):
+        rows = [{'entryorguid': 255833, 'source_type': 0, 'action_type': 11, 'action_param1': 1269471, 'target_type': 1}]
+        self.assertEqual(server.smart_credits(rows, {256634: {1269471}}), {})
+
+    def test_a_timed_list_counts_for_its_callers(self):
+        rows = [{'entryorguid': 1229600, 'source_type': 9, 'action_type': 33, 'action_param1': 12297, 'target_type': 7},
+                {'entryorguid': 12296, 'source_type': 0, 'action_type': 80, 'action_param1': 1229600, 'target_type': 1}]
+        self.assertEqual(server.smart_credits(rows, {}), {12297: {('npc', 12296)}})
+
+    def test_the_quest_counts_while_the_scripted_thing_is_there(self):
+        ctx = world(spawned_npc={100}, spawned_go={673101}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)], quests={10: quest_row()},
+                    quest_turn_in_text={10}, objectives=[(10, 0, 271912, 6)], smart_credits={271912: {('go', 673101)}})
+        self.assertEqual(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)][0], 'ok')
+        ctx['spawned_go'] = set()
+        self.assertEqual(failed(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)]), ['objectives'])
+
+
 class TeachersOnly(unittest.TestCase):
     """An item whose only way in is a spell only items teach: the rules name those items for ft.output."""
 

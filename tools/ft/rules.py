@@ -488,7 +488,8 @@ def evaluate_all(content, ctx):
             # a creature the objective only counts (a credit marker) is credited by a spell; one an item players hold
             # casts when used gives the credit wherever the quest says (the Forever quest items that mark a spot)
             credited = any(ctx.get('used_spells', {}).get(spell, set()) & obtainable for spell in ctx.get('credit_spells', {}).get(obj, ())) \
-                or obj in ctx.get('script_credits', ())
+                or obj in ctx.get('script_credits', ()) \
+                or any(entry in (npc_spawned if kind_ == 'npc' else go_spawned) for kind_, entry in ctx.get('smart_credits', {}).get(obj, ()))
             if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned) and not credited:
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
