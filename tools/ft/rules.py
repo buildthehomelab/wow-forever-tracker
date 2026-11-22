@@ -197,6 +197,31 @@ def evaluate_all(content, ctx):
                 todo.append((target, talked[target]))
 
     available_quests = set()
+    tree_spells = ctx.get('tree_spells', set())
+
+    def reward_spells(quests_):
+        spells = set()
+        for quest in quests_:
+            row = ctx['quests'].get(quest, {})
+            spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
+            spells |= ctx.get('quest_display_spells', {}).get(quest, set())
+        return spells
+
+    def learned(have):
+        """Spells players learn: trainers, auto-learned and starting spells, talent trees, conversations, the reward
+        spells of quests they can do and the recipes they hold, then whatever those teach (learn effects, rank after
+        rank). Used inside the passes too, so a recipe a quest's reward spell teaches (Research Access 97286 teaching
+        Study, which makes the Bundle of Scrolls) counts as a craft source."""
+        spells = trained | ctx['auto_learn'] | reward_spells(available_quests) | ctx['create_spells'] | tree_spells | set(talked) | \
+            {spell for spell, items in ctx['teaches'].items() if items & have}
+        todo = [spell for spell in spells if spell in chain]
+        while todo:
+            for target in chain[todo.pop()] - spells:
+                spells.add(target)
+                if target in chain:
+                    todo.append(target)
+        return spells
+
     previous_state = None
     for _round in range(40):  # long quest chains (reward -> item -> next quest) need several passes
         state = (len(available_quests), len(sources), sum(len(v) for v in sources.values()))
@@ -212,7 +237,7 @@ def evaluate_all(content, ctx):
             add({int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} - {0}, 'quest')
             add({int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)} - {0}, 'quest')
             add({int(row.get('StartItem') or 0)} - {0}, 'questgive')   # the package the giver hands over on accept
-        learnable = trained | ctx['auto_learn'] | set(talked) | {spell for spell, items in ctx['teaches'].items() if items & set(sources)}
+        learnable = learned(set(sources))
         for item, spells in ctx['creates'].items():
             if spells & learnable:
                 add([item], 'craft')
@@ -243,19 +268,8 @@ def evaluate_all(content, ctx):
                 if start_ok and end_ok:
                     available_quests.add(quest)
     obtainable = set(sources)
-    quest_spells = set()
-    for quest in available_quests:
-        row = ctx['quests'].get(quest, {})
-        quest_spells |= {int(row.get(k) or 0) for k in ('RewardSpell', 'RewardDisplaySpell1', 'RewardDisplaySpell2', 'RewardDisplaySpell3')} - {0}
-        quest_spells |= ctx.get('quest_display_spells', {}).get(quest, set())
-    tree_spells = ctx.get('tree_spells', set())
-    learnable = trained | ctx['auto_learn'] | quest_spells | ctx['create_spells'] | tree_spells | set(talked) | {spell for spell, items in ctx['teaches'].items() if items & obtainable}
-    todo = [spell for spell in learnable if spell in chain]
-    while todo:
-        for target in chain[todo.pop()] - learnable:
-            learnable.add(target)
-            if target in chain:
-                todo.append(target)
+    quest_spells = reward_spells(available_quests)
+    learnable = learned(obtainable)
     granted = ctx['granted_spells'] = set()   # spells of a player's skill lines that nobody learns: the writer lists them as internal
     # What the original game taught anywhere (trainers, quests, conversations: the Classic database pack), with what
     # those spells teach; None without a pack

@@ -702,6 +702,25 @@ class ScriptCreates(unittest.TestCase):
         self.assertEqual(failed(evaluate(self.content, self.ctx)[('item', 5512)]), ['source'])
 
 
+class QuestTaughtRecipe(unittest.TestCase):
+    """A recipe a quest's reward spell teaches: Research Access (97286) rewards 1302696, which teaches Study 1302508,
+    which makes the Bundle of Scrolls 277651, which holds the scrolls."""
+
+    def setUp(self):
+        self.ctx = world(spawned_npc={100}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)], quests={10: quest_row(RewardSpell=60)},
+                         quest_turn_in_text={10}, spell_teaches={(60, 61)}, creates={7: {61}})
+        self.ctx['loot']['item'] = [(7, 0, 8, 0)]
+        self.content = {'quest': {10: {}}, 'item': {7: {}, 8: {}}}
+
+    def test_its_item_and_what_that_holds_are_obtainable(self):
+        results = evaluate(self.content, self.ctx)
+        self.assertEqual((results[('item', 7)][0], results[('item', 8)][0]), ('ok', 'ok'))
+
+    def test_not_while_nobody_gives_the_quest(self):
+        self.ctx['spawned_npc'] = set()
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('item', 7)]), ['source'])
+
+
 class TeachersOnly(unittest.TestCase):
     """An item whose only way in is a spell only items teach: the rules name those items for ft.output."""
 
