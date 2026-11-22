@@ -61,11 +61,38 @@ function source_gaps(): array
     // game): only the client's own quests are gaps worth a lookup
     $official = official_quests();
     $later = later_ids('item', 'quest', 'spell', 'recipe');   // a recipe's number is its spell's
-    return source_gap_sets(
+    // quests only givers live replaced give or take (ft.rules): not given on WoW: Forever, so no giver is proposed
+    $notGiven = array_fill_keys(array_map('intval', (array)(meta()['not_given_quests'] ?? [])), true);
+    forge_schema();
+    $gaps = source_gap_sets(
         $ids("SELECT id FROM ft_entities WHERE type = 'item' AND internal = 0 AND status <> 'ok'"),
         $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'),
         $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
-        $byItem, $official, ['items' => $later['item'], 'quests' => $later['quest'], 'spells' => $later['spell'] + $later['recipe']]);
+        $byItem, $official, ['items' => $later['item'], 'quests' => $later['quest'], 'spells' => $later['spell'] + $later['recipe']], $notGiven);
+    // the quest links an admin rolled back: never proposed again, or the next card (applied on its own) puts them back
+    $gaps['rolledBack'] = source_rolled_back_links(rows("SELECT sql_apply FROM ft_forge_log WHERE state = 'rolled_back' AND FIND_IN_SET('import', kind)"));
+    return $gaps;
+}
+
+/**
+ * The quest giver and ender links the rolled-back Forge operations of $logs (ft_forge_log rows: sql_apply) had added:
+ * ['table:id:quest' => true]. A rollback reopens the gap the card filled; without this the next card of the same
+ * source, applied on its own, fills it again (the old Anthion's Parting Words, Forge #248 and #249).
+ */
+function source_rolled_back_links(array $logs): array
+{
+    $out = [];
+    foreach ($logs as $log) {
+        $apply = json_decode((string)($log['sql_apply'] ?? ''), true);
+        foreach (is_array($apply) ? $apply : [] as $sql) {
+            if (!is_string($sql) || !preg_match_all('/INSERT INTO `((?:creature|gameobject)_quest(?:starter|ender))` \(`id`,\s*`quest`[^)]*\) VALUES\s*((?:\([^)]*\)\s*,?\s*)+)/', $sql, $inserts, PREG_SET_ORDER)) continue;
+            foreach ($inserts as [, $table, $values]) {
+                preg_match_all('/\(\s*(\d+)\s*,\s*(\d+)/', $values, $pairs, PREG_SET_ORDER);
+                foreach ($pairs as [, $id, $quest]) $out["$table:" . (int)$id . ':' . (int)$quest] = true;
+            }
+        }
+    }
+    return $out;
 }
 
 /**
@@ -73,9 +100,9 @@ function source_gaps(): array
  * get, the server's quests without a giver and without an ender, the quests an item starts, the official quests, and
  * what waits for a release phase ($later: items, quests, spells).
  */
-function source_gap_sets(array $items, array $noGiver, array $noEnder, array $byItem, array $official, array $later): array
+function source_gap_sets(array $items, array $noGiver, array $noEnder, array $byItem, array $official, array $later, array $notGiven = []): array
 {
-    $noGiver = array_intersect_key(array_diff_key($noGiver, $byItem), $official);
+    $noGiver = array_intersect_key(array_diff_key($noGiver, $byItem, $notGiven), $official);
     $noEnder = array_intersect_key($noEnder, $official);
     return [
         'items' => array_diff_key($items, $later['items']),
@@ -229,7 +256,9 @@ function source_tables(array $ev, string $label, array $gaps): array
             if (!isset($gaps[$gap][(int)$quest]) || isset($seen["$role:$kind:$id:$quest"])) continue;
             $seen["$role:$kind:$id:$quest"] = true;
             if (!isset($templates[$kind][(int)$id])) { $left['quest_unknown']++; continue; }
-            $rows[($kind === 'npc' ? 'creature_' : 'gameobject_') . $suffix][] = ['id' => (int)$id, 'quest' => (int)$quest, 'VerifiedBuild' => $build];
+            $table = ($kind === 'npc' ? 'creature_' : 'gameobject_') . $suffix;
+            if (isset($gaps['rolledBack']["$table:" . (int)$id . ':' . (int)$quest])) { $left['quest_link_rolled_back'] = ($left['quest_link_rolled_back'] ?? 0) + 1; continue; }
+            $rows[$table][] = ['id' => (int)$id, 'quest' => (int)$quest, 'VerifiedBuild' => $build];
         }
     }
 

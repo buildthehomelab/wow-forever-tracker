@@ -166,6 +166,14 @@ def evaluate_all(content, ctx):
             live_copy = spawned_by_name.get(normal_name(name))
             if live_copy:
                 replaced_by[npc] = sorted(live_copy)
+    # The quests only replaced givers give, or only replaced givers take: not given on WoW: Forever, whatever gives
+    # them on this server now. The imports read this (meta not_given_quests) and propose no giver for them: Wowhead's
+    # pages inherit the Classic givers (Anthion for the old Anthion's Parting Words), and a card that filled that gap
+    # was applied on its own, rolled back, and made again at the next source refresh.
+    def all_replaced(links):
+        return bool(links) and all(kind == 'npc' and npc in replaced_by for kind, npc, _ in links)
+    ctx['not_given_quests'] = {quest for quest in quests
+                               if all_replaced(enders.get(quest, [])) or all_replaced(starters.get(quest, []))}
 
     # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
     chain = {}

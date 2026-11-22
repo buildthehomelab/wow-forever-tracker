@@ -28,4 +28,18 @@ $open = source_gap_sets($set(100, 101), $set(1, 4, 900), $set(2), $set(4), $set(
 check(array_keys($open['items']) === [100, 101] && array_keys($open['noGiver']) === [1] && array_keys($open['noEnder']) === [2], 'with every phase open nothing is left out');
 check($open['later'] === ['items' => [], 'quests' => [], 'spells' => []], 'and nothing is counted');
 
+// quests only givers live replaced give or take (meta not_given_quests): not given on Forever, no giver proposed
+$given = source_gap_sets([], $set(1, 2, 8951), $set(), $set(), $set(1, 2, 8951), ['items' => [], 'quests' => [], 'spells' => []], $set(8951));
+check(array_keys($given['noGiver']) === [1, 2], 'a quest not given on WoW: Forever is no giver gap');
+
+// the quest links a rolled-back Forge operation added are never proposed again
+$links = source_rolled_back_links([
+    ['sql_apply' => json_encode(['world' => "INSERT INTO `creature_queststarter` (`id`,`quest`,`VerifiedBuild`) VALUES\n(16016,8951,71037),\n(16016,8953,71037);"])],
+    ['sql_apply' => json_encode(['world' => "INSERT INTO `gameobject_questender` (`id`, `quest`) VALUES (500, 77);\nUPDATE `creature_loot_template` SET `Chance` = 5 WHERE `Entry` = 1;"])],
+    ['sql_apply' => json_encode(['world' => "INSERT INTO `creature_loot_template` (`Entry`,`Item`) VALUES (1,2);"])],
+    ['sql_apply' => 'not json'],
+]);
+$keys = array_keys($links); sort($keys);
+check($keys === ['creature_queststarter:16016:8951', 'creature_queststarter:16016:8953', 'gameobject_questender:500:77'], 'only the quest giver and ender links are read, each by table, creature and quest');
+
 ft_test_done();
