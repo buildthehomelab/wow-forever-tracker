@@ -409,6 +409,9 @@ def server_state():
     ctx['q_end_npc'] = pairs('SELECT id, quest FROM creature_questender')
     ctx['q_start_go'] = pairs('SELECT id, quest FROM gameobject_queststarter')
     ctx['q_end_go'] = pairs('SELECT id, quest FROM gameobject_questender')
+    # names of the creatures that give or take quests: a giver live replaced is found by its name (ft.rules)
+    ctx['quest_npc_names'] = {int(r['entry']): r['name'] or '' for r in q(
+        'SELECT entry, name FROM creature_template WHERE entry IN (SELECT id FROM creature_queststarter UNION SELECT id FROM creature_questender)')}
     ctx['objectives'] = [(int(r['QuestID']), int(r['Type']), int(r['ObjectID']), int(r['Amount'])) for r in q('SELECT QuestID, Type, ObjectID, Amount FROM quest_objectives')]
     ctx['quest_items_npc'] = pairs('SELECT CreatureEntry, ItemId FROM creature_questitem')
     ctx['quest_items_go'] = pairs('SELECT GameObjectEntry, ItemId FROM gameobject_questitem')

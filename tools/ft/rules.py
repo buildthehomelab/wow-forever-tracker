@@ -3,6 +3,7 @@
 import math
 
 from . import bosses, reports
+from .extras import normal as normal_name
 from .output import named_internal
 from .baseline import NEW_FROM
 from .server import log
@@ -147,6 +148,24 @@ def evaluate_all(content, ctx):
     for quest, kind, obj, amount in ctx['objectives']:
         objectives.setdefault(quest, []).append((kind, obj, amount))
     disabled_quests = ctx['disabled'].get(1, set())
+    # Quest givers live replaced: a creature no spawn or summon brings in, that the live server never sent to a client,
+    # while it did send a creature of the same name the server spawns (an old twin, ft.extras: the Classic Mokvar 16012
+    # against Forever's 230317). A quest only such givers offer is not given on WoW: Forever: live's copy offers its
+    # own quests. Without live records (no EG Link recording) nothing counts as replaced.
+    live_npcs = ctx.get('live_npcs') or {}
+    replaced_by = {}
+    if live_npcs:
+        spawned_by_name = {}
+        for npcs_ in ctx['npc_maps'].values():
+            for n in npcs_:
+                if n['id'] in live_npcs:
+                    spawned_by_name.setdefault(normal_name(n['name']), set()).add(n['id'])
+        for npc, name in ctx.get('quest_npc_names', {}).items():
+            if npc in live_npcs or npc in npc_spawned or not normal_name(name):
+                continue
+            live_copy = spawned_by_name.get(normal_name(name))
+            if live_copy:
+                replaced_by[npc] = sorted(live_copy)
 
     # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
     chain = {}
@@ -410,6 +429,16 @@ def evaluate_all(content, ctx):
             en = ', '.join(f"{r[1]}{'' if r[2] else ' (not spawned)'}" for r in rows)
             fr = ', '.join(f"{r[1]}{'' if r[2] else ' (non placé)'}" for r in rows)
             return (en_prefix + en if en else ''), (fr_prefix + fr if fr else '')
+        if start and not start_ok and not item_start and all(s[0] == 'npc' and s[1] in replaced_by for s in start):
+            olds = sorted({s[1] for s in start})
+            lives = sorted({e for npc in olds for e in replaced_by[npc]})
+            some = lambda ids: ', '.join(map(str, ids[:3])) + ('…' if len(ids) > 3 else '')
+            checks.append(check(True, 'starter', L(
+                f'Not given on WoW: Forever: only NPC {some(olds)} gives it, which live replaced with {some(lives)}; '
+                'live’s copy does not give this quest.',
+                f'Non donnée sur WoW: Forever : seul le PNJ {some(olds)} la donne, que le jeu a remplacé par {some(lives)} ; '
+                'cette copie ne donne pas cette quête.'), 2))
+            return checks
         is_npc = bool(start) and start[0][0] == 'npc'
         en, fr = listing(start, 'NPC ' if is_npc else 'Object ', 'PNJ ' if is_npc else 'Objet ')
         if item_start:
