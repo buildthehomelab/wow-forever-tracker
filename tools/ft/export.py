@@ -206,6 +206,13 @@ def quest_row(decision, known, world, arriving=()):
     made, problems = quests.rows(quest, known['record'])
     if problems:
         return None, 'its record cannot be written: ' + problems[0]
+    # The item the client starts the quest from (ItemSparse.StartQuestID: a Craftsman's Writ) is often also an item
+    # objective, and the record's startItemId is 0. On accept the core destroys the starting item unless it is the
+    # quest's StartItem or a unique objective item (Player::AddQuestAndCheckCompletion): a writ is neither, so it
+    # vanished and the quest could not be finished. As StartItem it is kept on accept and still taken on turn-in.
+    start = (world.get('start_items') or {}).get(quest)
+    if start and not made.template['StartItem'] and any(o['Type'] == 1 and o['ObjectID'] == start for o in made.objectives):
+        made.template['StartItem'] = start
     for kind, label_, there in (('npc', 'NPC', world['npcs']), ('object', 'object', world['objects'])):
         lacking = [number for number in quests.targets(made)[kind] if number not in there and not (kind == 'npc' and number in arriving)]
         if lacking:

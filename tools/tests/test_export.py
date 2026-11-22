@@ -249,6 +249,16 @@ class Quests(unittest.TestCase):
         self.assertEqual((quest.data['record'], quest.data['sources'], quest.data['addon']), ('eglink@70862', {'eglink'}, None))
         self.assertEqual(rows[1].comment, "Anna gives Kobold's End")                 # the pair is named after the quest that comes with it
 
+    def test_the_item_that_starts_a_quest_and_is_its_objective_is_its_start_item(self):
+        writ = dict(RECORD, objectives=[{'id': 5003, 'typeId': 1, 'objectId': 264037, 'storageIndex': 0, 'amount': 1},
+                                        {'id': 5004, 'typeId': 1, 'objectId': 8069, 'storageIndex': 1, 'amount': 200}])
+        start = lambda record, world: export.quest_row(ready('quest', 'quest', 200, rule='record-seen-live'), known(record), world)[0].data['quest'].template['StartItem']
+        self.assertEqual(start(writ, dict(WORLD, start_items={200: 264037})), 264037)   # kept on accept: the core destroys it otherwise
+        self.assertEqual(start(writ, WORLD), 0)                                          # no client data: the record's word
+        self.assertEqual(start(writ, dict(WORLD, start_items={201: 264037})), 0)         # the item starts another quest
+        self.assertEqual(start(RECORD, dict(WORLD, start_items={200: 264037})), 0)      # the item is not an objective: destroyed on accept, as live
+        self.assertEqual(start(dict(writ, startItemId=6), dict(WORLD, start_items={200: 264037})), 6)    # the record's own StartItem stands
+
     def test_a_quest_nobody_can_start_or_end_yet_waits_and_its_pairs_with_it(self):
         _rows, held = self.plan([ready('quest', 'quest', 200), ready('gives', 'npc', 9, 200), ready('takes', 'npc', 2, 200),
                                  ready('quest', 'quest', 201), ready('gives', 'npc', 1, 201)], {200: known(), 201: known(dict(RECORD, objectives=[]))})
