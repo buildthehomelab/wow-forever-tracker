@@ -439,6 +439,19 @@ def evaluate_all(content, ctx):
                 f'Non donnée sur WoW: Forever : seul le PNJ {some(olds)} la donne, que le jeu a remplacé par {some(lives)} ; '
                 'cette copie ne donne pas cette quête.'), 2))
             return checks
+        # Nobody gives it any more and only givers live replaced take it (the old Mokvar's and Deliana's quests once
+        # the server stopped offering them): the same. Not a missing giver for an import to fill.
+        takers = enders.get(quest_id, [])
+        if not start and not item_start and takers and all(e[0] == 'npc' and e[1] in replaced_by for e in takers):
+            olds = sorted({e[1] for e in takers})
+            lives = sorted({x for npc in olds for x in replaced_by[npc]})
+            some = lambda ids: ', '.join(map(str, ids[:3])) + ('…' if len(ids) > 3 else '')
+            checks.append(check(True, 'starter', L(
+                f'Not given on WoW: Forever: nobody gives it, and only NPC {some(olds)} takes it, which live replaced with '
+                f'{some(lives)}; live’s copy does not take this quest.',
+                f'Non donnée sur WoW: Forever : personne ne la donne, et seul le PNJ {some(olds)} la reprend, que le jeu a '
+                f'remplacé par {some(lives)} ; cette copie ne la reprend pas.'), 2))
+            return checks
         is_npc = bool(start) and start[0][0] == 'npc'
         en, fr = listing(start, 'NPC ' if is_npc else 'Object ', 'PNJ ' if is_npc else 'Objet ')
         if item_start:
