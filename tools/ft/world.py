@@ -172,6 +172,17 @@ def replayed_world(db, build, what):
     return resolve.load_world(db, build)
 
 
+def start_items():
+    """{quest: the item the client starts it from} (ItemSparse.StartQuestID of the server's DB2 files), or {} with a
+    warning when config.ini leads to no DB2 folder: the export then leaves StartItem as the records give it."""
+    from . import server
+    try:
+        return {r['StartQuestID']: r['ID'] for r in server.server_db2('ItemSparse') if r['StartQuestID']}
+    except SystemExit as error:
+        print(f'export: warning: no ItemSparse.db2, quests an item starts keep the record\'s StartItem ({str(error).splitlines()[0]})')
+        return {}
+
+
 def run_export(args):
     registry = layers.load()
     db, build = build_database()
@@ -189,6 +200,8 @@ def run_export(args):
         raise SystemExit(f'export: --date {date}: write it as YYYY-MM-DD')
     try:
         world = replayed_world(db, build, 'export')
+        world['start_items'] = start_items()
+        world['item_starts'] = set(world['start_items'])
         if not resolve.stored_summary(sqlio)[0]:
             raise SystemExit('export: nothing is resolved yet: python tools/tracker.py world resolve')
         result = export.export(db, build, sqlio, registry, world, folders, date, write=not args.dry_run)
