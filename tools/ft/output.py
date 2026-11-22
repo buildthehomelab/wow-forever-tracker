@@ -352,6 +352,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 'phases': list(phase_list),
                 # quests an item starts (ItemSparse.StartQuestID): they need no giver, the imports leave them alone
                 'item_quests': sorted(ctx.get('start_quest_item', {})) if ctx else [],
+                # quests only givers live replaced give or take (ft.rules): not given on WoW: Forever, no giver proposed
+                'not_given_quests': sorted(ctx.get('not_given_quests', ())) if ctx else [],
                 # the Craftsman's Writs: {item: the quest it starts} (writ_items), whose Wowhead pages the crawl follows
                 'writ_items': {str(i): q for i, q in writ_items(content.get('item', {})).items()},
                 # and their tier as the client writes it under the name (1 Journeyman, 2 Expert, 3 Artisan)

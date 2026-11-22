@@ -99,6 +99,20 @@ class ReplacedGiver(unittest.TestCase):
         self.ctx['spawned_npc'], self.ctx['npc_maps'] = set(), {}
         self.assertEqual(failed(evaluate(self.content, self.ctx)[('quest', 10)]), ['ender', 'starter'])
 
+    def test_the_imports_are_told_which_quests_are_not_given(self):
+        # quest 12: a giver still gives it on this server (an import put it back), only the old copy takes it
+        self.ctx['q_start_npc'].append((230317, 12))
+        self.ctx['q_end_npc'].append((16012, 12))
+        self.ctx['quests'][12] = quest_row()
+        self.content['quest'][12] = {}
+        evaluate(self.content, self.ctx)
+        self.assertEqual(self.ctx['not_given_quests'], {10, 12})
+
+    def test_no_live_records_nothing_is_not_given(self):
+        self.ctx['live_npcs'] = {}
+        evaluate(self.content, self.ctx)
+        self.assertEqual(self.ctx['not_given_quests'], set())
+
 
 class Summoned(unittest.TestCase):
     """A creature a script brings in is there: its loot, its stock and its quests count."""
