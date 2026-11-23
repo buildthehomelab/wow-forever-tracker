@@ -236,7 +236,7 @@ first_run() {
     # analysis is then redone once at the next start; 39: a proc aura whose script runs it on a timer (Poised) procs;
     # 40: the spawn audit counts a spawn whose creature a script picks as each of them (spawn_picks.json);
     # 41: it counts a spawn an event only removes, leaves out VMaNGOS' disabled spawns (the packs are made again).
-    # 42: the core's spells read again from core 751f92f169 (Karrz 0.1.39 class and talent fixes).
+    # 42: the core's spells read again from core b1a2ea9935 (Karrz 0.1.39).
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac

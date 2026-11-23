@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- **The core's spells read again from core 751f92f169** (Karrz 0.1.39 class and talent fixes, the PTR's new core).
-  `tools/world/core_spells.json` gains 9 spell scripts and 16 spell ids, among them Vindication, Remorseless Attacks,
-  Improved Berserker Rage and Oath of Light, which the *script* check counted as handled by nothing. The container
+- **The core's spells read again from core b1a2ea9935** (Karrz 0.1.39, the PTR's new core).
+  `tools/world/core_spells.json` gains 13 spell scripts (4 more with a proc hook) and 36 spell ids net, among them
+  Vindication, Remorseless Attacks, Improved Berserker Rage and Oath of Light, which the *script* check counted as
+  handled by nothing, and item proc scripts (Fatal Wound, Pendulum of Doom, Toofbreak, the rend bonus). The container
   analyses again once (marker 42).
 
 - **Spawn audit: three things it could not see.** Checked by hand, none of the six creatures it listed as below every
