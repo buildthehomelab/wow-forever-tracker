@@ -9,6 +9,8 @@ Two numbers per creature and map, and they are not the same thing:
               among N creatures counts 1/N for each. A world with 12 spots in a pool of 6 has 12 spots and 6 up.
 
 Spawns of world events are left out on both sides (a holiday's pumpkin stands a few days a year).
+A spawn whose creature a script picks when it spawns (the four colours of Blackwing Lair's whelps, stored as one
+entry) is counted as a spot of each of them: picked(), from tools/world/spawn_picks.json.
 
 The references are other cores' worlds, each of its own era (ft.spawnrefs): VMaNGOS is the game at patch 1.12,
 AzerothCore and TrinityCore 3.3.5 the game at 3.3.5, where some zones were rebuilt and hold more. None of them is WoW
@@ -74,6 +76,24 @@ class Pools:
                 part *= limit / members
             pool, depth = self.mothers.get(pool), depth + 1
         return part
+
+
+def picked(rows, picks):
+    """rows with the entries the core may spawn in their place. picks: [{'map', 'stored', 'picks': [entries]}]: a
+    spawn that stores `stored` on `map` becomes one of `picks` when it spawns (a script chooses), so it is a spot of
+    each of them and a share of one up, as a spot that lists several creatures is."""
+    swaps = {}
+    for pick in picks or ():
+        try:
+            entries = tuple(int(e) for e in pick['picks'])
+            if entries:
+                swaps[(int(pick['map']), int(pick['stored']))] = entries
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not swaps:
+        return list(rows)
+    return [row._replace(entries=swaps[(row.map, row.entries[0])]) if len(row.entries) == 1 and (row.map, row.entries[0]) in swaps else row
+            for row in rows]
 
 
 def count(rows, pools=None, events=()):

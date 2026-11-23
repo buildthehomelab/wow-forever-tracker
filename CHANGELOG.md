@@ -5,7 +5,15 @@
 - **The core's spells read again from core 751f92f169** (Karrz 0.1.39 class and talent fixes, the PTR's new core).
   `tools/world/core_spells.json` gains 9 spell scripts and 16 spell ids, among them Vindication, Remorseless Attacks,
   Improved Berserker Rage and Oath of Light, which the *script* check counted as handled by nothing. The container
-  analyses again once (marker 40).
+  analyses again once (marker 41).
+
+- **Spawn audit: a creature a script picks at spawn is counted as each of them.** Blackwing Lair's world stores 200
+  Corrupted Red Whelps and the instance script rolls one of the four colours when one spawns. The audit read the
+  stored entry only: the red whelp as above every reference (134 up against 50) and the green, blue and bronze ones as
+  missing. `tools/world/spawn_picks.json` now lists such spawns and the audit counts a row as a spot of each entry it
+  may become, a share of one up for each, as it does for a spot that lists several creatures. The whelps read 33.5 up
+  each, within the references (VMaNGOS 50, AzerothCore and TrinityCore 40). The container analyses again once
+  (marker 40). docs/SPAWNS.md.
 
 - **Procs: a script that runs the aura on a timer passes.** Poised (rogue 1328825, druid 1328829) failed the *Procs*
   check: its aura is a proc trigger with no `spell_proc` row and no client proc flags. Its script makes the aura
