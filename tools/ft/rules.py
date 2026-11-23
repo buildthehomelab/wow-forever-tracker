@@ -2,11 +2,20 @@
 (translated by the website); details are given in English and French."""
 import math
 
-from . import bosses, reports
+from . import bosses, corespells, reports
 from .extras import normal as normal_name
 from .output import named_internal
 from .baseline import NEW_FROM
 from .server import log
+
+
+# Spell effects and auras that do nothing without code (a SpellScript or the core's C++): SPELL_EFFECT_DUMMY and
+# SPELL_EFFECT_SCRIPT_EFFECT; SPELL_AURA_DUMMY and SPELL_AURA_PERIODIC_DUMMY; and a proc aura with no spell to trigger.
+CODE_EFFECTS, CODE_AURAS = {3, 77}, {4, 226}
+# Auras that act only when they proc (SPELL_AURA_PROC_TRIGGER_SPELL, _PROC_TRIGGER_DAMAGE, _PROC_TRIGGER_SPELL_WITH_VALUE):
+# the core builds their proc from the client's flags (SpellAuraOptions.ProcTypeMask) or a spell_proc row, never otherwise.
+PROC_AURAS = {42, 43, 231}
+TRIGGER_AURAS = {42, 231}
 
 
 def L(en, fr):
@@ -363,9 +372,99 @@ def evaluate_all(content, ctx):
             checks.append(check(False, 'source', detail, 3))
         return checks
 
+    # ---- does anything run a spell's effect: a SpellScript, the core's C++, the aura's proc setup
+    core = ctx.get('core_spells') or {}
+    core_known = bool(core.get('known'))
+    core_ids, core_scripts, proc_scripts = core.get('spells', {}), core.get('scripts', {}), core.get('proc_scripts', set())
+    trigger_auras = core.get('trigger_auras', set())
+    core_at = f" ({core['commit']})" if core.get('commit') else ''
+    bound = ctx.get('spell_scripts', {})
+    item_casters = {}
+    for item_id, spells in ctx.get('item_spells', {}).items():
+        for spell in spells:
+            item_casters.setdefault(spell, set()).add(item_id)
+
+    def code_effect(e):
+        return e[1] in CODE_EFFECTS or e[2] in CODE_AURAS or (e[2] in TRIGGER_AURAS and not e[4])
+
+    def needs_code(entity):
+        """Whether one of the spell's effects does nothing without code: a dummy or script effect, a dummy aura, or a
+        proc aura with no spell to trigger."""
+        effects = (entity.get('facts') or {}).get('effects')
+        if effects is None:
+            return bool(entity.get('scriptable'))
+        return any(code_effect(e) for e in effects)
+
+    def is_its_mechanic(entity, talent):
+        """Whether the code-dependent effect is what the spell is for, so that nothing handling it means the spell
+        does nothing. A talent's dummy is its mechanic. Another spell's counts only when every effect it has needs
+        code: a dummy beside a real effect (a teleport's, a poison's, Mind Control's) is often a client hook. A passive
+        spell whose only such effect is a one-off dummy effect, no dummy aura, is a marker (Horse Riding, Engineering
+        Specialization): it runs once when learned and needs nothing."""
+        effects = [e for e in (entity.get('facts') or {}).get('effects') or () if e[1]]
+        if not effects:
+            return bool(entity.get('scriptable')) and talent
+        coded = [e for e in effects if code_effect(e)]
+        if not coded:
+            return False
+        if entity.get('passive') and all(not e[2] for e in coded):
+            return False
+        return talent or len(coded) == len(effects)
+
+    def handler(spell_id, learned=False):
+        """(handled, how): a bound SpellScript the core registers, or the core's C++ naming the spell. For a spell
+        players learn, a creature's or instance's script naming its id does not count: that is what the creature
+        casts, or another spell's id (Remorseless Attacks 14144 is The Beast's Fire Blast constant)."""
+        names = sorted(n for n in bound.get(spell_id, ()) if not core_known or n in core_scripts)
+        if names or (not core_known and spell_id in ctx['scripted_spells']):
+            return True, L('SpellScript: ' + ', '.join(names), 'SpellScript : ' + ', '.join(names)) if names else L('SpellScript present', 'SpellScript présent')
+        if spell_id in core_ids and (not learned or corespells.spell_file(core_ids[spell_id])):
+            return True, L(f'Named by the core’s C++: {core_ids[spell_id]}', f'Nommé par le C++ du core : {core_ids[spell_id]}')
+        if spell_id in ctx.get('smart_spellhit', ()):
+            return True, L('A SmartAI reacts to being hit by it (smart_scripts).', 'Un SmartAI réagit quand il est touché par ce sort (smart_scripts).')
+        orphans = sorted(bound.get(spell_id, ()))
+        if orphans:
+            return False, L(f"spell_script_names binds {', '.join(orphans)}, which the core{core_at} does not register: the effect does nothing.",
+                            f"spell_script_names lie {', '.join(orphans)}, que le core{core_at} n’enregistre pas : l’effet ne fait rien.")
+        return False, L(f'Nothing handles its dummy/script effect: no SpellScript in spell_script_names, and the core’s C++{core_at} does not name it.',
+                        f'Rien ne gère son effet « dummy »/« script » : aucun SpellScript dans spell_script_names, et le C++ du core{core_at} ne le nomme pas.')
+
+    def spell_handling(spell_id, entity, player, learned=False):
+        """The script and proc checks of a spell. A player's spell is counted once the core's C++ was read
+        (tools/world/core_spells.json); anyone else's only shows the hint."""
+        out = []
+        counted = player and core_known and spell_id in known['spell'] and is_its_mechanic(entity, entity.get('sub') == 'talent')
+        if needs_code(entity):
+            ok, detail = handler(spell_id, learned)
+            if not counted:
+                detail = L('To check: a dummy/script effect often needs a SpellScript (spell_script_names).',
+                           'À vérifier : effet « dummy »/« script », un SpellScript est souvent nécessaire (spell_script_names).') if not ok else detail
+            out.append(check(ok, 'script', detail, 2 if counted else 0))
+        effects = (entity.get('facts') or {}).get('effects') or ()
+        proc_aura = any(e[2] in PROC_AURAS for e in effects)
+        proc_script = sorted(n for n in bound.get(spell_id, ()) if n in proc_scripts)
+        if player and spell_id in known['spell'] and (proc_aura or proc_script) and ctx.get('client_procs') is not None:
+            if spell_id in ctx.get('spell_procs', ()):
+                out.append(check(True, 'proc', L('Procs: spell_proc row.', 'Se déclenche : ligne spell_proc.'), 2))
+            elif spell_id in ctx['client_procs'] and (not trigger_auras or any(e[2] in trigger_auras for e in effects)):
+                out.append(check(True, 'proc', L('Procs: the client’s proc flags (SpellAuraOptions).', 'Se déclenche : indicateurs de déclenchement du client (SpellAuraOptions).'), 2))
+            else:
+                what = L(f"its script {', '.join(proc_script)} waits for a proc", f"son script {', '.join(proc_script)} attend un déclenchement") if proc_script \
+                    else L('its aura triggers on a proc', 'son aura agit sur déclenchement')
+                if spell_id in ctx['client_procs']:
+                    # the core builds a proc from the client's flags only for an aura of its isTriggerAura list
+                    why = L('the client’s proc flags are ignored, as none of its auras is one the core builds a proc for',
+                            'les indicateurs du client sont ignorés, aucune de ses auras n’étant de celles pour lesquelles le core construit un déclenchement')
+                else:
+                    why = L('no client proc flags (SpellAuraOptions.ProcTypeMask)', 'aucun indicateur du client (SpellAuraOptions.ProcTypeMask)')
+                out.append(check(False, 'proc', L(f"Never procs: {what['en']}, but it has no spell_proc row and {why['en']}.",
+                                                  f"Ne se déclenche jamais : {what['fr']}, mais il n’a pas de ligne spell_proc et {why['fr']}."), 2))
+        return out
+
     def spell_result(spell_id, entity):
         checks = [check(spell_id in known['spell'], 'core', L('In the server SpellName.db2 or hotfixes.spell_name.', 'Présent dans SpellName.db2 du serveur ou hotfixes.spell_name.'), 2)]
         category = entity['sub']
+        taught = False
         if category in ('class', 'profession', 'racial', 'talent', 'mount', 'rune', 'pet'):
             how = []
             if spell_id in trained:
@@ -387,6 +486,7 @@ def evaluate_all(content, ctx):
                 how.append(L('obtainable item', 'objet obtenable'))
             if category == 'talent':
                 how.append(L('talent', 'talent'))
+            taught = bool(how)
             if not how and spell_id not in trained_any and spell_id not in reward_quests:
                 # Not content of WoW: Forever: a Season of Discovery addition only Season items teach, or an original
                 # spell nothing teaches that the original game taught nowhere either (a proc, a passive, an old talent
@@ -421,9 +521,10 @@ def evaluate_all(content, ctx):
                     granted.add(spell_id)
                 detail = how[0] if how else L('No trainer, automatic learning or item.', 'Ni entraîneur, ni apprentissage automatique, ni objet.')
             checks.append(check(bool(how), 'learn', detail, 2))
-        if entity.get('scriptable'):
-            checks.append(check(spell_id in ctx['scripted_spells'], 'script', L('To check: a dummy/script effect often needs a SpellScript (spell_script_names).',
-                                                                                 'À vérifier : effet « dummy »/« script », un SpellScript est souvent nécessaire (spell_script_names).'), 0))
+        # A player's spell (one players learn, or one an obtainable item casts) whose effect needs code: it counts.
+        # Anyone else's (a creature's, an internal trigger) stays a hint.
+        player = taught or bool(item_casters.get(spell_id, set()) & obtainable)
+        checks.extend(spell_handling(spell_id, entity, player, taught))
         return checks
 
     def talent_result(talent_id, entity):
@@ -431,11 +532,15 @@ def evaluate_all(content, ctx):
         missing = [s for s in entity['ranks'] if s in content['spell'] and s not in known['spell'] and s not in ctx['spell_ids']]
         checks.append(check(not missing, 'ranks', L(f"Missing spells: {', '.join(map(str, missing))}", f"Sorts manquants : {', '.join(map(str, missing))}") if missing
                             else L(f"{len(entity['ranks'])} rank(s)", f"{len(entity['ranks'])} rang(s)"), 2))
-        unscripted = [s for s in entity['ranks'] if content['spell'].get(s, {}).get('scriptable') and s not in ctx['scripted_spells']]
-        if any(content['spell'].get(s, {}).get('scriptable') for s in entity['ranks']):
-            checks.append(check(not unscripted, 'talent_script', L('To check, dummy effects without SpellScript: ' + ', '.join(map(str, unscripted)),
-                                                                   'À vérifier, effets « dummy » sans SpellScript : ' + ', '.join(map(str, unscripted))) if unscripted
-                                else L('SpellScript present', 'SpellScript présent'), 0))
+        scriptable = [s for s in entity['ranks'] if is_its_mechanic(content['spell'].get(s, {}), True)]
+        if scriptable:
+            unscripted = [s for s in scriptable if not handler(s, True)[0]]
+            weight = 2 if core_known else 0
+            checks.append(check(not unscripted, 'talent_script', L('Nothing handles the dummy/script effect of rank(s) ' + ', '.join(map(str, unscripted))
+                                                                   + ': no SpellScript in spell_script_names, and the core’s C++ does not name them.',
+                                                                   'Rien ne gère l’effet « dummy »/« script » des rangs ' + ', '.join(map(str, unscripted))
+                                                                   + ' : aucun SpellScript dans spell_script_names, et le C++ du core ne les nomme pas.') if unscripted
+                                else L('SpellScript or core C++ present', 'SpellScript ou C++ du core présent'), weight))
         return checks
 
     def quest_result(quest_id, entity):

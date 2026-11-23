@@ -31,6 +31,7 @@ CLASS_CATEGORY, RACIAL_CATEGORY = 7, 12
 # or a creature casts, a trigger, a leftover.
 PLAYER_SPELLS = ('class', 'profession', 'racial', 'talent', 'mount', 'pet', 'rune', 'petability')
 SCRIPT_EFFECTS, SCRIPT_AURAS = {3, 77}, {4, 226}
+SPELL_ATTR0_PASSIVE = 0x40
 EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL = 24, 36
 # Blizzard's "do not translate" mark on a name that is not for players ("Test Profession [DNT]")
 DO_NOT_TRANSLATE = re.compile(r'\[DNT\]|\(DNT\)|\bDNT\b')
@@ -118,7 +119,9 @@ def official(folder, read=None):
     en = lambda name: {r['ID']: r for r in (read(name) if read else table(folder, name, 'enUS'))}
     out = {}
 
-    icons_spell = {r['SpellID']: r['SpellIconFileDataID'] for r in t('SpellMisc') if r['DifficultyID'] == 0}
+    spell_misc = [r for r in t('SpellMisc') if r['DifficultyID'] == 0]
+    icons_spell = {r['SpellID']: r['SpellIconFileDataID'] for r in spell_misc}
+    passive = {r['SpellID'] for r in spell_misc if (r.get('Attributes1') or 0) & SPELL_ATTR0_PASSIVE}
     spell_names = {r['ID']: r['Name'] for r in t('SpellName')}
     spell_names_en = {i: r['Name'] for i, r in en('SpellName').items()}
     spell_text = {r['ID']: r for r in t('Spell')}
@@ -260,6 +263,7 @@ def official(folder, read=None):
         spells[spell_id] = {'name': name, 'name_en': spell_names_en.get(spell_id, ''), 'icon': icons_spell.get(spell_id, 0),
                             'sub': category, 'level': level.get('BaseLevel', 0) or level.get('SpellLevel', 0),
                             'scriptable': any(e['Effect'] in SCRIPT_EFFECTS or e['EffectAura'] in SCRIPT_AURAS for e in effects.get(spell_id, [])),
+                            'passive': spell_id in passive,
                             'teach': sorted(teaches.get(spell_id, ())) if category in ('class', 'profession', 'rune') else [],
                             'facts': {'name': name, 'rank': text.get('NameSubtext', ''), 'desc': text.get('Description', ''),
                                       'aura': text.get('AuraDescription', ''), 'effects': effect_facts, 'level': level.get('BaseLevel', 0)}}

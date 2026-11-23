@@ -2,7 +2,7 @@
 import json
 import os
 
-from . import db2, sqlio, summons
+from . import corespells, db2, sqlio, summons
 from .config import CONFIG, DATA
 from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 
@@ -513,7 +513,28 @@ def server_state():
     ctx['conversation_casts'] = read_conversations(q, sqlio.has_table)
     ctx['pet_training'] = (ints('SELECT SpellId FROM classic_pet_spell_training_points') if sqlio.has_table('classic_pet_spell_training_points') else set()) | \
                           ints('SELECT Spell FROM creature_template_spell')
-    ctx['scripted_spells'] = {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
+    # Which spells something handles: a SpellScript bound in spell_script_names (a negative id binds every rank, as the
+    # core reads it), and an aura's proc setup: a spell_proc row or the client's proc flags (SpellAuraOptions).
+    chains = corespells.rank_chains(srv('SkillLineAbility'))
+    bound = {}
+    for r in q('SELECT spell_id, ScriptName FROM spell_script_names'):
+        for spell in corespells.expand(int(r['spell_id']), chains):
+            bound.setdefault(spell, set()).add(r['ScriptName'] or '')
+    ctx['spell_scripts'] = bound
+    ctx['scripted_spells'] = set(bound) | {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
+    ctx['spell_procs'] = {spell for x in sqlio.column('SELECT SpellId FROM spell_proc') for spell in corespells.expand(int(x), chains)}
+    options = {r['SpellID']: r['ProcTypeMask1'] or r['ProcTypeMask2'] for r in srv('SpellAuraOptions')
+               if r['ProcTypeMask1'] or r['ProcTypeMask2']}
+    if sqlio.has_table('spell_aura_options', 'hotfixes'):
+        for r in sqlio.query('SELECT SpellID, ProcTypeMask1, ProcTypeMask2 FROM spell_aura_options', 'hotfixes'):
+            if int(r['ProcTypeMask1'] or 0) or int(r['ProcTypeMask2'] or 0):
+                options[int(r['SpellID'])] = 1
+    ctx['client_procs'] = set(options)
+    ctx['core_spells'] = corespells.load()
+    # a creature's or object's SmartAI that reacts to being hit by a spell (SMART_EVENT_SPELLHIT, _SPELLHIT_TARGET):
+    # what a quest item's dummy spell does is often written there, on its target
+    ctx['smart_spellhit'] = {int(x) for x in sqlio.column('SELECT DISTINCT event_param1 FROM smart_scripts WHERE event_type IN (8, 31)')
+                             if x is not None and int(x) > 0} if sqlio.has_table('smart_scripts') else set()
     ctx['achievement_rewards'] = ints('SELECT ID FROM achievement_reward')
     # Achievements that pay a talent or perk currency (a Legacy Point): the core counts the achievement itself as the
     # source (TraitCurrencySource), no achievement_reward row is involved.

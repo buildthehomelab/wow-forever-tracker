@@ -27,6 +27,7 @@ server DB2, world, hotfixes, auth, maps ──────┤
 | `ft/server.py` | What the server provides: its DB2 files, hotfix rows, spawns, loot, vendors, trainers, quests, instances, map files |
 | `ft/rules.py` | Availability checks of every resource, with English and French details |
 | `ft/summons.py`, `world/summoned.json` | What is in the game without a spawn row: the database's summons, and the core's C++ scripts read once by `make_summoned.py` |
+| `ft/corespells.py`, `world/core_spells.json` | What the core's C++ does for spells: the spell ids it names, the spell scripts it registers and which of them wait for a proc, read once by `make_core_spells.py` |
 | `ft/bosses.py` | Which client encounters are a boss of their own, and how each is found on the server |
 | `ft/tooltips.py`, `ft/spelltext.py` | In-game tooltips, with the core's item formulas and a renderer for spell description templates |
 | `ft/forge.py` | Fixes: SQL to apply and to roll back |
@@ -55,6 +56,18 @@ which boss encounter. Run it again
 when the core moves to a commit with new scripts (the file records the commit it was read from). A summoned creature
 counts for its loot, its stock, its quests and kill objectives, never as a trainer, and the locator does not offer
 to spawn it.
+
+A player's spell (one players learn, or one an obtainable item casts) has a *Spell script* check when what it does
+needs code: a dummy or script effect, a dummy aura, a proc aura with no spell to trigger. A talent's counts; another
+spell's counts when every effect it has needs code (a dummy beside a teleport is a client hook), and a passive spell
+whose only such effect is a one-off dummy effect is a marker (Horse Riding) and needs nothing. It passes when a
+SpellScript bound in `spell_script_names` is one the core registers, when the core's C++ names the spell (for a spell
+players learn, in the game code or a spell or talent script: an instance script's constant is what its creature
+casts), or when a SmartAI reacts to being hit by it. `tools/make_core_spells.py /path/to/core` reads the core into
+`tools/world/core_spells.json`; run it again when the core moves. A *Procs* check fails an aura that acts only when it
+procs (a proc-trigger aura, or a bound script with a proc hook) with no `spell_proc` row and no client proc flags
+(SpellAuraOptions.ProcTypeMask) on an aura the core builds a default proc for (its isTriggerAura list): the core never
+procs it. Other spells keep a weightless hint.
 
 A quest also has a *Quest text* check: the giver's text (description or objectives) for a quest taken from a giver,
 and the turn-in text (`quest_offer_reward`, or `quest_request_items` for a quest that asks for items) for one handed
