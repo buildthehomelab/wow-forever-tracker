@@ -896,6 +896,68 @@ def spawn_audit(refresh=False, fetch=True):
     sqlio.execute_file(path, 'tracker')
 
 
+def always_up(ctx=None):
+    """Creatures that stand all the time when a script or a holiday should bring them in only for a while
+    (ft.alwaysup, docs/SPAWNS.md "Always up"): the server's permanent spawns against what our scripts summon and the
+    spawn audit's reference worlds (data/spawnrefs, made by spawn_audit). Writes ft_always_up (a report: nothing is
+    changed by it). ctx: the analysis' context, for the creatures a summoning spell brings in (without it, those are
+    not known)."""
+    from ft import alwaysup, spawnrefs, summons
+    refs = spawnrefs.load(os.path.join(DATA, 'spawnrefs'))
+    if not refs:
+        log('always up: no reference world kept (data/spawnrefs): the spawn audit downloads them; skipped')
+        return
+    q = sqlio.query
+    names = {int(r['entry']): r['name'] or '' for r in q('SELECT entry, name FROM creature_template')}
+    events = sqlio.has_table('game_event_creature')
+    phased = sqlio.has_column('creature', 'PhaseId') and sqlio.has_column('creature', 'PhaseGroup')
+    where = ['NOT EXISTS (SELECT 1 FROM game_event_creature g WHERE g.guid = c.guid AND g.eventEntry > 0)'] if events else []
+    if phased:   # a phased spawn shows only to those in its phase: not up for everyone
+        where.append('c.PhaseId = 0 AND c.PhaseGroup = 0')
+    spawns = {}
+    for r in q('SELECT c.guid, c.id, c.map FROM creature c' + (' WHERE ' + ' AND '.join(where) if where else '')):
+        spawns.setdefault(int(r['id']), []).append((int(r['guid']), int(r['map'])))
+    gated = {}
+    if events:
+        for r in q('SELECT DISTINCT c.id, g.eventEntry FROM creature c JOIN game_event_creature g ON g.guid = c.guid WHERE g.eventEntry > 0'):
+            gated.setdefault(int(r['id']), set()).add(int(r['eventEntry']))
+    causes = {}
+    add = lambda entry, text: causes.setdefault(int(entry), set()).add(text) if entry and int(entry) > 0 else None
+    if sqlio.has_table('smart_scripts'):
+        kinds = {0: 'creature', 1: 'object', 9: 'action list'}
+        for r in q(f'SELECT DISTINCT entryorguid, source_type, action_param1 FROM smart_scripts WHERE action_type = {summons.SMART_SUMMON_CREATURE}'):
+            owner, kind = int(r['entryorguid']), kinds.get(int(r['source_type']), f"source {r['source_type']}")
+            label = f'spawn {-owner}' if owner < 0 else (f'{names.get(owner)} ({owner})' if kind == 'creature' and names.get(owner) else str(owner))
+            add(r['action_param1'], f'SmartAI of {kind} {label}')
+    if sqlio.has_table('creature_summon_groups'):
+        for r in q('SELECT DISTINCT entry, summonerId, summonerType FROM creature_summon_groups'):
+            owner = int(r['summonerId'])
+            add(r['entry'], f"summon group of {names.get(owner) + ' ' if int(r['summonerType']) == 0 and names.get(owner) else ''}{owner}")
+    if sqlio.has_table('event_scripts'):
+        for r in q(f'SELECT DISTINCT id, datalong FROM event_scripts WHERE command = {summons.EVENT_SUMMON_CREATURE}'):
+            add(r['datalong'], f"event script {r['id']}")
+    for entry, script in summons.core()['creatures'].items():
+        add(entry, f'core script {script}')
+    for entry in (ctx or {}).get('spell_summons') or ():
+        add(entry, 'a summoning spell')
+    found, tally = alwaysup.run(spawns, gated, {e: sorted(t) for e, t in causes.items()}, refs, names)
+    log('always up: ' + ', '.join(f'{k}={tally[k]}' for k in alwaysup.KINDS)
+        + f" ({sum(f.spawns for f in found)} spawns); against {', '.join(spawnrefs.SOURCES[s] for s in sorted(refs))}")
+    e = sqlio.escape
+    path = os.path.join(DATA, 'always-up.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_always_up;\n'
+                'CREATE TABLE ft_always_up (kind VARCHAR(16) NOT NULL, entry INT NOT NULL, name VARCHAR(255) NOT NULL, spawns INT NOT NULL,'
+                ' maps VARCHAR(255) NOT NULL, guids MEDIUMTEXT NOT NULL, cause TEXT NOT NULL, witness VARCHAR(255) NOT NULL, later TINYINT NOT NULL,'
+                ' PRIMARY KEY (kind, entry), KEY ix_kind (kind, later)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        for chunk in range(0, len(found), 500):
+            f.write('INSERT INTO ft_always_up (kind, entry, name, spawns, maps, guids, cause, witness, later) VALUES '
+                    + ','.join('(' + ','.join(e(v) for v in (
+                        a.kind, a.entry, a.name[:250], a.spawns, ','.join(map(str, a.maps))[:250], ','.join(map(str, a.guids)),
+                        a.cause, a.witness[:250], int(a.later))) + ')' for a in found[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
+
+
 def known_server_build():
     """The build of the server's client data: [server] build_file or build in config.ini, else the client build the
     realms accept (auth.realmlist), the next best guess; 0 when neither is known."""
@@ -984,6 +1046,10 @@ def analyse(args):
         spawn_audit()
     except Exception as error:  # a report only, like the checks
         log(f'spawn audit failed, skipped: {error}')
+    try:
+        always_up(ctx)
+    except Exception as error:  # a report only, like the checks
+        log(f'always-up check failed, skipped: {error}')
     try:   # the zone maps the Forge's Spawns page draws the locator's positions on (app/maps.php)
         if geo.write_export(latest['dir'], os.path.join(DATA, 'ui-maps.json'), latest['build']):
             log('zone maps written for the Spawns page')
@@ -1172,6 +1238,7 @@ def main():
         locator.run(args)
     elif args.command == 'spawn-audit':
         spawn_audit(refresh=args.refresh, fetch=not args.offline)
+        always_up()   # without the analysis' context: the creatures only a summoning spell brings in are not named
     elif args.command == 'client':
         client_status()
     elif args.command == 'check':

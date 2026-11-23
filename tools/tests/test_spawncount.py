@@ -156,6 +156,14 @@ CREATE TABLE `game_event_creature` (
   `guid` int unsigned NOT NULL
 ) ENGINE=InnoDB;
 INSERT INTO `game_event_creature` VALUES (12,3),(-49,2);
+CREATE TABLE `game_event` (
+  `eventEntry` tinyint unsigned NOT NULL,
+  `occurence` bigint unsigned NOT NULL,
+  `length` bigint unsigned NOT NULL,
+  `holiday` int unsigned NOT NULL,
+  `description` varchar(255)
+) ENGINE=InnoDB;
+INSERT INTO `game_event` VALUES (12,525600,20160,324,'Hallow\\'s End'),(49,1440,720,0,'Pyrewood Village');
 """
 
 AZEROTHCORE = """CREATE TABLE IF NOT EXISTS `creature` (
@@ -176,14 +184,15 @@ INSERT INTO `creature` VALUES
 
 class Reading(unittest.TestCase):
     def test_a_mysqldump_with_trinitycore_pools(self):
-        creatures = spawnrefs.from_tables(spawnrefs.read_dump(MYSQLDUMP.splitlines(True)))
+        creatures, only = spawnrefs.from_tables(spawnrefs.read_dump(MYSQLDUMP.splitlines(True)))
         self.assertEqual(creatures['1134']['0'][:2], [2, 1.0])       # two spots, one up
         self.assertEqual(creatures['1134']['0'][2], [[1.5, 2.0, 3.0], [40.0, 2.0, 3.0]])
         self.assertNotIn('721', creatures)                           # a world event's spawn
+        self.assertEqual(only, {'721': [[12, "Hallow's End", True]]})  # stands only in a yearly holiday
         # guid 2 is only removed by an event (-49, Pyrewood's night): it stands the rest of the time and is counted
 
     def test_azerothcore_one_row_per_line_and_several_ids(self):
-        creatures = spawnrefs.from_tables(spawnrefs.read_dump(AZEROTHCORE.splitlines(True)))
+        creatures, _only = spawnrefs.from_tables(spawnrefs.read_dump(AZEROTHCORE.splitlines(True)))
         self.assertEqual(creatures['1161']['0'][:2], [2, 1.5])
         self.assertEqual(creatures['1162']['0'][:2], [1, 0.5])
 
@@ -199,14 +208,17 @@ class Reading(unittest.TestCase):
                 CREATE TABLE pool_creature_template (id, pool_entry, patch_min, patch_max);
                 CREATE TABLE pool_pool (pool_id, mother_pool);
                 CREATE TABLE game_event_creature (guid, event);
+                CREATE TABLE game_event (entry, description, occurence, holiday);
+                INSERT INTO game_event VALUES (49, 'Gurubashi Arena', 10080, 0);
                 INSERT INTO creature VALUES (1, 1891, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 10), (2, 1892, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 10),
                     (3, 6748, 0, 0, 0, 0, 0, 5, 5, 5, 2, 0, 10), (4, 6748, 0, 0, 0, 0, 0, 5, 5, 5, 0, 0, 3);
                 INSERT INTO game_event_creature VALUES (1, -49), (2, 49);
             """)
             db.commit()
             db.close()
-            creatures = spawnrefs.from_vmangos(path)
+            creatures, only = spawnrefs.from_vmangos(path)
         self.assertEqual(list(creatures), ['1891'])     # the day guard; not the night's worgen, the disabled row or the old patch's
+        self.assertEqual(only, {'1892': [[49, 'Gurubashi Arena', False]]})   # an event's creature, not a yearly holiday
 
     def test_a_pack_of_an_older_format_is_made_again(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -228,6 +240,7 @@ class Reading(unittest.TestCase):
         self.assertEqual(refs['azerothcore']['counts'][(1161, 0)], [2, 1.5])
         self.assertEqual(refs['azerothcore']['places'][(1162, 0)], [(1.0, 2.0, 3.0)])
         self.assertEqual(refs['azerothcore']['version'], 'abc')
+        self.assertEqual(refs['azerothcore']['event_only'], {})
 
     def test_fetching_azerothcore_asks_for_its_pinned_files(self):
         asked = []

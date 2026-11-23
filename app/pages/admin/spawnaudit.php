@@ -51,6 +51,7 @@ page_start(t('Spawn audit', 'Audit des placements'), 'admin');
   <a class="<?= $verdict === $key ? 'is-active' : '' ?>" href="<?= e(url('admin/spawnaudit', ['verdict' => $key])) ?>"><?= e($label) ?><em><?= number($counts[$key]) ?></em></a>
   <?php endforeach; ?>
   <a href="<?= e(url('admin/extras')) ?>"><i class="fas fa-clone"></i><?= e(t('Extras', 'En trop')) ?></a>
+  <a href="<?= e(url('admin/alwaysup')) ?>"><i class="fas fa-clock"></i><?= e(t('Always up', 'Toujours là')) ?></a>
 </nav>
 <p class="tab-desc"><i class="fas fa-circle-info"></i> <?= e($verdicts[$verdict][1]) ?></p>
 <?php if (!$have): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><p><?= e(t('No list yet: it is made by the next analysis, which downloads the reference worlds once.', 'Pas encore de liste : la prochaine analyse la fera, en téléchargeant une fois les mondes de référence.')) ?></p></div><?php else: ?>

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Forge: Always up.** A new page lists creatures that stand in the world all the time when a script or a holiday
+  should bring them in only for a while (docs/SPAWNS.md, section 7). *Summoned, yet always up*: a script of the
+  server summons the creature (SmartAI, a summon group, an event script, a summoning spell, the core's C++) and none
+  of VMaNGOS, AzerothCore or TrinityCore 3.3.5 keeps it spawned; later creatures, which no reference can know, have a
+  tab of their own. *Holiday, yet up all year*: the references spawn it only through events, and the server already
+  gates some of its spawns or the event is a yearly holiday. On Everlake's test realm it found Unbagwa's gorillas,
+  Ishamuhale, Echeyakee and the Undercity warlock scene standing for good. The spawn audit's reference packs now
+  keep which creatures a world spawns only through events (format 3): they are downloaded again once.
+
 - **Imports: a recorded turn-in text that calls the player by a class or a race is not taken.** A recording shows
   what one player's client printed, so where the game's text says `$c` or `$r` it holds that player's own class or
   race: Icy Veins' text for Swift as the Wind, a quest for trolls of any class, came in as "Spirits be with ya,

@@ -337,6 +337,33 @@ small pack in `data/spawnrefs/<source>.json` (per creature and map: spots, up an
 `tools/ft/spawncount.py` does the counting and reads no database; `tools/ft/spawnrefs.py` reads the references. The
 result is the tables `ft_spawn_audit` and `ft_spawn_audit_refs`. Creatures only: objects are not audited.
 
+## 7. Always up: creatures that should come and go
+
+*The Forge › Always up* lists creatures that stand in the world all the time when something should bring them in only
+for a while. It reads the server's permanent spawns (on no world event, in no phase) and sets them against two things:
+what the server's own scripts summon, and the spawn audit's reference worlds (section 6).
+
+| Tab | Listed when | Fix |
+|---|---|---|
+| *Summoned, yet always up* | a script brings the creature in (SmartAI, a summon group, an event script, a summoning spell from the DB2 files, the core's C++ in `tools/world/summoned.json`) and no reference keeps it spawned on any map | remove the spawn, keep the script |
+| *Summoned: later creatures* | the same, for a creature that came after 3.3.5 (id 100,000 and up): no reference can know it, so only the scripts speak | look in game first |
+| *Holiday, yet up all year* | the references spawn the creature only through world events, and an event of the server already holds other spawns of it, or one of those events is a yearly holiday | put the spawns on the event |
+
+A creature any reference keeps spawned outside events is never listed: its permanent spawn is the game's (Stoma the
+Ancient stands in AzerothCore's Felwood). An event another core uses for its own reasons is not a holiday here:
+AzerothCore puts its battlemasters on Call to Arms, Classic keeps them up, so they are listed only if the server
+itself already gates some of them. Wowhead's map does not clear a creature: players see summoned ones too, so it pins
+them.
+
+Examples it found on Everlake's test realm (2026-11-23): Witch Doctor Unbagwa's gorillas, Konda and Mokk standing in
+Stranglethorn all the time; Ishamuhale and Echeyakee; the captives of the Undercity warlock scene; a Midsummer ribbon
+pole target left out of the festival.
+
+The analysis runs the check after the spawn audit; `python tools/tracker.py spawn-audit` runs both (without the
+analysis, the creatures only a summoning spell brings in are not known). The packs of format 3 carry, per creature a
+reference spawns only through events, those events (`event_only`); packs of an older format are downloaded again once.
+`tools/ft/alwaysup.py` decides and reads no database. The result is the table `ft_always_up`.
+
 ## Limits
 
 - **Dungeons and raids** have no position on Wowhead: place them in game with the addon.
