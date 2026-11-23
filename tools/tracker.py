@@ -4,6 +4,7 @@
     python tools/tracker.py analyse [--wowhead]
     python tools/tracker.py locate [--refresh] [--limit N] [--offline]
     python tools/tracker.py client | fetch | hotfixes | history | check
+    python tools/tracker.py spawn-audit [--refresh] [--offline]
     python tools/tracker.py world layers | pin [source ...]
     python tools/tracker.py world replay --dump <TDB_full_world.sql> --core <core checkout> [--data <folder>]
     python tools/tracker.py world why <table> <key> [<key> ...]
@@ -810,6 +811,60 @@ def world_extras(ask):
     sqlio.execute_file(path, 'tracker')
 
 
+def spawn_audit(refresh=False, fetch=True):
+    """How many of each creature the server's world holds, against the worlds of other cores (ft.spawncount,
+    docs/SPAWNS.md "Spawn audit"). The references are kept as packs in data/spawnrefs; one that is missing is
+    downloaded once when `fetch`, and all of them again when `refresh`. Writes ft_spawn_audit and ft_spawn_audit_refs
+    (a report: nothing is changed by it)."""
+    from ft import facts, spawncount, spawnrefs
+    folder = os.path.join(DATA, 'spawnrefs')
+    for source in spawnrefs.SOURCES:
+        if fetch and (refresh or not os.path.isfile(spawnrefs.path_of(folder, source))):
+            try:
+                spawnrefs.fetch(source, folder, facts.http_bytes, log=log)
+            except spawnrefs.RefError as error:
+                log(f'spawn audit: {error}')
+    refs = spawnrefs.load(folder)
+    if not refs:
+        log('spawn audit: no reference world could be had (data/spawnrefs is empty): nothing to compare with')
+        return
+    rows = [spawncount.Row(int(r['guid']), (int(r['id']),), int(r['map']), float(r['x']), float(r['y']), float(r['z']))
+            for r in sqlio.query('SELECT guid, id, map, position_x x, position_y y, position_z z FROM creature')]
+    limits, of_spawn, mothers = {}, {}, {}
+    if sqlio.has_table('pool_members') and sqlio.has_table('pool_template'):
+        limits = {int(r['entry']): int(r['max_limit'] or 0) for r in sqlio.query('SELECT entry, max_limit FROM pool_template')}
+        for r in sqlio.query('SELECT type, spawnId, poolSpawnId FROM pool_members WHERE type IN (0, 2)'):
+            (of_spawn if int(r['type']) == 0 else mothers)[int(r['spawnId'])] = int(r['poolSpawnId'])
+    events = {int(r['guid']) for r in sqlio.query('SELECT guid FROM game_event_creature')} if sqlio.has_table('game_event_creature') else set()
+    names = {int(r['entry']): r['name'] or '' for r in sqlio.query('SELECT entry, name FROM creature_template')}
+    found = list(spawncount.audit(rows, spawncount.Pools(limits, of_spawn, None, mothers), events, refs))
+    tally = collections.Counter(a.verdict for a in found)
+    over = sum(max(0.0, a.up - max(n[1] for n in a.refs.values())) for a in found if a.verdict == 'above_all')
+    log('spawn audit: ' + ', '.join(f'{v}={tally[v]}' for v in spawncount.VERDICTS if tally[v])
+        + f'; {round(over)} creatures up beyond every reference; against '
+        + ', '.join(f'{spawnrefs.SOURCES[s]} ({spots} spots)' for s, (_c, spots) in spawnrefs.summary(refs).items()))
+    e = sqlio.escape
+    path = os.path.join(DATA, 'spawn-audit.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_spawn_audit;\n'
+                'CREATE TABLE ft_spawn_audit (entry INT NOT NULL, map INT NOT NULL, name VARCHAR(255) NOT NULL, verdict VARCHAR(16) NOT NULL,'
+                ' spots INT NOT NULL, up FLOAT NOT NULL, most FLOAT NOT NULL, unmatched INT NOT NULL, later INT NOT NULL, refs VARCHAR(255) NOT NULL,'
+                ' guids MEDIUMTEXT NOT NULL, note TEXT NOT NULL, PRIMARY KEY (entry, map), KEY ix_verdict (verdict)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n'
+                'DROP TABLE IF EXISTS ft_spawn_audit_refs;\n'
+                'CREATE TABLE ft_spawn_audit_refs (source VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(64) NOT NULL, version VARCHAR(64) NOT NULL,'
+                ' made VARCHAR(16) NOT NULL, creatures INT NOT NULL, spots INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        for source, (creatures, spots) in spawnrefs.summary(refs).items():
+            f.write('INSERT INTO ft_spawn_audit_refs VALUES (' + ','.join(e(v) for v in (
+                source, spawnrefs.SOURCES[source], refs[source]['version'][:64], refs[source]['made'][:16], creatures, spots)) + ');\n')
+        for chunk in range(0, len(found), 500):
+            f.write('INSERT INTO ft_spawn_audit (entry, map, name, verdict, spots, up, most, unmatched, later, refs, guids, note) VALUES '
+                    + ','.join('(' + ','.join(e(v) for v in (
+                        a.entry, a.map, (names.get(a.entry) or '')[:250], a.verdict, a.spots, a.up, max([n[1] for n in a.refs.values()] or [0]),
+                        a.unmatched, a.later, json.dumps(a.refs, separators=(',', ':'))[:250], ','.join(map(str, a.guids)), a.note)) + ')'
+                               for a in found[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
+
+
 def known_server_build():
     """The build of the server's client data: [server] build_file or build in config.ini, else the client build the
     realms accept (auth.realmlist), the next best guess; 0 when neither is known."""
@@ -890,6 +945,10 @@ def analyse(args):
         world_extras(args.wowhead)
     except Exception as error:  # a report only, like the checks
         log(f'extras check failed, skipped: {error}')
+    try:
+        spawn_audit()
+    except Exception as error:  # a report only, like the checks
+        log(f'spawn audit failed, skipped: {error}')
     try:   # the zone maps the Forge's Spawns page draws the locator's positions on (app/maps.php)
         if geo.write_export(latest['dir'], os.path.join(DATA, 'ui-maps.json'), latest['build']):
             log('zone maps written for the Spawns page')
@@ -1033,6 +1092,9 @@ def main():
     out.add_argument('--out', help='the SQL file to write (data/checkout/hotfixes-<step>.sql); its manifest is written beside it (.json)')
     out.add_argument('--fetch', action='store_true', help="first read the tables a build stored for the changelog alone lacks from Blizzard's CDN")
     out.add_argument('--no-carry', action='store_true', help='leave out the records that exist by hotfix alone when the step has no hotfixes kept')
+    audit = sub.add_parser('spawn-audit', help="how many of each creature the server spawns, against VMaNGOS, AzerothCore and TrinityCore 3.3.5 (docs/SPAWNS.md)")
+    audit.add_argument('--refresh', action='store_true', help='download the reference worlds again')
+    audit.add_argument('--offline', action='store_true', help='use only the packs already in data/spawnrefs')
     world_parser = sub.add_parser('world', help='the world build: its layers and sources (docs/WORLD-BUILD.md)')
     world_sub = world_parser.add_subparsers(dest='world_command', required=True)
     world_sub.add_parser('layers', help='list the layers, their sources, licences and pinned versions')
@@ -1073,6 +1135,8 @@ def main():
         checkout_cmd(args)
     elif args.command == 'locate':
         locator.run(args)
+    elif args.command == 'spawn-audit':
+        spawn_audit(refresh=args.refresh, fetch=not args.offline)
     elif args.command == 'client':
         client_status()
     elif args.command == 'check':

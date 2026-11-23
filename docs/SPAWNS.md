@@ -293,6 +293,46 @@ of the rest hover in the air (flying creatures, floating objects).
 Not read: game objects (doors, elevators, ships), phased terrain swaps, and the parent map of an instance with no
 files of its own. Liquids inside models (city canals) are not read either; the terrain's own water is.
 
+## 6. Spawn audit: spots, and how many are up
+
+*The Forge › Spawn audit* answers the opposite question from the locator: not what is missing, but whether the world
+holds too many of a creature. It counts two things per creature and map, and they are not the same:
+
+- **spots**: the places the creature can stand, one per spawn row that names it. More spots are fine: they are where
+  the creature turns up.
+- **up**: how many stand at one time. A spawn outside any pool counts 1. A pool shows `max_limit` of its members, so
+  each member counts `max_limit / members`; a spot that picks among several creatures counts a share for each. Twelve
+  spots in a pool of six are 12 spots and 6 up.
+
+Spawns of world events are left out. The server's numbers are set against three public worlds, each of its own era:
+
+| Reference | Era | Read from |
+|---|---|---|
+| [VMaNGOS](https://github.com/vmangos/core) (GPL-2.0) | patch 1.12 | the SQLite dump of its rolling `db_latest` release, rows of patch 1.12 only |
+| [AzerothCore](https://github.com/azerothcore/azerothcore-wotlk) (AGPL-3.0) | 3.3.5 | its base world files at a pinned commit, without the update files after that base |
+| [TrinityCore 3.3.5](https://github.com/TrinityCore/TrinityCore) (GPL-2.0) | 3.3.5 | its full world release (a `.7z`: needs a 7z program, skipped without one) |
+
+None of them is WoW Forever. They say how many of a creature the game had in their era, and what counts is where they
+stand together:
+
+| Verdict | Meaning |
+|---|---|
+| *Above every reference* | more up than any reference that has the creature on that map (past 1.25 times it, plus 2). No era had that many: an import laid a second spawn set over the first. |
+| *Above Classic only* | more than VMaNGOS, but a 3.3.5 core has as many: the later game's numbers (Dustwallow Marsh after its rework). Right only where Forever uses the later zone. |
+| *Below every reference* | fewer than all of them: spawns may be missing, or Forever moved or replaced the creature. |
+| *Within the references*, *No reference* | nothing to say; the second is Forever's own creatures and later ones. |
+
+Each of the server's spawns is also matched to the references' spots (5 yards). *No reference* in the list is how many
+stand where no reference has that creature (hover for their guids, or take the CSV): for a creature above every
+reference those are the rows a second spawn set brought. The fix is not to remove them. Put the creature's spots in a
+pool whose `max_limit` is the reference's number: every spot stays, and no more stand at once than the game had.
+
+The analysis runs the audit; `python tools/tracker.py spawn-audit` runs it alone (`--refresh` downloads the references
+again, `--offline` uses only what is kept). Each reference is downloaded once (about 40, 16 and 47 MB), read into a
+small pack in `data/spawnrefs/<source>.json` (per creature and map: spots, up and the spots' places) and thrown away.
+`tools/ft/spawncount.py` does the counting and reads no database; `tools/ft/spawnrefs.py` reads the references. The
+result is the tables `ft_spawn_audit` and `ft_spawn_audit_refs`. Creatures only: objects are not audited.
+
 ## Limits
 
 - **Dungeons and raids** have no position on Wowhead: place them in game with the addon.

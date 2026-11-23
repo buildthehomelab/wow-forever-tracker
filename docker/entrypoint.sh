@@ -231,13 +231,14 @@ first_run() {
     # 31: the healthstones the core's warlock script makes, crafts only internal items teach, the client's system
     # items; 32: the Craftsman's Writs, ft_meta writ_items; 33: the work list of what later phases need,
     # data/gather.json; 34: Extras; 35: old twins weighed by distance; 36: Crowded asks QuestieDB's traces and EG Link's sightings too;
-    # 37: a player's spell nothing handles (no SpellScript, the core's C++ silent) or that never procs is incomplete): the stored
+    # 37: a player's spell nothing handles (no SpellScript, the core's C++ silent) or that never procs is incomplete);
+    # 38: the spawn audit (ft_spawn_audit), which downloads the reference worlds once: the stored
     # analysis is then redone once at the next start.
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=37 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=38 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

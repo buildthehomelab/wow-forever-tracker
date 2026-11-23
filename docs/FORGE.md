@@ -177,6 +177,9 @@ giver* tabs is ever in the file: an invented entry may be a real one Wowhead has
 leave a hole until its real data is in. Wowhead is asked at most 3,000 times per analysis for these (the rest waits for the next run); without an EG Link
 recording in `data/eglink` the check is not made.
 
+*The Forge › Spawn audit* is the same question asked by numbers: how many of each creature are up on each map,
+against the worlds of VMaNGOS, AzerothCore and TrinityCore 3.3.5 (docs/SPAWNS.md, "Spawn audit").
+
 ## Filling the gaps from open data
 
 NorgannonDB, EG Link, ForeverDB.net and Icy Veins each become an import aimed at the analysis' gaps, under the same
