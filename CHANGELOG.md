@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A chest's personal loot counts as a source.** The analysis read only a chest's shared loot (`Data1`), but the core
+  also fills `chestPersonalLoot` (`Data30`, each player's own) and `chestPushLoot` (`Data33`, straight into the bags).
+  The supply cart at Ariden's Camp gives Recipe: Plated Armorfish through personal loot alone
+  (wow-trinitycore-everlake#136), so the recipe stayed "no source". The locator's chest query reads them too. The
+  website's source pages still read `Data1` only. The container analyses again once (marker 46).
+
 - **Spells WoW: Forever made need a teacher of their own.** A spell nothing teaches passed as "the original game taught
   it nowhere either" whenever its id was below the cut-off for new spells, even when the original game never had it:
   Lacerate's ranks 1-3 (24118-24120) passed while no hunter trainer taught them (fixed in

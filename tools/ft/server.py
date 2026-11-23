@@ -509,7 +509,14 @@ def server_state():
     ctx['loot'] = loot
     ctx['npc_loot'] = [(int(r['Entry']), int(r['LootID'] or 0), int(r['PickPocketLootID'] or 0), int(r['SkinLootID'] or 0))
                        for r in q('SELECT Entry, LootID, PickPocketLootID, SkinLootID FROM creature_template_difficulty WHERE DifficultyID IN (0,1)')]
-    ctx['go_loot'] = [(int(r['entry']), int(r['type']), int(r['Data1'] or 0)) for r in q('SELECT entry, type, Data1 FROM gameobject_template WHERE type IN (3, 25)')]
+    # (entry, type, loot id) of each chest and fishing hole. A chest has three loot ids the core fills: chestLoot (Data1),
+    # chestPersonalLoot (Data30, each player's own: the supply cart that teaches Recipe: Plated Armorfish) and
+    # chestPushLoot (Data33, put straight into the bags); one row for each it has.
+    ctx['go_loot'] = []
+    for r in q('SELECT entry, type, Data1, Data30, Data33 FROM gameobject_template WHERE type IN (3, 25)'):
+        ids = [r['Data1']] + ([r['Data30'], r['Data33']] if int(r['type']) == 3 else [])
+        ctx['go_loot'] += [(int(r['entry']), int(r['type']), int(i)) for i in dict.fromkeys(int(x or 0) for x in ids) if i] \
+            or [(int(r['entry']), int(r['type']), 0)]
     ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]

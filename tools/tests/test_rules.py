@@ -171,6 +171,12 @@ class Summoned(unittest.TestCase):
         self.ctx['spawned_npc'] = {200}
         self.assertEqual(evaluate(self.content, self.ctx)[('spell', 5)][0], 'ok')
 
+    def test_a_chests_personal_loot(self):
+        # the supply cart 694054: its only loot is personal (data30 144443), one of its go_loot rows
+        ctx = world(go_loot=[(694054, 3, 144443)], spawned_go={694054})
+        ctx['loot']['gameobject'] = [(144443, 0, 286153, 0)]
+        self.assertEqual(evaluate({'item': {286153: {}}}, ctx)[('item', 286153)][0], 'ok')
+
     def test_a_summoned_chest(self):
         ctx = world(go_loot=[(500, 3, 901)], summoned_go={500})
         ctx['loot']['gameobject'] = [(901, 0, 3, 0)]

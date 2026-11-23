@@ -128,7 +128,7 @@ def candidates():
         # a chest (or fishing hole) whose loot holds it, and a creature or object that drops it for a quest
         # (creature_questitem, gameobject_questitem): Gordunni Cobalt, Araj's Scarab and the like stand in the world
         # database's loot, only their chest was never spawned
-        for r in sqlio.query(f"SELECT gt.entry, MIN(l.Item) item FROM gameobject_loot_template l JOIN gameobject_template gt ON gt.Data1 = l.Entry AND gt.type IN (3, 25) "
+        for r in sqlio.query(f"SELECT gt.entry, MIN(l.Item) item FROM gameobject_loot_template l JOIN gameobject_template gt ON gt.type IN (3, 25) AND (gt.Data1 = l.Entry OR gt.type = 3 AND l.Entry IN (gt.Data30, gt.Data33)) "
                              f"WHERE l.ItemType = 0 AND l.Item IN ({part}) AND {unspawned_go.format(col='gt.entry')} GROUP BY gt.entry"):
             add('go', r['entry'], 'loot', 'item', r['item'])
         for table_name, column, kind, cond in (('creature_questitem', 'CreatureEntry', 'npc', unspawned_npc), ('gameobject_questitem', 'GameObjectEntry', 'go', unspawned_go)):
