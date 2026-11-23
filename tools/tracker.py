@@ -830,6 +830,11 @@ def spawn_audit(refresh=False, fetch=True):
         return
     rows = [spawncount.Row(int(r['guid']), (int(r['id']),), int(r['map']), float(r['x']), float(r['y']), float(r['z']))
             for r in sqlio.query('SELECT guid, id, map, position_x x, position_y y, position_z z FROM creature')]
+    try:   # the spawns whose creature the core picks when it spawns them count as a spot of each (tools/world/spawn_picks.json)
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'world', 'spawn_picks.json'), encoding='utf-8') as handle:
+            rows = spawncount.picked(rows, json.load(handle).get('picks'))
+    except (OSError, ValueError, AttributeError) as error:
+        log(f'spawn audit: tools/world/spawn_picks.json not read ({error}): every spawn counts as the entry it stores')
     limits, of_spawn, mothers = {}, {}, {}
     if sqlio.has_table('pool_members') and sqlio.has_table('pool_template'):
         limits = {int(r['entry']): int(r['max_limit'] or 0) for r in sqlio.query('SELECT entry, max_limit FROM pool_template')}

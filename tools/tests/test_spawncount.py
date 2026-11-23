@@ -58,6 +58,30 @@ class Counting(unittest.TestCase):
         self.assertEqual(spawncount.count(rows, Pools({1: 5}, {1: 1, 2: 1}), events={3})[(5, 0)], [2, 2.0])
 
 
+class Picked(unittest.TestCase):
+    def test_a_spawn_whose_creature_a_script_picks_is_a_spot_of_each(self):
+        # Blackwing Lair stores 200 red whelps in a pool of 134; the instance script rolls one of four colours
+        rows = [row(g, 14022, x=g, map_id=469) for g in range(1, 201)] + [row(999, 14022, map_id=0)]
+        swapped = spawncount.picked(rows, [{'map': 469, 'stored': 14022, 'picks': [14022, 14023, 14024, 14025]}])
+        counts = spawncount.count(swapped, Pools({7: 134}, {g: 7 for g in range(1, 201)}))
+        for colour in (14022, 14023, 14024, 14025):
+            self.assertEqual(counts[(colour, 469)][0], 200)
+            self.assertAlmostEqual(counts[(colour, 469)][1], 33.5)
+        self.assertEqual(counts[(14022, 0)], [1, 1.0])              # the same entry on another map is itself
+        self.assertEqual(spawncount.verdict(33.5, {'vmangos': 50, 'azerothcore': 40, 'trinitycore': 40}), 'ok')
+
+    def test_a_line_that_does_not_read_is_left_out(self):
+        rows = [row(1, 5)]
+        self.assertEqual(spawncount.picked(rows, [{'map': 0}, {'map': 0, 'stored': 5, 'picks': []}, 'x']), rows)
+        self.assertEqual(spawncount.picked(rows, None), rows)
+
+    def test_the_file_the_tracker_ships_reads(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'world', 'spawn_picks.json')
+        with open(path, encoding='utf-8') as handle:
+            picks = json.load(handle)['picks']
+        self.assertTrue(picks and all(p['stored'] in p['picks'] for p in picks))
+
+
 class Verdicts(unittest.TestCase):
     def test_above_every_reference(self):
         self.assertEqual(spawncount.verdict(14, {'vmangos': 5, 'azerothcore': 5, 'trinitycore': 5}), 'above_all')

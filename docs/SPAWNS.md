@@ -304,7 +304,10 @@ holds too many of a creature. It counts two things per creature and map, and the
   each member counts `max_limit / members`; a spot that picks among several creatures counts a share for each. Twelve
   spots in a pool of six are 12 spots and 6 up.
 
-Spawns of world events are left out. The server's numbers are set against three public worlds, each of its own era:
+Spawns of world events are left out. A spawn whose creature a script picks when it spawns is a spot of each of them:
+Blackwing Lair stores 200 red whelps and its script rolls one of four colours, so the audit counts 200 spots and a
+quarter of the pool for each colour (`tools/world/spawn_picks.json`; without it the red whelp read as four times too
+many and the other three as missing). The server's numbers are set against three public worlds, each of its own era:
 
 | Reference | Era | Read from |
 |---|---|---|

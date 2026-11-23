@@ -1,0 +1,12 @@
+{
+  "about": "Spawns whose creature the core picks when it spawns them: the world stores one entry on the spot and a script returns one of several (InstanceScript::GetCreatureEntry). The spawn audit counts such a row as a spot of each of them (tools/ft/spawncount.py picked()). One line per stored entry and map; 'source' says where the core does it.",
+  "picks": [
+    {
+      "map": 469,
+      "stored": 14022,
+      "picks": [14022, 14023, 14024, 14025],
+      "name": "Blackwing Lair: Corrupted Red, Green, Blue and Bronze Whelp",
+      "source": "classic_instance_blackwing_lair.cpp GetCreatureEntry: urand(0, 3) over the four colours"
+    }
+  ]
+}
