@@ -420,6 +420,7 @@ def server_state():
     # (ft.bosses); for loot, vendors and quests a summoned creature is as present as a spawned one (ft.rules).
     summoned, summoned_go, core = summons.known(spell_summons)
     ctx['summoned_npc'], ctx['summoned_go'] = summoned, summoned_go
+    ctx['spell_summons'] = spell_summons   # the creatures a summoning spell brings in (the always-up check names them)
     ctx['encounter_npc'] = core['encounters']
     ctx['summon_script'] = core['creatures']
     ctx['script_credits'] = set(core.get('credits', {}))   # kill credits a C++ script gives (Arathi Basin's bases)

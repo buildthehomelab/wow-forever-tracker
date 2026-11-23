@@ -128,6 +128,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/extras')) ?>"><i class="fas fa-clone"></i><?= e(t('Extras', 'En trop')) ?></a>
   <a href="<?= e(url('admin/spawnaudit')) ?>"><i class="fas fa-users-viewfinder"></i><?= e(t('Spawn audit', 'Audit des placements')) ?></a>
+  <a href="<?= e(url('admin/alwaysup')) ?>"><i class="fas fa-clock"></i><?= e(t('Always up', 'Toujours là')) ?></a>
   <a href="<?= e(url('admin/query')) ?>"><i class="fas fa-database"></i><?= e(t('Query', 'Requête')) ?></a>
   <a href="<?= e(url('admin/later')) ?>"><i class="fas fa-hourglass-half"></i><?= e(t('Later', 'À venir')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>

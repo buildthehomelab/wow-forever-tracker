@@ -14,7 +14,11 @@ how many are up at one time, and where the spots are). Only the pack is kept; th
 None of them is WoW Forever. They are witnesses of how many of a creature the game had in their era, nothing more
 (docs/SPAWNS.md, "Spawn audit").
 
-A pack: {'format': 2, 'source', 'version', 'made', 'creatures': {entry: {map: [spots, up, [[x, y, z], ...]]}}}.
+A pack: {'format': 3, 'source', 'version', 'made', 'creatures': {entry: {map: [spots, up, [[x, y, z], ...]]}},
+'event_only': {entry: [[event, name, yearly], ...]}}. event_only lists the creatures a world spawns only through world
+events (every spawn of it is one an event adds), with those events; yearly is true for a holiday that comes back once a
+year (Midsummer, Children's Week), false for the rest (Call to Arms, the AQ war effort). The always-up check
+(ft.alwaysup) reads it.
 """
 import collections
 import datetime
@@ -30,17 +34,18 @@ import zipfile
 from ft import spawncount
 from ft.spawncount import Pools, Row
 
-FORMAT = 2      # 2: a spawn a world event only removes is counted, VMaNGOS' disabled spawns are not
+FORMAT = 3      # 2: a spawn a world event only removes is counted, VMaNGOS' disabled spawns are not; 3: event_only
 SOURCES = {'vmangos': 'VMaNGOS', 'azerothcore': 'AzerothCore', 'trinitycore': 'TrinityCore 3.3.5'}
 VMANGOS_PATCH = 10      # VMaNGOS' patch numbers: 0 = 1.2 ... 10 = 1.12
 VMANGOS_DISABLED = 2    # creature.spawn_flags SPAWN_FLAG_DISABLED: a row VMaNGOS keeps and never spawns
 VMANGOS_RELEASE = 'https://api.github.com/repos/vmangos/core/releases/tags/db_latest'
 AZEROTHCORE_COMMIT = 'aebaf3e7164cbdb96ab345f71ccc99d53e07c73e'
-AZEROTHCORE_FILES = ('creature', 'pool_creature', 'pool_pool', 'pool_template', 'game_event_creature')
+AZEROTHCORE_FILES = ('creature', 'pool_creature', 'pool_pool', 'pool_template', 'game_event_creature', 'game_event')
 AZEROTHCORE_RAW = 'https://raw.githubusercontent.com/azerothcore/azerothcore-wotlk/{commit}/data/sql/base/db_world/{name}.sql'
 TRINITYCORE_TAG = 'TDB335.26091'
 TRINITYCORE_URL = 'https://github.com/TrinityCore/TrinityCore/releases/download/TDB335.26091/TDB_full_world_335.26091_2026_09_09.7z'
-TABLES = ('creature', 'pool_creature', 'pool_creature_template', 'pool_pool', 'pool_template', 'pool_members', 'game_event_creature')
+TABLES = ('creature', 'pool_creature', 'pool_creature_template', 'pool_pool', 'pool_template', 'pool_members', 'game_event_creature', 'game_event')
+YEAR_MINUTES = 525600   # game_event.occurence of an event that comes back once a year
 SEVEN_ZIP = ('7z', '7zz', '7za', '7zr')
 
 
@@ -97,8 +102,34 @@ def _world(creatures, limits, of_spawn, of_entry, mothers, events):
     return out
 
 
+def event_only(creatures, added, events):
+    """{entry: [[event, name, yearly]]} of the creatures whose every spawn an event adds. creatures: Row; added: {guid:
+    {event, ...}} (events that add the spawn); events: {event: (name, yearly)}."""
+    every, by_event = collections.Counter(), {}
+    for row in creatures:
+        for entry in row.entries:
+            every[entry] += 1
+            if row.guid in added:
+                by_event.setdefault(entry, collections.Counter())[None] += 1
+                for event in added[row.guid]:
+                    by_event[entry][event] += 1
+    out = {}
+    for entry, counted in by_event.items():
+        if counted[None] == every[entry]:
+            out[str(entry)] = [[event, *(events.get(event) or ('', False))] for event in sorted(e for e in counted if e is not None)]
+    return out
+
+
+def _yearly(row):
+    try:
+        return int(row.get('occurence') or 0) == YEAR_MINUTES and int(row.get('holiday') or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def from_tables(tables):
-    """The pack's 'creatures' from a dump's tables (AzerothCore's, TrinityCore 3.3.5's or MaNGOS' column names)."""
+    """(the pack's 'creatures', its 'event_only') from a dump's tables (AzerothCore's, TrinityCore 3.3.5's or MaNGOS'
+    column names)."""
     creatures = []
     for r in tables.get('creature') or []:
         entries = [int(r[c]) for c in ('id', 'id1', 'id2', 'id3', 'id4', 'id5') if r.get(c)]
@@ -114,14 +145,20 @@ def from_tables(tables):
         elif int(r['type']) == 2:
             mothers[int(r['spawnId'])] = int(r['poolSpawnId'])
     # only what an event adds is left out: a spawn an event removes (a negative event) stands the rest of the time
-    events = {int(r['guid']) for r in tables.get('game_event_creature') or [] if int(r.get('eventEntry') or r.get('event') or 0) > 0}
+    added = {}
+    for r in tables.get('game_event_creature') or []:
+        event = int(r.get('eventEntry') or r.get('event') or 0)
+        if event > 0:
+            added.setdefault(int(r['guid']), set()).add(event)
+    events = set(added)
     if not creatures:
         raise RefError('no creature spawn found: is this a world dump?')
-    return _world(creatures, limits, of_spawn, of_entry, mothers, events)
+    named = {int(r.get('eventEntry') or r.get('entry') or 0): (str(r.get('description') or ''), _yearly(r)) for r in tables.get('game_event') or []}
+    return _world(creatures, limits, of_spawn, of_entry, mothers, events), event_only(creatures, added, named)
 
 
 def from_vmangos(path):
-    """The pack's 'creatures' from VMaNGOS' SQLite world (mangos.sqlite), at patch 1.12."""
+    """(the pack's 'creatures', its 'event_only') from VMaNGOS' SQLite world (mangos.sqlite), at patch 1.12."""
     db = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
     try:
         patch = f'patch_min <= {VMANGOS_PATCH} AND patch_max >= {VMANGOS_PATCH}'
@@ -131,19 +168,30 @@ def from_vmangos(path):
         of_spawn = dict(db.execute(f'SELECT guid, pool_entry FROM pool_creature WHERE {patch}'))
         of_entry = dict(db.execute(f'SELECT id, pool_entry FROM pool_creature_template WHERE {patch}'))
         mothers = dict(db.execute('SELECT pool_id, mother_pool FROM pool_pool'))
-        events = {guid for (guid,) in db.execute('SELECT guid FROM game_event_creature WHERE event > 0')}
+        added = {}
+        for guid, event in db.execute('SELECT guid, event FROM game_event_creature WHERE event > 0'):
+            added.setdefault(guid, set()).add(event)
+        events = set(added)
+        try:
+            named = {entry: (description or '', _yearly({'occurence': occurence, 'holiday': holiday}))
+                     for entry, description, occurence, holiday in db.execute('SELECT entry, description, occurence, holiday FROM game_event')}
+        except sqlite3.Error:   # an older dump without the holiday column, or without the table
+            named = {}
     except sqlite3.Error as error:
         raise RefError(f'{os.path.basename(path)} is not VMaNGOS\' world ({error})') from None
     finally:
         db.close()
     if not creatures:
         raise RefError('no creature spawn at patch 1.12: is this VMaNGOS\' mangos.sqlite?')
-    return _world(creatures, limits, of_spawn, of_entry, mothers, events)
+    return _world(creatures, limits, of_spawn, of_entry, mothers, events), event_only(creatures, added, named)
 
 
-def pack(source, version, creatures, today=None):
+def pack(source, version, creatures, today=None, only=None):
+    """creatures: the 'creatures' part, or (creatures, event_only) as from_tables() and from_vmangos() give them."""
+    if isinstance(creatures, tuple):
+        creatures, only = creatures
     return {'format': FORMAT, 'source': source, 'version': version,
-            'made': (today or datetime.date.today()).isoformat(), 'creatures': creatures}
+            'made': (today or datetime.date.today()).isoformat(), 'creatures': creatures, 'event_only': only or {}}
 
 
 def keyed(made):
@@ -154,7 +202,13 @@ def keyed(made):
             key = (int(entry), int(map_id))
             counts[key] = [int(cell[0]), float(cell[1])]
             where[key] = [tuple(p) for p in (cell[2] if len(cell) > 2 else [])]
-    return {'counts': counts, 'places': where, 'version': made.get('version') or '', 'made': made.get('made') or ''}
+    only = {}
+    for entry, events in (made.get('event_only') or {}).items():
+        try:
+            only[int(entry)] = [(int(e[0]), str(e[1] or ''), bool(e[2])) for e in events]
+        except (TypeError, ValueError, IndexError):
+            continue
+    return {'counts': counts, 'places': where, 'event_only': only, 'version': made.get('version') or '', 'made': made.get('made') or ''}
 
 
 def path_of(folder, source):
