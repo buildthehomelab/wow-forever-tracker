@@ -291,6 +291,33 @@ def evaluate_all(content, ctx):
                 todo.append(target)
     season = ctx.get('season') or (lambda kind, entity_id: False)
     never_given = ctx.get('classic_never_given') or set()   # items the original game gave out nowhere (Classic database pack)
+    # what WoW: Forever made itself (neither the original game nor the Classic Era client has it): the original game's
+    # database cannot say it was never taught
+    forever_made = ctx.get('forever_made') or (lambda kind, entity_id: False)
+
+    def reach(spells):
+        seen, todo = set(spells), list(spells)
+        while todo:
+            for target in chain.get(todo.pop(), set()) - seen:
+                seen.add(target)
+                todo.append(target)
+        return seen
+
+    # {spell: the quests whose turn-in taught it in the original game}, the learn effects followed
+    classic_quests = {}
+    for taught_spell, ids in (ctx.get('classic_quest_taught') or {}).items():
+        for target in reach({taught_spell}):
+            classic_quests.setdefault(target, set()).update(ids)
+
+    def reward_changed(spell_id):
+        """The quests that taught it in the original game, when the realm has every one of them and each now rewards
+        something else (Badlands Reagent Run II 2501 teaches Greater Mender's Potion where it taught Restorative
+        Potion): WoW: Forever changed the reward. None otherwise."""
+        ids = classic_quests.get(spell_id)
+        if not ids or any(q not in ctx['quests'] for q in ids):
+            return None
+        now = reward_spells(ids)
+        return None if not now or spell_id in reach(now) else sorted(ids)
     # What a spell that cannot be learned yet is waiting for, by the realm's own data: the quest that rewards it (itself or
     # the spell that teaches it) and cannot be done yet, the trainer that lists it and is not spawned.
     reward_quests = {}
@@ -525,13 +552,17 @@ def evaluate_all(content, ctx):
                     how.append(L('Not learned: a Season of Discovery addition to the Classic Era client, which nothing on WoW: Forever teaches.',
                                  'Non appris : un ajout de Season of Discovery au client Classic Era, que rien n’enseigne sur WoW: Forever.'))
                 elif classic_taught is not None and not items and not season('spell', spell_id) and spell_id < NEW_FROM['spell'] \
-                        and spell_id not in classic_taught:
+                        and spell_id not in classic_taught and not forever_made('spell', spell_id):
                     how.append(L('Not learned: nothing teaches it, and the original game taught it nowhere either (Classic database).',
                                  'Non appris : rien ne l’enseigne, et le jeu d’origine ne l’enseignait nulle part non plus (base Classic).'))
                 elif items and not season('spell', spell_id) and spell_id < NEW_FROM['spell'] and spell_id not in (classic_taught or ()) \
-                        and all(item in never_given for item in items):
+                        and all(item in never_given for item in items) and not forever_made('spell', spell_id):
                     how.append(L('Not learned: only items the original game never gave out teach it (Classic database).',
                                  'Non appris : seuls des objets que le jeu d’origine ne donnait nulle part l’enseignent (base Classic).'))
+                elif reward_changed(spell_id):
+                    ids = ', '.join(map(str, reward_changed(spell_id)))
+                    how.append(L(f'Not learned: quest {ids} taught it in the original game, and WoW: Forever changed its reward (Classic database).',
+                                 f'Non appris : la quête {ids} l’enseignait dans le jeu d’origine, et WoW: Forever a changé sa récompense (base Classic).'))
                 if how:
                     granted.add(spell_id)
             waiting = None if how else waiting_for(spell_id, items)

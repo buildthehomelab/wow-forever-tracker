@@ -60,7 +60,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ft import client, content as official_content, dating, forge, geo, hotfixes, locator, notes, output, phases, rules, server, sqlio, tooltips, vanilla, world  # noqa: E402
 from ft.wowhead import GIVE_UP_AFTER, is_stale, load_json, save_json  # noqa: E402
-from ft.baseline import Baseline  # noqa: E402
+from ft.baseline import TABLE as BASELINE_TABLE, Baseline  # noqa: E402
 from ft.config import BUILDS, CONFIG, DATA  # noqa: E402
 
 log = server.log
@@ -280,27 +280,30 @@ RANK_NAMES = {0: 'Normal', 1: 'Elite', 2: 'Rare Elite', 3: 'Boss', 4: 'Rare'}
 
 
 def classic_facts(path=None):
-    """(the spells the original game teaches anywhere, the items it gave out nowhere), from the packs of the original
-    game's database the website keeps (data/vmangos/pack.cdbpack, data/classicdb/pack.cdbpack); (None, set()) without a
-    pack, or with none that can be read. With both: a spell either teaches counts as taught, and an item is given out
-    nowhere only when neither gives it out, so that one database's gap never hides what the other knows."""
+    """(the spells the original game teaches anywhere, the items it gave out nowhere, {spell: {quests whose turn-in
+    taught or cast it}}), from the packs of the original game's database the website keeps (data/vmangos/pack.cdbpack,
+    data/classicdb/pack.cdbpack); (None, set(), {}) without a pack, or with none that can be read. With both: a spell
+    either teaches counts as taught, and an item is given out nowhere only when neither gives it out, so that one
+    database's gap never hides what the other knows."""
     from ft import classic
     paths = [path] if path else [os.path.join(DATA, source, 'pack.cdbpack') for source in ('vmangos', 'classicdb')]
-    taught, never = None, None
+    taught, never, by_quest = None, None, {}
     for one in paths:
         if not os.path.isfile(one):
             continue
         try:
             pack = classic.load(one)
-            spells, items = classic.taught(pack), set(pack.get('never_given') or ())
+            spells, items, quests = classic.taught(pack), set(pack.get('never_given') or ()), classic.quest_taught(pack)
         except (OSError, ValueError, KeyError, TypeError) as error:
             log(f'original game pack {one} not read ({error})')
             continue
         taught = spells if taught is None else taught | spells
         never = items if never is None else never & items
+        for spell, ids in quests.items():
+            by_quest.setdefault(spell, set()).update(ids)
     if taught is None:
-        return None, set()
-    return taught, never
+        return None, set(), {}
+    return taught, never, by_quest
 
 
 def classic_teachers(args):
@@ -1023,7 +1026,12 @@ def analyse(args):
             hotfix_changes[index] = change[:6] + (name,)
     ctx['season'] = baseline.season
     ctx['wowhead_reward_quests'] = phases.wowhead_reward_quests()   # quests Wowhead shows rewarding items: never Internal (ft.output)
-    ctx['classic_taught'], ctx['classic_never_given'] = classic_facts()
+    ctx['classic_taught'], ctx['classic_never_given'], ctx['classic_quest_taught'] = classic_facts()
+    # What WoW: Forever made itself: neither the original game (patch 1.12, the changelog's start) nor the Classic Era
+    # client has it. The original game's database says nothing about such a spell.
+    original_build = (more.get('baseline') or {}).get('build')
+    ctx['forever_made'] = lambda kind, entity_id: bool(original_build) and first_seen.get((kind, entity_id)) != original_build \
+        and baseline.has(BASELINE_TABLE.get(kind, ''), entity_id) is False
     try:
         ctx['live_npcs'] = live_npc_records()
     except Exception as error:  # without it no quest giver counts as replaced: the analysis goes on
