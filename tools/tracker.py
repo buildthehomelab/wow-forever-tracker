@@ -819,7 +819,7 @@ def spawn_audit(refresh=False, fetch=True):
     from ft import facts, spawncount, spawnrefs
     folder = os.path.join(DATA, 'spawnrefs')
     for source in spawnrefs.SOURCES:
-        if fetch and (refresh or not os.path.isfile(spawnrefs.path_of(folder, source))):
+        if fetch and (refresh or not spawnrefs.usable(folder, source)):
             try:
                 spawnrefs.fetch(source, folder, facts.http_bytes, log=log)
             except spawnrefs.RefError as error:
@@ -840,7 +840,8 @@ def spawn_audit(refresh=False, fetch=True):
         limits = {int(r['entry']): int(r['max_limit'] or 0) for r in sqlio.query('SELECT entry, max_limit FROM pool_template')}
         for r in sqlio.query('SELECT type, spawnId, poolSpawnId FROM pool_members WHERE type IN (0, 2)'):
             (of_spawn if int(r['type']) == 0 else mothers)[int(r['spawnId'])] = int(r['poolSpawnId'])
-    events = {int(r['guid']) for r in sqlio.query('SELECT guid FROM game_event_creature')} if sqlio.has_table('game_event_creature') else set()
+    # what an event adds is left out; what it only removes (a negative event) stands the rest of the time and is counted
+    events = {int(r['guid']) for r in sqlio.query('SELECT guid FROM game_event_creature WHERE eventEntry > 0')} if sqlio.has_table('game_event_creature') else set()
     names = {int(r['entry']): r['name'] or '' for r in sqlio.query('SELECT entry, name FROM creature_template')}
     found = list(spawncount.audit(rows, spawncount.Pools(limits, of_spawn, None, mothers), events, refs))
     tally = collections.Counter(a.verdict for a in found)

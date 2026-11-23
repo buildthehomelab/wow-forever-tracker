@@ -304,14 +304,15 @@ holds too many of a creature. It counts two things per creature and map, and the
   each member counts `max_limit / members`; a spot that picks among several creatures counts a share for each. Twelve
   spots in a pool of six are 12 spots and 6 up.
 
-Spawns of world events are left out. A spawn whose creature a script picks when it spawns is a spot of each of them:
+Spawns a world event adds are left out; a spawn an event only removes is counted (Pyrewood Village's day guards
+stand all day and leave for the night's worgen). A spawn whose creature a script picks when it spawns is a spot of each of them:
 Blackwing Lair stores 200 red whelps and its script rolls one of four colours, so the audit counts 200 spots and a
 quarter of the pool for each colour (`tools/world/spawn_picks.json`; without it the red whelp read as four times too
 many and the other three as missing). The server's numbers are set against three public worlds, each of its own era:
 
 | Reference | Era | Read from |
 |---|---|---|
-| [VMaNGOS](https://github.com/vmangos/core) (GPL-2.0) | patch 1.12 | the SQLite dump of its rolling `db_latest` release, rows of patch 1.12 only |
+| [VMaNGOS](https://github.com/vmangos/core) (GPL-2.0) | patch 1.12 | the SQLite dump of its rolling `db_latest` release, rows of patch 1.12 only, without the spawns it keeps disabled |
 | [AzerothCore](https://github.com/azerothcore/azerothcore-wotlk) (AGPL-3.0) | 3.3.5 | its base world files at a pinned commit, without the update files after that base |
 | [TrinityCore 3.3.5](https://github.com/TrinityCore/TrinityCore) (GPL-2.0) | 3.3.5 | its full world release (a `.7z`: needs a 7z program, skipped without one) |
 
@@ -322,7 +323,7 @@ stand together:
 |---|---|
 | *Above every reference* | more up than any reference that has the creature on that map (past 1.25 times it, plus 2). No era had that many: an import laid a second spawn set over the first. |
 | *Above Classic only* | more than VMaNGOS, but a 3.3.5 core has as many: the later game's numbers (Dustwallow Marsh after its rework). Right only where Forever uses the later zone. |
-| *Below every reference* | fewer than all of them: spawns may be missing, or Forever moved or replaced the creature. |
+| *Below every reference* | fewer than all of them, the 1.12 one among them: spawns may be missing, or Forever moved or replaced the creature (Deathguard Elite: five became Forever's Deathguard Veteran). Fewer than a 3.3.5 core alone is not listed. |
 | *Within the references*, *No reference* | nothing to say; the second is Forever's own creatures and later ones. |
 
 Each of the server's spawns is also matched to the references' spots (5 yards). *No reference* in the list is how many
