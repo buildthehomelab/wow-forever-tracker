@@ -51,21 +51,23 @@ page_start(t('Checks', 'Contrôles'), 'admin');
 <?php if (!$haveQuests): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><p><?= e(t('No check yet: run the analysis.', 'Pas encore de contrôle : lancez l’analyse.')) ?></p></div><?php else: ?>
 <div class="alert"><i class="fas fa-gift"></i><div><?= e(t('Quests that hand out their item rewards another way than the live game. A quest either gives its items outright (all of them) or offers them as a choice (the player takes one). Forever turned many of Classic’s choices into "you get them all". The live game is what players’ recordings (EG Link) show, from the commit Import EG Link last read. "Given and offered": the server gives an item and offers the same item as a choice, so the player is given it and picks it as well. Nothing to tick here: Import EG Link puts these changes on its card (it moves each item to the list the live game names it in), and they are applied from there.', 'Quêtes qui distribuent leurs objets autrement que le jeu officiel. Une quête donne ses objets d’office (tous) ou les propose au choix (le joueur en prend un). Forever a changé beaucoup de choix de Classic en « vous les recevez tous ». Le jeu officiel est ce que montrent les enregistrements des joueurs (EG Link), du commit lu par le dernier Import EG Link. « Donné et proposé » : le serveur donne un objet et propose le même au choix, le joueur le reçoit donc et le choisit en plus. Rien à cocher ici : Import EG Link met ces changements sur sa carte (chaque objet va dans la liste où le jeu officiel le nomme), et ils s’appliquent depuis là.')) ?></div></div>
 <?php if (!$questList): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-check"></i></div><p><?= e(t('Every quest hands out its items as the live game does.', 'Chaque quête distribue ses objets comme le jeu officiel.')) ?></p></div><?php else: ?>
-<table class="table is-forge">
+<div class="table-scroll">
+<table class="table is-forge quest-rewards">
   <thead><tr><th><?= e(t('Quest', 'Quête')) ?></th><th><?= e(t('Server gives', 'Le serveur donne')) ?></th><th><?= e(t('Server offers (choose one)', 'Le serveur propose (un au choix)')) ?></th><th><?= e(t('Live gives', 'Le jeu donne')) ?></th><th><?= e(t('Live offers (choose one)', 'Le jeu propose (un au choix)')) ?></th><th><?= e(t('Finding', 'Constat')) ?></th></tr></thead>
   <tbody>
   <?php foreach ($questList as $x): $note = trim((string)$x['note']); ?>
     <tr>
       <td><a class="link" href="<?= e(entry_url('quest', (int)$x['quest'])) ?>"><strong><?= e($x['name'] !== '' ? $x['name'] : '#' . (int)$x['quest']) ?></strong></a> <small class="muted">#<?= (int)$x['quest'] ?></small>
         <?php if ((int)$x['live_build']): ?><br><small class="muted"><?= e(sprintf(t('recorded on build %d', 'enregistrée sur le build %d'), (int)$x['live_build'])) ?></small><?php endif; ?></td>
-      <td><?= $itemList($x['gives']) ?></td><td><?= $itemList($x['offers']) ?></td>
-      <td><?= $itemList($x['live_gives']) ?></td><td><?= $itemList($x['live_offers']) ?></td>
-      <td><?php foreach (explode(',', (string)$x['issues']) as $kind): ?><span class="tag is-plain"><?= e($questKinds[$kind] ?? $kind) ?></span> <?php endforeach; ?>
+      <td class="items" data-label="<?= e(t('Server gives', 'Le serveur donne')) ?>"><?= $itemList($x['gives']) ?></td><td class="items" data-label="<?= e(t('Server offers (choose one)', 'Le serveur propose (un au choix)')) ?>"><?= $itemList($x['offers']) ?></td>
+      <td class="items" data-label="<?= e(t('Live gives', 'Le jeu donne')) ?>"><?= $itemList($x['live_gives']) ?></td><td class="items" data-label="<?= e(t('Live offers (choose one)', 'Le jeu propose (un au choix)')) ?>"><?= $itemList($x['live_offers']) ?></td>
+      <td class="finding"><?php foreach (explode(',', (string)$x['issues']) as $kind): ?><span class="tag is-plain"><?= e($questKinds[$kind] ?? $kind) ?></span> <?php endforeach; ?>
         <?php if ($note !== ''): ?><br><small class="check-note"><?= e($note) ?></small><?php endif; ?></td>
     </tr>
   <?php endforeach; ?>
   </tbody>
 </table>
+</div>
 <?php endif; endif; ?>
 <?php else: ?>
 <?php if (!$have): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><p><?= e(t('No check yet: run the analysis with Wowhead lookups (the Docker image does it at start).', 'Pas encore de contrôle : lancez l’analyse avec les consultations Wowhead (l’image Docker le fait au démarrage).')) ?></p></div><?php else: ?>

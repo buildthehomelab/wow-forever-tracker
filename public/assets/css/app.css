@@ -771,3 +771,15 @@ a.id-link:hover { color: var(--accent-text); }
 .zone-map-pins { position: absolute; inset: 0; pointer-events: none; }
 .zone-map-pin { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #f5c542; border: 2px solid #1b1b1b; box-shadow: 0 0 0 2px rgba(245, 197, 66, .45); }
 .icon-btn.is-small { width: 24px; height: 24px; font-size: 12px; vertical-align: middle; }
+/* Checks > Quest rewards: a finding's tag keeps to one line (a pill of fixed height cannot wrap), its column room enough
+   for the tag and its note; on a phone each list says which list it is */
+.table.quest-rewards td { vertical-align: top; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.table.quest-rewards td.finding { min-width: 13em; }
+.table.quest-rewards td.finding .tag { white-space: nowrap; }
+.table.quest-rewards td.finding .check-note { display: block; margin-top: 4px; }
+@media (max-width: 760px) {
+  .table.quest-rewards tr { grid-template-columns: 1fr 1fr; }
+  .table.quest-rewards td:first-child, .table.quest-rewards td.finding { grid-column: 1 / -1; min-width: 0; }
+  .table.quest-rewards td.items::before { content: attr(data-label); display: block; color: var(--faint); font-size: 12px; }
+}
