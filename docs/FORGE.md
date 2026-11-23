@@ -137,6 +137,21 @@ flight). The *Checks* page lists the spawned creatures where the server and the 
 faction that has no reputation (the Revantusk trolls) is not listed: that is Blizzard's choice, and it gives no
 discount on live either.
 
+**Quest rewards** (the *Quest rewards* tab of *Checks*). A quest gives its items outright (`RewardItem1-4`: all of
+them) or offers them as a choice (`RewardChoiceItemID1-6`: the player takes one). Forever turned many of Classic's
+choices into "you get them all", and a world built from older data may still hold the old list. The tab compares each
+quest's two lists with the newest record of the live game (EG Link's quest records) and lists the quests where:
+
+| Finding | The server | The live game |
+|---|---|---|
+| *Live gives them all* | offers the item as a choice | gives it outright |
+| *Live offers a choice* | gives the item outright | offers it as a choice |
+| *Given and offered* | gives an item and offers the same item as a choice: the player is given it and picks it as well | (said in the note: gives it, offers it, or sends both lists too) |
+
+Nothing is ticked there. *Import EG Link* puts the changes on its card (the quest refresh, docs/SOURCES.md): each item
+goes to the list the record names it in, and the list it left is emptied. A quest nobody recorded is only looked at
+for *Given and offered*.
+
 What it leaves alone, on purpose:
 
 - **Neutral against friendly.** That depends on the reputation the player who recorded it had earned.

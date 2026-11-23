@@ -25,6 +25,9 @@ changes, and most were the same thing written another way. So:
   - **Rewards are compared as a list, not slot by slot.** The same items, choices, currencies or reputations in
     another order are no change. Where the list really differs, the slots take the record's; a record with fewer
     entries than the row is a record that names less, and the row stays.
+  - **A reward that moved is not a reward that is gone.** Blizzard turned many "choose one" rewards into "you get
+    them all" (and a few the other way). The record then names the item in its other list: the list it left takes
+    the record's, down to nothing. Left as it was, the quest would give the item and offer it as a choice as well.
   - **The end text stands in either column.** Rows of older data hold it in QuestCompletionLog, the record in
     AreaDescription: the same text in the other column is no change.
   - **Not compared at all:** the money (the server sends the amount for the player who asked: at the level cap it is
@@ -149,6 +152,22 @@ def _build(row):
         return 0
 
 
+# an item a quest gives outright or offers as a choice: each list's other one
+OTHER_LIST = {'RewardItem{}': ('RewardChoiceItemID{}', 6), 'RewardChoiceItemID{}': ('RewardItem{}', 4)}
+
+
+def moved(thing, old_list, new_list, new):
+    """The record names fewer rewards in this list because they moved to its other one: every item the row holds
+    here and the record does not is given (or offered) by the record there. thing: the list's column, as in LISTS;
+    old_list, new_list: [(item, count)] of the row and of the record; new: the record as a row."""
+    if thing not in OTHER_LIST:
+        return False
+    other, most = OTHER_LIST[thing]
+    there = {_int(new.get(other.format(i))) for i in range(1, most + 1)} - {0}
+    gone = {item for item, _count in old_list} - {item for item, _count in new_list}
+    return bool(gone) and gone <= there
+
+
 def quest_changes(records, rows, objectives=None, levels=None, tiers=None):
     """What the newest live records would change in the world's quest rows.
 
@@ -185,17 +204,34 @@ def quest_changes(records, rows, objectives=None, levels=None, tiers=None):
             found[table, ('ID',), column].append([key, value])
             return True
 
+        taken = {}   # the lists that take the record's: {the list's column: its columns}
+        had = {}     # the items each list of the row holds: {the list's column: items}
+        held = {}    # and what it holds once the changes are made
+        said = {}    # the items the record names in each
         for thing, count, most in LISTS:
             columns = [(thing.format(i), count.format(i)) for i in range(1, most + 1)]
             if not all(a in row and b in row for a, b in columns):
                 continue
             old_list = sorted((_int(row[a]), _int(row[b])) for a, b in columns if _int(row[a]))
             new_list = sorted((_int(new[a]), _int(new[b])) for a, b in columns if _int(new[a]))
+            had[thing] = held[thing] = {item for item, _count in old_list}
+            said[thing] = {item for item, _count in new_list}
             if old_list == new_list:
                 continue   # the same rewards, in whatever order
-            if len(new_list) < len(old_list):
+            if len(new_list) < len(old_list) and not moved(thing, old_list, new_list, new):
                 why.add('quest_value_gone')
                 continue
+            taken[thing] = columns
+            held[thing] = {item for item, _count in new_list}
+        # one list taken and its other one kept may name an item in both, which neither the row nor the record does:
+        # the quest would give it and offer it as a choice as well. Then neither list is touched.
+        both = [thing for thing in OTHER_LIST if thing in held]
+        if len(both) == 2 and any(thing in taken for thing in both):
+            if set.intersection(*(held[thing] for thing in both)) - set.intersection(*(had[thing] for thing in both)) - set.intersection(*(said[thing] for thing in both)):
+                for thing in both:
+                    taken.pop(thing, None)
+                why.add('quest_value_gone')
+        for columns in taken.values():
             for a, b in columns:
                 for column in (a, b):
                     if not same(row[column], new[column]):
