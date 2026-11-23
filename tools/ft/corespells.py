@@ -9,6 +9,7 @@ import os
 import re
 
 FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'world', 'core_spells.json')
+REVIEWED = os.path.join(os.path.dirname(FILE), 'reviewed_dummies.json')
 
 
 def load(path=None):
@@ -30,6 +31,17 @@ def load(path=None):
     except (OSError, ValueError, AttributeError, TypeError):
         return {'spells': {}, 'scripts': {}, 'proc_scripts': set(), 'periodic_scripts': set(), 'trigger_auras': set(), 'commit': '', 'known': False}
     return out
+
+
+def reviewed(path=None):
+    """{spell id: {'en', 'fr'}}: player spells whose dummy effect was checked by hand and needs no code
+    (tools/world/reviewed_dummies.json). Empty when the file is missing or unreadable."""
+    try:
+        with open(path or REVIEWED, encoding='utf-8') as handle:
+            raw = json.load(handle)
+        return {int(k): {'en': str(v['en']), 'fr': str(v['fr'])} for k, v in (raw.get('spells') or {}).items()}
+    except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        return {}
 
 
 def spell_file(path):

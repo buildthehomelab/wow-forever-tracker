@@ -71,6 +71,12 @@ procs it. A bound script that makes the aura periodic itself (`DoEffectCalcPerio
 a timer and passes: Poised gives its buff every second and never uses the aura's proc. Other spells keep a weightless
 hint.
 
+A spell the core reads from a table, such as `ClassicSealJudgements`, which Judgement reads for every seal, counts as named.
+`tools/make_core_spells.py` takes every number of a table whose name says spell, seal, aura, talent or judgement.
+`tools/world/reviewed_dummies.json` lists the player spells whose dummy was checked by hand and needs no code: the
+effect is only a number the tooltip shows (Anger Management, Improved Imp, Improved Weapon Totems). Their script
+check passes and shows the reason.
+
 A quest also has a *Quest text* check: the giver's text (description or objectives) for a quest taken from a giver,
 and the turn-in text (`quest_offer_reward`, or `quest_request_items` for a quest that asks for items) for one handed
 in to someone. It weighs little: a quest that can be done without its words reads Incomplete near 90%, not missing.
