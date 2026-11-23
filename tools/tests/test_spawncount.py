@@ -92,6 +92,9 @@ class Verdicts(unittest.TestCase):
     def test_within_below_and_unknown(self):
         self.assertEqual(spawncount.verdict(27, {'vmangos': 26, 'azerothcore': 26}), 'ok')
         self.assertEqual(spawncount.verdict(3, {'vmangos': 40, 'azerothcore': 38}), 'below_all')
+        # fewer than a later core alone, where the 1.12 world never had it (an invisible trigger of 3.3.5): not a gap
+        self.assertEqual(spawncount.verdict(3, {'vmangos': 0, 'azerothcore': 16, 'trinitycore': 17}), 'ok')
+        self.assertEqual(spawncount.verdict(3, {'azerothcore': 16}), 'below_all')      # no 1.12 reference loaded: the others judge
         self.assertEqual(spawncount.verdict(9, {'vmangos': 0, 'azerothcore': 0}), 'unknown')
         # a reference that does not have the creature there is no witness against it
         self.assertEqual(spawncount.verdict(30, {'vmangos': 0, 'azerothcore': 30}), 'ok')
@@ -152,7 +155,7 @@ CREATE TABLE `game_event_creature` (
   `eventEntry` tinyint NOT NULL,
   `guid` int unsigned NOT NULL
 ) ENGINE=InnoDB;
-INSERT INTO `game_event_creature` VALUES (12,3);
+INSERT INTO `game_event_creature` VALUES (12,3),(-49,2);
 """
 
 AZEROTHCORE = """CREATE TABLE IF NOT EXISTS `creature` (
@@ -177,11 +180,42 @@ class Reading(unittest.TestCase):
         self.assertEqual(creatures['1134']['0'][:2], [2, 1.0])       # two spots, one up
         self.assertEqual(creatures['1134']['0'][2], [[1.5, 2.0, 3.0], [40.0, 2.0, 3.0]])
         self.assertNotIn('721', creatures)                           # a world event's spawn
+        # guid 2 is only removed by an event (-49, Pyrewood's night): it stands the rest of the time and is counted
 
     def test_azerothcore_one_row_per_line_and_several_ids(self):
         creatures = spawnrefs.from_tables(spawnrefs.read_dump(AZEROTHCORE.splitlines(True)))
         self.assertEqual(creatures['1161']['0'][:2], [2, 1.5])
         self.assertEqual(creatures['1162']['0'][:2], [1, 0.5])
+
+    def test_vmangos_disabled_spawns_and_negative_events(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'mangos.sqlite')
+            db = sqlite3.connect(path)
+            db.executescript("""
+                CREATE TABLE creature (guid, id, id2, id3, id4, id5, map, position_x, position_y, position_z, spawn_flags, patch_min, patch_max);
+                CREATE TABLE pool_template (entry, max_limit, patch_min, patch_max);
+                CREATE TABLE pool_creature (guid, pool_entry, patch_min, patch_max);
+                CREATE TABLE pool_creature_template (id, pool_entry, patch_min, patch_max);
+                CREATE TABLE pool_pool (pool_id, mother_pool);
+                CREATE TABLE game_event_creature (guid, event);
+                INSERT INTO creature VALUES (1, 1891, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 10), (2, 1892, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 10),
+                    (3, 6748, 0, 0, 0, 0, 0, 5, 5, 5, 2, 0, 10), (4, 6748, 0, 0, 0, 0, 0, 5, 5, 5, 0, 0, 3);
+                INSERT INTO game_event_creature VALUES (1, -49), (2, 49);
+            """)
+            db.commit()
+            db.close()
+            creatures = spawnrefs.from_vmangos(path)
+        self.assertEqual(list(creatures), ['1891'])     # the day guard; not the night's worgen, the disabled row or the old patch's
+
+    def test_a_pack_of_an_older_format_is_made_again(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertFalse(spawnrefs.usable(folder, 'vmangos'))
+            with open(spawnrefs.path_of(folder, 'vmangos'), 'w', encoding='utf-8') as handle:
+                json.dump({'format': 1, 'source': 'vmangos', 'creatures': {}}, handle)
+            self.assertFalse(spawnrefs.usable(folder, 'vmangos'))
+            spawnrefs.save(folder, spawnrefs.pack('vmangos', 'x', {'1': {'0': [1, 1.0, []]}}))
+            self.assertTrue(spawnrefs.usable(folder, 'vmangos'))
 
     def test_a_pack_is_kept_and_read_back(self):
         with tempfile.TemporaryDirectory() as folder:

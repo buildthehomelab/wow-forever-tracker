@@ -5,7 +5,16 @@
 - **The core's spells read again from core 751f92f169** (Karrz 0.1.39 class and talent fixes, the PTR's new core).
   `tools/world/core_spells.json` gains 9 spell scripts and 16 spell ids, among them Vindication, Remorseless Attacks,
   Improved Berserker Rage and Oath of Light, which the *script* check counted as handled by nothing. The container
-  analyses again once (marker 41).
+  analyses again once (marker 42).
+
+- **Spawn audit: three things it could not see.** Checked by hand, none of the six creatures it listed as below every
+  reference was a gap. (1) A spawn a world event only removes was left out with the event spawns: Pyrewood Village's
+  day guards (Watcher, Sentry, Elder) read as 0 spawns although all 45 stand except at night. Only what an event adds
+  is left out now, on the server's side and in the references. (2) VMaNGOS keeps 40 spawns it never spawns
+  (`spawn_flags` 2, disabled), such as 12 Water Spirits: they are no longer counted. (3) Fewer than a 3.3.5 core
+  alone, where the 1.12 world never had the creature (Invisible Stalker, a later trigger), is not *below every
+  reference* any more. The reference packs are made again (format 2) and the container analyses again once
+  (marker 41). docs/SPAWNS.md.
 
 - **Spawn audit: a creature a script picks at spawn is counted as each of them.** Blackwing Lair's world stores 200
   Corrupted Red Whelps and the instance script rolls one of the four colours when one spawns. The audit read the

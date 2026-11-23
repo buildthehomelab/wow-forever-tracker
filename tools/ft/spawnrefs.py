@@ -4,7 +4,8 @@ Three public worlds, each read once into a small pack (data/spawnrefs/<source>.j
 how many are up at one time, and where the spots are). Only the pack is kept; the downloads are thrown away.
 
     vmangos      VMaNGOS (github.com/vmangos/core, GPL-2.0): the game at patch 1.12. Its rolling "db_latest" release,
-                 the SQLite dump (db-sqlite-<commit>.zip). Rows of other patches are left out.
+                 the SQLite dump (db-sqlite-<commit>.zip). Rows of other patches are left out, and the spawns it
+                 keeps disabled (spawn_flags 2).
     azerothcore  AzerothCore (github.com/azerothcore/azerothcore-wotlk, AGPL-3.0): the game at 3.3.5. Its base world
                  files at a pinned commit (data/sql/base/db_world), without the update files after that base.
     trinitycore  TrinityCore 3.3.5 (github.com/TrinityCore/TrinityCore, GPL-2.0): the game at 3.3.5. Its full world
@@ -13,7 +14,7 @@ how many are up at one time, and where the spots are). Only the pack is kept; th
 None of them is WoW Forever. They are witnesses of how many of a creature the game had in their era, nothing more
 (docs/SPAWNS.md, "Spawn audit").
 
-A pack: {'format': 1, 'source', 'version', 'made', 'creatures': {entry: {map: [spots, up, [[x, y, z], ...]]}}}.
+A pack: {'format': 2, 'source', 'version', 'made', 'creatures': {entry: {map: [spots, up, [[x, y, z], ...]]}}}.
 """
 import collections
 import datetime
@@ -29,9 +30,10 @@ import zipfile
 from ft import spawncount
 from ft.spawncount import Pools, Row
 
-FORMAT = 1
+FORMAT = 2      # 2: a spawn a world event only removes is counted, VMaNGOS' disabled spawns are not
 SOURCES = {'vmangos': 'VMaNGOS', 'azerothcore': 'AzerothCore', 'trinitycore': 'TrinityCore 3.3.5'}
 VMANGOS_PATCH = 10      # VMaNGOS' patch numbers: 0 = 1.2 ... 10 = 1.12
+VMANGOS_DISABLED = 2    # creature.spawn_flags SPAWN_FLAG_DISABLED: a row VMaNGOS keeps and never spawns
 VMANGOS_RELEASE = 'https://api.github.com/repos/vmangos/core/releases/tags/db_latest'
 AZEROTHCORE_COMMIT = 'aebaf3e7164cbdb96ab345f71ccc99d53e07c73e'
 AZEROTHCORE_FILES = ('creature', 'pool_creature', 'pool_pool', 'pool_template', 'game_event_creature')
@@ -111,7 +113,8 @@ def from_tables(tables):
             of_spawn[int(r['spawnId'])] = int(r['poolSpawnId'])
         elif int(r['type']) == 2:
             mothers[int(r['spawnId'])] = int(r['poolSpawnId'])
-    events = {int(r['guid']) for r in tables.get('game_event_creature') or []}
+    # only what an event adds is left out: a spawn an event removes (a negative event) stands the rest of the time
+    events = {int(r['guid']) for r in tables.get('game_event_creature') or [] if int(r.get('eventEntry') or r.get('event') or 0) > 0}
     if not creatures:
         raise RefError('no creature spawn found: is this a world dump?')
     return _world(creatures, limits, of_spawn, of_entry, mothers, events)
@@ -123,12 +126,12 @@ def from_vmangos(path):
     try:
         patch = f'patch_min <= {VMANGOS_PATCH} AND patch_max >= {VMANGOS_PATCH}'
         creatures = [Row(guid, tuple(i for i in ids if i), map_id, x, y, z) for guid, *ids, map_id, x, y, z in db.execute(
-            f'SELECT guid, id, id2, id3, id4, id5, map, position_x, position_y, position_z FROM creature WHERE {patch}')]
+            f'SELECT guid, id, id2, id3, id4, id5, map, position_x, position_y, position_z FROM creature WHERE {patch} AND (spawn_flags & {VMANGOS_DISABLED}) = 0')]
         limits = dict(db.execute(f'SELECT entry, max_limit FROM pool_template WHERE {patch}'))
         of_spawn = dict(db.execute(f'SELECT guid, pool_entry FROM pool_creature WHERE {patch}'))
         of_entry = dict(db.execute(f'SELECT id, pool_entry FROM pool_creature_template WHERE {patch}'))
         mothers = dict(db.execute('SELECT pool_id, mother_pool FROM pool_pool'))
-        events = {guid for (guid,) in db.execute('SELECT guid FROM game_event_creature')}
+        events = {guid for (guid,) in db.execute('SELECT guid FROM game_event_creature WHERE event > 0')}
     except sqlite3.Error as error:
         raise RefError(f'{os.path.basename(path)} is not VMaNGOS\' world ({error})') from None
     finally:
@@ -156,6 +159,16 @@ def keyed(made):
 
 def path_of(folder, source):
     return os.path.join(folder, source + '.json')
+
+
+def usable(folder, source):
+    """Whether the pack kept for `source` reads and is of this format: one that does not is made again."""
+    try:
+        with open(path_of(folder, source), encoding='utf-8') as handle:
+            made = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    return isinstance(made, dict) and made.get('format') == FORMAT and isinstance(made.get('creatures'), dict)
 
 
 def load(folder):

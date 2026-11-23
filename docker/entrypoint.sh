@@ -234,13 +234,14 @@ first_run() {
     # 37: a player's spell nothing handles (no SpellScript, the core's C++ silent) or that never procs is incomplete);
     # 38: the spawn audit (ft_spawn_audit), which downloads the reference worlds once: the stored
     # analysis is then redone once at the next start; 39: a proc aura whose script runs it on a timer (Poised) procs;
-    # 40: the spawn audit counts a spawn whose creature a script picks as each of them (spawn_picks.json).
-    # 41: the core's spells read again from core 751f92f169 (Karrz 0.1.39 class and talent fixes).
+    # 40: the spawn audit counts a spawn whose creature a script picks as each of them (spawn_picks.json);
+    # 41: it counts a spawn an event only removes, leaves out VMaNGOS' disabled spawns (the packs are made again).
+    # 42: the core's spells read again from core 751f92f169 (Karrz 0.1.39 class and talent fixes).
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=41 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=42 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"

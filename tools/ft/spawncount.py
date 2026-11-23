@@ -8,7 +8,8 @@ Two numbers per creature and map, and they are not the same thing:
               so each member counts max_limit / members (a pool inside a pool multiplies the two); a row that picks
               among N creatures counts 1/N for each. A world with 12 spots in a pool of 6 has 12 spots and 6 up.
 
-Spawns of world events are left out on both sides (a holiday's pumpkin stands a few days a year).
+Spawns a world event adds are left out on both sides (a holiday's pumpkin stands a few days a year). A spawn an
+event only removes is counted: Pyrewood Village's day guards stand all day and leave for the night's worgen.
 A spawn whose creature a script picks when it spawns (the four colours of Blackwing Lair's whelps, stored as one
 entry) is counted as a spot of each of them: picked(), from tools/world/spawn_picks.json.
 
@@ -20,7 +21,8 @@ Forever, so a difference alone proves nothing; what counts is where they stand t
                    many. An import laid a second spawn set over the first.
     above_classic  more than VMaNGOS, but a later core has as many: the later game's numbers. Right only where
                    Forever uses the later zone.
-    below_all      fewer than every reference: spawns are missing.
+    below_all      fewer than every reference, the 1.12 one among them: spawns are missing, or Forever replaced the
+                   creature. Fewer than a later core alone is not listed.
     ok             within the references.
     unknown        no reference knows the creature on that map (Forever's own, or a later creature).
 
@@ -143,7 +145,8 @@ def verdict(up, refs):
         return 'above_all'
     if CLASSIC in known and up > known[CLASSIC] * ABOVE_FACTOR + ABOVE_SLACK:
         return 'above_classic'
-    if up < min(known.values()) * BELOW_FACTOR - BELOW_SLACK:
+    # fewer than a later core alone is no gap: the 1.12 world never had the creature there (a later trigger, a later camp)
+    if refs.get(CLASSIC, 1) > 0 and up < min(known.values()) * BELOW_FACTOR - BELOW_SLACK:
         return 'below_all'
     return 'ok'
 
