@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **QuestieDB: a subtraction in its data no longer stops the import.** QuestieDB's Forever quest fixes now write
+  `raceIDs.ALL_HORDE - raceIDs.UNDEAD` (Compendium of the Fallen). The Lua data reader knew only `+`, refused the
+  whole file, and the analysis' *Later* step logged "QuestieDB not read". `a - b` now reads as `+` does: worked out for
+  two numbers, else kept as the text `a-b`. All 13 Forever files at QuestieDB's current commit read.
+
 - **The core's spells read again from core b1a2ea9935** (Karrz 0.1.39, the PTR's new core).
   `tools/world/core_spells.json` gains 13 spell scripts (4 more with a proc hook) and 36 spell ids net, among them
   Vindication, Remorseless Attacks, Improved Berserker Rage and Oath of Light, which the *script* check counted as
