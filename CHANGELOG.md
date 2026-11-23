@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A player's spell that does nothing is Incomplete.** A talent, a class ability or an item's spell whose effect is a
+  dummy or script effect only code runs used to pass with a weightless "to check" hint: Vindication, Improved
+  Berserker Rage and Unsealed Wrath scored 100 while they did nothing on the server. The spell check now counts it
+  (weight 2) when nothing handles it: no SpellScript bound in `spell_script_names` that the core registers, the
+  core's C++ does not name the spell, and no SmartAI reacts to being hit by it. A new *Procs* check fails an aura that
+  acts only when it procs (a proc-trigger aura, or a script that waits for a proc) with no `spell_proc` row and no
+  client proc flags the core accepts. Creatures' and internal spells keep the hint. What the core's C++ does is read
+  once by `tools/make_core_spells.py` into `tools/world/core_spells.json` (core 01783245fb); run it again when the
+  core moves. On the PTR data: 120 player spells go from OK to Incomplete (15 talents, 4 class spells, 99 item
+  spells), and 14 talents. The container analyses again once (marker 37). docs/ARCHITECTURE.md.
+
 - **ForeverChanges: the transmog placeholders are never asked for.** The site refuses its item pages for the client's
   transmog placeholders (`transmog-ui-chest-item`, `transmog-ui-trim-head-item` ...) with 403. A refusal stops a
   visit, so each one cost a visit of its own (one every six hours) and nothing else was read meanwhile. They hold no
