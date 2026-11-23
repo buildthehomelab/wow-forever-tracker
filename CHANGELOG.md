@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The core's spells read again from core b1a2ea9935** (Karrz 0.1.39, the PTR's new core).
+  `tools/world/core_spells.json` gains 13 spell scripts (4 more with a proc hook) and 36 spell ids net, among them
+  Vindication, Remorseless Attacks, Improved Berserker Rage and Oath of Light, which the *script* check counted as
+  handled by nothing, and item proc scripts (Fatal Wound, Pendulum of Doom, Toofbreak, the rend bonus). The container
+  analyses again once (marker 42).
+
 - **Spawn audit: three things it could not see.** Checked by hand, none of the six creatures it listed as below every
   reference was a gap. (1) A spawn a world event only removes was left out with the event spawns: Pyrewood Village's
   day guards (Watcher, Sentry, Elder) read as 0 spawns although all 45 stand except at night. Only what an event adds
