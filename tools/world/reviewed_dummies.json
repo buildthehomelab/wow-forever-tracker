@@ -1,0 +1,21 @@
+{
+  "about": "Player spells whose dummy effect was checked by hand and needs no code: the effect is only a number the tooltip shows, and the spell works through its other effects. The spell check reads them as handled and shows the reason. Checked against core b1a2ea9935 and wowsims/forever (MIT).",
+  "spells": {
+    "12296": {
+      "en": "Checked by hand: the dummies are tooltip numbers. Aura 85 (rage regen) gives the combat rage and also offsets the out-of-combat decay (Player::UpdatePowerRegen); wowsims models only that aura.",
+      "fr": "Vérifié à la main : les effets « dummy » sont des valeurs d’infobulle. L’aura 85 (régénération de rage) donne la rage en combat et compense aussi la perte hors combat (Player::UpdatePowerRegen) ; wowsims ne modélise que cette aura."
+    },
+    "18694": {
+      "en": "Checked by hand: the -1000 dummy is a copy of Improved Firebolt's value, which the tooltip does not mention. The Firebolt and Fire Shield bonuses reach the Imp through its owner's spell modifiers (GetSpellModOwner).",
+      "fr": "Vérifié à la main : le « dummy » à -1000 reprend la valeur d’Éclair de feu amélioré, que l’infobulle ne mentionne pas. Les bonus d’Éclair de feu et de Bouclier de feu atteignent le diablotin par les modificateurs de son maître (GetSpellModOwner)."
+    },
+    "29192": {
+      "en": "Checked by hand: Improved Weapon Totems is baseline in Forever; the totems' values already include it (wowsims/forever sim/shaman/totems.go).",
+      "fr": "Vérifié à la main : Totems d’arme améliorés est de base dans Forever ; les valeurs des totems l’incluent déjà (wowsims/forever sim/shaman/totems.go)."
+    },
+    "29193": {
+      "en": "Checked by hand: Improved Weapon Totems is baseline in Forever; the totems' values already include it (wowsims/forever sim/shaman/totems.go).",
+      "fr": "Vérifié à la main : Totems d’arme améliorés est de base dans Forever ; les valeurs des totems l’incluent déjà (wowsims/forever sim/shaman/totems.go)."
+    }
+  }
+}

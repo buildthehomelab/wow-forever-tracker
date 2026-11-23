@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Talents the core handles without naming them pass.** Seal of Command's judgement is read from the core's
+  `ClassicSealJudgements` table, which `tools/make_core_spells.py` now reads, along with any table whose name says
+  spell, seal, aura, talent or judgement: 158 more spell ids, Seal of Command's five ranks among them.
+  `tools/world/reviewed_dummies.json` lists dummies checked by hand that need no code, with the reason shown on the
+  spell: Anger Management (aura 85 does the work), Improved Imp (a leftover of Improved Firebolt's value) and Improved
+  Weapon Totems (baseline in Forever). The other six Incomplete talents get scripts in the core
+  (wow-trinitycore-everlake#133). The container analyses again once (marker 44).
+
 - **Forge: Always up.** A new page lists creatures that stand in the world all the time when a script or a holiday
   should bring them in only for a while (docs/SPAWNS.md, section 7). *Summoned, yet always up*: a script of the
   server summons the creature (SmartAI, a summon group, an event script, a summoning spell, the core's C++) and none

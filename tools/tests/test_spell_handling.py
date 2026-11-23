@@ -52,6 +52,19 @@ class ScriptCheck(unittest.TestCase):
     def test_the_cores_cpp_naming_it_handles_it(self):
         self.assertEqual(evaluate(spell(DUMMY), world(core_spells=core(spells={9452}), client_procs=set()))[('spell', 9452)][0], 'ok')
 
+    def test_a_dummy_checked_by_hand_is_handled_with_its_reason(self):
+        # Anger Management: the dummies are tooltip numbers, aura 85 does the work (tools/world/reviewed_dummies.json)
+        reason = {'en': 'Checked by hand: tooltip numbers.', 'fr': 'Vérifié à la main.'}
+        ctx = world(core_spells=core(), client_procs=set(), reviewed_dummies={9452: reason})
+        result = evaluate(spell(DUMMY), ctx)[('spell', 9452)]
+        self.assertEqual(result[0], 'ok')
+        self.assertEqual(next(c for c in result[2] if c['code'] == 'script')['detail'], reason)
+
+    def test_the_shipped_reviewed_list_reads(self):
+        found = corespells.reviewed()
+        self.assertIn(12296, found)
+        self.assertTrue(all(v['en'] and v['fr'] for v in found.values()))
+
     def test_a_creature_scripts_constant_does_not_handle_a_learned_spell(self):
         # Remorseless Attacks 14144 is also The Beast's SPELL_FIREBLAST in a Blackrock Spire script
         ctx = world(core_spells={**core(), 'spells': {9452: 'scripts/Custom/Classic/instances/blackrock_spire/classic_boss_the_beast.cpp'}}, client_procs=set())
@@ -203,6 +216,8 @@ class CoreScan(unittest.TestCase):
                                         '// 33333 only in a comment\n if (aura->GetId() == 44444) {} me->CastSpell(me, 55555, true); Timer = 15000; }',
             'game/Miscellaneous/SharedDefines.h': 'enum { SPELL_EFFECT_DUMMY = 3, SPELL_FAILED_X = 116 };',
             'game/AI/PlayerAI/PlayerAI.cpp': 'enum { SPELL_SEAL = 66666 };',
+            'game/Spells/SpellInfo.cpp': 'static std::unordered_map<uint32, uint32> const ClassicSealJudgements =\n{\n    { 20915, 20962 }, // Seal of Command\n};\n'
+                                         'static Position const Spots[] = { { 1234.5f, 99999.0f } };',
             'scripts/Spells/spell_x.cpp': 'enum { SPELL_MAGE_FIRE_POWER = 11124 };\n'
                                           'class spell_a : public AuraScript { void Register() override { OnProc += AuraProcFn(spell_a::P); } };\n'
                                           'class spell_b : public SpellScript { void Register() override { OnEffectHit += X; } };\n'
@@ -212,7 +227,7 @@ class CoreScan(unittest.TestCase):
                                             ' class spell_trigger_AuraScript : public AuraScript { void Register() override { OnEffectProc += X; } };\n};\n'
                                             'void AddSC_old() { new spell_trigger("spell_item_chicken", 23133); }',
         })
-        self.assertEqual(set(spells), {20375, 11111, 22222, 44444, 55555, 11124})
+        self.assertEqual(set(spells), {20375, 11111, 22222, 44444, 55555, 11124, 20915, 20962})
         self.assertEqual(spells[11124], 'scripts/Spells/spell_x.cpp')
         self.assertEqual(set(scripts), {'spell_a', 'spell_b_named', 'spell_c_rog', 'spell_item_chicken'})
         self.assertEqual(procs, {'spell_a', 'spell_item_chicken'})

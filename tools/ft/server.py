@@ -532,6 +532,7 @@ def server_state():
                 options[int(r['SpellID'])] = 1
     ctx['client_procs'] = set(options)
     ctx['core_spells'] = corespells.load()
+    ctx['reviewed_dummies'] = corespells.reviewed()
     # a creature's or object's SmartAI that reacts to being hit by a spell (SMART_EVENT_SPELLHIT, _SPELLHIT_TARGET):
     # what a quest item's dummy spell does is often written there, on its target
     ctx['smart_spellhit'] = {int(x) for x in sqlio.column('SELECT DISTINCT event_param1 FROM smart_scripts WHERE event_type IN (8, 31)')

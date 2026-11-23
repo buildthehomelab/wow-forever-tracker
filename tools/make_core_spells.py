@@ -10,7 +10,9 @@ Four lists:
   spells        spell id -> file, for every number the C++ names as a spell: a constant whose name says spell, aura
                 or talent (`SPELL_X = 123`, `TALENT_X = 123`), a `case` label of a switch on a spell's id, a number a
                 spell call takes (CastSpell, HasAura, GetSpellInfo, RemoveAurasDueToSpell...), a comparison with a
-                spell's id (`->Id == 123`, `spellId == 123`), and every number of an `ApplySpellFix({ ... })` list.
+                spell's id (`->Id == 123`, `spellId == 123`), every number of an `ApplySpellFix({ ... })` list, and
+                every number of a table whose name says spell, seal, aura, talent or judgement (`ClassicSealJudgements
+                = { { 20375, 20425 }, ... }`, which Judgement reads for every seal).
                 The file kept is a spell or talent script, or the game code, when one names it (corespells.spell_file).
                 Comments and strings are skipped: a spell id written in a comment handles nothing. So are the core's
                 type enums (SharedDefines.h, SpellAuraDefines.h...) and PlayerAI's lists of what a charmed player casts.
@@ -54,6 +56,8 @@ SWITCH = re.compile(r'\bswitch\s*\(([^)]*\)?)\)')
 CASE = re.compile(r'\bcase\s+' + NUMBER + r'\s*:')
 SPELL_SWITCH = re.compile(r'(?i)spell|aura|\bid\b|->Id|GetId|Id\(\)')
 FIX = re.compile(r'\bApplySpellFix\s*\(\s*\{([^{}]*)\}')
+# a table of spells by name: `static std::unordered_map<uint32, uint32> const ClassicSealJudgements = { { 20375, 20425 }, ... };`
+TABLE = re.compile(r'\b(\w*(?:Spell|Seal|Aura|Talent|Judgement)\w*)\s*(?:\[\s*\w*\s*\])?\s*=\s*\{')
 
 SCRIPT_CLASS = re.compile(r'\b(?:class|struct)\s+(\w+)\s*(?:final\s*)?:\s*public\s+(AuraScript|SpellScript)\b')
 LOADER = re.compile(r'\bSpellScriptLoader\s*\(\s*"(\w+)"\s*\)')
@@ -96,6 +100,19 @@ def code_only(text):
     return ''.join(out)
 
 
+def table_body(code, start):
+    """The text between the { at `start` and the } that closes it (comments and strings are already blank)."""
+    depth = 0
+    for i in range(start, len(code)):
+        if code[i] == '{':
+            depth += 1
+        elif code[i] == '}':
+            depth -= 1
+            if not depth:
+                return code[start + 1:i]
+    return ''
+
+
 def spell_numbers(code):
     """The spell ids a file's code names."""
     found = {int(m.group(2)) for m in CONSTANT.finditer(code)}
@@ -104,6 +121,8 @@ def spell_numbers(code):
     found |= {int(x) for x in COMPARE.findall(code)}
     for m in FIX.finditer(code):
         found |= {int(x) for x in CALL_NUMBER.findall(m.group(1))}
+    for m in TABLE.finditer(code):
+        found |= {int(x) for x in CALL_NUMBER.findall(table_body(code, m.end() - 1))}
     # a case label counts when the nearest switch above it is on a spell's id
     switches = [(m.start(), bool(SPELL_SWITCH.search(m.group(1)))) for m in SWITCH.finditer(code)]
     k, on_spell = 0, False

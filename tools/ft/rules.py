@@ -423,6 +423,8 @@ def evaluate_all(content, ctx):
             return True, L(f'Named by the core’s C++: {core_ids[spell_id]}', f'Nommé par le C++ du core : {core_ids[spell_id]}')
         if spell_id in ctx.get('smart_spellhit', ()):
             return True, L('A SmartAI reacts to being hit by it (smart_scripts).', 'Un SmartAI réagit quand il est touché par ce sort (smart_scripts).')
+        if spell_id in ctx.get('reviewed_dummies', {}):
+            return True, ctx['reviewed_dummies'][spell_id]
         orphans = sorted(bound.get(spell_id, ()))
         if orphans:
             return False, L(f"spell_script_names binds {', '.join(orphans)}, which the core{core_at} does not register: the effect does nothing.",
