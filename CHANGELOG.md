@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Later phases: what a closed raid's quests hand out waits with the raid.** Three gaps in the phase rules left raid
+  content on the launch work list while the realm keeps the raids closed. (1) A quest's `StartItem` counted as given by
+  the quest even when that item is what starts it (Head of Onyxia, Head of Nefarian, Heart of Hakkar, Head of
+  Ossirian, the Ancient Petrified Leaf): the item and its quest released each other. Such a quest no longer gives its
+  own start item, so both wait with the raid the item drops in. (2) An item nothing gives, that only quests outside
+  the official list reward (the old numbers of the Ahn'Qiraj and Naxxramas set turn-ins, Zul'Gurub's enchants), now
+  waits with those quests when every one of them waits for a phase; such a quest still releases nothing. (3) A Proper
+  String and The Fate of Ramaladni join *Later raids* by hand. The phases file changed, so the container analyses
+  again once.
+
 - **QuestieDB: a subtraction in its data no longer stops the import.** QuestieDB's Forever quest fixes now write
   `raceIDs.ALL_HORDE - raceIDs.UNDEAD` (Compendium of the Fallen). The Lua data reader knew only `+`, refused the
   whole file, and the analysis' *Later* step logged "QuestieDB not read". `a - b` now reads as `+` does: worked out for

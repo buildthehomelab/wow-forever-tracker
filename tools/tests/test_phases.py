@@ -221,6 +221,30 @@ class Assign(unittest.TestCase):
         x['q_end_npc'].append((GIVER, 70000))
         self.assertEqual(phases.assign(content(), x, PHASES, FACTS)[('item', 1)], 2)   # still only Ragnaros' drop
 
+    def test_an_item_that_starts_its_own_quest_is_not_given_by_it(self):
+        x = ctx()
+        x['quests'][102]['StartItem'] = 1                               # Ragnaros' drop starts quest 102 and is its StartItem
+        tagged = phases.assign(content(), x, PHASES, FACTS)
+        self.assertEqual(tagged[('item', 1)], 2)                        # the quest does not hand out what starts it
+        self.assertEqual(tagged[('quest', 102)], 2)                     # and waits with the item that starts it
+
+    def test_an_item_only_unlisted_quests_reward_waits_with_them(self):
+        x = ctx()
+        x['quests'][70000] = {'QuestSortID': 0, 'RewardItem1': 6}       # not in the official client; asks for Geddon's drop
+        x['q_start_npc'].append((GIVER, 70000))
+        x['q_end_npc'].append((GIVER, 70000))
+        x['objectives'].append((70000, 1, 2, 1))
+        tagged = phases.assign(content(), x, PHASES, FACTS)
+        self.assertEqual(tagged[('item', 6)], 2)                        # nothing else gives item 6: it waits for Molten Core
+        self.assertEqual(tagged[('toy', 30)], 2)                        # and so does what hangs on it
+        self.assertNotIn(('quest', 70000), tagged)                      # the quest itself is still not listed
+        x['quests'][70001] = {'QuestSortID': 0, 'RewardChoiceItemID2': 6}   # a second one, open today: no phase says when
+        x['q_start_npc'].append((GIVER, 70001))
+        x['q_end_npc'].append((GIVER, 70001))
+        self.assertNotIn(('item', 6), phases.assign(content(), x, PHASES, FACTS))
+        x['quests'][70001]['RewardChoiceItemID2'] = 9                   # an item sold outside stays released
+        self.assertNotIn(('item', 9), phases.assign(content(), x, PHASES, FACTS))
+
     def test_the_package_a_giver_hands_over(self):
         x = ctx()
         x['quests'][104]['StartItem'] = 6                               # quest 104 is open: so is its package

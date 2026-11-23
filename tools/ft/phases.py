@@ -328,7 +328,24 @@ def assign(content, ctx, phases, facts):
     quests = {quest: row for quest, row in ctx.get('quests', {}).items() if not official or quest in official}
     for quest, row in quests.items():
         rewards = {int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} | {int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)}
-        add((rewards | {int(row.get('StartItem') or 0)}) - {0}, ('quest', quest))   # StartItem: handed over on accept
+        # StartItem: handed over on accept. Not when that very item is what starts the quest (Head of Onyxia, Heart of
+        # Hakkar: the player already holds it); counted, it would release the drop of a closed raid through its own quest.
+        package = int(row.get('StartItem') or 0)
+        if package and ctx.get('start_quest_item', {}).get(quest) == package:
+            package = 0
+        add((rewards | {package}) - {0}, ('quest', quest))
+    # An item nothing above gives, that only quests outside the official list reward (the old numbers of the raids'
+    # set and enchant turn-ins, which the client no longer lists): such a quest still releases nothing, but when every
+    # one of them waits for a phase (its giver stands in a closed raid, it asks for that raid's drops) the item waits
+    # with them instead of counting as a gap of today.
+    unlisted = {quest: row for quest, row in ctx.get('quests', {}).items() if official and quest not in official}
+    last_resort = {}
+    for quest, row in unlisted.items():
+        rewards = {int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)} | {int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)}
+        for item in rewards - {0}:
+            if item not in sources:
+                last_resort.setdefault(item, set()).add(('quest', quest))
+    asked = {source[1]: unlisted[source[1]] for found in last_resort.values() for source in found}
 
     # ---- spell sources: trainers and automatic learning are the open world
     spell_sources = {}
@@ -408,7 +425,14 @@ def assign(content, ctx, phases, facts):
             if p != item_phase.get(item, 0):
                 item_phase[item] = p
                 changed += 1
-        for quest, row in quests.items():
+        for item, found in last_resort.items():
+            if item in fixed['item']:
+                continue
+            p = lowest(found)
+            if p != item_phase.get(item, 0):
+                item_phase[item] = p
+                changed += 1
+        for quest, row in list(quests.items()) + list(asked.items()):
             if quest in fixed['quest']:
                 continue
             start, end = starters.get(quest, ()), enders.get(quest, ())
