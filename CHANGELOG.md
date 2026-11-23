@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The core's spells read again from core 751f92f169** (Karrz 0.1.39 class and talent fixes, the PTR's new core).
+  `tools/world/core_spells.json` gains 9 spell scripts and 16 spell ids, among them Vindication, Remorseless Attacks,
+  Improved Berserker Rage and Oath of Light, which the *script* check counted as handled by nothing. The container
+  analyses again once (marker 40).
+
 - **Procs: a script that runs the aura on a timer passes.** Poised (rogue 1328825, druid 1328829) failed the *Procs*
   check: its aura is a proc trigger with no `spell_proc` row and no client proc flags. Its script makes the aura
   periodic instead and gives the buff every second at full Energy out of combat, so it works and needs no proc; a
