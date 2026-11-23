@@ -409,6 +409,12 @@ and proposes what differs, as lines of its card (`quest_template.RewardItem1`, `
   - *Rewards are compared as a list, not slot by slot.* The same items, choices, currencies or reputations in another
     order are no change. Where the list really differs the slots take the record's; a record that names fewer than
     the row leaves the row as it is (filling one slot and not clearing another would give a reward twice).
+  - *A reward that moved is not a reward that is gone.* Forever turned many "choose one" rewards into "you get them
+    all" (and a few the other way). When every item a list no longer names is in the record's other list, the list
+    takes the record's, down to nothing: `RewardChoiceItemID1-6` are emptied when the record gives those items
+    outright. Left alone, the quest would give the item and offer it as a choice as well. Where the record explains
+    only part of a list, neither list is touched. The *Checks* page lists such quests (*Quest rewards*,
+    `tools/ft/rewardkinds.py`).
   - *The end text stands in either column.* Older rows hold it in `QuestCompletionLog`, the record in
     `AreaDescription`.
   - *Not compared:* the money and the quest's own level. The server sends both for the player who asked (at the

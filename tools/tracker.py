@@ -652,6 +652,31 @@ def npc_checks(ask):
     sqlio.execute_file(path, 'tracker')
 
 
+def quest_reward_checks():
+    """Compares how each quest hands out its item rewards (all of them, or one the player chooses) with the newest
+    record of the live game (ft.rewardkinds), and writes ft_quest_checks: a report, nothing is changed by it. The
+    records are EG Link's, of the commit its import last read (data/eglink); without one only the quests that give an
+    item and offer the same item as a choice are listed."""
+    from ft import layers, refresh, rewardkinds
+    recording = eglink_recording(('quests.enUS',), 'quest reward check')
+    records = refresh.newest_live(recording, layers.load().live_from) if recording is not None else {}
+    lists = ' OR '.join(f'`{name}` <> 0' for name in ('RewardItem1', 'RewardItem2', 'RewardItem3', 'RewardItem4', 'RewardChoiceItemID1'))
+    rows = {int(row['ID']): row for row in sqlio.query('SELECT ' + ', '.join(f'`{c}`' for c in rewardkinds.COLUMNS) + f' FROM quest_template WHERE {lists}')}
+    found, counts = rewardkinds.compare(records, rows)
+    e = sqlio.escape
+    path = os.path.join(DATA, 'quest-checks.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_quest_checks;\n'
+                'CREATE TABLE ft_quest_checks (quest INT NOT NULL PRIMARY KEY, name VARCHAR(255) NOT NULL, issues VARCHAR(64) NOT NULL,'
+                ' gives VARCHAR(255) NOT NULL, offers VARCHAR(255) NOT NULL, live_gives VARCHAR(255) NULL, live_offers VARCHAR(255) NULL,'
+                ' live_build INT NOT NULL, note TEXT NOT NULL, KEY ix_issues (issues)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        for chunk in range(0, len(found), 500):
+            f.write('INSERT INTO ft_quest_checks VALUES ' + ','.join('(' + ','.join(e(v) for v in row) + ')' for row in found[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
+    log('quest reward check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing found')
+        + f' ({len(rows)} quests with an item reward, {len(set(rows) & set(records))} of them recorded on live)')
+
+
 EXTRAS_ASKS = 3000   # Wowhead lookups one analysis may make for the extras (the rest waits for the next run)
 
 
@@ -947,6 +972,10 @@ def analyse(args):
         npc_checks(args.wowhead)
     except Exception as error:  # a report only: it never stops the analysis
         log(f'npc check failed, skipped: {error}')
+    try:
+        quest_reward_checks()
+    except Exception as error:  # a report only, like the creature checks
+        log(f'quest reward check failed, skipped: {error}')
     try:
         world_extras(args.wowhead)
     except Exception as error:  # a report only, like the checks

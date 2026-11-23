@@ -184,6 +184,42 @@ class SameThingAnotherWay(unittest.TestCase):
         # setting slot 1 to 3578 and leaving slot 2 would give the same item twice: the row stays as it is
         self.assertEqual(changes(record(rewards=rewards), world, tiers=TIERS), ({}, {'quest_value_gone': 1}))
 
+    def test_a_choice_that_became_get_them_all_leaves_no_choice_behind(self):
+        # Classic: choose one of three. Forever: all three. The record names no choice: the row's choice goes too
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 20083, 'count': 1}, {'itemId': 19991, 'count': 1}, {'itemId': 19992, 'count': 1}]}
+        world = row(RewardItem1=0, RewardAmount1=0, RewardChoiceItemID1=19991, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=19992,
+                    RewardChoiceItemQuantity2=1, RewardChoiceItemID3=20083, RewardChoiceItemQuantity3=1)
+        found, left = changes(record(rewards=rewards), world)
+        self.assertEqual(found, {('quest_template', 'RewardItem1'): [[7, 20083]], ('quest_template', 'RewardAmount1'): [[7, 1]],
+                                 ('quest_template', 'RewardItem2'): [[7, 19991]], ('quest_template', 'RewardAmount2'): [[7, 1]],
+                                 ('quest_template', 'RewardItem3'): [[7, 19992]], ('quest_template', 'RewardAmount3'): [[7, 1]],
+                                 ('quest_template', 'RewardChoiceItemID1'): [[7, 0]], ('quest_template', 'RewardChoiceItemQuantity1'): [[7, 0]],
+                                 ('quest_template', 'RewardChoiceItemID2'): [[7, 0]], ('quest_template', 'RewardChoiceItemQuantity2'): [[7, 0]],
+                                 ('quest_template', 'RewardChoiceItemID3'): [[7, 0]], ('quest_template', 'RewardChoiceItemQuantity3'): [[7, 0]]})
+        self.assertEqual(left, {})
+
+    def test_a_row_that_gives_and_offers_the_same_items_loses_the_list_the_record_lacks(self):
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 17001, 'count': 1}, {'itemId': 18022, 'count': 1}]}
+        world = row(RewardItem1=17001, RewardAmount1=1, RewardItem2=18022, RewardAmount2=1,
+                    RewardChoiceItemID1=18022, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=17001, RewardChoiceItemQuantity2=1)
+        found, _left = changes(record(rewards=rewards), world)
+        self.assertEqual(found, {('quest_template', 'RewardChoiceItemID1'): [[7, 0]], ('quest_template', 'RewardChoiceItemQuantity1'): [[7, 0]],
+                                 ('quest_template', 'RewardChoiceItemID2'): [[7, 0]], ('quest_template', 'RewardChoiceItemQuantity2'): [[7, 0]]})
+
+    def test_a_given_reward_that_became_a_choice_moves_too(self):
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'choices': [{'itemId': 2589, 'count': 10}, {'itemId': 270126, 'count': 1}]}
+        found, _left = changes(record(rewards=rewards), row())   # the row gives 10 Linen Cloth outright
+        self.assertEqual(found, {('quest_template', 'RewardItem1'): [[7, 0]], ('quest_template', 'RewardAmount1'): [[7, 0]],
+                                 ('quest_template', 'RewardChoiceItemID1'): [[7, 2589]], ('quest_template', 'RewardChoiceItemQuantity1'): [[7, 10]],
+                                 ('quest_template', 'RewardChoiceItemID2'): [[7, 270126]], ('quest_template', 'RewardChoiceItemQuantity2'): [[7, 1]]})
+
+    def test_a_choice_the_record_only_partly_explains_is_not_made_a_double(self):
+        # the record gives 3578 outright and offers nothing; the row offers 3578 or 1561, and nothing says where 1561 went.
+        # Taking the given list alone would give 3578 and offer it as well: both lists stay
+        rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 2589, 'count': 10}, {'itemId': 3578, 'count': 1}]}
+        world = row(RewardChoiceItemID1=1561, RewardChoiceItemQuantity1=1, RewardChoiceItemID2=3578, RewardChoiceItemQuantity2=1)
+        self.assertEqual(changes(record(rewards=rewards), world), ({}, {'quest_value_gone': 1}))
+
     def test_a_reputation_that_changed_beside_one_that_did_not(self):
         rewards = {'xpDifficulty': 5, 'xpMultiplier': 1, 'items': [{'itemId': 2589, 'count': 10}],
                    'reputation': [{'factionId': 92, 'tier': 4}, {'factionId': 93, 'tier': 6}]}
