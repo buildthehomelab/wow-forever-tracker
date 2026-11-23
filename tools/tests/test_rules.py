@@ -108,6 +108,35 @@ class ReplacedGiver(unittest.TestCase):
         evaluate(self.content, self.ctx)
         self.assertEqual(self.ctx['not_given_quests'], {10, 12})
 
+    def test_an_item_only_a_not_given_quest_rewards(self):
+        # item 500: quest 10's reward (only the old Mokvar gives it); item 501: also rewarded by quest 14, which a
+        # creature nobody spawned gives: still a gap
+        self.ctx['quests'][10] = quest_row(RewardChoiceItemID1=500, RewardChoiceItemID2=501)
+        self.ctx['q_start_npc'].append((555, 14))
+        self.ctx['q_end_npc'].append((555, 14))
+        self.ctx['quests'][14] = quest_row(RewardItem1=501)
+        self.content['quest'][14] = {}
+        self.content['item'] = {500: {}, 501: {}}
+        results = evaluate(self.content, self.ctx)
+        self.assertEqual(results[('item', 500)][0], 'ok')
+        source = [c for c in results[('item', 500)][2] if c['code'] == 'source'][0]
+        self.assertIn('Not given on WoW: Forever', source['detail']['en'])
+        self.assertEqual(failed(results[('item', 501)]), ['source'])
+
+    def test_a_disabled_quest_is_no_other_way_in(self):
+        self.ctx['quests'][10] = quest_row(RewardItem1=500)
+        self.ctx['quests'][15] = quest_row(RewardItem1=500)
+        self.ctx['disabled'] = {1: {15}}
+        self.content['quest'][15] = {}
+        self.content['item'] = {500: {}}
+        self.assertEqual(evaluate(self.content, self.ctx)[('item', 500)][0], 'ok')
+
+    def test_without_live_records_the_reward_is_a_gap(self):
+        self.ctx['live_npcs'] = {}
+        self.ctx['quests'][10] = quest_row(RewardItem1=500)
+        self.content['item'] = {500: {}}
+        self.assertEqual(failed(evaluate(self.content, self.ctx)[('item', 500)]), ['source'])
+
     def test_no_live_records_nothing_is_not_given(self):
         self.ctx['live_npcs'] = {}
         evaluate(self.content, self.ctx)

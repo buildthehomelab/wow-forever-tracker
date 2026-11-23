@@ -353,12 +353,34 @@ def evaluate_all(content, ctx):
             teachers_only[item_id] = teachers
     ctx['teachers_only'] = teachers_only
     results = {}
+    # Items only quests live no longer gives reward (ctx not_given_quests: the old Anthion's Parting Words and Just
+    # Compensation, whose Mokvar and Deliana live replaced): live hands out its own copies instead (the 841xx quests'
+    # Tier 0.5 boxes, with pieces of new ids), so nothing is missing. Only when no other quest on the server rewards it
+    # and no loot, vendor or recipe has it. A quest the server's disables table switches off (the Burning Crusade copies
+    # of the chain, 10492-10499) is no other way in.
+    not_given_rewards, rewarded_elsewhere = {}, set()
+    for quest, row in ctx['quests'].items():
+        items = ({int(row.get(f'RewardItem{i}') or 0) for i in range(1, 5)}
+                 | {int(row.get(f'RewardChoiceItemID{i}') or 0) for i in range(1, 7)}) - {0}
+        if quest in ctx['not_given_quests']:
+            for item in items:
+                not_given_rewards.setdefault(item, set()).add(quest)
+        elif quest not in disabled_quests:
+            rewarded_elsewhere |= items
+    for item in rewarded_elsewhere | loot_unplaced | vendor_unplaced | set(ctx['creates']):
+        not_given_rewards.pop(item, None)
 
     def item_result(item_id, entity):
         checks = [check(item_id in known['item'], 'core', L('In the server DB2 or in hotfixes.item_sparse.', 'Présent dans les DB2 du serveur ou dans hotfixes.item_sparse.'), 2)]
         found = sorted(sources.get(item_id, []))
         if found:
             checks.append(check(True, 'source', join([SOURCES[s] for s in found]), 3))
+        elif item_id in not_given_rewards:
+            olds = sorted(not_given_rewards[item_id])
+            some = ', '.join(map(str, olds[:3])) + ('…' if len(olds) > 3 else '')
+            checks.append(check(True, 'source', L(
+                f'Not given on WoW: Forever: only quest {some} rewards it, which live no longer gives (its giver was replaced).',
+                f'Pas donné sur WoW: Forever : seule la quête {some} le donne, que le jeu officiel ne propose plus (son PNJ a été remplacé).'), 3))
         else:
             hint = []
             if item_id in loot_unplaced:
