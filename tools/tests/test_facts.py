@@ -741,6 +741,9 @@ class Lua(unittest.TestCase):
             with self.assertRaises(ValueError, msg=text):
                 luadata.parse_value(text)
         self.assertEqual(luadata.parse_value('{ a = 1 + 2, b = k.A + k.B, c = 2 + k.A }'), {'a': 3, 'b': 'k.A+k.B', 'c': '2+k.A'})
+        # QuestieDB's Forever fixes: [questKeys.requiredRaces] = raceIDs.ALL_HORDE - raceIDs.UNDEAD
+        self.assertEqual(luadata.parse_value('{ r = raceIDs.ALL_HORDE - raceIDs.UNDEAD, n = 5 - 1, m = 1 - -2 }'),
+                         {'r': 'raceIDs.ALL_HORDE-raceIDs.UNDEAD', 'n': 4, 'm': 3})
 
     def test_tables_of_a_file(self):
         from ft import luadata

@@ -2,7 +2,7 @@
 
 Only literals: tables, strings, numbers, true/false/nil. A key written as an expression, `[questKeys.name]`, becomes its
 last name part ("name"). A name used as a value stays a name ("zoneIDs.ELWYNN_FOREST"; `a + b` of two names is
-"a+b"): nothing is looked up. Tables whose keys are 1..n in order come back as lists, others as dicts with str keys
+"a+b", `a - b` is "a-b"): nothing is looked up. Tables whose keys are 1..n in order come back as lists, others as dicts with str keys
 (JSON keeps keys as strings anyway). A table that holds code (a function, a condition) is not read at all.
 """
 import re
@@ -13,7 +13,7 @@ _TOKEN = re.compile(r"""
   | (?P<long>\[(?P<eq>=*)\[.*?\](?P=eq)\])
   | (?P<number>-?0x[0-9a-fA-F]+|-?\d+\.?\d*(?:[eE][-+]?\d+)?|-?\.\d+)
   | (?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)
-  | (?P<punct>[{}\[\]=,;()+*/])
+  | (?P<punct>[{}\[\]=,;()+\-*/])
 """, re.S | re.X)
 
 _KEYWORDS = {"function", "end", "if", "then", "else", "elseif", "for", "while", "do", "repeat", "until", "local", "return", "and", "or",
@@ -75,18 +75,19 @@ class _Parser:
         return tok
 
     def value(self):
-        """A value, plus the small expressions data files use: `f("x")` (taken as its first argument) and `a + b`
-        (summed when both are numbers, else kept as the text "a+b"). Any other arithmetic is code: refused."""
+        """A value, plus the small expressions data files use: `f("x")` (taken as its first argument), `a + b` and
+        `a - b` (worked out when both are numbers, else kept as the text "a+b" / "a-b": QuestieDB writes
+        `raceIDs.ALL_HORDE - raceIDs.UNDEAD`). Any other arithmetic is code: refused."""
         left = self.atom()
-        while self.peek()[1] in ("+", "*", "/"):
+        while self.peek()[1] in ("+", "-", "*", "/"):
             op = self.take()[1]
-            if op != "+":
+            if op not in ("+", "-"):
                 raise ValueError(f"arithmetic, not data ({op})")
             right = self.atom()
             if all(isinstance(side, (int, float)) and not isinstance(side, bool) for side in (left, right)):
-                left = left + right
+                left = left + right if op == "+" else left - right
             else:
-                left = f"{left}+{right}"
+                left = f"{left}{op}{right}"
         return left
 
     def atom(self):
