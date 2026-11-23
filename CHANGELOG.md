@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Imports: a recorded turn-in text that calls the player by a class or a race is not taken.** A recording shows
+  what one player's client printed, so where the game's text says `$c` or `$r` it holds that player's own class or
+  race: Icy Veins' text for Swift as the Wind, a quest for trolls of any class, came in as "Spirits be with ya,
+  rogue." Such a text is now left out and counted on the card (*text_names_class_or_race*). Only a word set off as an
+  address counts ("…, rogue." or "Hunter, …"), so a class or race that is merely spoken of passes; and a quest kept to
+  that one class (its sort or `AllowableClasses`) or that one race may say it ("Yes, rogue?" in a rogue quest). Of
+  5,000 Icy Veins texts held today the rule sets 12 aside. ForeverChanges' texts already went through a stricter check.
+
 - **Imports: a turn-in row without words gets its words.** A source's turn-in text (Icy Veins, ForeverChanges) was
   offered only for a quest with no `quest_offer_reward` / `quest_request_items` row at all: a quest whose row exists
   but holds no text (River Ends) was counted as known and never filled, so it stayed *no turn-in text* for good. Such a

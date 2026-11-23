@@ -20,4 +20,16 @@ check($left === ['text_known' => 1, 'quest_unknown' => 1], 'the row with words a
 check($new === [['ID' => 10, 'CompletionText' => 'Still at it?', 'VerifiedBuild' => 0]] && $fill === null, 'the progress window writes quest_request_items, and no fill when nothing is blank');
 check($left === ['text_known' => 1], 'its row with words is left as it is');
 
+// the recording player's class or race where the game's text says $c or $r
+check(source_text_addresses_player("Spirits be with ya, rogue. I'm glad to see ya back here!") === 'rogue', 'a class the player is called by is found');
+check(source_text_addresses_player('Yes, rogue? Do you need something from me?', [-162, 0, '18446744073709551615']) === null, 'not in a quest of that class (its sort)');
+check(source_text_addresses_player('Thank you for the gold, paladin.', [0, 2, '0']) === null, 'nor in one AllowableClasses keeps to that class');
+check(source_text_addresses_player('Thank you for the gold, paladin.', [-162, 3, '0']) === 'paladin', 'another class, or several, do not excuse it');
+check(source_text_addresses_player('Well met, night  elf.$B$BElune guide you.') === 'night elf', 'a race too, in two words');
+check(source_text_addresses_player('Ride well, troll!', [0, 0, '128']) === null && source_text_addresses_player('Ride well, troll!', [0, 0, '178']) === 'troll', 'unless the quest is kept to that one race');
+check(source_text_addresses_player('Hunter, the beasts await.') === 'hunter', 'at the start of a sentence as well');
+check(source_text_addresses_player('The orcs of Durotar sent a young druid. An undead army, and trolls, hunted the mage Khadgar.') === null, 'a class or race that is only spoken of passes');
+[$new, $fill, $left] = source_text_rows('complete', [10 => 'Spirits be with ya, rogue.', 11 => 'Yes, rogue?', 12 => 'Hail, rogue.'], [10 => true, 11 => true, 12 => true], [11 => '', 12 => 'Kept.'], [], [11 => [-162, 0, '0']]);
+check($new === [] && ($fill['rows'] ?? null) === [[11, 'Yes, rogue?']] && $left === ['text_names_class_or_race' => 1, 'text_known' => 1], 'such a text becomes no row and is counted; a row that has words is still just known');
+
 ft_test_done();

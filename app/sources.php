@@ -176,14 +176,44 @@ function source_trainer_fits(array $kinds, int $line, ?int $type = null): bool
 /** The windows a quest's turn-in words go to: the moment a source names => [table, column]. */
 const SOURCE_TEXT_WINDOWS = ['complete' => ['quest_offer_reward', 'RewardText'], 'progress' => ['quest_request_items', 'CompletionText']];
 
+/** The words a client prints for $c and $r (lower case), with the bit of each in AllowableClasses / AllowableRaces. */
+const SOURCE_TEXT_CLASSES = ['warrior' => 1, 'paladin' => 2, 'hunter' => 4, 'rogue' => 8, 'priest' => 16, 'shaman' => 64, 'mage' => 128, 'warlock' => 256, 'druid' => 1024];
+const SOURCE_TEXT_RACES = ['human' => 1, 'orc' => 2, 'dwarf' => 4, 'night elf' => 8, 'undead' => 16, 'tauren' => 32, 'gnome' => 64, 'troll' => 128];
+/** The quest sorts (QuestSortID) that hold one class's quests. */
+const SOURCE_TEXT_CLASS_SORTS = [-81 => 'warrior', -141 => 'paladin', -261 => 'hunter', -162 => 'rogue', -262 => 'priest', -82 => 'shaman', -161 => 'mage', -61 => 'warlock', -263 => 'druid'];
+
+/**
+ * The class or race a recorded text calls the player by in plain words ("Spirits be with ya, rogue."), or null. A
+ * recording shows what one player's client printed: where the game's text says $c or $r, it holds that player's own
+ * class or race. Only a word set off as an address counts (after a comma or at the start of a sentence, before a
+ * comma or the sentence's end), so "the orcs of Durotar" or "a young druid" pass. A quest kept to that one class (its
+ * sort, or a single bit in AllowableClasses) or to that one race (a single bit in AllowableRaces) may say it:
+ * $quest = [QuestSortID, AllowableClasses, AllowableRaces].
+ */
+function source_text_addresses_player(string $text, array $quest = [0, 0, 0]): ?string
+{
+    [$sort, $classes, $races] = [(int)($quest[0] ?? 0), (int)($quest[1] ?? 0), (string)($quest[2] ?? '0')];
+    $plain = str_replace('$B', "\n", $text);
+    $words = implode('|', array_map(fn($w) => str_replace(' ', '\\s+', preg_quote($w, '/')), array_merge(array_keys(SOURCE_TEXT_CLASSES), array_keys(SOURCE_TEXT_RACES))));
+    if (!preg_match_all('/(?:^|[,.!?>\n]\s*)(' . $words . ')\s*(?:[,.!?]|$)/imu', $plain, $found)) return null;
+    foreach ($found[1] as $word) {
+        $word = strtolower((string)preg_replace('/\s+/', ' ', $word));
+        if (isset(SOURCE_TEXT_CLASSES[$word]) && ((SOURCE_TEXT_CLASS_SORTS[$sort] ?? '') === $word || $classes === SOURCE_TEXT_CLASSES[$word])) continue;
+        if (isset(SOURCE_TEXT_RACES[$word]) && $races === (string)SOURCE_TEXT_RACES[$word]) continue;
+        return $word;
+    }
+    return null;
+}
+
 /**
  * The turn-in words of one window ($moment: 'complete' or 'progress'; $list: [quest => text]) against the server:
  * $quests the quests it has ([id => true]), $have its rows of that window ([id => the words, '' for a row without
  * any]), $later the quests of a phase not open yet. Returns [new rows, a Forge "fill" operation or null, left out]:
  * a quest with no row gets one, a row without words gets them (the fill writes only while the column is still
- * empty), a row with words is left as it is.
+ * empty), a row with words is left as it is, and a text that calls the player by a class or a race the quest is not
+ * kept to is left out (source_text_addresses_player; $kept: [quest => [QuestSortID, AllowableClasses, AllowableRaces]]).
  */
-function source_text_rows(string $moment, array $list, array $quests, array $have, array $later = []): array
+function source_text_rows(string $moment, array $list, array $quests, array $have, array $later = [], array $kept = []): array
 {
     [$table, $column] = SOURCE_TEXT_WINDOWS[$moment];
     $new = []; $fill = []; $left = [];
@@ -192,6 +222,8 @@ function source_text_rows(string $moment, array $list, array $quests, array $hav
         if (!isset($quests[$quest])) { $left['quest_unknown'] = ($left['quest_unknown'] ?? 0) + 1; continue; }
         if (isset($have[$quest]) && trim((string)$have[$quest]) !== '') { $left['text_known'] = ($left['text_known'] ?? 0) + 1; continue; }
         if (isset($later[$quest])) continue;
+        // the recording player's own class or race where the game says $c or $r ($kept: [quest => [sort, classes, races]])
+        if (source_text_addresses_player((string)$text, $kept[$quest] ?? [0, 0, 0]) !== null) { $left['text_names_class_or_race'] = ($left['text_names_class_or_race'] ?? 0) + 1; continue; }
         if (isset($have[$quest])) $fill[] = [$quest, (string)$text];
         else $new[] = ['ID' => $quest, $column => (string)$text, 'VerifiedBuild' => 0];
     }
@@ -345,10 +377,16 @@ function source_tables(array $ev, string $label, array $gaps): array
     foreach ($said as $moment => $list) {
         [$table, $column] = SOURCE_TEXT_WINDOWS[$moment];
         if (!table_exists($table, 'world')) continue;
-        $quests = $ids('SELECT ID FROM quest_template WHERE ID IN (' . $in(array_keys($list)) . ')');
+        $quests = []; $kept = [];
+        $addon = table_exists('quest_template_addon', 'world');
+        foreach (rows('SELECT q.ID, q.QuestSortID, q.AllowableRaces, ' . ($addon ? 'a.AllowableClasses' : '0 AllowableClasses') . ' FROM quest_template q '
+            . ($addon ? 'LEFT JOIN quest_template_addon a ON a.ID = q.ID ' : '') . 'WHERE q.ID IN (' . $in(array_keys($list)) . ')', [], 'world') as $r) {
+            $quests[(int)$r['ID']] = true;
+            $kept[(int)$r['ID']] = [(int)$r['QuestSortID'], (int)$r['AllowableClasses'], (string)$r['AllowableRaces']];
+        }
         $have = [];
         foreach (rows("SELECT ID, `$column` words FROM `$table` WHERE ID IN (" . $in(array_keys($list)) . ')', [], 'world') as $r) $have[(int)$r['ID']] = (string)$r['words'];
-        [$new, $fill, $textLeft] = source_text_rows($moment, $list, $quests, $have, $gaps['later']['quests'] ?? []);
+        [$new, $fill, $textLeft] = source_text_rows($moment, $list, $quests, $have, $gaps['later']['quests'] ?? [], $kept);
         if ($new) $rows[$table] = array_merge($rows[$table] ?? [], $new);
         if ($fill) $changes[] = $fill;
         foreach ($textLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
