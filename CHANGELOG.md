@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Imports: a turn-in row without words gets its words.** A source's turn-in text (Icy Veins, ForeverChanges) was
+  offered only for a quest with no `quest_offer_reward` / `quest_request_items` row at all: a quest whose row exists
+  but holds no text (River Ends) was counted as known and never filled, so it stayed *no turn-in text* for good. Such a
+  row is now filled through the Forge (only while the column is still empty; the rollback empties it again). A row
+  that holds words is left as it is, as before.
+
 - **Later phases: what a closed raid's quests hand out waits with the raid.** Three gaps in the phase rules left raid
   content on the launch work list while the realm keeps the raids closed. (1) A quest's `StartItem` counted as given by
   the quest even when that item is what starts it (Head of Onyxia, Head of Nefarian, Heart of Hakkar, Head of

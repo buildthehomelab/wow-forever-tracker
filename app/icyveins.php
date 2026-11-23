@@ -441,10 +441,10 @@ function icyveins_early_card(array $first, array $gaps): string
     try {
         $ev = icyveins_evidence(['npc' => $first['npc'] ?? [], 'item' => $first['item'] ?? [], 'quest' => $first['quest'] ?? [], 'gameobject' => [], 'zone' => [], 'flight-path' => []]);
         $label = 'Icy Veins ' . date('Y-m-d') . ' (gaps)';
-        [$tables, $left] = source_tables($ev, $label, $gaps);
+        [$tables, $left, $fills] = source_tables($ev, $label, $gaps);   // fills: words for turn-in rows that hold none
         [$flags, $flagsLeft] = icyveins_service_changes($ev['service']);
         $left['icyveins_early_card'] = 1;
-        $card = source_card('icyveins', $label, 'icyveins@' . date('Y-m-d') . '-gaps', $tables, $left + $flagsLeft, $flags);
+        $card = source_card('icyveins', $label, 'icyveins@' . date('Y-m-d') . '-gaps', $tables, $left + $flagsLeft, array_merge($fills, $flags));
         return $card['ok'] ? sprintf('early card #%d from the gaps: %s', $card['id'], strip_tags((string)$card['message'])) : 'no early card: ' . strip_tags((string)$card['message']);
     } catch (Throwable $e) {
         error_log('Forever Tracker: the early Icy Veins card could not be made: ' . $e->getMessage());
@@ -514,8 +514,8 @@ function icyveins_import(?callable $progress = null): array
 function icyveins_card(array $ev, string $date, array $gaps): array
 {
     $label = 'Icy Veins ' . $date;
-    [$tables, $left] = source_tables($ev, $label, $gaps);
+    [$tables, $left, $fills] = source_tables($ev, $label, $gaps);   // fills: words for turn-in rows that hold none
     [$changes, $moved] = source_refresh($ev, 'icyveins');
     [$flags, $flagsLeft] = icyveins_service_changes($ev['service'] ?? []);
-    return source_card('icyveins', $label, 'icyveins@' . $date, $tables, $left + $moved + $flagsLeft + ($ev['kept'] ?? []), array_merge($changes, $flags));
+    return source_card('icyveins', $label, 'icyveins@' . $date, $tables, $left + $moved + $flagsLeft + ($ev['kept'] ?? []), array_merge($fills, $changes, $flags));
 }
