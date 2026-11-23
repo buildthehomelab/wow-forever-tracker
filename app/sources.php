@@ -173,6 +173,32 @@ function source_trainer_fits(array $kinds, int $line, ?int $type = null): bool
     return (int)array_key_first($kinds) === $line;
 }
 
+/** The windows a quest's turn-in words go to: the moment a source names => [table, column]. */
+const SOURCE_TEXT_WINDOWS = ['complete' => ['quest_offer_reward', 'RewardText'], 'progress' => ['quest_request_items', 'CompletionText']];
+
+/**
+ * The turn-in words of one window ($moment: 'complete' or 'progress'; $list: [quest => text]) against the server:
+ * $quests the quests it has ([id => true]), $have its rows of that window ([id => the words, '' for a row without
+ * any]), $later the quests of a phase not open yet. Returns [new rows, a Forge "fill" operation or null, left out]:
+ * a quest with no row gets one, a row without words gets them (the fill writes only while the column is still
+ * empty), a row with words is left as it is.
+ */
+function source_text_rows(string $moment, array $list, array $quests, array $have, array $later = []): array
+{
+    [$table, $column] = SOURCE_TEXT_WINDOWS[$moment];
+    $new = []; $fill = []; $left = [];
+    foreach ($list as $quest => $text) {
+        $quest = (int)$quest;
+        if (!isset($quests[$quest])) { $left['quest_unknown'] = ($left['quest_unknown'] ?? 0) + 1; continue; }
+        if (isset($have[$quest]) && trim((string)$have[$quest]) !== '') { $left['text_known'] = ($left['text_known'] ?? 0) + 1; continue; }
+        if (isset($later[$quest])) continue;
+        if (isset($have[$quest])) $fill[] = [$quest, (string)$text];
+        else $new[] = ['ID' => $quest, $column => (string)$text, 'VerifiedBuild' => 0];
+    }
+    $op = $fill ? ['db' => 'world', 'table' => $table, 'columns' => ['ID', $column], 'match' => ['ID'], 'set' => $column, 'fill' => $column, 'rows' => $fill] : null;
+    return [$new, $op, $left];
+}
+
 /** The evidence as import tables, with the server's rules (see the top of this file). Returns [tables, left out]. */
 function source_tables(array $ev, string $label, array $gaps): array
 {
@@ -313,21 +339,19 @@ function source_tables(array $ev, string $label, array $gaps): array
     }
 
     // ---- what the NPC says at the turn-in: 'text' => [quest, 'complete'|'progress', text]. A row for a quest that
-    // has none in that table; a quest that has a row there, with words or without, is left as it is
-    $windows = ['complete' => ['quest_offer_reward', 'RewardText'], 'progress' => ['quest_request_items', 'CompletionText']];
+    // has none in that table, the words for one whose row holds none; a row with words is left as it is
     $said = [];
-    foreach ($ev['text'] ?? [] as [$quest, $moment, $text]) if (isset($windows[$moment]) && trim((string)$text) !== '') $said[$moment][(int)$quest] = (string)$text;
+    foreach ($ev['text'] ?? [] as [$quest, $moment, $text]) if (isset(SOURCE_TEXT_WINDOWS[$moment]) && trim((string)$text) !== '') $said[$moment][(int)$quest] = (string)$text;
     foreach ($said as $moment => $list) {
-        [$table, $column] = $windows[$moment];
+        [$table, $column] = SOURCE_TEXT_WINDOWS[$moment];
         if (!table_exists($table, 'world')) continue;
         $quests = $ids('SELECT ID FROM quest_template WHERE ID IN (' . $in(array_keys($list)) . ')');
-        $have = $ids("SELECT ID FROM `$table` WHERE ID IN (" . $in(array_keys($list)) . ')');
-        foreach ($list as $quest => $text) {
-            if (!isset($quests[$quest])) { $left['quest_unknown']++; continue; }
-            if (isset($have[$quest])) { $left['text_known'] = ($left['text_known'] ?? 0) + 1; continue; }
-            if (isset($gaps['later']['quests'][$quest])) continue;
-            $rows[$table][] = ['ID' => $quest, $column => $text, 'VerifiedBuild' => 0];
-        }
+        $have = [];
+        foreach (rows("SELECT ID, `$column` words FROM `$table` WHERE ID IN (" . $in(array_keys($list)) . ')', [], 'world') as $r) $have[(int)$r['ID']] = (string)$r['words'];
+        [$new, $fill, $textLeft] = source_text_rows($moment, $list, $quests, $have, $gaps['later']['quests'] ?? []);
+        if ($new) $rows[$table] = array_merge($rows[$table] ?? [], $new);
+        if ($fill) $changes[] = $fill;
+        foreach ($textLeft as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
     }
 
     foreach ($ev['left'] ?? [] as $why => $n) $left[$why] = ($left[$why] ?? 0) + $n;
@@ -1513,8 +1537,8 @@ function foreverchanges_card(array $ev, string $retrieved, array $gaps, int $pla
     [$ev, $hints] = foreverchanges_confirmed($ev, $evidence, $texts);
     $hints = foreverchanges_gap_hints($hints, $gaps);
     foreach ($hints as $h) $ev['left']["report_no_second_source_$h[0]"] = ($ev['left']["report_no_second_source_$h[0]"] ?? 0) + 1;
-    [$tables, $left] = source_tables($ev, $label, $gaps);
-    $card = source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left);
+    [$tables, $left, $fills] = source_tables($ev, $label, $gaps);   // fills: words for turn-in rows that hold none
+    $card = source_card('foreverchanges', $label, 'foreverchanges@' . $retrieved, $tables, $left, $fills);
     if ($hints) {
         $card['hints'] = array_slice($hints, 0, FOREVERCHANGES_HINTS);
         $card['message'] = trim(($card['message'] ?? '') . ' ' . sprintf(t('%d row(s) only ForeverChanges states are left as hints: no second source (Wowhead, ForeverDB.net, EG Link) confirms them.', '%d ligne(s) que seul ForeverChanges affirme restent des indices : aucune seconde source (Wowhead, ForeverDB.net, EG Link) ne les confirme.'), count($hints)));
