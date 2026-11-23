@@ -13,20 +13,22 @@ FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 
 def load(path=None):
     """{'spells': {spell id: file}, 'scripts': {script name: file}, 'proc_scripts': {script name},
+    'periodic_scripts': {script name that makes an aura effect periodic itself},
     'trigger_auras': {aura type the core builds a default proc for}, 'commit': str}.
     Empty lists when the file is missing or unreadable: the analysis then says nothing about scripts (`known` False)."""
-    out = {'spells': {}, 'scripts': {}, 'proc_scripts': set(), 'trigger_auras': set(), 'commit': '', 'known': False}
+    out = {'spells': {}, 'scripts': {}, 'proc_scripts': set(), 'periodic_scripts': set(), 'trigger_auras': set(), 'commit': '', 'known': False}
     try:
         with open(path or FILE, encoding='utf-8') as handle:
             raw = json.load(handle)
         out['spells'] = {int(k): str(v) for k, v in (raw.get('spells') or {}).items()}
         out['scripts'] = {str(k): str(v) for k, v in (raw.get('scripts') or {}).items()}
         out['proc_scripts'] = {str(x) for x in raw.get('proc_scripts') or ()}
+        out['periodic_scripts'] = {str(x) for x in raw.get('periodic_scripts') or ()}
         out['trigger_auras'] = {int(x) for x in raw.get('trigger_auras') or ()}
         out['commit'] = str(raw.get('commit') or '')
         out['known'] = bool(out['scripts'])
     except (OSError, ValueError, AttributeError, TypeError):
-        return {'spells': {}, 'scripts': {}, 'proc_scripts': set(), 'trigger_auras': set(), 'commit': '', 'known': False}
+        return {'spells': {}, 'scripts': {}, 'proc_scripts': set(), 'periodic_scripts': set(), 'trigger_auras': set(), 'commit': '', 'known': False}
     return out
 
 
