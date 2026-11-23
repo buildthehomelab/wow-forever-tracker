@@ -10,6 +10,7 @@ NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
+EFFECT_APPLY_AURA, AURA_DUMMY = 6, 4   # SpellEffect.Effect / EffectAura: a seal's dummy aura names its judgement in its points
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 AREATRIGGER_ACTION_TELEPORT = 2   # areatrigger_template_actions.ActionType: ActionParam is a world_safe_locs ID
 
@@ -387,9 +388,17 @@ def server_state():
     ctx['used_spells'] = used_spells(item_spells, spell_effects)
     ctx['credit_spells'] = credit_spells
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
-    acquire = {}
+    acquire, lines = {}, {}
     for r in srv('SkillLineAbility'):
         acquire.setdefault(r['Spell'], set()).add(r['AcquireMethod'])
+        lines.setdefault(r['Spell'], set()).add(r['SkillLine'])
+    # A seal's dummy aura names the judgement it unleashes in its points (Seal of Fury 20163: 20183, Judgement of Fury):
+    # the judgement is cast, not learned. Only when both are of the same skill line, so a dummy's plain number (487
+    # damage) never reads as a spell.
+    for e in spell_effects:
+        target = int(e['EffectBasePoints'] or 0) if e['Effect'] == EFFECT_APPLY_AURA and e['EffectAura'] == AURA_DUMMY else 0
+        if target > 0 and target != e['SpellID'] and lines.get(target, set()) & lines.get(e['SpellID'], set()):
+            cast_by.setdefault(target, e['SpellID'])
     # How the game data itself says a spell reaches a player without a trainer: every skill line listing it marks it
     # "never learned" (something else applies it), another spell casts it, a talent or perk tree grants it, or learning
     # one spell teaches another (a learn effect, or SpellLearnSpell: the core reads both).

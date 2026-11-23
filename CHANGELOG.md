@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Spells WoW: Forever made need a teacher of their own.** A spell nothing teaches passed as "the original game taught
+  it nowhere either" whenever its id was below the cut-off for new spells, even when the original game never had it:
+  Lacerate's ranks 1-3 (24118-24120) passed while no hunter trainer taught them (fixed in
+  wow-trinitycore-everlake#135). A spell that neither patch 1.12 nor the Classic Era client has is now Forever's own,
+  and the Classic database cannot speak for it. A seal's judgement still passes: the seal's dummy aura names it in its
+  points (Seal of Fury 20163 names Judgement of Fury 20183), and the analysis now reads that as "spell 20163 casts it"
+  when both are of one skill line. And a spell a quest taught in the original game passes when the realm has that
+  quest and it now rewards something else: Badlands Reagent Run II (2501) teaches Greater Mender's Potion on Forever,
+  not Restorative Potion. The container analyses again once (marker 45).
+
 - **Talents the core handles without naming them pass.** Seal of Command's judgement is read from the core's
   `ClassicSealJudgements` table, which `tools/make_core_spells.py` now reads, along with any table whose name says
   spell, seal, aura, talent or judgement: 158 more spell ids, Seal of Command's five ranks among them.

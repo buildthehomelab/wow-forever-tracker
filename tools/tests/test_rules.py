@@ -540,6 +540,32 @@ class NotContent(unittest.TestCase):
         self.assertEqual(status, 'partial')
         self.assertNotIn(11452, ctx['granted_spells'])
 
+    def test_a_quest_forever_rewards_otherwise(self):
+        # Badlands Reagent Run II (2501) cast 11522, which taught Restorative Potion; on Forever it casts 366567, which
+        # teaches Greater Mender's Potion: the realm lacks nothing
+        changed = dict(classic_taught={11522}, classic_quest_taught={11522: {2501}}, spell_teaches={(11522, 11452), (366567, 1251744)},
+                       quests={2501: quest_row(RewardSpell=366567)})
+        (status, _, checks), ctx = self.result(11452, **changed)
+        self.assertEqual(status, 'ok')
+        self.assertIn('quest 2501 taught it in the original game', next(c for c in checks if c['code'] == 'learn')['detail']['en'])
+        self.assertIn(11452, ctx['granted_spells'])
+        # the quest still teaches it, or the realm lacks the quest: a real gap
+        for quests in ({2501: quest_row(RewardSpell=11522)}, {}):
+            (status, _, _), ctx = self.result(11452, **dict(changed, quests=quests))
+            self.assertEqual(status, 'partial', quests)
+            self.assertNotIn(11452, ctx['granted_spells'])
+
+    def test_a_spell_forever_made_is_not_excused(self):
+        # Lacerate (24118): below the 'new' cut-off, but neither the original game nor the Classic Era client had it;
+        # that the Classic database never taught it says nothing, so the missing trainer shows
+        made = lambda kind, entity_id: (kind, entity_id) == ('spell', 24118)
+        (status, _, _), ctx = self.result(24118, classic_taught={1}, forever_made=made)
+        self.assertEqual(status, 'partial')
+        self.assertNotIn(24118, ctx['granted_spells'])
+        (status, _, _), ctx = self.result(24118, classic_taught={1}, forever_made=made, cast_by={24118: 7})   # a seal's judgement
+        self.assertEqual(status, 'ok')
+        self.assertEqual(self.result(26363, classic_taught={1}, forever_made=made)[0][0], 'ok')   # the original game's own
+
     def test_without_a_pack_or_with_a_teacher_it_stays(self):
         for over in ({}, {'classic_taught': {1}, 'teaches': {26363: {13323}}}, {'classic_taught': {1}, 'trainer_spells': [(5, 26363)]}):
             (status, _, _), ctx = self.result(26363, **over)

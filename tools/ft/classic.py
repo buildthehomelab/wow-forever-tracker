@@ -80,6 +80,16 @@ def taught(pack):
     return spells - {0}
 
 
+def quest_taught(pack):
+    """{spell: {quests}}: what each quest's turn-in taught or cast in the original game (before the learn effects are
+    followed)."""
+    out = {}
+    for quest, shown, cast in pack['quests']:
+        for spell in {shown, cast} - {0}:
+            out.setdefault(spell, set()).add(quest)
+    return out
+
+
 def item_sources(pack, gaps):
     """What the original game says about items players cannot get: (drops [[kind, entry, item, chance]], vendors [[npc,
     item, stock]], {left out: count}). gaps: the item IDs. Only items that teach (recipes, items learned on use) are in

@@ -239,11 +239,12 @@ first_run() {
     # 42: the core's spells read again from core b1a2ea9935 (Karrz 0.1.39).
     # 43: quest rewards given or offered as a choice, against the live game (ft_quest_checks).
     # 44: spell tables the core names (ClassicSealJudgements), dummies checked by hand (reviewed_dummies.json).
+    # 45: spells WoW: Forever made are not excused by the Classic database, seal judgements, quest rewards Forever changed.
     # the phase list's contents count, not only its name: a new image may ship new dates or raids
     phases_file="${FT_PHASES_FILE:-tools/phases/forever.json}"
     case "$phases_file" in none) ;; /*) ;; *) phases_file="$ROOT/$phases_file" ;; esac
     phases_sum="$( [ -f "$phases_file" ] && sha1sum "$phases_file" | cut -c1-12 || echo "$phases_file")"
-    marker="$languages analysis=44 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
+    marker="$languages analysis=45 phases=$phases_sum skip=${FT_FORGE_TRAINER_SKIP_IDS:-} guess=${FT_FORGE_TRAINER_GUESS:-1}"
     if [ -d "$DATA/builds/$build" ]; then
         if [ "$(cat "$DATA/languages" 2>/dev/null || true)" != "$marker" ]; then
             say "languages or analysis changed ($marker): analysing again"
