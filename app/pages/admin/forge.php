@@ -127,6 +127,7 @@ page_start(t('The Forge', 'La Forge'), 'admin');
   <a href="<?= e(url('admin/imports')) ?>"><i class="fas fa-file-import"></i><?= e(t('Imports', 'Imports')) ?><?php if (table_exists('ft_imports')): require_once FT_APP . '/imports.php'; import_schema(); ?><em><?= number(count(import_groups(rows('SELECT id, file, done_at FROM ft_imports'))[0])) ?></em><?php endif; ?></a>
   <a href="<?= e(url('admin/checks')) ?>"><i class="fas fa-scale-balanced"></i><?= e(t('Checks', 'Contrôles')) ?></a>
   <a href="<?= e(url('admin/extras')) ?>"><i class="fas fa-clone"></i><?= e(t('Extras', 'En trop')) ?></a>
+  <a href="<?= e(url('admin/spawnaudit')) ?>"><i class="fas fa-users-viewfinder"></i><?= e(t('Spawn audit', 'Audit des placements')) ?></a>
   <a href="<?= e(url('admin/query')) ?>"><i class="fas fa-database"></i><?= e(t('Query', 'Requête')) ?></a>
   <a href="<?= e(url('admin/later')) ?>"><i class="fas fa-hourglass-half"></i><?= e(t('Later', 'À venir')) ?></a>
   <a href="<?= e(url('admin/history')) ?>"><i class="fas fa-clock-rotate-left"></i><?= e(t('History', 'Historique')) ?></a>

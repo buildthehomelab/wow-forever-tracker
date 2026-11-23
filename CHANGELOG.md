@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Spawn audit: how many of each creature are up, against three other worlds.** *The Forge › Spawn audit* counts,
+  per creature and map, its spots (where it can stand) and how many are up at one time (a pool shows only some of its
+  spots), and sets them against VMaNGOS (patch 1.12), AzerothCore and TrinityCore 3.3.5. A creature with more up
+  than every reference is listed first, with the spawns that stand where no reference has it: an import that laid a
+  second spawn set over the first shows there (on the PTR's world, Young Wendigo: 14 against 5 in all three). The
+  *Crowded* check could not see it, because its Classic witness is a list of points, not of what stands at once.
+  More spots are not the fault; the fix is a pool that keeps the reference's number up. The references are downloaded
+  once and kept as small packs in `data/spawnrefs`; the image gains `7zip` for TrinityCore's archive.
+  `python tools/tracker.py spawn-audit` runs it alone. The container analyses again once (marker 38). docs/SPAWNS.md.
+
 - **A player's spell that does nothing is Incomplete.** A talent, a class ability or an item's spell whose effect is a
   dummy or script effect only code runs used to pass with a weightless "to check" hint: Vindication, Improved
   Berserker Rage and Unsealed Wrath scored 100 while they did nothing on the server. The spell check now counts it
