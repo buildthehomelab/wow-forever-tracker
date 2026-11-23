@@ -22,9 +22,9 @@ PROC = [(0, 6, 42, 0, 9999)]         # apply aura: SPELL_AURA_PROC_TRIGGER_SPELL
 PLAIN = [(0, 2, 0, 10, 0)]           # school damage
 
 
-def core(spells=(), scripts=(), procs=()):
+def core(spells=(), scripts=(), procs=(), periodic=()):
     return {'known': True, 'commit': 'abc', 'spells': {s: 'scripts/Spells/x.cpp' for s in spells},
-            'scripts': {s: 'scripts/x.cpp' for s in scripts}, 'proc_scripts': set(procs)}
+            'scripts': {s: 'scripts/x.cpp' for s in scripts}, 'proc_scripts': set(procs), 'periodic_scripts': set(periodic)}
 
 
 def spell(effects, sub='talent'):
@@ -158,6 +158,17 @@ class ProcCheck(unittest.TestCase):
         # on a dummy aura the same flags make it proc
         self.assertEqual(evaluate(spell(DUMMY), ctx)[('spell', 9452)][0], 'ok')
 
+    def test_a_script_that_makes_the_aura_periodic_needs_no_proc(self):
+        # Poised: a proc aura with no proc data, whose script gives the buff every second instead
+        ctx = world(core_spells=core(scripts={'poised'}, periodic={'poised'}), client_procs=set(), spell_procs=set(),
+                    spell_scripts={9452: {'poised'}}, scripted_spells={9452})
+        result = evaluate(spell(PROC), ctx)[('spell', 9452)]
+        self.assertEqual(result[0], 'ok')
+        self.assertIn('timer', next(c for c in result[2] if c['code'] == 'proc')['detail']['en'])
+        # a script that also waits for a proc still needs proc data
+        ctx['core_spells']['proc_scripts'] = {'poised'}
+        self.assertEqual(failed(evaluate(spell(PROC), ctx)[('spell', 9452)]), ['proc'])
+
 
 class TalentScript(unittest.TestCase):
     def test_a_talent_rank_nothing_handles_counts(self):
@@ -186,7 +197,7 @@ class CoreScan(unittest.TestCase):
             return make_core_spells.scan(root)
 
     def test_what_the_cpp_names_as_a_spell(self):
-        spells, scripts, procs = self.scan({
+        spells, scripts, procs, periodic = self.scan({
             'game/Spells/SpellMgr.cpp': 'void f() { switch (spellInfo->Id) { case 20375: break; } switch (eventId) { case 30: break; }\n'
                                         'ApplySpellFix({ 11111, 22222 }, [](SpellInfo*){});\n'
                                         '// 33333 only in a comment\n if (aura->GetId() == 44444) {} me->CastSpell(me, 55555, true); Timer = 15000; }',
@@ -195,15 +206,17 @@ class CoreScan(unittest.TestCase):
             'scripts/Spells/spell_x.cpp': 'enum { SPELL_MAGE_FIRE_POWER = 11124 };\n'
                                           'class spell_a : public AuraScript { void Register() override { OnProc += AuraProcFn(spell_a::P); } };\n'
                                           'class spell_b : public SpellScript { void Register() override { OnEffectHit += X; } };\n'
-                                          'void Add() { RegisterSpellScript(spell_a); RegisterSpellScriptWithArgs(spell_b, "spell_b_named", 1); }',
+                                          'class spell_c : public AuraScript { void Register() override { DoEffectCalcPeriodic += AuraEffectCalcPeriodicFn(spell_c::P, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL); } };\n'
+                                          'void Add() { RegisterSpellScript(spell_a); RegisterSpellScriptWithArgs(spell_b, "spell_b_named", 1); RegisterSpellScriptWithArgs(spell_c, "spell_c_rog", 7); }',
             'scripts/Spells/spell_old.cpp': 'class spell_trigger : public SpellScriptLoader {\n public: spell_trigger(char const* n, uint32 s) : SpellScriptLoader(n) { }\n'
                                             ' class spell_trigger_AuraScript : public AuraScript { void Register() override { OnEffectProc += X; } };\n};\n'
                                             'void AddSC_old() { new spell_trigger("spell_item_chicken", 23133); }',
         })
         self.assertEqual(set(spells), {20375, 11111, 22222, 44444, 55555, 11124})
         self.assertEqual(spells[11124], 'scripts/Spells/spell_x.cpp')
-        self.assertEqual(set(scripts), {'spell_a', 'spell_b_named', 'spell_item_chicken'})
+        self.assertEqual(set(scripts), {'spell_a', 'spell_b_named', 'spell_c_rog', 'spell_item_chicken'})
         self.assertEqual(procs, {'spell_a', 'spell_item_chicken'})
+        self.assertEqual(periodic, {'spell_c_rog'})
 
 
 if __name__ == '__main__':

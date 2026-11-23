@@ -67,7 +67,9 @@ casts), or when a SmartAI reacts to being hit by it. `tools/make_core_spells.py 
 `tools/world/core_spells.json`; run it again when the core moves. A *Procs* check fails an aura that acts only when it
 procs (a proc-trigger aura, or a bound script with a proc hook) with no `spell_proc` row and no client proc flags
 (SpellAuraOptions.ProcTypeMask) on an aura the core builds a default proc for (its isTriggerAura list): the core never
-procs it. Other spells keep a weightless hint.
+procs it. A bound script that makes the aura periodic itself (`DoEffectCalcPeriodic`, without a proc hook) runs it on
+a timer and passes: Poised gives its buff every second and never uses the aura's proc. Other spells keep a weightless
+hint.
 
 A quest also has a *Quest text* check: the giver's text (description or objectives) for a quest taken from a giver,
 and the turn-in text (`quest_offer_reward`, or `quest_request_items` for a quest that asks for items) for one handed

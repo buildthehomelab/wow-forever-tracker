@@ -21,6 +21,9 @@ Four lists:
   proc_scripts  the registered names among those whose aura script reacts to procs (DoCheckProc, OnProc,
                 OnEffectProc, AfterProc...). Such a script only runs when the aura procs, which takes a spell_proc row
                 or the client's proc flags (SpellAuraOptions.ProcTypeMask): without either it never runs.
+  periodic_scripts the registered names among those whose aura script makes an effect periodic itself
+                (DoEffectCalcPeriodic): such a script runs on its own timer, so a proc aura it drives needs no proc
+                setup (Poised's script gives its buff every second and leaves the aura's combat proc unused).
   trigger_auras the aura types SpellMgr::GenerateDefaultSpellProcEntry builds a proc for from the client's proc
                 flags (its isTriggerAura list, read from SpellMgr.cpp and SpellAuraDefines.h): a spell with client
                 proc flags but none of these auras gets no proc without a spell_proc row.
@@ -63,6 +66,7 @@ REGISTER = re.compile(r'\bRegister(SpellScript|SpellScriptWithArgs|SpellAndAuraS
 # numbers are no spell ids, and PlayerAI's lists of what a charmed player casts, which handle nothing.
 NOT_SPELLS = re.compile(r'(?:Defines|DBCEnums|ItemTemplate|DB2Structure|DB2Metadata)\.h$|^game/AI/PlayerAI/')
 PROC_HOOK = re.compile(r'\b(DoCheckProc|DoCheckEffectProc|DoPrepareProc|OnProc|AfterProc|OnEffectProc|AfterEffectProc)\s*\+=')
+PERIODIC_HOOK = re.compile(r'\bDoEffectCalcPeriodic\s*\+=')
 
 
 def code_only(text):
@@ -118,14 +122,14 @@ def spell_file(rel):
     return rel.startswith('game/') or '/Spells/' in rel or bool(re.search(r'spell|talent|/world/', rel, re.I))
 
 
-def scripts_of(code, raw):
-    """({registered name}, {registered names whose aura script has a proc hook}) of one file."""
+def scripts_of(code, raw, hook=PROC_HOOK):
+    """({registered name}, {registered names whose aura script has a `hook` hook, a proc hook by default}) of one file."""
     starts = [(m.start(), m.group(1)) for m in SCRIPT_CLASS.finditer(code)] + [(m.start(), '"' + m.group(1)) for m in LOADER.finditer(raw)]
     starts.sort()
     proc_classes, loaders = set(), {}
     for k, (start, name) in enumerate(starts):
         end = starts[k + 1][0] if k + 1 < len(starts) else len(code)
-        hooked = bool(PROC_HOOK.search(code, start, end))
+        hooked = bool(hook.search(code, start, end))
         if name.startswith('"'):
             loaders[name[1:]] = hooked or loaders.get(name[1:], False)
         elif hooked:
@@ -140,7 +144,7 @@ def scripts_of(code, raw):
     loader_hooked = {}
     for m in LOADER_CLASS.finditer(code):
         end = TOP_LEVEL.search(code, m.end())
-        loader_hooked[m.group(1)] = bool(PROC_HOOK.search(code, m.start(), end.start() if end else len(code)))
+        loader_hooked[m.group(1)] = bool(hook.search(code, m.start(), end.start() if end else len(code)))
     for m in NEW_LOADER.finditer(raw):
         if m.group(1) in loader_hooked:
             names.add(m.group(2))
@@ -163,7 +167,7 @@ def scripts_of(code, raw):
 
 
 def scan(src):
-    spells, scripts, procs = {}, {}, set()
+    spells, scripts, procs, periodic = {}, {}, set(), set()
     for folder in ('game', 'scripts'):
         root = os.path.join(src, folder)
         for path, _, files in sorted(os.walk(root)):
@@ -185,7 +189,8 @@ def scan(src):
                     for script in registered:
                         scripts.setdefault(script, rel)
                     procs |= hooked
-    return spells, scripts, procs
+                    periodic |= scripts_of(code, raw, PERIODIC_HOOK)[1]
+    return spells, scripts, procs, periodic
 
 
 def trigger_auras(src):
@@ -214,17 +219,18 @@ def main(argv):
     src = os.path.join(core, 'src', 'server')
     if not os.path.isdir(os.path.join(src, 'scripts')):
         raise SystemExit(f'{src}: not a TrinityCore source tree')
-    spells, scripts, procs = scan(src)
+    spells, scripts, procs, periodic = scan(src)
     out = {'source': 'TrinityCore C++ (src/server/game, src/server/scripts): spell ids the code names, spell scripts it registers',
            'commit': argv[2] if len(argv) > 2 else commit(core),
            'spells': {str(k): spells[k] for k in sorted(spells)},
            'scripts': {k: scripts[k] for k in sorted(scripts)},
            'proc_scripts': sorted(procs),
+           'periodic_scripts': sorted(periodic),
            'trigger_auras': trigger_auras(src)}
     with open(OUT, 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(out, handle, indent=0, sort_keys=False)
         handle.write('\n')
-    print(f'{len(spells)} spell ids named by the C++, {len(scripts)} spell scripts registered ({len(procs)} with a proc hook) -> {OUT}')
+    print(f'{len(spells)} spell ids named by the C++, {len(scripts)} spell scripts registered ({len(procs)} with a proc hook, {len(periodic)} periodic) -> {OUT}')
 
 
 if __name__ == '__main__':

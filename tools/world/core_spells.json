@@ -15728,6 +15728,26 @@
 "spell_xt002_exposed_heart",
 "spell_zandalar_arena_reaction_trigger"
 ],
+"periodic_scripts": [
+"classic_spell_dru_poised",
+"classic_spell_haunting_phantoms",
+"classic_spell_haunting_spirits",
+"classic_spell_hun_pet_scaling",
+"classic_spell_mage_arcane_missiles_barrage",
+"classic_spell_rog_poised",
+"classic_spell_warl_pet_scaling",
+"spell_garr_separation_anxiety",
+"spell_gen_arena_drink",
+"spell_hun_trailblazer",
+"spell_item_phial_of_the_arcane_tempest_periodic",
+"spell_majordomo_separation_anxiety",
+"spell_rezan_pile_of_bones_slow",
+"spell_shadowfang_keep_haunting_spirits",
+"spell_stratholme_haunting_phantoms",
+"spell_vashjir_sea_legs_aura",
+"spell_ymiron_the_fallen_king_bane_periodic",
+"spell_zuldrak_scourge_disguise_instability"
+],
 "trigger_auras": [
 4,
 5,

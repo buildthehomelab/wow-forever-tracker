@@ -377,6 +377,7 @@ def evaluate_all(content, ctx):
     core_known = bool(core.get('known'))
     core_ids, core_scripts, proc_scripts = core.get('spells', {}), core.get('scripts', {}), core.get('proc_scripts', set())
     trigger_auras = core.get('trigger_auras', set())
+    periodic_scripts = core.get('periodic_scripts', set())
     core_at = f" ({core['commit']})" if core.get('commit') else ''
     bound = ctx.get('spell_scripts', {})
     item_casters = {}
@@ -443,11 +444,16 @@ def evaluate_all(content, ctx):
         effects = (entity.get('facts') or {}).get('effects') or ()
         proc_aura = any(e[2] in PROC_AURAS for e in effects)
         proc_script = sorted(n for n in bound.get(spell_id, ()) if n in proc_scripts)
+        # a script that makes the aura periodic runs it on a timer: the aura's proc is not what it relies on
+        timer_script = sorted(n for n in bound.get(spell_id, ()) if n in periodic_scripts and n not in proc_scripts)
         if player and spell_id in known['spell'] and (proc_aura or proc_script) and ctx.get('client_procs') is not None:
             if spell_id in ctx.get('spell_procs', ()):
                 out.append(check(True, 'proc', L('Procs: spell_proc row.', 'Se déclenche : ligne spell_proc.'), 2))
             elif spell_id in ctx['client_procs'] and (not trigger_auras or any(e[2] in trigger_auras for e in effects)):
                 out.append(check(True, 'proc', L('Procs: the client’s proc flags (SpellAuraOptions).', 'Se déclenche : indicateurs de déclenchement du client (SpellAuraOptions).'), 2))
+            elif timer_script and not proc_script:
+                out.append(check(True, 'proc', L(f"Runs on a timer: its script {', '.join(timer_script)} makes the aura periodic, so it needs no proc.",
+                                                 f"Agit sur minuterie : son script {', '.join(timer_script)} rend l’aura périodique, aucun déclenchement n’est nécessaire."), 2))
             else:
                 what = L(f"its script {', '.join(proc_script)} waits for a proc", f"son script {', '.join(proc_script)} attend un déclenchement") if proc_script \
                     else L('its aura triggers on a proc', 'son aura agit sur déclenchement')

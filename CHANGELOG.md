@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Procs: a script that runs the aura on a timer passes.** Poised (rogue 1328825, druid 1328829) failed the *Procs*
+  check: its aura is a proc trigger with no `spell_proc` row and no client proc flags. Its script makes the aura
+  periodic instead and gives the buff every second at full Energy out of combat, so it works and needs no proc; a
+  `spell_proc` row would only wake the unused combat proc. `tools/make_core_spells.py` now records the scripts that
+  make an effect periodic (`DoEffectCalcPeriodic`, `periodic_scripts`); such a script without a proc hook passes the
+  check. The container analyses again once (marker 39).
+
 - **Spawn audit: how many of each creature are up, against three other worlds.** *The Forge › Spawn audit* counts,
   per creature and map, its spots (where it can stand) and how many are up at one time (a pool shows only some of its
   spots), and sets them against VMaNGOS (patch 1.12), AzerothCore and TrinityCore 3.3.5. A creature with more up
