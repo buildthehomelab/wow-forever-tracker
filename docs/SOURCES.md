@@ -275,6 +275,13 @@ website runs.
   (the *Later* badge) is no gap today, and a vendor, drop, giver or trainer for it would release it early. No source is
   asked about those, and the card's *Left out* line says how many gap items and quests that was. They come in with the
   first import made after their phase opens.
+- **Whole quests**: a quest the client has and the server has no `quest_template` row for (its phase open, given on
+  Forever) is written whole from Icy Veins' recording: the row (title, texts with `$N`/`$C`/`$R` and `$B`, level band,
+  races, flags, XP and money by difficulty, start item, sounds), its objectives with their live ids, its rewards (items
+  and choices in their slots, reputation as the core's override, currencies, the spells shown), its level rows and,
+  when a quest comes before it, `quest_template_addon.PrevQuestID`. Its giver, ender and turn-in words come on the same
+  card; no other card gives a quest without a row a giver or an ender. A title that marks a leftover (`REUSE ME`,
+  `(Temp Disabled)`, `<UNUSED>`, `[DNT]`) or an obsolete recording is not written.
 - **Vendors**: unlimited stock unless the source saw a limited one (then restocked hourly); the price is the item's own
   unless another vendor sells it for items or currencies (then that `ExtendedCost`). Stock paid with items or
   currencies the source saw is left out (no cost to give it).

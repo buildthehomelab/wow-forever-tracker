@@ -69,6 +69,11 @@ function source_gaps(): array
         $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_queststarter s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_queststarter g WHERE g.quest = q.ID)', 'world'),
         $ids('SELECT q.ID FROM quest_template q WHERE NOT EXISTS (SELECT 1 FROM creature_questender s WHERE s.quest = q.ID) AND NOT EXISTS (SELECT 1 FROM gameobject_questender g WHERE g.quest = q.ID)', 'world'),
         $byItem, $official, ['items' => $later['item'], 'quests' => $later['quest'], 'spells' => $later['spell'] + $later['recipe']], $notGiven);
+    // the client's own quests the server has no quest_template row for (whose phase is open, and that Forever gives): a
+    // source that recorded the whole quest writes the row (source_quest_rows), and its giver, ender and words with it
+    $gaps['noRow'] = array_diff_key($official, $ids('SELECT ID FROM quest_template', 'world'), $later['quest'], $notGiven);
+    $gaps['noGiver'] += $gaps['noRow'];
+    $gaps['noEnder'] += $gaps['noRow'];
     // the quest links an admin rolled back: never proposed again, or the next card (applied on its own) puts them back
     $gaps['rolledBack'] = source_rolled_back_links(rows("SELECT sql_apply FROM ft_forge_log WHERE state = 'rolled_back' AND FIND_IN_SET('import', kind)"));
     return $gaps;
@@ -244,6 +249,72 @@ function source_text_rows(string $moment, array $list, array $quests, array $hav
     return [$new, $op, $left];
 }
 
+/** A quest's title that marks it as no quest players take (a developer's leftover, a disabled copy). */
+const SOURCE_QUEST_ROW_NOT_CONTENT = '/^\s*(REUSE ?ME|<UNUSED>|\[DNT\]|\[PH\])|\(Temp Disabled\)|^\s*TEST\b/i';
+
+/**
+ * A whole quest a source recorded ($p: 'e' its quest fields, 'o' its objectives, 'r' its rewards, 'p' the quests before
+ * it, as Icy Veins writes them) as the server's rows: [table => [row]] for quest_template, quest_objectives, the classic
+ * level tables and quest_template_addon (when a quest comes before it), or null when it is no quest to write (its title
+ * marks a leftover, the source calls it obsolete). Text: the recording's <Name>/<Class>/<Race> become $N/$C/$R, its line
+ * breaks the core's $B. Rewards: items and choices in their slots, reputation as the core's override (amount x 100),
+ * currencies, and the spells it shows. $build: the VerifiedBuild of the rows.
+ */
+function source_quest_rows(int $quest, array $p, int $build = 0): ?array
+{
+    $e = (array)($p['e'] ?? []);
+    $title = trim((string)($e['title'] ?? ''));
+    if ($title === '' || preg_match(SOURCE_QUEST_ROW_NOT_CONTENT, $title) || !empty($e['obsolete'])) return null;
+    $text = fn($v) => str_replace(["\r\n", "\n"], '$B', strtr((string)($v ?? ''), ['<Class>' => '$C', '<class>' => '$c', '<Race>' => '$R', '<race>' => '$r', '<Name>' => '$N', '<name>' => '$n']));
+    $int = fn($k) => (int)($e[$k] ?? 0);
+    $num = fn($k, $d = 0) => isset($e[$k]) && is_numeric($e[$k]) ? $e[$k] + 0 : $d;
+    $row = ['ID' => $quest, 'QuestType' => 2, 'QuestPackageID' => $int('quest_package_id'), 'ContentTuningID' => $int('content_tuning_id'),
+        'QuestSortID' => isset($e['quest_sort']) && $e['quest_sort'] !== null ? (int)$e['quest_sort'] : $int('zone_id'),
+        'QuestInfoID' => $int('quest_info_id'), 'SuggestedGroupNum' => $int('suggested_group'), 'RewardNextQuest' => $int('next_quest_id'),
+        'RewardXPDifficulty' => $int('reward_xp_difficulty'), 'RewardXPMultiplier' => $num('reward_xp_multiplier', 1),
+        'RewardMoneyDifficulty' => $int('reward_money_difficulty'), 'RewardMoneyMultiplier' => $num('reward_money_multiplier', 1),
+        'RewardBonusMoney' => $int('reward_bonus_money'), 'RewardSpell' => $int('reward_spell_id'), 'RewardHonor' => $int('reward_honor'),
+        'RewardKillHonor' => $int('reward_kill_honor'), 'StartItem' => $int('start_item_id'), 'Flags' => $int('flags'), 'FlagsEx' => $int('flags_ex'),
+        'FlagsEx2' => $int('flags_ex2'), 'FlagsEx3' => $int('flags_ex3'), 'POIContinent' => $int('poi_map_id'), 'POIx' => $num('poi_x'), 'POIy' => $num('poi_y'),
+        'POIPriority' => $int('poi_priority'), 'RewardTitle' => $int('reward_title_id'), 'RewardArenaPoints' => $int('reward_arena_points'),
+        'RewardSkillLineID' => $int('reward_skill_line_id'), 'RewardNumSkillUps' => $int('reward_skill_points'),
+        'PortraitGiver' => $int('portrait_giver_display_id'), 'PortraitGiverMount' => $int('portrait_giver_mount_display_id'),
+        'PortraitGiverModelSceneID' => $int('portrait_giver_model_scene_id'), 'PortraitTurnIn' => $int('portrait_turn_in_display_id'),
+        'RewardFactionFlags' => $int('reward_faction_flags'), 'AcceptedSoundKitID' => $int('accepted_sound_kit_id'), 'CompleteSoundKitID' => $int('complete_sound_kit_id'),
+        'AreaGroupID' => $int('area_group_id'), 'TimeAllowed' => $int('time_allowed'), 'AllowableRaces' => is_numeric($e['races'] ?? null) ? sprintf('%u', (int)$e['races']) : '0', 'Expansion' => $int('expansion'),
+        'LogTitle' => $title, 'LogDescription' => $text($e['objective'] ?? ''), 'QuestDescription' => $text($e['description'] ?? ''),
+        'AreaDescription' => $text($e['area_description'] ?? ''), 'PortraitGiverText' => $text($e['portrait_giver_text'] ?? ''),
+        'PortraitGiverName' => $text($e['portrait_giver_name'] ?? ''), 'PortraitTurnInText' => $text($e['portrait_turn_in_text'] ?? ''),
+        'PortraitTurnInName' => $text($e['portrait_turn_in_name'] ?? ''), 'QuestCompletionLog' => $text($e['completion_log'] ?? ''), 'VerifiedBuild' => $build];
+    $slot = ['item' => 0, 'choice' => 0, 'reputation' => 0, 'currency' => 0, 'spell' => 0];
+    foreach ((array)($p['r'] ?? []) as $r) {
+        $kind = (string)($r['reward'] ?? ''); $amount = (int)($r['amount'] ?? 0);
+        if ($kind === 'item' && (int)($r['item_id'] ?? 0) > 0 && $slot['item'] < 4) { $n = ++$slot['item']; $row["RewardItem$n"] = (int)$r['item_id']; $row["RewardAmount$n"] = max(1, $amount); }
+        elseif ($kind === 'choice' && (int)($r['item_id'] ?? 0) > 0 && $slot['choice'] < 6) { $n = ++$slot['choice']; $row["RewardChoiceItemID$n"] = (int)$r['item_id']; $row["RewardChoiceItemQuantity$n"] = max(1, $amount); }
+        elseif ($kind === 'reputation' && (int)($r['faction_id'] ?? 0) > 0 && $slot['reputation'] < 5) { $n = ++$slot['reputation']; $row["RewardFactionID$n"] = (int)$r['faction_id']; $row["RewardFactionOverride$n"] = $amount * 100; }
+        elseif ($kind === 'currency' && (int)($r['currency_id'] ?? 0) > 0 && $slot['currency'] < 4) { $n = ++$slot['currency']; $row["RewardCurrencyID$n"] = (int)$r['currency_id']; $row["RewardCurrencyQty$n"] = $amount; }
+        elseif ($kind === 'spell' && (int)($r['spell_id'] ?? 0) > 0 && $slot['spell'] < 3 && (int)$r['spell_id'] !== $row['RewardSpell']) { $n = ++$slot['spell']; $row["RewardDisplaySpell$n"] = (int)$r['spell_id']; }
+    }
+    $out = ['quest_template' => [$row]];
+    foreach ((array)($p['o'] ?? []) as $o) {
+        if ((int)($o['objective_id'] ?? 0) <= 0) continue;
+        $out['quest_objectives'][] = ['ID' => (int)$o['objective_id'], 'QuestID' => $quest, 'Type' => (int)($o['type'] ?? 0), 'Order' => (int)($o['idx'] ?? 0),
+            'StorageIndex' => (int)($o['storage_index'] ?? 0), 'ObjectID' => (int)($o['object_id'] ?? 0), 'Amount' => (int)($o['amount'] ?? 0), 'ConditionalAmount' => 0,
+            'Flags' => (int)($o['flags'] ?? 0), 'Flags2' => (int)($o['flags2'] ?? 0), 'ProgressBarWeight' => (float)($o['progress_weight'] ?? 0),
+            'ParentObjectiveID' => (int)($o['parent_objective_id'] ?? 0), 'Visible' => 1, 'Description' => $text($o['description'] ?? ''), 'VerifiedBuild' => $build];
+    }
+    $level = $int('level');
+    if ($level > 0) {
+        $out['quest_classic_level'][] = ['ID' => $quest, 'QuestLevel' => $level, 'MinLevel' => $int('min_level'), 'MaxLevel' => 0];
+        $out['quest_template_classic_level'][] = ['ID' => $quest, 'LevelType' => 2, 'QuestLevel' => $level];
+    }
+    $prev = array_values(array_filter(array_map(fn($q) => (int)(is_array($q) ? ($q['id'] ?? 0) : $q), (array)($p['p'] ?? []))));
+    if ($prev) $out['quest_template_addon'][] = ['ID' => $quest, 'MaxLevel' => 0, 'AllowableClasses' => 0, 'SourceSpellID' => 0, 'PrevQuestID' => $prev[0], 'NextQuestID' => 0,
+        'ExclusiveGroup' => 0, 'BreadcrumbForQuestId' => 0, 'RewardMailTemplateID' => 0, 'RewardMailDelay' => 0, 'RequiredSkillID' => 0, 'RequiredSkillPoints' => 0,
+        'RequiredMinRepFaction' => 0, 'RequiredMaxRepFaction' => 0, 'RequiredMinRepValue' => 0, 'RequiredMaxRepValue' => 0, 'ProvidedItemCount' => 0, 'SpecialFlags' => 0, 'ScriptName' => ''];
+    return $out;
+}
+
 /** The evidence as import tables, with the server's rules (see the top of this file). Returns [tables, left out]. */
 function source_tables(array $ev, string $label, array $gaps): array
 {
@@ -328,6 +399,19 @@ function source_tables(array $ev, string $label, array $gaps): array
         }
     }
 
+    // ---- whole quests the server has no row for ('quest_row' => [quest, payload]): written with their objectives and levels
+    $newQuests = [];   // [quest => [sort, classes, races]], as the turn-in words below read the server's quests
+    foreach ($ev['quest_row'] ?? [] as $qr) {
+        $quest = (int)($qr[0] ?? 0);
+        $payload = is_string($qr[1] ?? null) ? json_decode($qr[1], true) : ($qr[1] ?? null);
+        if (!isset($gaps['noRow'][$quest]) || isset($newQuests[$quest]) || !is_array($payload)) continue;
+        $made = source_quest_rows($quest, $payload, $build);
+        if ($made === null) { $left['quest_row_not_content'] = ($left['quest_row_not_content'] ?? 0) + 1; continue; }
+        foreach ($made as $table => $list) $rows[$table] = array_merge($rows[$table] ?? [], $list);
+        $q = $made['quest_template'][0];
+        $newQuests[$quest] = [(int)$q['QuestSortID'], 0, (string)$q['AllowableRaces']];
+    }
+
     // ---- quest givers and enders
     $who = ['npc' => [], 'go' => []];
     foreach (['start', 'end'] as $role) foreach ($ev[$role] ?? [] as [$kind, $id]) $who[$kind][] = (int)$id;
@@ -338,6 +422,8 @@ function source_tables(array $ev, string $label, array $gaps): array
         foreach ($ev[$role] ?? [] as [$kind, $id, $quest]) {
             if (!isset($gaps[$gap][(int)$quest]) || isset($seen["$role:$kind:$id:$quest"])) continue;
             $seen["$role:$kind:$id:$quest"] = true;
+            // a quest the server has no row for gets its giver and ender only from the card that writes its row
+            if (isset($gaps['noRow'][(int)$quest]) && !isset($newQuests[(int)$quest])) { $left['quest_row_missing'] = ($left['quest_row_missing'] ?? 0) + 1; continue; }
             if (!isset($templates[$kind][(int)$id])) { $left['quest_unknown']++; continue; }
             $table = ($kind === 'npc' ? 'creature_' : 'gameobject_') . $suffix;
             if (isset($gaps['rolledBack']["$table:" . (int)$id . ':' . (int)$quest])) { $left['quest_link_rolled_back'] = ($left['quest_link_rolled_back'] ?? 0) + 1; continue; }
@@ -409,6 +495,7 @@ function source_tables(array $ev, string $label, array $gaps): array
             $quests[(int)$r['ID']] = true;
             $kept[(int)$r['ID']] = [(int)$r['QuestSortID'], (int)$r['AllowableClasses'], (string)$r['AllowableRaces']];
         }
+        foreach ($newQuests as $quest => $k) if (isset($list[$quest])) { $quests[$quest] = true; $kept[$quest] = $k; }
         $have = [];
         foreach (rows("SELECT ID, `$column` words FROM `$table` WHERE ID IN (" . $in(array_keys($list)) . ')', [], 'world') as $r) $have[(int)$r['ID']] = (string)$r['words'];
         [$new, $fill, $textLeft] = source_text_rows($moment, $list, $quests, $have, $gaps['later']['quests'] ?? [], $kept);
