@@ -281,6 +281,18 @@ function icyveins_quest_evidence(array &$ev, int $quest, array $r): void
     }
 }
 
+/** A whole quest the server has no row for, as source_quest_rows() reads it: [quest, payload] in 'quest_row'. $data: the
+ *  quest's whole answer (its fields, objectives, rewards, the quests before it). */
+function icyveins_quest_row(array &$ev, int $quest, array $data): void
+{
+    $entity = (array)($data['entity'] ?? []);
+    if (!$entity) return;
+    $payload = ['e' => $entity, 'o' => array_values((array)($data['children']['quest_objective'] ?? [])),
+                'r' => array_values((array)($data['relations']['rewards'] ?? [])),
+                'p' => array_values(array_map(fn($q) => (int)(is_array($q) ? ($q['id'] ?? 0) : $q), (array)($data['relations']['previous_quests'] ?? [])))];
+    $ev['quest_row'][] = [$quest, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
+}
+
 function icyveins_item_evidence(array &$ev, int $item, array $r): void
 {
     foreach ((array)($r['addon_dropped_by'] ?? []) as $d) {
@@ -365,12 +377,17 @@ function icyveins_object_evidence(array &$ev, int $go, array $r): void
  *  is the same measure: source_tables() keeps the best of a pair. */
 function icyveins_evidence(?array $mirror = null): array
 {
-    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'text' => [], 'service' => [], 'quest_drop' => [], 'container' => [], 'left' => [], 'kept' => []];
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'text' => [], 'service' => [], 'quest_drop' => [], 'container' => [], 'left' => [], 'kept' => [], 'quest_row' => []];
     $read = ['npc' => 'icyveins_npc_evidence', 'gameobject' => 'icyveins_object_evidence', 'quest' => 'icyveins_quest_evidence', 'item' => 'icyveins_item_evidence'];
+    // the quests the server has a row for: the others' whole recording is kept (source_quest_rows writes their row)
+    $onServer = [];
+    if (table_exists('quest_template', 'world')) foreach (rows('SELECT ID FROM quest_template', [], 'world') as $r) $onServer[(int)$r['ID']] = true;
     foreach ($read as $kind => $fn) {
         foreach ($mirror[$kind] ?? icyveins_mirrored($kind) as $id) {
             $data = icyveins_cached($kind, (int)$id);
-            if ($data && empty($data['missing'])) $fn($ev, (int)$id, (array)($data['relations'] ?? []));
+            if (!$data || !empty($data['missing'])) continue;
+            $fn($ev, (int)$id, (array)($data['relations'] ?? []));
+            if ($kind === 'quest' && !isset($onServer[(int)$id])) icyveins_quest_row($ev, (int)$id, $data);
         }
     }
     foreach (['flight-path' => 'icyveins_kept_flight_paths', 'zone' => 'icyveins_kept_zones'] as $kind => $why) {
@@ -460,7 +477,7 @@ function icyveins_import(?callable $progress = null): array
     $again = array_diff_key(source_refresh_items('icyveins'), $gaps['items']);
     $first = [
         'item' => array_keys($gaps['items'] + $again),
-        'quest' => array_keys($gaps['noGiver'] + $gaps['noEnder'] + array_diff_key(icyveins_quests_without_words(), $gaps['later']['quests'] ?? [])),
+        'quest' => array_keys(($gaps['noRow'] ?? []) + $gaps['noGiver'] + $gaps['noEnder'] + array_diff_key(icyveins_quests_without_words(), $gaps['later']['quests'] ?? [])),
         'npc' => source_trainer_npcs(),
     ];
     $asked = 0; $done = 0; $failures = 0; $lastFailure = ''; $saidAt = 0;

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Icy Veins writes the quests the server lacks.** 102 released quests had no `quest_template` row. Icy Veins had
+  recorded every one of them, and Wowhead 93, but the imports only filled givers, enders and reward slots of quests that
+  already existed. Icy Veins' import now writes such a quest whole: the row, its objectives (with their live ids), its
+  rewards, its level rows and the quest before it. Its giver, ender and turn-in words come on the same card. Leftovers
+  (`REUSE ME`, `(Temp Disabled)`) are not written. These quests are asked first, and the next *Import Icy Veins* (or a
+  card made again from its snapshot) proposes them.
+
 - **A zone counts the quests Forever gives.** Ironforge (78 / 110) and Orgrimmar (88 / 125) stayed Incomplete with every
   quest players can do there working. Their counts held the old Tier 0.5 and Tier 3 quests ("An Earnest Proposition",
   "Saving the Best for Last", "Anthion's Parting Words", for every class), which only givers live replaced give: the
