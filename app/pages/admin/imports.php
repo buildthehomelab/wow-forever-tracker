@@ -118,6 +118,15 @@ $leftLabels = [
     'quest_mechanics_differ' => t('quests whose type, flags, start item, time limit, zone, races or next quest differ from the recording (counted, never changed here)', 'quêtes dont le type, les drapeaux, l’objet de départ, la durée, la zone, les races ou la quête suivante diffèrent de l’enregistrement (comptées, jamais modifiées ici)'),
     'quest_record_unreadable' => t('quests whose recording does not fit the columns (not compared)', 'quêtes dont l’enregistrement ne tient pas dans les colonnes (non comparées)'),
     'quest_refresh_failed' => t('the quests the server has could not be compared with the recording this time (see the PHP error log)', 'les quêtes du serveur n’ont pas pu être comparées à l’enregistrement cette fois (voir le journal d’erreurs PHP)'),
+    'wiki_link_no_page' => t('wiki quest givers or enders whose link leads to no page', 'donneurs ou valideurs du wiki dont le lien ne mène à aucune page'),
+    'wiki_link_no_single_id' => t('wiki quest givers or enders whose page names no id, or several of which not exactly one stands on the server', 'donneurs ou valideurs du wiki dont la page ne nomme aucun identifiant, ou plusieurs dont pas exactement un n’est sur le serveur'),
+    'wiki_text_not_plain' => t('wiki turn-in words that are not plain words (empty, a note, a template)', 'textes de fin du wiki qui ne sont pas de simples mots (vides, une note, un modèle)'),
+    'wiki_vendor_no_single_id' => t('wiki vendor rows of a page that names no creature id, or several', 'lignes de marchand du wiki d’une page sans identifiant de PNJ, ou avec plusieurs'),
+    'wiki_vendor_price_unread' => t('wiki vendor rows whose price is not money alone or currencies alone', 'lignes de marchand du wiki dont le prix n’est ni de l’argent seul ni des monnaies seules'),
+    'wiki_vendor_price_no_id' => t('wiki vendor rows priced in a currency or item whose page names no id', 'lignes de marchand du wiki payées en une monnaie ou un objet dont la page ne nomme aucun identifiant'),
+    'wiki_vendor_several_tables' => t('wiki vendor rows of a page with several Sells tables (another version of the game beside Forever)', 'lignes de marchand du wiki d’une page à plusieurs tables de vente (une autre version du jeu à côté de Forever)'),
+    'wiki_vendor_item_no_page' => t('wiki vendor rows whose item has no page on the wiki yet', 'lignes de marchand du wiki dont l’objet n’a pas encore de page sur le wiki'),
+    'wiki_vendor_item_no_id' => t('wiki vendor rows whose item page names no item id, or several', 'lignes de marchand du wiki dont la page d’objet ne nomme aucun identifiant, ou plusieurs'),
     'loot_chance_unknown' => t('drops without a known chance', 'butins sans chance connue'), 'questie_item_not_in_forever' => t('QuestieDB drops of items WoW Forever does not have (Season of Discovery or Classic leftovers)', 'butins QuestieDB d’objets absents de WoW Forever (restes de Season of Discovery ou de Classic)'), 'questie_phase_not_open' => t('QuestieDB drops of items of a release phase that is not open yet', 'butins QuestieDB d’objets d’une phase pas encore ouverte'), 'loot_unknown_creature' => t('drops of creatures or chests unknown to this server', 'butins de PNJ ou coffres inconnus de ce serveur'),
     'trainer_other_kind' => t('trainer spells of another kind than the trainer list teaches (a recipe for a list of another profession, or of class spells)', 'sorts d’entraîneur d’un autre genre que ce qu’enseigne la liste (une recette pour la liste d’un autre métier, ou de sorts de classe)'),
     'trainer_known' => t('spells the trainer already teaches', 'sorts que l’entraîneur enseigne déjà'), 'trainer_not_on_server' => t('trainers unknown to this server', 'entraîneurs inconnus de ce serveur'),
@@ -272,6 +281,19 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
   </div>
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
+</section>
+
+<?php $wikiRunning = source_running('wiki'); $wikiLog = is_file(source_log('wiki')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('wiki')))) : ''; ?>
+<section class="block import-add">
+  <header class="block-head"><div><span class="eyebrow"><?= e(t('The community wiki', 'Le wiki communautaire')) ?></span><h2>warcraft.wiki.gg</h2></div></header>
+  <ol class="steps-list">
+    <li><?= e(t('The wiki\'s WoW Forever pages (CC BY-SA 4.0: credit warcraft.wiki.gg), written by its editors: about 2,400 quests, NPCs, creatures, objects and items. Read through its API, fifty pages a request, one request a second: a minute or two. It ranks right after Icy Veins.', 'Les pages WoW Forever du wiki (CC BY-SA 4.0 : créditer warcraft.wiki.gg), écrites par ses rédacteurs : environ 2 400 quêtes, PNJ, créatures, objets. Lues par son API, cinquante pages par requête, une requête par seconde : une minute ou deux. Il se place juste après Icy Veins.')) ?></li>
+    <li><?= e(t('What it brings, for the gaps only: who gives and takes a quest, what an NPC sells (for money, or for currencies such as Merchant\'s Favor through the server\'s own costs), and the words of the progress and turn-in windows where the server holds none. A link is taken only when its page names one id, or several of which exactly one stands on the server; names are never matched against the server\'s. The container reads it every FT_WIKI_EVERY_HOURS (24 unless set; 0: never).', 'Ce qu’il apporte, pour les manques seulement : qui donne et valide une quête, ce qu’un PNJ vend (contre de l’argent, ou des monnaies comme la Faveur du marchand via les coûts du serveur), et les textes des fenêtres de progression et de fin là où le serveur n’en a pas. Un lien n’est pris que si sa page nomme un identifiant, ou plusieurs dont un seul est sur le serveur ; les noms ne sont jamais comparés à ceux du serveur. Le conteneur le lit toutes les FT_WIKI_EVERY_HOURS heures (24 par défaut ; 0 : jamais).')) ?></li>
+  </ol>
+  <div class="btn-row">
+    <button class="btn is-small is-gold" type="button" data-scribe="source_wiki" <?= $wikiRunning ? 'disabled' : '' ?>><i class="fas fa-book"></i> <?= e($wikiRunning ? t('warcraft.wiki.gg: reading…', 'warcraft.wiki.gg : lecture…') : t('Import warcraft.wiki.gg', 'Importer warcraft.wiki.gg')) ?></button>
+  </div>
+  <?php if ($wikiLog !== ''): ?><p class="muted small">warcraft.wiki.gg: <?= e($wikiLog) ?></p><?php endif; ?>
 </section>
 
 <?php $fcPack = foreverchanges_pack(); $fcRunning = source_running('foreverchanges'); $fcLog = is_file(source_log('foreverchanges')) ? trim((string)@shell_exec('tail -n 1 ' . escapeshellarg(source_log('foreverchanges')))) : ''; ?>

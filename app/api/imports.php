@@ -107,6 +107,10 @@ switch ($action) {
     case 'source_eglink':
         require_once FT_APP . '/sources.php';
         json_out(eglink_import());
+    case 'source_wiki':
+        // about seventy requests, one a second: in the background
+        require_once FT_APP . '/sources.php';
+        json_out(source_start('wiki'));
     case 'source_foreverdb':
         require_once FT_APP . '/sources.php';
         json_out(foreverdb_import());

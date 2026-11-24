@@ -16,6 +16,7 @@ roll back from the history, and [export to your data repository](DATA-REPO.md) o
 | [AtlasLoot Classic Forever](https://www.curseforge.com/wow/addons/atlasloot-forever) | the loot browser most Forever players run, updated almost daily: the boss (or chest) that drops each item, Forever's new dungeons included, with measured chances for Classic drops | GPL-2.0 | the newest Forever file on CurseForge (no public git repository), checked every few hours by the container |
 | [Icy Veins](https://db.icy-veins.com/wow-forever) | what players' addons recorded on live Forever: drops, skinning, pick pocketing, chests and nodes, vendors, trainers, quest givers and words, services, positions | none stated: reference for your own server | its whole database mirrored, gaps first, two requests a second, in the background |
 
+| [warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/World_of_Warcraft:_Forever) | the community wiki's WoW Forever pages, written by its editors: about 330 quests, 650 NPCs and creatures and 1,400 items. Who gives and takes a quest, what an NPC sells, the progress and turn-in words. Ranks right after Icy Veins (the project's decision of 2026-11-23) | CC BY-SA 4.0: credit *"warcraft.wiki.gg (https://warcraft.wiki.gg)"*; one-way compatible with GPL-3.0, so its rows may go into a GPL-3.0 data repository with that credit | its API, fifty pages a request, one request a second: about seventy requests, a minute or two. The container reads it every `FT_WIKI_EVERY_HOURS` (24) |
 | [ForeverChanges](https://foreverchanges.pro) | what its players' addon saw on live Forever, over a base of Classic's data: who gives and takes quests and where they stand (quest givers by id on its map), vendors, drops counted in kills | none; its terms ask not to republish its compiled data as your own: credit it, and decide for your own project. Since 2026-11-16 a row needs a second source (Wowhead, ForeverDB.net, EG Link): alone it is a hint | the whole site, the tracker's gaps first, read slowly in the background (robots.txt obeyed, one request at a time); every file kept privately in `data/` |
 | [VMaNGOS](https://github.com/vmangos/core) | the world database of the 1.12 game, not of Forever, kept patch by patch (the pack takes 1.12): the same questions as cmangos classic-db, asked just before it | GPL-2.0 | from a file you send: a pack made from the `db-….zip` of its `db_latest` release, the tracker never downloads it |
 | [cmangos classic-db](https://github.com/cmangos/classic-db) | the content database of the 1.12 game, not of Forever: who trained a recipe, which quest's turn-in cast it, who dropped or sold a recipe. Asked last, and only about what nobody can learn or get | GPL-3.0 | from a file you send: a pack made from the project's own dump, the tracker never downloads it |
@@ -120,6 +121,38 @@ as text.
   `boss_gloomrel`), the card names the script instead of writing SmartAI; a Gloom'rel who already runs SmartAI (his
   challenge, as on Everlake) gets the SmartAI line.
   The pack (`format` 2) carries these lines; a pack of the first format only counts them.
+
+## warcraft.wiki.gg: the wiki's Forever pages
+
+*The Forge › Imports › Import warcraft.wiki.gg*, `php tools/source-import.php wiki`, and the container every
+`FT_WIKI_EVERY_HOURS` (24; `0` = never). `app/wiki.php` asks the wiki's API (`api.php`, never the pages, with `maxlag`
+so a busy wiki is left alone) for the wikitext of every page of the categories *Forever quests*, *Forever NPCs*,
+*Forever mobs*, *Forever objects* and *Forever items*, fifty a request, then for the pages their links name that those
+categories do not hold (a Classic NPC who gives a Forever quest, an item a Forever vendor sells, the currency it is
+paid in). On 2026-11-23 that was 2,652 pages in 64 requests. What was read is kept in `data/wiki/pages.json.gz`; the
+evidence is kept as a snapshot, so *Card* makes the card again without asking the wiki.
+
+- **Givers and enders.** A quest page's `Questbox` names its giver (`start`) and ender (`end`) by a link. The linked
+  page's `{{Elinks-NPC|id}}` or `{{Elinks-object|id}}` is the id. A page that names several (a Classic NPC's id beside
+  its retail copy's, `Elinks-NPC2`) is taken only when exactly one of them stands in the server's world. So is the one
+  id of a page outside the Forever categories, which often names the Classic or retail creature of that name (Argent
+  Medic: the old Naxxramas event's). Names are never matched against the server's own.
+- **Vendors.** The rows of an NPC page's `==Sells==` table, each item by its page's `itemid` or `{{Elinks-item|id}}`,
+  when the page names one creature and its section holds one table (Fizzlefuse's holds a Season of Discovery table
+  beside Forever's: such a page is left out and counted).
+  A row paid in money (`{{Cost|g|s|c}}`) sells at the item's own price. A row paid in currencies or items alone
+  (`{{Costitem|5|Merchant's Favor}}`, the page of each naming its `currencyid` or `itemid`) takes the server's own
+  ItemExtendedCost asking exactly that, as Wowhead's costs do; none, and the row is left out. On 2026-11-23 most of the
+  Supply and Logistics recipes had no wiki page yet: they are counted, not guessed.
+- **Turn-in words.** A quest page's `==Progress==` and `==Completion==` sections, written as the core writes them
+  (`<name>` becomes `$n`, `<brother/sister>` `$Gbrother:sister;`, a line break `$B`; links, comments and references
+  dropped; a picture or a category in the section leaves it out), only where the server's window
+  holds none. Words the wiki draws with a template, a list or a note in brackets are left out and counted; so is a text
+  that calls the player by a class or race the quest is not kept to, as for every source.
+- **Its place.** `[sources] trust`: `…, icyveins, wiki, foreverchanges, …`. It is no second witness for ForeverChanges'
+  hints: its editors often copy from Wowhead, which already is one.
+- **Exporting.** Its rows may go into a GPL-3.0 data repository (CC BY-SA 4.0 is one-way compatible with GPL-3.0); the
+  repository's NOTICE.md then credits warcraft.wiki.gg in the same pull request.
 
 ## ForeverChanges: names and places, from the site
 

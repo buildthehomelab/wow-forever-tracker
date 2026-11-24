@@ -18,7 +18,7 @@
 //                                                    higher rank with neither is left out (a talent's later rank
 //                                                    would be sold to players who never took the talent)
 //
-// Sources: NorgannonDB (app/norgannon.php), AtlasLoot (app/atlasloot.php), Wowhead's pages (app/wowheadpages.php), EG Link,
+// Sources: NorgannonDB (app/norgannon.php), AtlasLoot (app/atlasloot.php), warcraft.wiki.gg (app/wiki.php), Wowhead's pages (app/wowheadpages.php), EG Link,
 // ForeverDB.net, Icy Veins (below).
 // See docs/SOURCES.md.
 require_once FT_APP . '/imports.php';
@@ -39,6 +39,7 @@ const SOURCES = [
     'eglink' => ['EG Link', 'CC BY 4.0: "Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0."'],
     'foreverdb' => ['ForeverDB.net', 'GPL-3.0 with attribution: "Data from ForeverDB.net"'],
     'icyveins' => ['Icy Veins', 'no licence stated: reference for your own server'],
+    'wiki' => ['warcraft.wiki.gg', 'CC BY-SA 4.0: "warcraft.wiki.gg (https://warcraft.wiki.gg), its WoW Forever pages" (ids and turn-in words; ranks right after Icy Veins, the project’s decision of 2026-11-23)'],
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
     'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14; a row needs a second source since 2026-11-16)'],
     'wowheadclassic' => ['Wowhead Classic', 'drop counts from the pages of wowhead.com/classic, for creatures and chests Forever kept whose Forever pages count too few (no text; no licence stated: credited)'],
@@ -584,16 +585,16 @@ function source_extended_costs(): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'questie' => 'QuestieDB', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'wowheadcomments' => 'Wowhead comments', 'scribe' => 'ForeverScribe'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'questie' => 'QuestieDB', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'wiki' => 'warcraft.wiki.gg', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'wowheadcomments' => 'Wowhead comments', 'scribe' => 'ForeverScribe'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
- *  QuestieDB (its own import, then through NorgannonDB), then Icy Veins; the others after them. What was counted on Classic
+ *  QuestieDB (its own import, then through NorgannonDB), then Icy Veins, then warcraft.wiki.gg; the others after them. What was counted on Classic
  *  (Wowhead Classic, then the original game's database: VMaNGOS before cmangos' classic-db) comes after everything
  *  recorded on Forever. A file imported by hand
  *  ("sniff": WowPacketParser's format; "scribe": ForeverScribe's notes) comes after the Forever sources and before
  *  Classic's. The core's own rows, which no import wrote, rank below all of them ([sources] change_core). */
-const SOURCE_TRUST = 'client,wowhead,questie,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,wowheadcomments,vmangos,classicdb';
+const SOURCE_TRUST = 'client,wowhead,questie,norgannondb,icyveins,wiki,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,wowheadcomments,vmangos,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array

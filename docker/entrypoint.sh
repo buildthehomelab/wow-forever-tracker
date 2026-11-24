@@ -372,6 +372,29 @@ questie_watch() {
 }
 questie_watch &
 
+# warcraft.wiki.gg (its Forever pages, docs/SOURCES.md): every FT_WIKI_EVERY_HOURS (0 = never) the pages are read again
+# through the wiki's API and made into a card (about seventy requests, one a second). Exit 3: an analysis or another
+# wiki import is running, checked again in 15 minutes.
+wiki_watch() {
+    case "${FT_WIKI_EVERY_HOURS:-24}" in ''|*[!0-9]*|?????*) say "FT_WIKI_EVERY_HOURS must be a whole number up to 9999: no wiki check"; return ;; esac
+    hours="$(expr "${FT_WIKI_EVERY_HOURS:-24}" + 0 || true)"
+    if [ "$hours" -eq 0 ]; then say "FT_WIKI_EVERY_HOURS=0: no wiki check"; return; fi
+    log="$DATA/source-wiki.log"
+    sleep 1800
+    while :; do
+        nap=$((hours * 3600))
+        if as_www php "$ROOT/tools/source-import.php" wiki --if-new --log >/dev/null 2>&1; then rc=0; else rc=$?; fi
+        if [ "$rc" -eq 3 ]; then
+            say "warcraft.wiki.gg: an analysis or another wiki import is running: checked again in 15 minutes"
+            nap=900
+        else
+            tail -n 1 "$log" 2>/dev/null | sed 's/^/[forever-tracker] warcraft.wiki.gg: /'
+        fi
+        sleep "$nap"
+    done
+}
+wiki_watch &
+
 # ForeverChanges (foreverchanges.pro): every FT_FOREVERCHANGES_EVERY_HOURS (0 = never) a visit of the site reads up
 # to [foreverchanges] limit files, what the last analysis lacks first, then the rest of the site, and makes a card from everything kept (nothing
 # is applied). It waits while an analysis runs, or while the website runs a visit (the same lock): the command then
