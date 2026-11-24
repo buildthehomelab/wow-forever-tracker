@@ -31,7 +31,7 @@ them.
 ## The original game's database: the last word, from a file
 
 Two databases of the 1.12 game answer the same questions from packs of one format: **VMaNGOS** first, then cmangos
-**classic-db** (`[sources] trust`: `…, wowheadclassic, vmangos, classicdb`). A row a VMaNGOS card wrote is not changed by
+**classic-db** (`[sources] trust`: `…, wowheadclassic, wowheadcomments, vmangos, classicdb`). A row a VMaNGOS card wrote is not changed by
 a classic-db card; a VMaNGOS card may change a classic-db row.
 
 `python tools/vmangos_pack.py db-13a411e.zip out.cdbpack` makes the VMaNGOS pack from the release zip of
@@ -517,7 +517,7 @@ dropped.
 
 - The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
 - `php tools/source-import.php <source> --from-database`: the card from the source's last run kept in the database, nothing asked ([SNAPSHOTS.md](SNAPSHOTS.md)).
-- `php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic`; `atlasloot --if-new` does nothing
+- `php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|wowheadcomments`; `atlasloot --if-new` does nothing
   when the newest CurseForge file is the one imported last, `questie --if-new` when QuestieDB's newest release is. One run of a source at a time: a second one says the
   import is already running and exits 3. `--log` writes the run's lines to `data/source-<source>.log`, the file the
   Imports page reads, instead of printing them.

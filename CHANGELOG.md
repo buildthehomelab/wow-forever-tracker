@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Wowhead comments as a source of their own.** Players' comments often name what a page lacks: where a quest is
+  turned in, who starts it, who sells or drops an item. The crawler (record version 4) now keeps what each comment links
+  to and what the words around the link say it is, as numbers only, with the comment's rating. A new card, *Wowhead
+  comments* (*Import comments*, `source-import.php wowheadcomments`), proposes those givers, enders, vendors and drops
+  for the quests and items the server still lacks, marked `Wowhead comments <date>` and trusted after every other source
+  but the original game's database. Comments voted down are not taken. The gaps' item and quest pages are read once more
+  so their comments are kept.
+
 - **QuestieDB gives quests their givers and enders.** Its import read only drops. QuestieDB also says who starts and
   ends each Forever quest (`startedBy`, `finishedBy`): in its reviewed delta, its hand fixes, and what its players
   recorded on live (`foreverQuestTraces`, about a million sessions). That covers 1,771 quests. The import now reads those

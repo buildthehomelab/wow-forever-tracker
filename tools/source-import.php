@@ -1,7 +1,7 @@
 <?php
 // Imports one open data source as an import card aimed at the last analysis' gaps (docs/SOURCES.md).
 //
-//   php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|foreverchanges [--if-new] [--resume] [--log]
+//   php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|wowheadcomments|foreverchanges [--if-new] [--resume] [--log]
 //   php tools/source-import.php <source> --from-database      the card from the source's last snapshot, nothing asked
 //
 // One run of a source at a time: the run holds a lock (app/sources.php, source_lock) and a second one says so and
@@ -28,7 +28,7 @@ $source = $argv[1] ?? '';
 $flags = array_slice($argv, 2);
 $ifNew = in_array('--if-new', $flags, true);
 $resume = in_array('--resume', $flags, true) && $source === 'icyveins';
-$run = ['questie' => 'questie_import', 'norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import', 'wowhead' => 'wowhead_pages_import', 'wowheadclassic' => 'wowhead_pages_classic_import', 'foreverchanges' => 'foreverchanges_pull'];
+$run = ['questie' => 'questie_import', 'norgannondb' => 'norgannon_import', 'eglink' => 'eglink_import', 'foreverdb' => 'foreverdb_import', 'icyveins' => 'icyveins_import', 'atlasloot' => 'atlasloot_import', 'wowhead' => 'wowhead_pages_import', 'wowheadclassic' => 'wowhead_pages_classic_import', 'wowheadcomments' => 'wowhead_comments_import', 'foreverchanges' => 'foreverchanges_pull'];
 if (!isset($run[$source])) { fwrite(STDERR, "usage: php tools/source-import.php " . implode('|', array_keys($run)) . " [--if-new] [--resume] [--log] [--from-database]\n"); exit(2); }
 $lock = source_lock($source, 10);
 if ($lock === false) { fwrite(STDERR, 'cannot open ' . source_lock_file($source) . ": is the data folder writable?\n"); exit(1); }

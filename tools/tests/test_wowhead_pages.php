@@ -407,8 +407,8 @@ file_put_contents("$bd/item.jsonl", implode("\n", [
     json_encode(['id' => 6, 'fetched' => 12, 'status' => 'missing']),
 ]) . "\n");
 $brief = wowhead_pages_brief('item', [$bd]);
-check($brief === [5 => ['id' => 5, 'fetched' => 10, 'status' => 'ok', 'tabs' => ['dropped-by' => ['rows' => [['id' => 7]]], 'fished-in' => ['rows' => [['id' => 616]]]]],
-                  6 => ['id' => 6, 'fetched' => 12, 'status' => 'missing']], 'the newest answer, its source and fishing tabs as ids: ' . json_encode($brief));
+check($brief === [5 => ['id' => 5, 'fetched' => 10, 'status' => 'ok', 'v' => 0, 'tabs' => ['dropped-by' => ['rows' => [['id' => 7]]], 'fished-in' => ['rows' => [['id' => 616]]]]],
+                  6 => ['id' => 6, 'fetched' => 12, 'status' => 'missing', 'v' => 0]], 'the newest answer, its version, its source and fishing tabs as ids: ' . json_encode($brief));
 $full = wowhead_pages('item', [$bd]);
 check(wowhead_pages_has_source($brief[5]) === wowhead_pages_has_source($full[5]) && !wowhead_pages_has_source($brief[6]), 'it tells a source as the whole page does');
 @unlink("$bd/item.jsonl");
@@ -416,5 +416,24 @@ check(wowhead_pages_has_source($brief[5]) === wowhead_pages_has_source($full[5])
 // ---- a zone taken whole scales its catches down to 100; a zone with a table of its own gets no factor
 $scale = source_fish_scale([616 => [13889 => 40.85, 13760 => 18.16, 7070 => 5.28, 6359 => 60.0], 16 => [13908 => 19.5], 16591 => [6362 => 21.4]], [616 => true, 16591 => true]);
 check(abs($scale[616] - 100 / 124.29) < 1e-9 && $scale[16591] === 1 && !isset($scale[16]), 'Mount Hyjal\'s 124.29 is scaled to 100, the Riverglades\' 21.4 kept, Azshara\'s gap catch rolls on its own: ' . json_encode($scale));
+
+// players' comments (crawler v4): what their links are, for the gaps only ("Wowhead comments")
+$quest = ['id' => 94325, 'fetched' => 7000, 'status' => 'ok', 'comments' => [
+    [3, [[2, 1, 11705], [0, 3, 5]]],          // "turn in to [npc=11705]", an item only named
+    [-2, [[1, 1, 666]]],                      // voted down
+]];
+$npc = ['id' => 249550, 'fetched' => 6000, 'status' => 'ok', 'comments' => [[0, [[1, 4, 92094], [1, 4, 1]]]]];   // starts 92094 (and a quest with a giver)
+$item = ['id' => 900, 'fetched' => 5000, 'status' => 'ok', 'comments' => [[1, [[4, 1, 3413], [3, 1, 440], [3, 2, 7001], [3, 1, 441]]]]];
+$other = ['id' => 901, 'fetched' => 9000, 'status' => 'ok', 'comments' => [[5, [[4, 1, 3413]]]]];    // not a gap
+[$cev, $cnew] = wowhead_comments_evidence(['quest' => [$quest], 'npc' => [$npc], 'item' => [$item, $other]], [900 => true],
+    ['noGiver' => [92094 => true, 94325 => true], 'noEnder' => [94325 => true]], [900 => 12.5], [], 40.0);
+check($cev['end'] === [['npc', 11705, 94325]] && $cev['start'] === [['npc', 249550, 92094]], 'a quest page\'s turn-in, and an npc page\'s quest it starts, for quests that lack them: ' . json_encode([$cev['start'], $cev['end']]));
+check($cev['sell'] === [[3413, 900, 0]], 'the vendor a comment names for a gap item, and none for an item the server gives');
+check($cev['drop'] === [['npc', 440, 900, 12.5], ['go', 7001, 900, 12.5], ['npc', 441, 900, 12.5]], 'drops at the server\'s best chance of the item');
+check(($cev['left']['wowhead_comment_voted_down'] ?? 0) === 1 && $cnew === 9000, 'a link voted down is left; the newest page with comments');
+[$cev] = wowhead_comments_evidence(['item' => [$item]], [900 => true], ['noGiver' => [], 'noEnder' => []]);
+check(!$cev['drop'] && ($cev['left']['wowhead_comment_drop_no_chance'] ?? 0) === 3, 'no chance known and no quest asks for it: the drops are left');
+[$cev] = wowhead_comments_evidence(['item' => [$item]], [900 => true], ['noGiver' => [], 'noEnder' => []], [], [900 => true], 40.0);
+check(count($cev['drop']) === 3 && $cev['drop'][0][3] === 40.0 && isset($cev['quest_drop']['npc:440:900']), 'an item a quest asks for drops at the quest chance, for the quest only');
 
 ft_test_done();

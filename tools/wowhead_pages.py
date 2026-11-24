@@ -97,7 +97,7 @@ def clean(record):
         if isinstance(tab.get('total'), int) and tab['total'] > len(rows):
             kept['total'] = tab['total']
         out['tabs'][name] = kept
-    for extra in ('map', 'series'):
+    for extra in ('map', 'series', 'comments'):
         if record.get(extra) and numbers_only(record[extra]):
             out[extra] = record[extra]
     return out

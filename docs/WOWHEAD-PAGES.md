@@ -203,6 +203,28 @@ chests far more often than Forever's have so far, so their counts fill in where 
 
 Each row's `Comment` is `Wowhead Classic <date>`.
 
+## Players' comments
+
+Comments on a Wowhead page often answer what the page itself does not: "turn it in to Rayan Dawnrisen", "starts at
+...", "dropped by ...". Since record version 4 the crawler keeps what a page's comments **link to**, never their words:
+each comment that links a creature, object, item or quest becomes `[rating, [[role, kind, id], ...]]`, where `kind` is 1
+npc, 2 object, 3 item, 4 quest, and `role` is what the words just before (or right after) the link say it is: 1 starts
+or gives it, 2 takes it (turned in), 3 drops it, 4 sells it, 0 only named. At most 50 comments a page, 20 links each.
+
+*Import comments* (The Forge › Imports, or `php tools/source-import.php wowheadcomments`) makes a card of its own,
+source *Wowhead comments*, also made with the other Wowhead cards after a crawl:
+
+- **Quests without a giver or an ender**: the creature or object a quest page's comment says starts it or takes it,
+  and the quests a creature's or object's page comment says it starts or takes.
+- **Gap items**: the creature an item page's comment says sells it (for money), and the creatures or chests it says drop
+  it, at the server's best chance of that item, or `[questie] quest_chance` for an item a quest asks for (quest only).
+  A drop with neither is left on the card.
+- **Voted down** (rating below 0): not taken, counted on the card.
+- **Trust**: after every source but the original game's database: only what nothing else gives.
+
+Each row's `Comment` is `Wowhead comments <date>`. A Forever item or quest page read before version 4 counts as unread in
+the crawl queue, so the gaps' pages are read once more for their comments.
+
 ## Season of Discovery items
 
 The Forever client still carries every item Season of Discovery added, and Forever brought some back (the Tarnished

@@ -159,6 +159,10 @@ switch ($action) {
         // Classic's pages kept in the cache: drops where Forever's own pages count too few
         require_once FT_APP . '/wowheadpages.php';
         json_out(wowhead_pages_classic_import());
+    case 'source_wowheadcomments':
+        // what players' comments on the pages in the cache link to: givers, enders, vendors and drops still missing
+        require_once FT_APP . '/wowheadpages.php';
+        json_out(wowhead_comments_import());
     case 'source_foreverchanges':
         // a visit of the site, in the background (minutes to an hour): its card appears when it is done
         require_once FT_APP . '/sources.php';
