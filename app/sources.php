@@ -250,7 +250,7 @@ function source_text_rows(string $moment, array $list, array $quests, array $hav
 }
 
 /** A quest's title that marks it as no quest players take (a developer's leftover, a disabled copy). */
-const SOURCE_QUEST_ROW_NOT_CONTENT = '/^\s*(REUSE ?ME|<UNUSED>|\[DNT\]|\[PH\])|\(Temp Disabled\)|^\s*TEST\b/i';
+const SOURCE_QUEST_ROW_NOT_CONTENT = '/^\s*(REUSE ?ME|<UNUSED>|\[DNT\]|\[PH\])|\(Temp Disabled\)/i';   // not "Test Your Theory" (93045), a real quest
 
 /**
  * A whole quest a source recorded ($p: 'e' its quest fields, 'o' its objectives, 'r' its rewards, 'p' the quests before
