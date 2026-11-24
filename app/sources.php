@@ -286,6 +286,11 @@ function source_quest_rows(int $quest, array $p, int $build = 0): ?array
         'AreaDescription' => $text($e['area_description'] ?? ''), 'PortraitGiverText' => $text($e['portrait_giver_text'] ?? ''),
         'PortraitGiverName' => $text($e['portrait_giver_name'] ?? ''), 'PortraitTurnInText' => $text($e['portrait_turn_in_text'] ?? ''),
         'PortraitTurnInName' => $text($e['portrait_turn_in_name'] ?? ''), 'QuestCompletionLog' => $text($e['completion_log'] ?? ''), 'VerifiedBuild' => $build];
+    // every reward column on every row, 0 where the quest gives nothing: a card's table takes its columns from its first row
+    for ($n = 1; $n <= 4; $n++) $row += ["RewardItem$n" => 0, "RewardAmount$n" => 0, "RewardCurrencyID$n" => 0, "RewardCurrencyQty$n" => 0];
+    for ($n = 1; $n <= 6; $n++) $row += ["RewardChoiceItemID$n" => 0, "RewardChoiceItemQuantity$n" => 0];
+    for ($n = 1; $n <= 5; $n++) $row += ["RewardFactionID$n" => 0, "RewardFactionOverride$n" => 0];
+    for ($n = 1; $n <= 3; $n++) $row += ["RewardDisplaySpell$n" => 0];
     $slot = ['item' => 0, 'choice' => 0, 'reputation' => 0, 'currency' => 0, 'spell' => 0];
     foreach ((array)($p['r'] ?? []) as $r) {
         $kind = (string)($r['reward'] ?? ''); $amount = (int)($r['amount'] ?? 0);
@@ -509,7 +514,11 @@ function source_tables(array $ev, string $label, array $gaps): array
     foreach ($rows as $table => $records) {
         if (!$records || !table_exists($table, 'world')) continue;
         $columns = import_columns('world', $table);
-        $use = array_values(array_intersect(array_keys($records[0]), $columns));
+        // the columns any row has (rows of one table may differ: a whole quest's, a fill's): a row without one gives 0
+        $keys = [];
+        foreach ($records as $r) $keys += array_flip(array_keys($r));
+        $use = array_values(array_intersect(array_keys($keys), $columns));
+        $records = array_map(fn($r) => $r + array_fill_keys($use, 0), $records);
         $tables[$table] = ['db' => 'world', 'columns' => $use, 'groups' => [['columns' => $use, 'rows' => array_map(fn($r) => array_map(fn($c) => $r[$c], $use), $records)]]];
     }
     return [$tables, array_filter($left), $changes];
