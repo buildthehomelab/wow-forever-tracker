@@ -865,11 +865,14 @@
     if (!Number.isFinite(tier)) throw new Error('unknown tier');   // a number: 'later' sits between two (4.5)
     const have = new Set(await pages('readonly', s => s.getAllKeys()));
     const again = Number(options && options.again) || 0;
-    if (again > 0) {
+    // {minV: n}: a page this tab read with a record version below n is read again at once, however new (the tracker
+    // asks so for the pages it wants comment links of, record v4: a whole crawl read many with v3 the day before)
+    const minV = Number(options && options.minV) || 0;
+    if (again > 0 || minV > 0) {
       const held = [...new Set(keys)].filter(k => have.has(k));
       const records = held.length ? await pages('readonly', s => { const out = []; for (const k of held) { const r = s.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; } return { get result() { return out; } }; }) : [];
       const before = Math.floor(Date.now() / 1000) - again;
-      for (const r of records) if (r.key && (r.fetched || 0) < before) have.delete(r.key);
+      for (const r of records) if (r.key && ((again > 0 && (r.fetched || 0) < before) || (r.v || 0) < minV)) have.delete(r.key);
     }
     if (tier === TIERS.wanted) {
       // a page asked for by hand that this tab read with an older record version (no model yet) is read again
