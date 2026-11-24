@@ -525,6 +525,7 @@ function wowhead_pages_classic_import(): array
 const WOWHEAD_COMMENT_KINDS = [1 => 'npc', 2 => 'object', 3 => 'item', 4 => 'quest'];   // crawler.js COMMENT_KINDS
 const WOWHEAD_COMMENT_START = 1, WOWHEAD_COMMENT_END = 2, WOWHEAD_COMMENT_DROP = 3, WOWHEAD_COMMENT_SELL = 4;   // COMMENT_ROLES
 const WOWHEAD_PAGES_COMMENTS_V = 4;   // the crawler's record version that keeps the comments' links
+const WOWHEAD_PAGES_COMMENTS_WHOLE_V = 5;   // ... and their words (full.comments): what the gap quests' pages are read again for
 
 /**
  * The comments' links of Forever's pages (crawler v4, record 'comments': [[rating, [[role, kind, id]...]]...]) as
@@ -661,6 +662,128 @@ function wowhead_comments_queue(array $gapQuests): array
     return $out;
 }
 
+/** Words before a name in a comment that say the named one takes the quest (end) or gives it (start): the crawler's
+ *  COMMENT_ROLES for the text (crawler.js), with the name written out instead of linked. */
+const WOWHEAD_COMMENT_TEXT_CUES = [
+    'end' => '(?:turn(?:s|ed|ing)?\s+(?:it|this|them|the\s+quest)?\s*in|hand(?:s|ed|ing)?\s+(?:it|this|them)?\s*in|return(?:s|ed)?(?:\s+it)?|deliver(?:s|ed)?(?:\s+it)?|complete[sd]?|ends?)\s+(?:to|at|with)',
+    'start' => '(?:start(?:s|ed|ing)?\s+(?:at|with|from|by)|pick(?:s|ed)?\s+(?:it|this|the\s+quest)?\s*up\s+(?:from|at)|given\s+by|offered\s+by|(?:get|got|grab)\s+(?:it|this|the\s+quest)\s+from)',
+];
+
+/**
+ * The names a comment's words give as a quest's giver or ender: [['start'|'end', name], ...]. A name is what follows a
+ * cue (WOWHEAD_COMMENT_TEXT_CUES), "the" left out: words starting with a capital letter, joined by "the", "of" or
+ * "de" ("Griniblix the Spectator"), six words at most. Links ([npc=5], [url=...]) are the crawler's comment links, not
+ * read here. Each name comes with its shorter starts too ("Griniblix the Spectator", then "Griniblix"), longest first:
+ * the server's names pick (wowhead_comments_text_evidence).
+ */
+function wowhead_comment_text_names(string $body): array
+{
+    $text = preg_replace('/\[(npc|object|item|quest|url)[^\]]*\].*?\[\/\1\]|\[(npc|object|item|quest)=\d+[^\]]*\]|\[\/?[a-z]+[^\]]*\]/iu', ' # ', $body);
+    $out = [];
+    foreach (WOWHEAD_COMMENT_TEXT_CUES as $role => $cue) {
+        if (!preg_match_all('/\b(?i:' . $cue . ')\s+(?:(?i:the)\s+)?((?:[A-Z][\w\'’-]*)(?:\s+(?:(?:the|of|de)\s+)?[A-Z][\w\'’-]*){0,5})/u', $text, $m)) continue;
+        foreach ($m[1] as $name) {
+            $words = preg_split('/\s+/u', trim($name));
+            for ($n = count($words); $n >= 1; $n--) {
+                $part = implode(' ', array_slice($words, 0, $n));
+                if (preg_match('/\s(the|of|de)$/u', $part) || mb_strlen($part) < 4) continue;
+                $out[] = [$role, $part];
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * Givers and enders the words of a quest page's comments name, for the quests that lack them: [start rows, end rows,
+ * left counts] as wowhead_comments_evidence's ($ev['start'] / ['end']: [kind 'npc'|'go', id, quest]). $comments:
+ * [quest => the page's whole comments, [{rating, body, replies?}]]; $resolve(names): [lowercase name => [[kind, id],
+ * ...]] of the server's spawned creatures and objects of that name. A name is taken when exactly one spawned creature
+ * or object has it, the longest name of a cue first; a comment voted down is not read.
+ */
+function wowhead_comments_text_evidence(array $comments, array $gapQuests, callable $resolve): array
+{
+    $said = [];   // [quest][role] => [names, longest first, in the order said]
+    $left = ['wowhead_comment_voted_down' => 0, 'wowhead_comment_name_unknown' => 0, 'wowhead_comment_name_several' => 0];
+    foreach ($comments as $quest => $list) {
+        foreach (is_array($list) ? $list : [] as $c) {
+            if (!is_array($c) || !is_string($c['body'] ?? null)) continue;
+            $bodies = [$c['body']];
+            foreach (is_array($c['replies'] ?? null) ? $c['replies'] : [] as $r) if (is_string($r['body'] ?? null)) $bodies[] = $r['body'];
+            foreach ($bodies as $body) {
+                foreach (wowhead_comment_text_names($body) as [$role, $name]) {
+                    if (!isset($gapQuests[$role === 'start' ? 'noGiver' : 'noEnder'][$quest])) continue;
+                    if ((int)($c['rating'] ?? 0) < 0) { $left['wowhead_comment_voted_down']++; continue 3; }
+                    $said[$quest][$role][] = $name;
+                }
+            }
+        }
+    }
+    $names = [];
+    foreach ($said as $roles) foreach ($roles as $list) foreach ($list as $name) $names[mb_strtolower($name)] = true;
+    $known = $names ? $resolve(array_keys($names)) : [];
+    $rows = ['start' => [], 'end' => []];
+    foreach ($said as $quest => $roles) {
+        foreach ($roles as $role => $list) {
+            $picked = null; $several = false;
+            foreach ($list as $name) {
+                $who = $known[mb_strtolower($name)] ?? [];
+                if (count($who) === 1) { $picked = $who[0]; break; }
+                if (count($who) > 1) $several = true;
+            }
+            if ($picked === null) { $left[$several ? 'wowhead_comment_name_several' : 'wowhead_comment_name_unknown']++; continue; }
+            [$kind, $id] = $picked;
+            $rows[$role]["$kind:$id:$quest"] = [$kind, (int)$id, (int)$quest];
+        }
+    }
+    return [array_values($rows['start']), array_values($rows['end']), array_filter($left)];
+}
+
+/** The server's spawned creatures and objects of these names (lowercase): [name => [['npc'|'go', entry], ...]]. */
+function wowhead_comments_server_names(array $names): array
+{
+    $out = [];
+    foreach (array_chunk($names, 500) as $chunk) {
+        $in = implode(',', array_map(fn($n) => "'" . db('world')->real_escape_string((string)$n) . "'", $chunk));
+        foreach ([['npc', 'creature_template', 'creature', '(t.npcflag & 2) <> 0'], ['go', 'gameobject_template', 'gameobject', 't.type = 2']] as [$kind, $template, $spawns, $quests]) {
+            foreach (rows("SELECT t.entry, LOWER(t.name) name, $quests asks FROM `$template` t WHERE LOWER(t.name) IN ($in) AND EXISTS (SELECT 1 FROM `$spawns` s WHERE s.id = t.entry)", [], 'world') as $r)
+                $out[$r['name']][] = [$kind, (int)$r['entry'], (bool)(int)$r['asks']];
+        }
+    }
+    return wowhead_comments_name_pick($out);
+}
+
+/** Of the spawned creatures and objects of one name ([name => [[kind, id, gives or takes quests]...]]), the one that
+ *  deals in quests when only one of several does (two Sully McClearys stand, one is a quest giver): [name => [[kind, id]
+ *  ...]]. */
+function wowhead_comments_name_pick(array $byName): array
+{
+    $out = [];
+    foreach ($byName as $name => $list) {
+        $asks = array_values(array_filter($list, fn($w) => !empty($w[2])));
+        $out[$name] = array_map(fn($w) => [$w[0], $w[1]], count($list) > 1 && count($asks) === 1 ? $asks : $list);
+    }
+    return $out;
+}
+
+/** The whole comments of the quest pages of $quests ([quest => true]) the answers table keeps (crawler v5): [quest =>
+ *  comments] and the newest page's time. */
+function wowhead_comments_whole(array $quests): array
+{
+    $out = []; $newest = 0;
+    if (!$quests || !table_exists('ft_source_answers')) return [$out, $newest];
+    foreach (array_chunk(array_map('intval', array_keys($quests)), 500) as $chunk) {
+        foreach (rows("SELECT id, UNIX_TIMESTAMP(fetched_at) at, JSON_EXTRACT(whole, '$.comments') comments FROM ft_source_answers WHERE source = 'wowhead' AND feed = 'page'"
+            . " AND kind = 'quest' AND branch = 'forever' AND status = 'found' AND JSON_EXTRACT(whole, '$.comments') IS NOT NULL AND id IN (" . implode(',', $chunk) . ')') as $r) {
+            $list = json_decode((string)$r['comments'], true);
+            if (!is_array($list) || !$list) continue;
+            $out[(int)$r['id']] = $list;
+            $newest = max($newest, (int)$r['at']);
+        }
+    }
+    return [$out, $newest];
+}
+
 /** The comments' links of the pages in the cache as an import card of their own ("Wowhead comments"). */
 function wowhead_comments_import(): array
 {
@@ -675,6 +798,18 @@ function wowhead_comments_import(): array
     $pages = [];
     foreach (['quest', 'item', 'npc', 'object'] as $kind) $pages[$kind] = wowhead_pages_each($kind);
     [$ev, $newest] = wowhead_comments_evidence($pages, $gapItems, $gapQuests, questie_server_chances($gapItems), $questItems, (float)config('questie', 'quest_chance', 40));
+    // the words of the quests' comments (crawler v5): a giver or ender named, not linked, is matched to the server's names
+    [$whole, $wholeNewest] = wowhead_comments_whole($gapQuests['noGiver'] + $gapQuests['noEnder']);
+    if ($whole) {
+        [$starts, $ends, $textLeft] = wowhead_comments_text_evidence($whole, $gapQuests, 'wowhead_comments_server_names');
+        foreach (['start' => $starts, 'end' => $ends] as $role => $found) {
+            $have = [];
+            foreach ($ev[$role] as $r) $have[implode(':', $r)] = true;
+            foreach ($found as $r) if (!isset($have[implode(':', $r)])) $ev[$role][] = $r;
+        }
+        foreach ($textLeft as $why => $n) $ev['left'][$why] = ($ev['left'][$why] ?? 0) + $n;
+        $newest = max($newest, $wholeNewest);
+    }
     if (!$newest) return ['ok' => false, 'message' => t('No page read yet keeps its comments\' links: the crawler reads the gaps\' pages again (record v4).', 'Aucune page lue ne garde encore les liens de ses commentaires : le crawler relit les pages des manques (fiche v4).')];
     $date = date('Y-m-d', $newest);
     snapshot_try('wowheadcomments', $date, $ev, 'gaps');
@@ -1128,7 +1263,7 @@ function wowhead_pages_queue(): array
         $pages[$kind] = wowhead_pages_brief($kind);
         foreach ($pages[$kind] as $id => $page) {
             // a Forever item or quest page read before the crawler kept its comments' links (record v4) is read again
-            if ($kind !== 'classic-item' && ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < WOWHEAD_PAGES_COMMENTS_V) continue;
+            if ($kind !== 'classic-item' && ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < ($kind === 'quest' ? WOWHEAD_PAGES_COMMENTS_WHOLE_V : WOWHEAD_PAGES_COMMENTS_V)) continue;
             if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
         }
     }
@@ -1225,7 +1360,7 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $again = json_encode(['again' => wowhead_writ_seconds() - 6 * 3600]);
     if ($writs) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => 'item:' . (int)$id, $writs)) . ", 'gap', $again);";
     if (!empty($queue['writGuide'])) $lines[] = '  await WHC.prioritize(' . json_encode(['guide:' . WOWHEAD_WRIT_GUIDE], JSON_UNESCAPED_SLASHES) . ", 'gap', $again);";
-    $put('quest', $queue['quest'] ?? [], 'gap', WOWHEAD_PAGES_COMMENTS_V);
+    $put('quest', $queue['quest'] ?? [], 'gap', WOWHEAD_PAGES_COMMENTS_WHOLE_V);
     // creatures and objects whose comments may name a missing giver or ender: before the items, the quests they are for
     // being what the server misses most
     foreach ($queue['comments'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap', WOWHEAD_PAGES_COMMENTS_V);

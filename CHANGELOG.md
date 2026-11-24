@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Wowhead comments: givers and enders named in the words.** Players often write where a quest is turned in or
+  started without linking the NPC ("turn it in to Griniblix the Spectator"). The *Wowhead comments* card now reads the
+  words of the quest page's comments (crawler record v5) and matches the name to the one spawned creature or object
+  of that name (the quest giver of two that share it), for the quests without a giver or an ender. The gap quests'
+  pages are read again for their comments.
+
 - **Quest turn-in words from Wowhead, and comments kept whole.** The crawler has kept each page whole since record
   version 3, quest text included, but nothing read it: 57 official quests still lacked their turn-in words. The Wowhead
   card now fills `quest_offer_reward` and `quest_request_items` from a page's Progress and Completion sections (for

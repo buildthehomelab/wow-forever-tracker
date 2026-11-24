@@ -301,7 +301,7 @@ $kept = wowhead_pages('forever-list', [$dir])['npcs?filter=37:37;2:4;1:20000'] ?
 check(($kept['rows'] ?? null) === [['id' => 7, 'minlevel' => 3]] && !isset($kept['branch']) && isset(wowhead_pages('classic-list', [$dir])['npcs?filter=37:37;2:4;1:20000']), 'a list by its query, rows with text or no id dropped');
 
 $js = wowhead_pages_crawler(['item' => [3, 4, 5], 'quest' => [7], 'blocking' => 2, 'comments' => ['npc' => [9]]]);
-check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap", {"again":86400,"minV":4});') && str_contains($js, 'await WHC.prioritize(["item:3","item:4"], "gap", {"again":86400,"minV":4});') && str_contains($js, 'await WHC.prioritize(["item:5"], "gapOther", {"again":86400,"minV":4});')
+check(str_contains($js, 'await WHC.prioritize(["quest:7"], "gap", {"again":86400,"minV":5});') && str_contains($js, 'await WHC.prioritize(["item:3","item:4"], "gap", {"again":86400,"minV":4});') && str_contains($js, 'await WHC.prioritize(["item:5"], "gapOther", {"again":86400,"minV":4});')
     && str_contains($js, 'await WHC.prioritize(["npc:9"], "gap", {"again":86400,"minV":4});')
     && str_contains($js, 'WHC.start();') && str_starts_with($js, '// Wowhead page crawler'), 'the crawler download: the script, then its pages with what each is worth, then start');
 

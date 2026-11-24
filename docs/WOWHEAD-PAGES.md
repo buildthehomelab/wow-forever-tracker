@@ -226,6 +226,12 @@ source *Wowhead comments*, also made with the other Wowhead cards after a crawl:
 - **Voted down** (rating below 0): not taken, counted on the card.
 - **Trust**: after every source but the original game's database: only what nothing else gives.
 
+- **Names in the words** (record v5, `full.comments` in the answers table): a giver or ender a comment on the quest's
+  own page names without linking it ("turn it in to Griniblix the Spectator", "starts from Sully McCleary"), for the
+  quests that lack one. The name after the cue is matched to the server's spawned creatures and objects; it is taken
+  when exactly one has it (of several, the only one that gives or takes quests), its longest form first. A comment
+  voted down is not read. The gap quests' pages read before v5 are read again for their words.
+
 Each row's `Comment` is `Wowhead comments <date>`. A Forever item or quest page read before version 4 counts as unread in
 the crawl queue, so the gaps' pages are read once more for their comments.
 
