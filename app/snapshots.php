@@ -211,7 +211,7 @@ function snapshot_changes(int $snapshot, int $limit = 200): array
 
 /** The sources whose card can be made from the database. The original game's database is read from a pack you
  *  sent, kept in data/: its *Read the pack again* needs no network either. */
-const SNAPSHOT_CARDS = ['wowhead', 'wowheadclassic', 'questie', 'eglink', 'foreverdb', 'icyveins', 'atlasloot', 'norgannondb', 'foreverchanges'];
+const SNAPSHOT_CARDS = ['wowhead', 'wowheadclassic', 'wowheadcomments', 'questie', 'eglink', 'foreverdb', 'icyveins', 'atlasloot', 'norgannondb', 'foreverchanges'];
 
 /**
  * A source's import card made from its last snapshot instead of from the source: nothing is downloaded or asked, so
@@ -233,6 +233,9 @@ function snapshot_card(string $source): array
         case 'wowhead': case 'wowheadclassic':
             require_once FT_APP . '/wowheadpages.php';
             $card = wowhead_pages_card($source, $ev, $version, $version . '-snapshot' . $snap['id'], $gaps); break;
+        case 'wowheadcomments':
+            [$tables, $left] = source_tables($ev, SOURCES[$source][0] . ' ' . $version, $gaps);
+            $card = source_card($source, SOURCES[$source][0] . ' ' . $version, $source . '@' . $version . '-snapshot' . $snap['id'], $tables, $left); break;
         case 'icyveins':
             require_once FT_APP . '/icyveins.php';
             $card = icyveins_card($ev, $version, $gaps); break;

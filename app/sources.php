@@ -42,6 +42,7 @@ const SOURCES = [
     'atlasloot' => ['AtlasLoot Classic Forever', 'GPL-2.0 (CurseForge project 1422985)'],
     'foreverchanges' => ['ForeverChanges', 'players’ reports from foreverchanges.pro (no licence; credited, the project’s decision of 2026-11-14; a row needs a second source since 2026-11-16)'],
     'wowheadclassic' => ['Wowhead Classic', 'drop counts from the pages of wowhead.com/classic, for creatures and chests Forever kept whose Forever pages count too few (no text; no licence stated: credited)'],
+    'wowheadcomments' => ['Wowhead comments', 'what players\' comments on Forever\'s Wowhead pages link to: the creature or object a quest starts at or is turned in to, who sells or drops an item. Only the links are kept, no words; taken after every other source, for what the server still lacks (no licence stated: credited)'],
     'vmangos' => ['VMaNGOS', 'VMaNGOS world database (vmangos/core), GPL-2.0: the original game at patch 1.12, asked before the Classic database'],
     'classicdb' => ['Classic database', 'cmangos classic-db, GPL-3.0: the original game, asked last'],
 ];
@@ -583,7 +584,7 @@ function source_extended_costs(): array
 // are counted and left alone. Nothing is changed without the card being applied, and each change keeps its rollback.
 
 /** How a source is named in a loot row's Comment or a ledger note. */
-const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'questie' => 'QuestieDB', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'scribe' => 'ForeverScribe'];
+const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser', 'wowhead' => 'Wowhead', 'questie' => 'QuestieDB', 'norgannondb' => 'NorgannonDB', 'icyveins' => 'Icy Veins', 'foreverchanges' => 'ForeverChanges', 'classicdb' => 'Classic database', 'vmangos' => 'VMaNGOS', 'eglink' => 'EG Link', 'foreverdb' => 'ForeverDB', 'atlasloot' => 'AtlasLoot', 'wowheadclassic' => 'Wowhead Classic', 'wowheadcomments' => 'Wowhead comments', 'scribe' => 'ForeverScribe'];
 /** The sources, most trusted first, when [sources] trust says nothing. The game client and Blizzard's CDN come before
  *  everything: what the client's own tables or a hotfix hold is not a matter of opinion, and no import may change a row
  *  written from them ("client" is no importer; it is in the list so that nothing ranks above it). Then Wowhead, then
@@ -592,7 +593,7 @@ const SOURCE_MARKS = ['client' => 'Forever client', 'sniff' => 'WowPacketParser'
  *  recorded on Forever. A file imported by hand
  *  ("sniff": WowPacketParser's format; "scribe": ForeverScribe's notes) comes after the Forever sources and before
  *  Classic's. The core's own rows, which no import wrote, rank below all of them ([sources] change_core). */
-const SOURCE_TRUST = 'client,wowhead,questie,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,vmangos,classicdb';
+const SOURCE_TRUST = 'client,wowhead,questie,norgannondb,icyveins,foreverchanges,eglink,foreverdb,atlasloot,sniff,scribe,wowheadclassic,wowheadcomments,vmangos,classicdb';
 
 /** The sources, most trusted first: [sources] trust, then any source it leaves out in the default order. */
 function source_trust(?string $configured = null): array

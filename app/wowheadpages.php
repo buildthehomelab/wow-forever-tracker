@@ -103,7 +103,7 @@ function wowhead_pages_brief(string $kind, ?array $dirs = null): array
             $key = is_array($record) ? wowhead_pages_entity($record) : null;
             if ($key === null) continue;
             if (isset($pages[$key]) && (int)($pages[$key]['fetched'] ?? 0) >= (int)($record['fetched'] ?? 0)) continue;
-            $brief = ['id' => $record['id'] ?? $key, 'fetched' => (int)($record['fetched'] ?? 0), 'status' => (string)($record['status'] ?? '')];
+            $brief = ['id' => $record['id'] ?? $key, 'fetched' => (int)($record['fetched'] ?? 0), 'status' => (string)($record['status'] ?? ''), 'v' => (int)($record['v'] ?? 0)];
             foreach (array_intersect_key(is_array($record['tabs'] ?? null) ? $record['tabs'] : [], $tabs) as $tab => $data) {
                 $rows = array_values(array_filter(array_map(fn($r) => is_array($r) && (int)($r['id'] ?? 0) > 0 ? ['id' => (int)$r['id']] : null, (array)($data['rows'] ?? []))));
                 if ($rows) $brief['tabs'][$tab] = ['rows' => $rows];
@@ -478,6 +478,96 @@ function wowhead_pages_classic_import(): array
     return wowhead_pages_card('wowheadclassic', $ev, $date, $date . '-' . $newest, $gaps);
 }
 
+// ------------------------------------------------------------------ what players' comments point to
+
+const WOWHEAD_COMMENT_KINDS = [1 => 'npc', 2 => 'object', 3 => 'item', 4 => 'quest'];   // crawler.js COMMENT_KINDS
+const WOWHEAD_COMMENT_START = 1, WOWHEAD_COMMENT_END = 2, WOWHEAD_COMMENT_DROP = 3, WOWHEAD_COMMENT_SELL = 4;   // COMMENT_ROLES
+const WOWHEAD_PAGES_COMMENTS_V = 4;   // the crawler's record version that keeps the comments' links
+
+/**
+ * The comments' links of Forever's pages (crawler v4, record 'comments': [[rating, [[role, kind, id]...]]...]) as
+ * evidence of their own, "Wowhead comments", trusted after every other source: only for what the server still lacks.
+ * A comment voted down (rating below 0) is not taken.
+ *   - a quest page: the creature or object a comment says starts it, or takes it (turned in), for a quest without a
+ *     giver or an ender ($gapQuests: ['noGiver' => [...], 'noEnder' => [...]]);
+ *   - a creature's or object's page: the quests a comment says it starts or takes, for those same quests;
+ *   - an item page of a gap item: the creature a comment says sells it (money only: a comment does not say the price,
+ *     the server's own price of the item is asked), and the creatures or chests it says drop it, at the server's best
+ *     chance of the item ($chances) or, for an item a quest asks for, $questChance. A drop with no chance is left.
+ * $pages: [kind => iterable of records]. Returns [evidence, the newest page's time].
+ */
+function wowhead_comments_evidence(array $pages, array $gapItems, array $gapQuests, array $chances = [], array $questItems = [], float $questChance = 40.0): array
+{
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'quest_drop' => [], 'left' => []];
+    $left = ['wowhead_comment_voted_down' => 0, 'wowhead_comment_drop_no_chance' => 0];
+    $newest = 0;
+    $roles = ['start' => [], 'end' => []]; $drops = []; $sells = [];
+    $role = fn(int $r) => $r === WOWHEAD_COMMENT_START ? 'start' : ($r === WOWHEAD_COMMENT_END ? 'end' : null);
+    $wanted = fn(string $r, int $quest) => isset($gapQuests[$r === 'start' ? 'noGiver' : 'noEnder'][$quest]);
+    foreach ($pages as $kind => $records) {
+        foreach ($records as $page) {
+            $id = (int)($page['id'] ?? 0);
+            if ($id <= 0 || ($page['status'] ?? '') !== 'ok' || empty($page['comments']) || !is_array($page['comments'])) continue;
+            $newest = max($newest, (int)($page['fetched'] ?? 0));
+            foreach ($page['comments'] as $comment) {
+                if (!is_array($comment) || !is_array($comment[1] ?? null)) continue;
+                $down = (int)($comment[0] ?? 0) < 0;
+                foreach ($comment[1] as $link) {
+                    if (!is_array($link) || count($link) < 3) continue;
+                    [$r, $k, $to] = [(int)$link[0], WOWHEAD_COMMENT_KINDS[(int)$link[1]] ?? null, (int)$link[2]];
+                    if (!$k || $to <= 0) continue;
+                    $found = null;
+                    if ($kind === 'quest' && ($k === 'npc' || $k === 'object') && ($rr = $role($r)) && $wanted($rr, $id)) $found = [$rr, [$k === 'npc' ? 'npc' : 'go', $to, $id]];
+                    elseif (($kind === 'npc' || $kind === 'object') && $k === 'quest' && ($rr = $role($r)) && $wanted($rr, $to)) $found = [$rr, [$kind === 'npc' ? 'npc' : 'go', $id, $to]];
+                    elseif ($kind === 'item' && isset($gapItems[$id]) && $r === WOWHEAD_COMMENT_SELL && $k === 'npc') $found = ['sell', [$to, $id, 0]];
+                    elseif ($kind === 'item' && isset($gapItems[$id]) && $r === WOWHEAD_COMMENT_DROP && ($k === 'npc' || $k === 'object')) $found = ['drop', [$k === 'npc' ? 'npc' : 'go', $to, $id]];
+                    if (!$found) continue;
+                    if ($down) { $left['wowhead_comment_voted_down']++; continue; }
+                    [$what, $row] = $found;
+                    $key = implode(':', $row);
+                    if ($what === 'sell') $sells[$key] = $row;
+                    elseif ($what === 'drop') $drops[$key] = $row;
+                    else $roles[$what][$key] = $row;
+                }
+            }
+        }
+    }
+    foreach ($drops as $key => [$k, $id, $item]) {
+        $quest = isset($questItems[$item]);
+        $chance = (float)($chances[$item] ?? 0) ?: ($quest ? $questChance : 0.0);
+        if ($chance <= 0) { $left['wowhead_comment_drop_no_chance']++; continue; }
+        $ev['drop'][] = [$k, $id, $item, $chance];
+        if ($quest) $ev['quest_drop'][$key] = true;
+    }
+    $ev['sell'] = array_values($sells);
+    $ev['start'] = array_values($roles['start']);
+    $ev['end'] = array_values($roles['end']);
+    $ev['left'] = array_filter($left);
+    return [$ev, $newest];
+}
+
+/** The comments' links of the pages in the cache as an import card of their own ("Wowhead comments"). */
+function wowhead_comments_import(): array
+{
+    if ($e = source_check()) return $e;
+    require_once FT_APP . '/questie.php';
+    $gaps = source_gaps();
+    $later = $gaps['later'] ?? [];
+    $gapItems = array_diff_key($gaps['items'], $later['items'] ?? []);
+    $gapQuests = ['noGiver' => array_diff_key($gaps['noGiver'], $later['quests'] ?? []), 'noEnder' => array_diff_key($gaps['noEnder'], $later['quests'] ?? [])];
+    $questItems = [];
+    foreach (rows('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1', [], 'world') as $r) $questItems[(int)$r['ObjectID']] = true;
+    $pages = [];
+    foreach (['quest', 'item', 'npc', 'object'] as $kind) $pages[$kind] = wowhead_pages_each($kind);
+    [$ev, $newest] = wowhead_comments_evidence($pages, $gapItems, $gapQuests, questie_server_chances($gapItems), $questItems, (float)config('questie', 'quest_chance', 40));
+    if (!$newest) return ['ok' => false, 'message' => t('No page read yet keeps its comments\' links: the crawler reads the gaps\' pages again (record v4).', 'Aucune page lue ne garde encore les liens de ses commentaires : le crawler relit les pages des manques (fiche v4).')];
+    $date = date('Y-m-d', $newest);
+    snapshot_try('wowheadcomments', $date, $ev, 'gaps');
+    $label = SOURCES['wowheadcomments'][0] . ' ' . $date;
+    [$tables, $left] = source_tables($ev, $label, $gaps);
+    return source_card('wowheadcomments', $label, 'wowheadcomments@' . $date . '-' . $newest, $tables, $left);
+}
+
 /** The card of Wowhead's (or Wowhead Classic's) evidence: what the server lacks, and the drops it has measured again.
  *  Also made from the database (snapshot_card). */
 function wowhead_pages_card(string $source, array $ev, string $date, string $file, array $gaps): array
@@ -617,7 +707,8 @@ function wowhead_pages_clean($record): ?array
         $out['tabs'][(string)$name] = $kept;
     }
     if (!$out['tabs']) $out['tabs'] = new stdClass();
-    foreach (['map', 'series'] as $extra) if (!empty($record[$extra]) && wowhead_pages_numbers_only($record[$extra])) $out[$extra] = $record[$extra];
+    // map, series, and what players' comments link to (crawler v4: [[rating, [[role, kind, id]...]]...], numbers only)
+    foreach (['map', 'series', 'comments'] as $extra) if (!empty($record[$extra]) && wowhead_pages_numbers_only($record[$extra])) $out[$extra] = $record[$extra];
     // the model display ids of a creature's or object's page (crawler v2)
     if (!empty($record['model']) && is_array($record['model']) && array_is_list($record['model']))
         $out['model'] = array_values(array_slice(array_filter($record['model'], fn($m) => is_int($m) && $m > 0), 0, 8));
@@ -716,6 +807,9 @@ function wowhead_pages_cards_due(bool $force = false): array
         $said .= ' ' . (string)($classic['message'] ?? '');
         $id = $id ?: (int)($classic['id'] ?? 0);
     }
+    // what players' comments link to: a card of its own, once a page keeps its comments (crawler v4)
+    $comments = wowhead_comments_import();
+    if (!empty($comments['ok'])) { $said .= ' ' . (string)($comments['message'] ?? ''); $id = $id ?: (int)($comments['id'] ?? 0); }
     return [trim($said), $id];
 }
 
@@ -914,7 +1008,11 @@ function wowhead_pages_queue(): array
     $pages = [];
     foreach (['item', 'quest', 'classic-item'] as $kind) {
         $pages[$kind] = wowhead_pages_brief($kind);
-        foreach ($pages[$kind] as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
+        foreach ($pages[$kind] as $id => $page) {
+            // a Forever item or quest page read before the crawler kept its comments' links (record v4) is read again
+            if ($kind !== 'classic-item' && ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < WOWHEAD_PAGES_COMMENTS_V) continue;
+            if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
+        }
     }
     $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
     // Season of Discovery items Forever kept: their Classic page where Forever's names no source (read in the same

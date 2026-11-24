@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 3;                 // of what a page record holds: raise it when extract() keeps more (2: model; 3: full)
+  const VERSION = 4;                 // of what a page record holds: raise it when extract() keeps more (2: model; 3: full; 4: comment links)
   const SKIPPED = Symbol('expression');
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
@@ -230,6 +230,53 @@
     try { const data = facts(readLiteral(html, m.index + m[0].length - 1)[0]); return data && Object.keys(data).length ? data : null; } catch (error) { return null; }
   }
 
+  // ------------------------------------------------------------------ what comments point to (pure)
+  //
+  // Players' comments often say what the database pages do not ("Turns in to [npc=11705]", "Quest starts at ...",
+  // "drops from ..."). No word of a comment is kept: only the rating it was given and each creature, object, item or
+  // quest it links to, with what the words just before the link say the link is (the giver, where it is turned in, who
+  // drops it, who sells it), as numbers. The tracker's "Wowhead comments" source reads them (app/wowheadpages.php).
+
+  const COMMENT_KINDS = { npc: 1, object: 2, item: 3, quest: 4 };
+  // 1 gives or starts it, 2 takes it (turned in), 3 drops it, 4 sells it, 0 only named
+  const COMMENT_ROLES = [
+    [2, /(turn(s|ed|ing)?\s*(it|this|them|the quest)?\s*in|hand(s|ed|ing)?\s*(it|this|them)?\s*in|return(s|ed)?\s+(it\s+)?to|deliver(s|ed)?\s+(it\s+)?to|complete[sd]?\s+(at|with)|ends?\s+(at|with))[^.!?\n]*$/],
+    [1, /(start(s|ed|ing)?\s+(at|with|from|by)|pick(s|ed)?\s*(it|this)?\s*up|accept(s|ed)?|given\s+by|quest\s*giver|offered\s+by|get\s+(it|this|the quest)\s+from|from\s+the\s+npc)[^.!?\n]*$/],
+    [3, /(drop(s|ped)?|loot(s|ed)?|farm(ed)?|kill(ing|ed)?)\b[^.!?\n]*$/],
+    [4, /(sold\s+by|sells?|vendor|buy|bought|purchase[ds]?)\b[^.!?\n]*$/],
+  ];
+
+  /** The comments of a page as [[rating, [[role, kind, id], ...]], ...]: each comment that links something, numbers only. */
+  function commentLinks(html) {
+    const out = [];
+    for (const m of html.matchAll(/var lv_comments\d*\s*=\s*\[/g)) {
+      let list;
+      try { [list] = readLiteral(html, m.index + m[0].length - 1); } catch (error) { continue; }
+      for (const c of Array.isArray(list) ? list : []) {
+        if (!c || typeof c.body !== 'string' || c.deleted) continue;
+        const body = c.body.replace(/\\\//g, '/');
+        const links = [];
+        const link = /\[(npc|object|item|quest)=(\d+)[^\]]*\]|https?:\/\/(?:www\.)?wowhead\.com\/(?:forever\/)?(npc|object|item|quest)=(\d+)/g;
+        for (let l; (l = link.exec(body));) {
+          const kind = COMMENT_KINDS[l[1] || l[3]], id = Number(l[2] || l[4]);
+          if (!kind || !(id > 0)) continue;
+          // the words before the link, back to the start of its sentence: what they say the link is
+          const before = body.slice(Math.max(0, l.index - 120), l.index).replace(/\[[^\]]*\]/g, ' ').toLowerCase();
+          let role = (COMMENT_ROLES.find(([, re]) => re.test(before)) || [0])[0];
+          // "[npc=5] drops it", "[npc=77] sells it": the words right after the link, in its sentence
+          if (!role) {
+            const after = body.slice(l.index + l[0].length, l.index + l[0].length + 160).replace(/\[[^\]]*\]/g, ' ').split(/[.!?\n]/)[0].toLowerCase();
+            if (/^[^,;]{0,40}\b(drops?|dropped|loots?)\b/.test(after)) role = 3;
+            else if (/^[^,;]{0,40}\b(sells?|sold)\b/.test(after)) role = 4;
+          }
+          if (!links.some(x => x[0] === role && x[1] === kind && x[2] === id)) links.push([role, kind, id]);
+        }
+        if (links.length) out.push([Number(c.rating) || 0, links.slice(0, 20)]);
+      }
+    }
+    return out.slice(0, 50);
+  }
+
   /** The ids a quest page links to in its rewards and its series: {series: [quest...], links: {item: [...], ...}}.
    *  Only read for quests: the series is a table of quest links in the Quick Facts column. */
   function questSeries(html) {
@@ -384,6 +431,8 @@
     if (map) record.map = map;
     if (kind === 'npc' || kind === 'object') { const model = models(html); if (model.length) record.model = model; }
     if (kind === 'quest') { const series = questSeries(html); if (series) record.series = series; }
+    const said = commentLinks(html);
+    if (said.length) record.comments = said;
     record.full = whole(html);
     return record;
   }
@@ -690,7 +739,7 @@
     return { p, wait };
   }
 
-  const api = { whole, pageText, quickFactsText, gathered, listviewsWhole, metaTag, FULL_MAX, namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { commentLinks, whole, pageText, quickFactsText, gathered, listviewsWhole, metaTag, FULL_MAX, namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)

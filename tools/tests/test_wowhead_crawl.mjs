@@ -59,13 +59,21 @@ test('the whole page: names, text, Quick Facts with their links, every tab row w
   assert.equal(full.tabs['contained-in-object'].rows[0].name, 'Shared Row');
   assert.deepEqual(full.links, { 1: { 939: { name_enus: 'Kurzen Elite' } }, 3: { 216616: { name_enus: 'Fixture Item', quality: 3 }, 20558: { name_enus: 'Warsong Mark', quality: 1 } } });
   assert.deepEqual(full.map, { 33: [{ count: 2, coords: [[41.2, 9.4], [42, 10]] }] });
-  assert.equal(page.v, 3);
+  assert.equal(page.v, 4);
 });
 
 test('what users wrote is never kept, not even in the whole page', () => {
   const kept = JSON.stringify(page.full);
   for (const text of ['never kept', 'someone', 'comments']) assert.ok(!kept.includes(text), text);
   assert.ok(!('comments' in page.full.tabs));
+});
+
+test('of a comment only its rating and what it links to, with what the words around the link say it is', () => {
+  const c = 'x var lv_comments0 = [{"body":"Turns in to [url=https:\\/\\/www.wowhead.com\\/forever\\/npc=11705\\/rayan]Rayan[\\/url] in Azshara. Quest starts at [npc=249550] up north. The [npc=5] drops it. Also [item=9] is nice.","rating":2,"deleted":0},'
+    + '{"body":"no links","rating":5},{"body":"[npc=77] sells it now","rating":-3},{"body":"[npc=6] gone","rating":1,"deleted":1}];';
+  assert.deepEqual(crawler.commentLinks(c), [[2, [[2, 1, 11705], [1, 1, 249550], [3, 1, 5], [0, 3, 9]]], [-3, [[4, 1, 77]]]]);
+  assert.ok(!JSON.stringify(crawler.commentLinks(c)).includes('Azshara'));
+  assert.deepEqual(crawler.commentLinks('no comments here'), []);
 });
 
 test('a whole page past FULL_MAX loses the linked names first, then rows past 2000', () => {
