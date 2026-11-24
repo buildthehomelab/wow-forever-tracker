@@ -37,6 +37,7 @@ $all = source_quest_rows(5, ['e' => ['title' => 'Everyone', 'races' => -1]]);
 check(array_keys($all['quest_template'][0]) === array_keys($rows['quest_template'][0]), 'every quest row has the same columns, whatever it rewards (a card takes its columns from its first row)');
 check($all['quest_template'][0]['AllowableRaces'] === '18446744073709551615' && !isset($all['quest_template_addon']) && !isset($all['quest_classic_level']), 'races -1 as the unsigned mask; no addon or level row when the source has none');
 foreach (['REUSE ME', 'REUSEME', 'Violent Winds (Temp Disabled)', '<UNUSED> Old', '[DNT] Credit'] as $title) check(source_quest_rows(7, ['e' => ['title' => $title]]) === null, "not written: $title");
+check(source_quest_rows(93045, ['e' => ['title' => 'Test Your Theory']]) !== null, 'a real quest whose title begins with Test is written');
 check(source_quest_rows(7, ['e' => ['title' => 'Gone', 'obsolete' => true]]) === null && source_quest_rows(7, ['e' => ['title' => '']]) === null, 'an obsolete or untitled one is not written either');
 
 ft_test_done();
