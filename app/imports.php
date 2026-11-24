@@ -338,7 +338,7 @@ function import_index(int $id, array $tables): void
     $each = function (string $table, callable $fn) use ($tables) {
         foreach ($tables[$table]['groups'] ?? [] as $group) foreach ($group['rows'] as $row) $fn(array_combine($group['columns'], $row));
     };
-    foreach (['creature_loot_template' => 'loot', 'gameobject_loot_template' => 'object', 'skinning_loot_template' => 'skin', 'pickpocketing_loot_template' => 'pick'] as $table => $kind) {
+    foreach (['creature_loot_template' => 'loot', 'gameobject_loot_template' => 'object', 'skinning_loot_template' => 'skin', 'pickpocketing_loot_template' => 'pick', 'fishing_loot_template' => 'fish'] as $table => $kind) {
         $each($table, function ($r) use (&$found, $kind) { if ((int)($r['ItemType'] ?? 0) === 0 && is_int($r['Item'] ?? null) && is_int($r['Entry'] ?? null)) $found[] = [$r['Item'], $kind, $r['Entry']]; });
     }
     $each('npc_vendor', function ($r) use (&$found) { if (is_int($r['item'] ?? null) && is_int($r['entry'] ?? null) && (int)($r['type'] ?? 1) === 1) $found[] = [$r['item'], 'vendor', $r['entry']]; });

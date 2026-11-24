@@ -281,6 +281,7 @@ repository. From the pages it takes:
 | `gameobject_loot_template` | *Contained in (object)*, *Mined from*, *Gathered from*; an object page's *Contains*, *Mining*, *Herbalism* | the same counts (a chest's page gives its openings once, as the tab's total); the object is a chest on the server |
 | `skinning_loot_template`, `pickpocketing_loot_template` | *Skinned from*, *Pick pocketed from*; an npc page's *Skinning*, *Pickpocketing* | the same counts; the creature is on the server (a creature without a table of that kind gets one under its entry, and applying the card points its template to it) |
 | `item_loot_template` | *Contained in (item)* | the same counts; the server already opens the container (it has rows of its own there: whether an item opens at all is the client's word) |
+| `fishing_loot_template` | an item page's *Fished in* tab (a row a zone, its count of the zone's catches); a zone page's *Fishing* (its total the zone's catches) | the same counts, under the zone, all in group 1 (a cast catches one thing, as the 1.12 tables are). A zone the server has no fishing table for (Mount Hyjal, the Riverglades) takes its page's whole table, a catch seen once included; a zone it has takes the gap items only. The crawl reads the page of every zone of the analysis with no table, and of every zone a gap item is fished in, in the administrator's tier |
 | `npc_vendor` | *Sold by*, an npc page's *Sells* | money only (on an npc page: the first way to pay), or paid with currencies or items when one of the server's own ItemExtendedCost rows asks exactly that and nothing else (`tracker.py costs` reads them from `[server] dbc`; the lowest ID of a kind). A cost no row asks is left out and counted |
 | `quest_template` reward slots | an item page's *Reward from* tab: each quest row names the item among its fixed rewards or its choices, with the count | the quest is on the server, its phase is open, it does not give the item yet; the item goes into the first empty slot of that kind (RewardItem1-4 with RewardAmount, RewardChoiceItemID1-6 with RewardChoiceItemQuantity) as a fill: a slot that holds an item is never replaced, and none free is counted |
 | `creature_queststarter`, `gameobject_queststarter`, `..._questender` | a quest page's Quick Facts *Start* and *End*; an npc or object page's *Starts* and *Ends* | the quest has no giver (or no ender); the creature or object is on the server. By id, not by name |
@@ -289,8 +290,8 @@ The npc and object pages are read a line at a time (a whole crawl is tens of tho
 and stock only the items worth a row are kept: the gaps, and the items of drop rows an import brought, which are
 measured again (the cache itself keeps every row).
 
-Not written, and counted on the card: items Wowhead only knows as crafted (the recipe is the gap), from fishing (a
-zone's table), from disenchanting, prospecting, milling or salvaging; quest rewards whose row says neither fixed nor
+Not written, and counted on the card: items Wowhead only knows as crafted (the recipe is the gap), from disenchanting,
+prospecting, milling or salvaging; quest rewards whose row says neither fixed nor
 choice; drops without counts.
 
 **Rows the server already has** are measured again, as for the other sources: where a drop an import brought has

@@ -34,7 +34,7 @@ const WOWHEAD_PAGES_DROP_TABS = ['dropped-by' => 'npc', 'contained-in-object' =>
 /** The other source tabs of an item page, counted only, each with the counter of a gap item that has nothing else. A
  *  quest reward (reward-from-q) is evidence of its own (wowhead_pages_evidence), counted here when its row does not
  *  say whether the item is a fixed reward or a choice. */
-const WOWHEAD_PAGES_OTHER_TABS = ['created-by' => 'wowhead_only_craft', 'fished-in' => 'wowhead_only_fishing', 'reward-from-q' => 'wowhead_only_quest_reward',
+const WOWHEAD_PAGES_OTHER_TABS = ['created-by' => 'wowhead_only_craft', 'reward-from-q' => 'wowhead_only_quest_reward',
     'disenchanted-from' => 'wowhead_only_other_source', 'prospected-from' => 'wowhead_only_other_source', 'milled-from' => 'wowhead_only_other_source', 'salvaged-from' => 'wowhead_only_other_source'];
 
 /** Where pages are kept: data/wowhead-pages, outside the repository (a copy of Wowhead's data is not republished
@@ -109,6 +109,10 @@ function wowhead_pages_links(array $quick, string $label): array
 /** The tabs of an npc or object page that are its loot, and whose; the npc's other loot (own tables no source fills). */
 const WOWHEAD_PAGES_PAGE_LOOT_TABS = ['npc' => ['drops' => 'npc', 'skinning' => 'skin', 'pickpocketing' => 'pick'], 'object' => ['contains' => 'go', 'mining' => 'go', 'herbalism' => 'go']];
 const WOWHEAD_PAGES_PAGE_OTHER_LOOT = ['salvaging', 'fishing'];
+/** A zone's fishing: the item page's Fished in tab (a row a zone, its count of the zone's catches) and the zone page's
+ *  Fishing tab (a row an item, the tab's total the zone's catches). Both go to fishing_loot_template under the zone. */
+const WOWHEAD_PAGES_FISHED_IN = 'fished-in';
+const WOWHEAD_PAGES_ZONE_FISHING = 'fishing';
 
 /** A vendor row's cost, as an item page's sold-by tab writes it ([money, currencies, items]) or an npc page's sells
  *  tab ([[money, currencies, items], ...], one list a way to pay): the first way to pay. */
@@ -165,9 +169,9 @@ function wowhead_pages_reward_slot(array $row, int $item): ?array
  * world drop as the item's own page would. $notWorldDrop ([item => true]): items whose many creatures each get a row
  * of their own (a Season of Discovery currency every boss of a level drops, as Season of Discovery had it).
  */
-function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null, array $itemFacts = [], array $notWorldDrop = []): array
+function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [], iterable $npcs = [], iterable $objects = [], ?array $keep = null, array $itemFacts = [], array $notWorldDrop = [], iterable $zones = [], ?array $fishTables = null): array
 {
-    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'reward' => [], 'left' => []];
+    $ev = ['sell' => [], 'drop' => [], 'start' => [], 'end' => [], 'train' => [], 'reward' => [], 'left' => [], 'fish_whole' => []];
     $left = ['wowhead_item_unknown' => 0, 'wowhead_no_source' => 0, 'wowhead_only_other_source' => 0, 'wowhead_only_craft' => 0, 'wowhead_only_fishing' => 0,
              'wowhead_only_quest_reward' => 0, 'wowhead_drop_world' => 0,
              'wowhead_drop_few' => 0, 'wowhead_drop_not_counted' => 0, 'wowhead_vendor_other_cost' => 0, 'wowhead_quest_unknown' => 0,
@@ -208,6 +212,8 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
             foreach ($rows as $row) $put($kind, (int)$row['id'], (int)$item, $row['count'] ?? null, $row['outof'] ?? null);
         }
         foreach ($ids($tabs['sold-by']['rows'] ?? []) as $row) { $found++; $sell((int)$row['id'], (int)$item, $row); }
+        // the zones it is fished in: each row's count of all that zone's catches
+        foreach ($ids($tabs[WOWHEAD_PAGES_FISHED_IN]['rows'] ?? []) as $row) { $found++; $put('fish', (int)$row['id'], (int)$item, $row['count'] ?? null, $row['outof'] ?? null); }
         // a quest that rewards it: its row says whether as a fixed reward or a choice, and how many
         foreach ($ids($tabs['reward-from-q']['rows'] ?? []) as $row) {
             if (!($slot = wowhead_pages_reward_slot($row, (int)$item))) continue;
@@ -246,12 +252,29 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
         }
     }
 
+    $wholeZones = [];
+    // zones' fishing: a zone the server has no fishing table for takes its whole table (the realm catches nothing there:
+    // Mount Hyjal, the Riverglades); one it has takes the items worth a row, as an npc page does
+    foreach ($zones as $page) {
+        $zone = (int)($page['id'] ?? 0);
+        if ($zone <= 0 || ($page['status'] ?? '') !== 'ok') continue;
+        $tab = $page['tabs'][WOWHEAD_PAGES_ZONE_FISHING] ?? null;
+        if (!is_array($tab)) continue;
+        $newest = max($newest, (int)($page['fetched'] ?? 0));
+        $whole = $fishTables !== null && !isset($fishTables[$zone]);
+        if ($whole) $wholeZones[$zone] = true;
+        foreach ($ids($tab['rows'] ?? []) as $row) {
+            if (!$whole && $keep !== null && !isset($keep[(int)$row['id']])) continue;
+            $put('fish', $zone, (int)$row['id'], $row['count'] ?? null, $tab['total'] ?? null);
+        }
+    }
+
     // the drops, now that every page told how many creatures drop each item
     $given = [];
     $sighted = [];      // gap item => its drops seen once (kept only when nothing better gives it)
     $rated = [];        // items a counted drop or a money vendor gives
     foreach ($drops as [$kind, $id, $item, $count, $outof]) {
-        $gap = isset($gapItems[$item]);
+        $gap = isset($gapItems[$item]) || ($kind === 'fish' && isset($wholeZones[$id]));
         // many creatures drop it: a world drop, which belongs to the shared tables no page describes
         if ($kind === 'npc' && !isset($notWorldDrop[$item]) && max($droppers[$item] ?? 0, $npcDroppers[$item] ?? 0) >= WOWHEAD_PAGES_WORLD_DROP) { if ($gap) $left['wowhead_drop_world']++; continue; }
         // a creature's drop of a gap item, from the creature's page only: until every npc page is read, only the item's
@@ -301,6 +324,8 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
     $ev['start'] = array_values($roles['start']);
     $ev['end'] = array_values($roles['end']);
     $ev['left'] = array_filter($left);
+    // a list of [zone] rows, as a snapshot keeps it (snapshot_facts)
+    $ev['fish_whole'] = array_map(fn($zone) => [$zone], array_keys($wholeZones));
     return [$ev, $newest];
 }
 
@@ -436,6 +461,31 @@ function wowhead_pages_card(string $source, array $ev, string $date, string $fil
     return source_card($source, $label, $source . '@' . $file, $tables, $left + $moved, array_merge($rewards, $changes));
 }
 
+/** The zones the server has a fishing table for: [zone => true]. A zone page's whole Fishing tab goes to the others. */
+function wowhead_pages_fish_tables(): array
+{
+    if (!table_exists('fishing_loot_template', 'world')) return [];
+    $out = [];
+    foreach (rows('SELECT DISTINCT Entry FROM fishing_loot_template', [], 'world') as $r) $out[(int)$r['Entry']] = true;
+    return $out;
+}
+
+/** The zones whose page the crawl reads for their fishing: the realm's zones with no fishing table (ft_entities, the
+ *  analysis' zones), and the zones the gap items' pages say they are fished in. */
+function wowhead_pages_fish_zones(array $items, array $gapItems): array
+{
+    $tables = wowhead_pages_fish_tables();
+    $zones = [];
+    if (table_exists('ft_entities')) {
+        foreach (rows("SELECT id FROM ft_entities WHERE type = 'zone' AND internal = 0") as $r) if (!isset($tables[(int)$r['id']])) $zones[(int)$r['id']] = true;
+    }
+    foreach ($gapItems as $item => $_) {
+        foreach ((array)($items[$item]['tabs'][WOWHEAD_PAGES_FISHED_IN]['rows'] ?? []) as $row) if ((int)($row['id'] ?? 0) > 0) $zones[(int)$row['id']] = true;
+    }
+    ksort($zones);
+    return array_keys($zones);
+}
+
 /** The items whose drops an npc or object page may give: the gaps, and the items of drop rows an import brought (a
  *  source named in the row's comment), which the card measures again. */
 function wowhead_pages_keep(array $gapItems): array
@@ -457,7 +507,8 @@ function wowhead_pages_import(): array
     $hasPages = $items || $quests || array_filter(array_map(fn($s) => is_file(wowhead_pages_dir() . "/$s.jsonl") || is_file(FT_ROOT . "/tools/wowhead-pages/cache/$s.jsonl"), ['npc', 'object']));
     if (!$hasPages) return ['ok' => false, 'message' => t('No Wowhead page has been read yet: see docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js reads them from a browser tab).', 'Aucune page Wowhead n’a encore été lue : voir docs/WOWHEAD-PAGES.md (tools/wowhead-pages/crawler.js les lit depuis un onglet de navigateur).')];
     $gaps = source_gaps();
-    [$ev, $newest] = wowhead_pages_evidence($items, $quests, $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), wowhead_pages_keep($gaps['items']));
+    [$ev, $newest] = wowhead_pages_evidence($items, $quests, $gaps['items'], wowhead_pages_each('npc'), wowhead_pages_each('object'), wowhead_pages_keep($gaps['items']),
+        [], [], wowhead_pages_each('zone'), wowhead_pages_fish_tables());
     // the gaps no page told about yet: the crawler's queue (Download the crawler) holds their pages
     $told = [];
     foreach ($ev['drop'] as $d) $told[$d[2]] = true;
@@ -856,6 +907,11 @@ function wowhead_pages_queue(): array
         $left = array_values(array_filter($ids, fn($id) => !isset($have[$id])));
         if ($left) $queue['wanted'][$kind] = $left;
     }
+    // zones whose fishing the realm lacks, or a gap item is fished in: their page, in the administrator's tier (few)
+    $zoneHave = [];
+    foreach (wowhead_pages_each('zone') as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $zoneHave[(int)$page['id']] = true;
+    $zones = array_values(array_filter(wowhead_pages_fish_zones($pages['item'], $gaps['items']), fn($id) => !isset($zoneHave[$id])));
+    if ($zones) $queue['wanted']['zone'] = array_values(array_unique(array_merge($queue['wanted']['zone'] ?? [], $zones)));
     // what the content still to come needs (data/gather.json, docs/GATHER.md): the open phase's in tier 'gap', a closed
     // phase's in tier 'later', earliest phase first; pages held and not due again are left out
     $queue['gather'] = wowhead_pages_gather_queue(gather_list(), function (string $kind) {
