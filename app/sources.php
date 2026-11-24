@@ -885,7 +885,7 @@ function source_card(string $source, string $name, string $file, array $tables, 
     // a fill (a quest's empty reward slot) is a new value, not one measured again
     foreach ($changes as $op) { $counts[$op['table'] . '.' . $op['set']] = count($op['rows']); if (empty($op['fill'])) $moved += count($op['rows']); }
     $name .= ' · ' . (SOURCES[$source][1] ?? '');
-    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
+    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [import_name($name), $file, (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
     $id = (int)db()->insert_id;
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables, 'changes' => $changes], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION));

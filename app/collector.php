@@ -245,7 +245,7 @@ function collector_import(string $path, string $name): array
     if (!$tables) return ['ok' => (bool)$located, 'id' => 0, 'counts' => [], 'ignored' => $left, 'bad' => 0, 'statements' => 0, 'positions' => $located,
         'message' => $located ? '' : t('The file holds nothing this server can use yet.', 'Le fichier ne contient rien d’utilisable par ce serveur pour l’instant.')];
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = count($entry['groups'][0]['rows']);
-    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, basename($path), (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
+    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [import_name($name), basename($path), (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
     $id = (int)db()->insert_id;
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
