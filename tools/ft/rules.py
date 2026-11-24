@@ -798,9 +798,12 @@ def evaluate_all(content, ctx):
         if zone_id in boxes:
             n = zone_spawns.get(zone_id, 0)
             checks.append(check(n >= 20, 'spawns', L(f'≈{n} creatures inside the zone', f'≈{n} PNJ dans l’emprise de la zone'), 3))
-        zone_quests = official_quests_by_zone.get(zone_id, [])
+        # the quests WoW: Forever does not give (the old Tier 0.5 and Tier 3 quests of Ironforge and Orgrimmar, whose Forever
+        # copies are other quests) are no quest of the zone's; one players cannot take now but whose own check passes (given
+        # by an item, by an event) is not the zone's gap either
+        zone_quests = [qid for qid in official_quests_by_zone.get(zone_id, []) if qid not in ctx['not_given_quests']]
         if zone_quests:
-            ready = sum(1 for qid in zone_quests if qid in available_quests)
+            ready = sum(1 for qid in zone_quests if qid in available_quests or results.get(('quest', qid), ('',))[0] == 'ok')
             checks.append(check(ready >= len(zone_quests) * 0.8, 'zone_quests', L(f'{ready} / {len(zone_quests)} quests can be done', f'{ready} / {len(zone_quests)} quêtes faisables'), 3))
         # a graveyard for a zone a map draws; without the map data every zone is asked, as before
         mapped = ctx.get('mapped_zones') or ()

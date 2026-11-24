@@ -330,6 +330,20 @@ class Zones(unittest.TestCase):
         self.assertIn('1 / 1', next(c for c in result[2] if c['code'] == 'zone_quests')['detail']['en'])
 
 
+    def test_a_quest_forever_does_not_give_does_not_count_against_its_zone(self):
+        # Orgrimmar: the old Tier 3 quests ("An Earnest Proposition") only the Classic Mokvar gives, whom live replaced; with
+        # them counted the city stayed under 80 % with every quest Forever gives done
+        quests = {10: quest_row(QuestSortID=1637, LogTitle='Real')}
+        quests.update({20 + i: quest_row(QuestSortID=1637, LogTitle='An Earnest Proposition') for i in range(3)})
+        ctx = world(map_tiles={1: 900}, graveyards={1637}, spawned_npc={100, 230317},
+                    q_start_npc=[(100, 10)] + [(16012, 20 + i) for i in range(3)], q_end_npc=[(100, 10)] + [(16012, 20 + i) for i in range(3)],
+                    quests=quests, quest_turn_in_text=set(quests), npc_maps={1: [{'id': 230317, 'n': 1, 'name': 'Mokvar', 'scripted': False}]},
+                    quest_npc_names={16012: 'Mokvar', 230317: 'Mokvar'}, live_npcs={230317: 'Mokvar'})
+        content = {'zone': {1637: {'map': 1}}, 'quest': {q: {} for q in quests}}
+        result = evaluate(content, ctx)[('zone', 1637)]
+        self.assertEqual(failed(result), [])
+        self.assertIn('1 / 1', next(c for c in result[2] if c['code'] == 'zone_quests')['detail']['en'])
+
 class Vendors(unittest.TestCase):
     def test_a_borrowed_list_is_written_out(self):
         from ft import server
