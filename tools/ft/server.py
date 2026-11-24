@@ -553,6 +553,10 @@ def server_state():
     # what a quest item's dummy spell does is often written there, on its target
     ctx['smart_spellhit'] = {int(x) for x in sqlio.column('SELECT DISTINCT event_param1 FROM smart_scripts WHERE event_type IN (8, 31)')
                              if x is not None and int(x) > 0} if sqlio.has_table('smart_scripts') else set()
+    # spells whose aura a condition asks for (CONDITION_AURA, 1): {spell: how many conditions}
+    ctx['aura_conditions'] = {int(r['spell']): int(r['n']) for r in sqlio.query(
+        'SELECT ConditionValue1 spell, COUNT(*) n FROM conditions WHERE ConditionTypeOrReference = 1 AND ConditionValue1 > 0 GROUP BY ConditionValue1')} \
+        if sqlio.has_table('conditions') else {}
     ctx['achievement_rewards'] = ints('SELECT ID FROM achievement_reward')
     # Achievements that pay a talent or perk currency (a Legacy Point): the core counts the achievement itself as the
     # source (TraitCurrencySource), no achievement_reward row is involved.

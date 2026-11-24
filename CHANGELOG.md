@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A dummy aura the realm already uses is not flagged.** The spell check counted every dummy aura as code nothing ran.
+  Two kinds work without a script. One is an aura that conditions ask for: the Argent Dawn Commission's Scourgestones
+  drop only while it is worn, through about 170 loot conditions. The other is a dummy aura that names a trigger spell
+  and procs: the core casts that spell itself (Fist of Stone restoring mana). Both now pass, with the reason on the
+  spell. The container analyses again once (marker 47).
+
 - **A chest's personal loot counts as a source.** The analysis read only a chest's shared loot (`Data1`), but the core
   also fills `chestPersonalLoot` (`Data30`, each player's own) and `chestPushLoot` (`Data33`, straight into the bags).
   The supply cart at Ariden's Camp gives Recipe: Plated Armorfish through personal loot alone
