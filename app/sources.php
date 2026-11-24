@@ -76,6 +76,10 @@ function source_gaps(): array
     $gaps['noRow'] = array_diff_key($official, $ids('SELECT ID FROM quest_template', 'world'), $later['quest'], $notGiven);
     $gaps['noGiver'] += $gaps['noRow'];
     $gaps['noEnder'] += $gaps['noRow'];
+    // the official quests whose turn-in words the server lacks (the analysis's 'texts' check): their Wowhead page,
+    // kept whole, gives them (wowhead_pages_texts); the crawl reads it again for them
+    $gaps['noText'] = table_exists('ft_entities') ? array_diff_key($ids("SELECT id FROM ft_entities WHERE type = 'quest' AND internal = 0 AND status <> 'ok'"
+        . " AND JSON_CONTAINS(checks, '{\"code\": \"texts\", \"ok\": false}') AND checks LIKE '%no turn-in text%'"), $later['quest']) : [];
     // the quest links an admin rolled back: never proposed again, or the next card (applied on its own) puts them back
     $gaps['rolledBack'] = source_rolled_back_links(rows("SELECT sql_apply FROM ft_forge_log WHERE state = 'rolled_back' AND FIND_IN_SET('import', kind)"));
     return $gaps;

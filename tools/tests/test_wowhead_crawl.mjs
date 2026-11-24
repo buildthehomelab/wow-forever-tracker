@@ -59,13 +59,24 @@ test('the whole page: names, text, Quick Facts with their links, every tab row w
   assert.equal(full.tabs['contained-in-object'].rows[0].name, 'Shared Row');
   assert.deepEqual(full.links, { 1: { 939: { name_enus: 'Kurzen Elite' } }, 3: { 216616: { name_enus: 'Fixture Item', quality: 3 }, 20558: { name_enus: 'Warsong Mark', quality: 1 } } });
   assert.deepEqual(full.map, { 33: [{ count: 2, coords: [[41.2, 9.4], [42, 10]] }] });
-  assert.equal(page.v, 4);
+  assert.equal(page.v, 5);
 });
 
-test('what users wrote is never kept, not even in the whole page', () => {
-  const kept = JSON.stringify(page.full);
-  for (const text of ['never kept', 'someone', 'comments']) assert.ok(!kept.includes(text), text);
+test('the comment listview is no tab of the whole page', () => {
   assert.ok(!('comments' in page.full.tabs));
+});
+
+test('the whole page keeps each comment: its words, date, rating and replies, never who wrote it', () => {
+  const c = 'x var lv_comments0 = [{"id":11,"user":"someone","date":"2026-11-01T10:00:00","rating":3,"body":"Turn it in to [npc=5] at the camp.\\/end",'
+    + '"replies":[{"username":"other","creationdate":"2026-11-02T08:00:00","body":"Still true."},{"body":"gone","deleted":1}]},'
+    + '{"id":12,"body":"   ","rating":1},{"id":13,"body":"removed","deleted":1},{"id":14,"body":"Starts from a drop.","rating":-1,"date":"2026-11-03"}];';
+  assert.deepEqual(crawler.commentsWhole(c), [
+    { id: 11, date: '2026-11-01T10:00:00', rating: 3, body: 'Turn it in to [npc=5] at the camp./end', replies: [{ date: '2026-11-02T08:00:00', body: 'Still true.' }] },
+    { id: 14, date: '2026-11-03', rating: -1, body: 'Starts from a drop.' }]);
+  assert.ok(!JSON.stringify(crawler.commentsWhole(c)).includes('someone'));
+  assert.ok(!JSON.stringify(crawler.commentsWhole(c)).includes('other'));
+  assert.deepEqual(crawler.commentsWhole('no comments here'), []);
+  assert.deepEqual(crawler.whole('<html>' + c + '</html>').comments.map(x => x.id), [11, 14]);
 });
 
 test('of a comment only its rating and what it links to, with what the words around the link say it is', () => {

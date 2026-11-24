@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Quest turn-in words from Wowhead, and comments kept whole.** The crawler has kept each page whole since record
+  version 3, quest text included, but nothing read it: 57 official quests still lacked their turn-in words. The Wowhead
+  card now fills `quest_offer_reward` and `quest_request_items` from a page's Progress and Completion sections (for
+  quests that have none, the same rule as every text source). The quests that lack them are queued with the quests
+  without a giver or ender, so pages read before the text was kept are read again. A quest whose Forever page, read
+  whole, shows no turn-in words is not asked for any (`texts` check). Record version 5 also keeps players' comments whole
+  (words, date, rating, replies; not who wrote them), in the answers table only: they hold the details players reported
+  that the page itself never got.
+
 - **warcraft.wiki.gg as a source.** The community wiki has a WoW Forever section: about 330 quests, 650 NPCs and creatures
   and 1,400 items, with ids. A new card, *Import warcraft.wiki.gg* (`source-import.php wiki`, and the container every
   `FT_WIKI_EVERY_HOURS`, 24), reads those pages through the wiki's API (64 requests, about a minute) and proposes, for the

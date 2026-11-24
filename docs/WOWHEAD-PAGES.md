@@ -27,8 +27,12 @@ with all their numbers (up to 20,000 rows a tab); the Quick
 Facts lines (`Level: 13`, `Start: [url=/forever/npc=253812]`) with the text of their links removed; the map pins.
 Names, descriptions and quest text are not in the cache files: the crawler keeps the facts with every text value
 dropped, `tools/wowhead_pages.py merge` refuses a row that still holds one, and a test checks both. Since record
-version 3 a crawler line also carries `full`, the whole page, which goes to the answers table only. Comments,
-screenshots, videos and guides are never kept anywhere.
+version 3 a crawler line also carries `full`, the whole page, which goes to the answers table only (its `text` holds a
+quest's Description, Progress and Completion words: the Wowhead import fills a quest's missing turn-in text from it).
+Since record version 5 `full.comments` keeps players' comments whole, `[{id, date, rating, body, replies?}]` (up to 200
+a page, 8000 characters each; who wrote them is left out): what players report and Wowhead never fixed is often the
+detail the page itself lacks. Comments stay in the answers table only, never in the cache files. Screenshots and videos
+are never kept.
 A page Wowhead does not have is kept as `"status": "missing"`, so that it is not asked again.
 A creature's or object's page also keeps the model display ids its model viewer shows (`"model": [140708]`, record
 version 2): a creature the server has no template for needs one.

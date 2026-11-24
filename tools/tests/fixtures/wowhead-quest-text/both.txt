@@ -1,0 +1,20 @@
+The Origins of Smithing
+Bring six Golden Scale Bracers to Hank the Hammer in Stormwind.
+Golden Scale Bracers (6)
+
+Description
+Make me six golden scale bracers and you will learn where smithing comes from, <name>.Progress
+Could you be the next Galvan protege?
+
+Completion
+Very good, <name>! Listen and learn.
+
+And now you know the origin of blacksmithing.
+
+Rewards
+You will receive:
+
+Plans: Golden Scale Gauntlets
+
+Gains
+Upon completion of this quest you will gain:

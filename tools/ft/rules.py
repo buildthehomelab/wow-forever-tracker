@@ -697,7 +697,8 @@ def evaluate_all(content, ctx):
         if start and int(row.get('QuestType') or 0) != QUEST_TYPE_AUTOCOMPLETE and not int(row.get('HasText') or 0) \
                 and quest_id not in NO_OFFICIAL_GIVER_TEXT:
             lacking.append(L('no quest text (description, objectives)', 'pas de texte de quête (description, objectifs)'))
-        if end and quest_id not in ctx.get('quest_turn_in_text', ()) and quest_id not in NO_OFFICIAL_TURN_IN_TEXT:
+        if end and quest_id not in ctx.get('quest_turn_in_text', ()) and quest_id not in NO_OFFICIAL_TURN_IN_TEXT \
+                and quest_id not in ctx.get('quest_no_official_turn_in', ()):
             lacking.append(L('no turn-in text (quest_offer_reward, quest_request_items)', 'pas de texte de rendu (quest_offer_reward, quest_request_items)'))
         if start or end:
             checks.append(check(not lacking, 'texts', join(lacking) if lacking else L('Quest text and turn-in text', 'Texte de quête et texte de rendu'), 1))
