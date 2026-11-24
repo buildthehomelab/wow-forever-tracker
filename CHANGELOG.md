@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Fishing rows keep a zone's catch right.** The first fishing import put every row in group 1. A whole zone's table
+  added up past 100 (Mount Hyjal 124.6%: players' counts include catches that gave more than one item), and gap catches
+  pushed a zone's own 1.12 table past 100 (Azshara 129.5%). In both cases the last items of the group could never be
+  caught. A zone taken whole is now scaled down to 100, and a catch added to a table the zone has rolls on its own
+  (group 0).
+
 - **The Wowhead import writes zones' fishing.** Fishing was counted and left out ("a zone's table: not written by this
   import"), so the realm's new zones had no fishing table and caught nothing (Mount Hyjal, the Riverglades). Their
   weighted catches had no source either (the lobsters and mightfish of Azshara, the salmon of Winterspring). An item
