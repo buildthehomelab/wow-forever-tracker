@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The Wowhead import writes zones' fishing.** Fishing was counted and left out ("a zone's table: not written by this
+  import"), so the realm's new zones had no fishing table and caught nothing (Mount Hyjal, the Riverglades). Their
+  weighted catches had no source either (the lobsters and mightfish of Azshara, the salmon of Winterspring). An item
+  page's *Fished in* tab and a zone page's *Fishing* tab now give `fishing_loot_template` rows under the zone, in one
+  group, at the same counts as a drop. A zone with no table takes its page's whole table; one with a table takes the
+  gap items. The crawl queues the page of every zone with no table and of every zone a gap item is fished in.
+
 - **A dummy aura the realm already uses is not flagged.** The spell check counted every dummy aura as code nothing ran.
   Two kinds work without a script. One is an aura that conditions ask for: the Argent Dawn Commission's Scourgestones
   drop only while it is worn, through about 170 loot conditions. The other is a dummy aura that names a trigger spell

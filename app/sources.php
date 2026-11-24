@@ -120,7 +120,7 @@ function source_trainer_npcs(): array
 
 /** The loot table each kind of drop goes to. */
 const SOURCE_LOOT_TABLES = ['npc' => 'creature_loot_template', 'skin' => 'skinning_loot_template', 'pick' => 'pickpocketing_loot_template', 'go' => 'gameobject_loot_template',
-    'item' => 'item_loot_template'];
+    'item' => 'item_loot_template', 'fish' => 'fishing_loot_template'];
 /** The creature_template_difficulty column that points a creature to each of its tables. */
 const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' => 'PickPocketLootID'];
 
@@ -271,15 +271,21 @@ function source_tables(array $ev, string $label, array $gaps): array
         }
     }
 
-    // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go'), a container ('item')
-    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []];
+    // ---- loot: a corpse ('npc'), Skinning ('skin'), Pick Pocket ('pick'), a chest or a gathering node ('go'), a container ('item'),
+    // a zone's fishing ('fish': the zone is the entry)
+    $drops = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => [], 'fish' => []];
+    $wholeZones = [];
+    foreach ($ev['fish_whole'] ?? [] as $row) $wholeZones[(int)(is_array($row) ? ($row[0] ?? 0) : $row)] = true;
     foreach ($ev['drop'] ?? [] as [$kind, $id, $item, $chance]) {
-        // a source that may fill any item ('any_item': QuestieDB, which ranks after Wowhead alone) chose its items itself
-        if ((empty($ev['any_item']) && !isset($gaps['items'][(int)$item])) || !isset($drops[$kind])) continue;
+        // a source that may fill any item ('any_item': QuestieDB, which ranks after Wowhead alone) chose its items itself; a zone
+        // the server catches nothing in takes its whole fishing table ('fish_whole')
+        $whole = $kind === 'fish' && isset($wholeZones[(int)$id]);
+        if ((empty($ev['any_item']) && !$whole && !isset($gaps['items'][(int)$item])) || !isset($drops[$kind])) continue;
         $old = $drops[$kind][(int)$id][(int)$item] ?? 0;
         $drops[$kind][(int)$id][(int)$item] = max($old, (float)$chance);   // a source seen in several builds: its best measure
     }
     [$entryOf, $known] = source_loot_entries(array_keys($drops['npc'] + $drops['skin'] + $drops['pick']), array_keys($drops['go']), array_keys($drops['item']));
+    $entryOf['fish'] = array_combine(array_keys($drops['fish']), array_keys($drops['fish']));
     $questItems = $ids('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1');
     $gives = [];
     // a creature without a table of that kind is checked under its own entry (where its rows go); an object only as a chest or node
@@ -289,7 +295,7 @@ function source_tables(array $ev, string $label, array $gaps): array
         $table = SOURCE_LOOT_TABLES[$kind];
         foreach ($sources as $id => $list) {
             if ($kind === 'item' && !isset($known['item'][$id])) { $left['container_no_loot'] = ($left['container_no_loot'] ?? 0) + count($list); continue; }
-            if ($kind !== 'item' && !isset($known[$kind === 'go' ? 'go' : 'npc'][$id])) { $left[$kind === 'go' ? 'object_no_loot' : 'loot_unknown_creature'] += count($list); continue; }
+            if ($kind !== 'item' && $kind !== 'fish' && !isset($known[$kind === 'go' ? 'go' : 'npc'][$id])) { $left[$kind === 'go' ? 'object_no_loot' : 'loot_unknown_creature'] += count($list); continue; }
             if ($kind === 'go' && empty($entryOf['go'][$id])) { $left['object_no_loot'] += count($list); continue; }
             // a creature without a table of its own gets one under its entry: applying the card points the template to it
             $entry = $entryOf[$kind][$id] ?: $id;
@@ -297,8 +303,9 @@ function source_tables(array $ev, string $label, array $gaps): array
                 if ($chance <= 0) { $left['loot_chance_unknown']++; continue; }
                 if (isset($gives[$table][$entry][$item])) { $left['loot_known']++; continue; }
                 $questOnly = isset($questItems[$item]) || isset($ev['quest_drop']["$kind:$id:$item"]);
+                // a cast catches one thing: a zone's fishing is one group, as the 1.12 tables the realm has (VMaNGOS) are
                 $rows[$table][] = ['Entry' => $entry, 'ItemType' => 0, 'Item' => $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => $questOnly ? 1 : 0,
-                    'LootMode' => 1, 'GroupId' => 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
+                    'LootMode' => 1, 'GroupId' => $kind === 'fish' ? 1 : 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
             }
         }
     }

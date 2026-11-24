@@ -65,9 +65,25 @@ $more = [
     1005 => ['id' => 1005, 'fetched' => 1000, 'status' => 'ok', 'tabs' => ['reward-from-q' => ['template' => 'quest', 'rows' => [['id' => 81005, 'itemrewards' => [[1005, 1]]]]]]],
 ];
 [$evMore] = wowhead_pages_evidence($more, [], array_fill_keys([1000, 1001, 1002, 1003, 1004], true));
-check($evMore['drop'] === [['skin', 2001, 1000, 20.0], ['pick', 2002, 1000, 10.0], ['item', 190001, 1000, 25.0]], 'skinning, pick pocketing and a container: counted like a corpse: ' . json_encode($evMore['drop']));
+check($evMore['drop'] === [['skin', 2001, 1000, 20.0], ['pick', 2002, 1000, 10.0], ['item', 190001, 1000, 25.0], ['fish', 40, 1003, 10.0]], 'skinning, pick pocketing, a container and a zone\'s fishing: counted like a corpse: ' . json_encode($evMore['drop']));
 check($evMore['reward'] === [[81000, 1001, 2, 0], [81001, 1001, 1, 1]], 'quest rewards of gap items: the quest, the item, how many, fixed (0) or a choice (1): ' . json_encode($evMore['reward']));
-check($evMore['left'] === ['wowhead_only_craft' => 1, 'wowhead_only_fishing' => 1, 'wowhead_only_quest_reward' => 1], 'a craft first, fishing, a reward whose row names no slot: counted apart: ' . json_encode($evMore['left']));
+check($evMore['left'] === ['wowhead_only_craft' => 1, 'wowhead_only_quest_reward' => 1], 'a craft first, a reward whose row names no slot: counted apart: ' . json_encode($evMore['left']));
+
+// ---- zones' fishing: the zone page's Fishing tab (its total the zone's catches). A zone the server has no table for takes
+// all of it (Mount Hyjal); one it has, only the items worth a row
+$zonePages = [
+    ['id' => 616, 'fetched' => 5000, 'status' => 'ok', 'tabs' => ['fishing' => ['template' => 'item', 'total' => 3089, 'rows' => [
+        ['id' => 3820, 'count' => 5], ['id' => 13891, 'count' => 40], ['id' => 6359, 'count' => 1200], ['id' => 13904, 'count' => 1]]]]],
+    ['id' => 16, 'fetched' => 4000, 'status' => 'ok', 'tabs' => ['fishing' => ['template' => 'item', 'total' => 3568, 'rows' => [
+        ['id' => 13888, 'count' => 500], ['id' => 13910, 'count' => 2]]]]],
+    ['id' => 17, 'fetched' => 4000, 'status' => 'ok', 'tabs' => []],   // no water: no tab
+];
+[$evZones, $zoneNewest] = wowhead_pages_evidence([], [], [13910 => true], [], [], [13910 => true], [], [], $zonePages, [16 => true]);
+check($evZones['drop'] === [['fish', 616, 3820, 0.1619], ['fish', 616, 13891, 1.2949], ['fish', 616, 6359, 38.8475], ['fish', 16, 13910, 0.0561], ['fish', 616, 13904, 0.0324]],
+    'Mount Hyjal\'s whole table (a catch seen once is kept: the zone has nothing else), Azshara\'s gap item only: ' . json_encode($evZones['drop']));
+check($evZones['fish_whole'] === [[616]] && $zoneNewest === 5000, 'the zone taken whole is named, as a row a snapshot keeps');
+[$evNoTables] = wowhead_pages_evidence([], [], [], [], [], [], [], [], $zonePages, null);
+check($evNoTables['drop'] === [] && $evNoTables['fish_whole'] === [], 'without the server\'s tables nothing is taken whole');
 check(wowhead_pages_cost_key([0, [[1901, 30]], [[20558, 3], [17, 2]]]) === 'c1901x30,i17x2,i20558x3' && wowhead_pages_cost_key([500]) === '' && wowhead_pages_cost_key([0, 'x', []]) === null, 'a cost\'s key, sorted as ft/costs.py sorts it');
 
 // ---- npc and object pages: whole loot tables, vendors, quests
