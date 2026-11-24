@@ -436,4 +436,15 @@ check(!$cev['drop'] && ($cev['left']['wowhead_comment_drop_no_chance'] ?? 0) ===
 [$cev] = wowhead_comments_evidence(['item' => [$item]], [900 => true], ['noGiver' => [], 'noEnder' => []], [], [900 => true], 40.0);
 check(count($cev['drop']) === 3 && $cev['drop'][0][3] === 40.0 && isset($cev['quest_drop']['npc:440:900']), 'an item a quest asks for drops at the quest chance, for the quest only');
 
+// the creature and object pages read for their comments: links on a gap quest's page, and its series' neighbours
+$gapQ = ['noGiver' => [502 => true], 'noEnder' => [502 => true, 600 => true]];
+$targets = wowhead_comments_targets([
+    ['id' => 502, 'status' => 'ok', 'series' => [501, 0, 503], 'comments' => [[-2, [[0, 1, 77], [2, 2, 8800], [0, 3, 900], [0, 4, 1]]]]],
+    ['id' => 600, 'status' => 'ok', 'series' => [600, 601]],   // its own step written out, the last one has no next
+    ['id' => 700, 'status' => 'ok', 'comments' => [[0, [[1, 1, 55]]]]],   // no gap: nothing
+], $gapQ, [503 => [['npc', 31]], 601 => [['object', 44]]], [501 => [['npc', 30], ['object', 40]]]);
+ksort($targets['npc']); ksort($targets['object']);
+check(array_keys($targets['npc']) === [30, 31, 77] && array_keys($targets['object']) === [40, 44, 8800],
+    'a gap quest\'s comment links, the ender before it and the giver after it: ' . json_encode(array_map('array_keys', $targets)));
+
 ft_test_done();

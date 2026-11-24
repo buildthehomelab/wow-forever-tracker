@@ -546,6 +546,79 @@ function wowhead_comments_evidence(array $pages, array $gapItems, array $gapQues
     return [$ev, $newest];
 }
 
+/**
+ * The creature and object pages whose comments may name the giver or ender of a quest that lacks one: what the crawl
+ * reads first for the "Wowhead comments" source. $questPages: the quest pages (records) of those quests; $gapQuests:
+ * ['noGiver' => [quest => true], 'noEnder' => [...]]; $givers / $enders: the server's [quest => [[kind, id]...]] (kind
+ * 'npc' or 'object') for the quests of their series. For each such quest:
+ *   - what a comment on its own page links to, as a creature or object, whatever it says of it (a comment voted down
+ *     too: its target's own page may say better);
+ *   - in its series, for a quest without a giver, who takes the quest before it (the next step is often given where
+ *     the last one was turned in), and for a quest without an ender, who gives the quest after it.
+ * Returns ['npc' => [id => true], 'object' => [id => true]].
+ */
+function wowhead_comments_targets(iterable $questPages, array $gapQuests, array $givers = [], array $enders = []): array
+{
+    $out = ['npc' => [], 'object' => []];
+    foreach ($questPages as $page) {
+        $quest = (int)($page['id'] ?? 0);
+        $noGiver = isset($gapQuests['noGiver'][$quest]); $noEnder = isset($gapQuests['noEnder'][$quest]);
+        if ($quest <= 0 || (!$noGiver && !$noEnder) || ($page['status'] ?? '') !== 'ok') continue;
+        foreach (is_array($page['comments'] ?? null) ? $page['comments'] : [] as $comment) {
+            foreach (is_array($comment[1] ?? null) ? $comment[1] : [] as $link) {
+                $kind = is_array($link) && count($link) >= 3 ? (WOWHEAD_COMMENT_KINDS[(int)$link[1]] ?? null) : null;
+                if (($kind === 'npc' || $kind === 'object') && (int)$link[2] > 0) $out[$kind][(int)$link[2]] = true;
+            }
+        }
+        $series = array_map(fn($q) => (int)$q === 0 ? $quest : (int)$q, is_array($page['series'] ?? null) ? $page['series'] : []);
+        $at = array_search($quest, $series, true);
+        if ($at === false) continue;
+        $near = [];
+        if ($noGiver && $at > 0) $near = array_merge($near, $enders[$series[$at - 1]] ?? []);
+        if ($noEnder && isset($series[$at + 1])) $near = array_merge($near, $givers[$series[$at + 1]] ?? []);
+        foreach ($near as [$kind, $id]) if (isset($out[$kind]) && (int)$id > 0) $out[$kind][(int)$id] = true;
+    }
+    return $out;
+}
+
+/** The server's givers and enders of $quests: [[quest => [[kind, id]...]] givers, enders] (kind 'npc' or 'object'). */
+function wowhead_comments_server_links(array $quests): array
+{
+    $out = [[], []];
+    foreach (array_chunk(array_values(array_unique(array_map('intval', $quests))), 2000) as $chunk) {
+        $in = implode(',', $chunk);
+        foreach ([[0, 'creature_queststarter', 'npc'], [0, 'gameobject_queststarter', 'object'], [1, 'creature_questender', 'npc'], [1, 'gameobject_questender', 'object']] as [$side, $table, $kind]) {
+            foreach (rows("SELECT id, quest FROM `$table` WHERE quest IN ($in)", [], 'world') as $r) $out[$side][(int)$r['quest']][] = [$kind, (int)$r['id']];
+        }
+    }
+    return $out;
+}
+
+/** The creature and object pages to read for the comments of the quests without a giver or an ender
+ *  (wowhead_comments_targets), less those held with their comments (record v4) and not due again: [kind => ids]. */
+function wowhead_comments_queue(array $gapQuests): array
+{
+    $wanted = $gapQuests['noGiver'] + $gapQuests['noEnder'];
+    if (!$wanted) return [];
+    $pages = [];
+    foreach (wowhead_pages_each('quest') as $page) if (isset($wanted[(int)($page['id'] ?? 0)])) $pages[] = $page;
+    $series = [];
+    foreach ($pages as $page) foreach (is_array($page['series'] ?? null) ? $page['series'] : [] as $q) if ((int)$q > 0) $series[] = (int)$q;
+    [$givers, $enders] = $series ? wowhead_comments_server_links($series) : [[], []];
+    $out = [];
+    foreach (wowhead_comments_targets($pages, $gapQuests, $givers, $enders) as $kind => $ids) {
+        if (!$ids) continue;
+        foreach (wowhead_pages_each($kind) as $page) {
+            $id = (int)($page['id'] ?? 0);
+            if (!isset($ids[$id])) continue;
+            $old = ($page['status'] ?? '') === 'ok' && (int)($page['v'] ?? 0) < WOWHEAD_PAGES_COMMENTS_V;
+            if (!$old && !wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) unset($ids[$id]);
+        }
+        if ($ids) $out[$kind] = array_keys($ids);
+    }
+    return $out;
+}
+
 /** The comments' links of the pages in the cache as an import card of their own ("Wowhead comments"). */
 function wowhead_comments_import(): array
 {
@@ -1056,6 +1129,9 @@ function wowhead_pages_queue(): array
     // pages whose row in the answers table is due to be read again ([wowhead] refresh_days, recheck_days; app/wowheaddb.php):
     // the crawl reads them again, so that the table learns what changed on Wowhead
     $queue['recheck'] = wowhead_db_due_pages();
+    // the creatures and objects whose comments may name a missing giver or ender (wowhead_comments_queue): read in the
+    // gaps' own tier, right after the quests' pages
+    $queue['comments'] = wowhead_comments_queue(['noGiver' => $gaps['noGiver'], 'noEnder' => $gaps['noEnder']]);
     foreach (wowhead_pages_missing_data() as $kind => $list) {
         $have = [];
         foreach (wowhead_pages_each($kind) as $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', (int)$page['id'])) $have[(int)$page['id']] = true;
@@ -1074,10 +1150,11 @@ function wowhead_pages_queue(): array
 function wowhead_pages_crawler(array $queue, bool $full = false): string
 {
     $js = (string)file_get_contents(FT_ROOT . '/tools/wowhead-pages/crawler.js');
-    $counted = array_filter($queue, fn($v, $k) => is_array($v) && !in_array($k, ['wanted', 'writ', 'gather', 'recheck'], true), ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
+    $counted = array_filter($queue, fn($v, $k) => is_array($v) && !in_array($k, ['wanted', 'writ', 'gather', 'recheck', 'comments'], true), ARRAY_FILTER_USE_BOTH) + array_map(fn($ids) => (array)$ids, array_combine(array_map(fn($k) => "wanted $k", array_keys($queue['wanted'] ?? [])), array_values($queue['wanted'] ?? [])));
     $lines = ["\n// ---- queued by the tracker on " . date('Y-m-d H:i') . ': ' . implode(', ', array_map(fn($k) => count($counted[$k]) . " $k pages", array_keys($counted)))
         . (empty($queue['writ']) ? '' : ', ' . count($queue['writ']) . ' writ pages')
         . implode('', array_map(fn($tier) => ', ' . array_sum(array_map('count', (array)($queue['gather'][$tier] ?? []))) . " $tier pages of the work list", array_keys(array_filter((array)($queue['gather'] ?? [])))))
+        . (empty($queue['comments']) ? '' : ', ' . array_sum(array_map('count', (array)$queue['comments'])) . ' pages for their comments')
         . (empty($queue['recheck']) ? '' : ', ' . array_sum(array_map('count', (array)$queue['recheck'])) . ' pages due again')];
     $lines[] = '(async () => {';
     // $kind may carry a branch: 'classic/item'. Every page here is one the tracker does not hold, or holds and wants
@@ -1100,6 +1177,9 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     if ($writs) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => 'item:' . (int)$id, $writs)) . ", 'gap', $again);";
     if (!empty($queue['writGuide'])) $lines[] = '  await WHC.prioritize(' . json_encode(['guide:' . WOWHEAD_WRIT_GUIDE], JSON_UNESCAPED_SLASHES) . ", 'gap', $again);";
     $put('quest', $queue['quest'] ?? [], 'gap');
+    // creatures and objects whose comments may name a missing giver or ender: before the items, the quests they are for
+    // being what the server misses most
+    foreach ($queue['comments'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap');
     $put('item', array_slice($items, 0, $blocking), 'gap');
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
     // the missing quests, their creatures and objects, and the items they ask for (data/gather.json, the open phase)
