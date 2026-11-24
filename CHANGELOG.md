@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **QuestieDB gives quests their givers and enders.** Its import read only drops. QuestieDB also says who starts and
+  ends each Forever quest (`startedBy`, `finishedBy`): in its reviewed delta, its hand fixes, and what its players
+  recorded on live (`foreverQuestTraces`, about a million sessions). That covers 1,771 quests. The import now reads those
+  three files in Questie's order (`_add` and `_remove` applied, commented-out fields not) and proposes a creature or
+  object as giver or ender for a quest the server has none for. Item starts are left to the quest's own `StartItem`. On
+  the PTR it names givers or enders for 23 of the quests Icy Veins just wrote, the Craftsman's Writs among them.
+
 - **Icy Veins writes the quests the server lacks.** 102 released quests had no `quest_template` row. Icy Veins had
   recorded every one of them, and Wowhead 93, but the imports only filled givers, enders and reward slots of quests that
   already existed. Icy Veins' import now writes such a quest whole: the row, its objectives (with their live ids), its
