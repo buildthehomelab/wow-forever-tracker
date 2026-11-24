@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A zone counts the quests Forever gives.** Ironforge (78 / 110) and Orgrimmar (88 / 125) stayed Incomplete with every
+  quest players can do there working. Their counts held the old Tier 0.5 and Tier 3 quests ("An Earnest Proposition",
+  "Saving the Best for Last", "Anthion's Parting Words", for every class), which only givers live replaced give: the
+  analysis already files them as not given on Forever. A zone now leaves those out, and counts as doable a quest whose own
+  check passes though nobody stands to give it now (an item starts it, an event brings its giver).
+
 - **Fishing rows keep a zone's catch right.** The first fishing import put every row in group 1. A whole zone's table
   added up past 100 (Mount Hyjal 124.6%: players' counts include catches that gave more than one item), and gap catches
   pushed a zone's own 1.12 table past 100 (Azshara 129.5%). In both cases the last items of the group could never be
