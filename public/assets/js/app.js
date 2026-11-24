@@ -7,6 +7,17 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // an API answer: its JSON, or an error that says what came instead (an empty 500, a proxy's time-out page) rather
+  // than the browser's own words for a body that is no JSON ("The string did not match the expected pattern")
+  const readJson = (r) => r.text().then((text) => {
+    let data;
+    try { data = JSON.parse(text); } catch (e) {
+      const what = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+      throw new Error(`HTTP ${r.status} ${r.statusText || ''}`.trim() + ': ' + (what || L('the server sent no answer (see its log)', 'le serveur n’a rien renvoyé (voir son journal)')));
+    }
+    if (!r.ok) throw new Error((data && (data.error || data.message)) || r.statusText);
+    return data;
+  });
 
   // ---------- sidebar (mobile) and theme
   const side = $('#side'), scrim = $('.scrim');
@@ -97,7 +108,7 @@
   // ---------- the Forge
   const api = (body) => fetch(`${FT.base}api/forge?lang=${FT.lang}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': FT.csrf }, body: JSON.stringify(body),
-  }).then((r) => r.json().then((data) => { if (!r.ok) throw new Error(data.error || r.statusText); return data; }));
+  }).then((r) => readJson(r));
 
   const preview = $('#forge-preview'), confirmBox = $('#forge-confirm');
   let pending = null;  // {items, vendor, push}
@@ -402,7 +413,7 @@
   const importApi = (body) => fetch(`${FT.base}api/imports?lang=${FT.lang}`, {
     method: 'POST', headers: body instanceof FormData ? { 'X-CSRF-Token': FT.csrf } : { 'Content-Type': 'application/json', 'X-CSRF-Token': FT.csrf },
     body: body instanceof FormData ? body : JSON.stringify(body),
-  }).then((r) => r.json().then((data) => { if (!r.ok) throw new Error(data.error || r.statusText); return data; }));
+  }).then((r) => readJson(r));
   const imported = (data) => {
     if (!data.ok) return toast(esc(data.message || 'Error'), 'error');
     if (data.id) toast(fmt(L('Import #%d: %d table(s) kept.', 'Import n°%d : %d table(s) conservée(s).'), data.id, Object.keys(data.counts || {}).length));
