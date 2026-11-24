@@ -4,7 +4,9 @@
 // ranks right after Wowhead (the user's decision of 2026-11-16) and needs no second source: its drops come in alone.
 //
 // What it imports: which creatures drop an item and which chests hold it (itemKeys npcDrops / objectDrops), for every
-// creature or chest the server has that does not give the item yet, not only for items nobody can get. Read from the
+// creature or chest the server has that does not give the item yet, not only for items nobody can get.
+// And who gives and takes each quest (questKeys startedBy / finishedBy, creatures and objects) for the quests the server
+// has no giver or ender for: its reviewed delta, its fixes and what its players recorded on live (foreverQuestTraces). Read from the
 // commit of QuestieDB's newest release, downloaded once into data/questie/<commit>/:
 //
 //   data/Forever/foreverItemDB.lua                             its Forever item database (Classic's, moved to
@@ -27,6 +29,10 @@ const QUESTIE_BASE = 'data/Forever/foreverItemDB.lua';
 const QUESTIE_CORRECTIONS = ['src/corrections/Forever/generated/foreverBaseItem.lua', 'src/corrections/Forever/foreverItemFixes.lua',
     'src/corrections/Forever/traces/foreverItemTraces.lua'];
 const QUESTIE_KINDS = ['npcDrops' => 'npc', 'objectDrops' => 'go'];
+/** The quest files, in the order Questie applies them: the reviewed delta it builds for Forever, the fixes written by
+ *  hand, what its players recorded on live (who gives and takes each quest: startedBy / finishedBy). */
+const QUESTIE_QUEST_FILES = ['src/corrections/Forever/generated/foreverBaseQuest.lua', 'src/corrections/Forever/foreverQuestFixes.lua',
+    'src/corrections/Forever/traces/foreverQuestTraces.lua'];
 
 /** [commit, tag, error]: [questie] commit when set, else the commit QuestieDB's newest release was tagged on. */
 function questie_release(): array
@@ -54,7 +60,7 @@ function questie_whole(string $path, string $body): bool
 function questie_fetch(string $commit): array
 {
     $dir = FT_ROOT . "/data/questie/$commit";
-    foreach (array_merge([QUESTIE_BASE], QUESTIE_CORRECTIONS) as $path) {
+    foreach (array_merge([QUESTIE_BASE], QUESTIE_CORRECTIONS, QUESTIE_QUEST_FILES) as $path) {
         $target = "$dir/$path";
         if (is_file($target)) continue;
         [$status, $body, $length] = source_http('https://raw.githubusercontent.com/' . QUESTIE_REPO . "/$commit/$path", 120);
@@ -107,6 +113,59 @@ function questie_drops(string $base, array $corrections): array
         if (!$out[$item]) unset($out[$item]);
     }
     return $out;
+}
+
+/** A Lua table of numbers and nils ("{nil, {642497}}", "{{217996},nil,{264125}}") as a PHP array; null when it is
+ *  anything else. */
+function questie_table(string $lua): ?array
+{
+    $lua = trim($lua);
+    if (!preg_match('/^[\{\}\d\s,nil]+$/', $lua)) return null;
+    $json = json_decode(str_replace(['{', '}', 'nil'], ['[', ']', 'null'], $lua), true);
+    return is_array($json) ? $json : null;
+}
+
+/**
+ * Who gives and who takes each quest: [quest => ['start' => ['npc' => [ids], 'go' => [ids]], 'end' => [...]]], from
+ * the quest files' texts in Questie's order. A plain field replaces what came before, `_add` adds, `_remove` takes out;
+ * a commented-out field is not applied. Items that start a quest (startedBy's third list) are left out: the quest's own
+ * StartItem says it.
+ */
+function questie_relations(array $texts): array
+{
+    $out = [];
+    $kinds = [0 => 'npc', 1 => 'go'];
+    foreach ($texts as $text) {
+        $text = preg_replace('/--[^\n]*/', '', $text);
+        preg_match_all('/^\s*\[(\d+)\]\s*=\s*\{(.*?)^\s*\},?\s*$/ms', $text, $blocks, PREG_SET_ORDER);
+        foreach ($blocks as [, $quest, $body]) {
+            preg_match_all('/\[questKeys\.(startedBy|finishedBy)(_add|_remove)?\]\s*=\s*(\{[^\n]*\})\s*,?\s*$/m', $body, $fields, PREG_SET_ORDER);
+            foreach ($fields as [, $field, $how, $lua]) {
+                $table = questie_table($lua);
+                if ($table === null) continue;
+                $role = $field === 'startedBy' ? 'start' : 'end';
+                foreach ($kinds as $i => $kind) {
+                    $ids = array_values(array_unique(array_map('intval', array_filter((array)($table[$i] ?? []), fn($v) => is_int($v) && $v > 0))));
+                    $now = $out[(int)$quest][$role][$kind] ?? [];
+                    $now = match ($how) { '_add' => array_values(array_unique(array_merge($now, $ids))), '_remove' => array_values(array_diff($now, $ids)), default => $ids };
+                    $out[(int)$quest][$role][$kind] = $now;
+                }
+            }
+        }
+    }
+    foreach ($out as $quest => $roles) {
+        foreach ($roles as $role => $kinds) { $roles[$role] = array_filter($kinds); if (!$roles[$role]) unset($roles[$role]); }
+        if ($roles) $out[$quest] = $roles; else unset($out[$quest]);
+    }
+    return $out;
+}
+
+/** The relations as evidence rows: ['start' => [[kind, id, quest]], 'end' => [...]], as source_tables() reads them. */
+function questie_relation_rows(array $relations): array
+{
+    $ev = ['start' => [], 'end' => []];
+    foreach ($relations as $quest => $roles) foreach ($roles as $role => $kinds) foreach ($kinds as $kind => $ids) foreach ($ids as $id) $ev[$role][] = [$kind, (int)$id, (int)$quest];
+    return $ev;
 }
 
 /**
@@ -174,9 +233,10 @@ function questie_card_from(string $commit, string $tag): array
     [$dir, $error] = questie_fetch($commit);
     if ($error !== '') return ['ok' => false, 'message' => $error];
     $drops = questie_drops((string)file_get_contents("$dir/" . QUESTIE_BASE), array_map(fn($p) => (string)file_get_contents("$dir/$p"), QUESTIE_CORRECTIONS));
+    $relations = questie_relation_rows(questie_relations(array_map(fn($p) => (string)@file_get_contents("$dir/$p"), QUESTIE_QUEST_FILES)));
     $version = $tag !== '' ? "$tag $commit" : $commit;
-    snapshot_try('questie', $version, ['drop' => questie_drop_rows($drops)]);
-    return questie_card($drops, $version);
+    snapshot_try('questie', $version, ['drop' => questie_drop_rows($drops)] + $relations);
+    return questie_card($drops, $version, $relations);
 }
 
 /** [[kind, id, item, null], ...] of the drops: how a snapshot keeps them. */
@@ -197,7 +257,7 @@ function questie_drops_from_rows(array $rows): array
 const QUESTIE_KINDS_BACK = ['npc' => true, 'go' => true];
 
 /** The import card of QuestieDB's drops, against the gaps and the server as they are now. $version: "tag commit". */
-function questie_card(array $drops, string $version): array
+function questie_card(array $drops, string $version, array $relations = []): array
 {
     $gaps = source_gaps();
     $allowed = [];
@@ -207,6 +267,9 @@ function questie_card(array $drops, string $version): array
     $questItems = [];
     foreach (rows('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1', [], 'world') as $r) $questItems[(int)$r['ObjectID']] = true;
     $ev = questie_evidence($drops, $allowed, $gaps['later']['items'] ?? [], questie_server_chances($allowed), $questItems, (float)config('questie', 'quest_chance', 40));
+    // who gives and takes the quests: givers and enders for the quests that have none (source_tables)
+    $ev['start'] = array_values(array_filter($relations['start'] ?? [], fn($r) => !isset($gaps['later']['quests'][(int)$r[2]])));
+    $ev['end'] = array_values(array_filter($relations['end'] ?? [], fn($r) => !isset($gaps['later']['quests'][(int)$r[2]])));
     $parts = explode(' ', $version, 2);
     $label = 'QuestieDB ' . (count($parts) === 2 ? $parts[0] : substr($version, 0, 8));
     [$tables, $left] = source_tables($ev, $label, $gaps);

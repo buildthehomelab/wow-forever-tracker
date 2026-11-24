@@ -53,4 +53,16 @@ $rows = questie_drop_rows(['772' => ['npc' => [40, 327]], 2320 => ['go' => [2843
 check($rows === [['npc', 40, 772, null], ['npc', 327, 772, null], ['go', 2843, 2320, null]], 'a snapshot keeps every drop, with no chance');
 check(questie_drops_from_rows($rows) === [772 => ['npc' => [40, 327]], 2320 => ['go' => [2843]]], 'and the drops come back from it as they were');
 
+// ---- who gives and takes each quest (questie_relations): the reviewed delta, the fixes written by hand, the traces
+$base = "function ForeverBaseQuest:Load()\n    return {\n        [92100] = { -- Anywhere But Here\n            [questKeys.name] = \"Anywhere But Here\",\n            [questKeys.startedBy] = {{255009}},\n            [questKeys.finishedBy] = {nil, {654121}},\n        },\n        [94359] = { -- Craftsman's Writ\n            [questKeys.startedBy] = {nil, nil, {264159}},\n        },\n        [5] = {\n            [questKeys.startedBy] = {{1,2}},\n        },\n    }\nend\n";
+$fixes = "    return {\n        [5] = {\n            [questKeys.startedBy_remove] = {{2}},\n            -- [questKeys.finishedBy] = {{99}},\n        },\n    }\nend\n";
+$traces = "    return {\n        [94359] = {\n            [questKeys.finishedBy_add] = {nil,{642497}},\n        },\n        [93572] = {\n            [questKeys.startedBy_add] = {{7363}},\n            [questKeys.finishedBy_add] = {{7363}},\n        },\n    }\nend\n";
+$rel = questie_relations([$base, $fixes, $traces]);
+check($rel[92100] === ['start' => ['npc' => [255009]], 'end' => ['go' => [654121]]], 'a creature that gives it, an object that takes it: ' . json_encode($rel[92100] ?? null));
+check($rel[94359] === ['end' => ['go' => [642497]]], 'an item that starts it is the quest\'s own StartItem, not kept; a trace adds who takes it');
+check($rel[5] === ['start' => ['npc' => [1]]], '_remove takes one out; a commented-out field is not applied: ' . json_encode($rel[5] ?? null));
+check($rel[93572] === ['start' => ['npc' => [7363]], 'end' => ['npc' => [7363]]], 'traces alone give a quest its giver and ender');
+check(questie_relation_rows([7 => ['start' => ['npc' => [1]], 'end' => ['go' => [2]]]]) === ['start' => [['npc', 1, 7]], 'end' => [['go', 2, 7]]], 'as evidence rows');
+check(questie_table('{nil, {642497}}') === [null, [642497]] && questie_table('{{1},os.exit()}') === null, 'a Lua table of numbers and nils, nothing else');
+
 ft_test_done();

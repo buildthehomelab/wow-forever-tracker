@@ -238,7 +238,7 @@ function snapshot_card(string $source): array
             $card = icyveins_card($ev, $version, $gaps); break;
         case 'questie':
             require_once FT_APP . '/questie.php';
-            $card = questie_card(questie_drops_from_rows($ev['drop'] ?? []), $version); break;
+            $card = questie_card(questie_drops_from_rows($ev['drop'] ?? []), $version, ['start' => $ev['start'] ?? [], 'end' => $ev['end'] ?? []]); break;
         case 'eglink': $card = eglink_card($ev, $version, $gaps); break;
         case 'foreverdb': $card = foreverdb_card($ev, $version, $gaps); break;
         case 'foreverchanges': $card = foreverchanges_card($ev, $version, $gaps); break;
