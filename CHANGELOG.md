@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **warcraft.wiki.gg as a source.** The community wiki has a WoW Forever section: about 330 quests, 650 NPCs and creatures
+  and 1,400 items, with ids. A new card, *Import warcraft.wiki.gg* (`source-import.php wiki`, and the container every
+  `FT_WIKI_EVERY_HOURS`, 24), reads those pages through the wiki's API (64 requests, about a minute) and proposes, for the
+  gaps only, quest givers and enders by the ids their pages name, vendor rows paid in money or in currencies such as
+  Merchant's Favor (through the server's own ItemExtendedCost), and progress and turn-in words for windows that hold
+  none. It ranks right after Icy Veins. A page that names several ids, or one outside the Forever categories, counts
+  only for an id the server spawns. On 2026-11-23 the wiki gave 228 vendor rows and 484 quest texts, and at least 91
+  givers and 48 enders (more where the realm spawns the creature a Classic page names), before the gaps were applied.
+
 - **Wowhead comments as a source of their own.** Players' comments often name what a page lacks: where a quest is
   turned in, who starts it, who sells or drops an item. The crawler (record version 4) now keeps what each comment links
   to and what the words around the link say it is, as numbers only, with the comment's rating. A new card, *Wowhead

@@ -100,6 +100,7 @@ one. Later runs: *Run again* in the Forge, or `docker compose exec -u www-data t
 | `FT_ICYVEINS_RESUME` | `1` | `0`: an Icy Veins import that a restart cut short is not started again by the container; press *Import Icy Veins* to go on with it |
 | `FT_QUESTIE_COMMIT` | (empty) | A QuestieDB commit to read instead of its newest release |
 | `FT_QUESTIE_QUEST_CHANCE` | `40` | Drop chance of a quest item QuestieDB names where the server gives that item nowhere yet |
+| `FT_WIKI_EVERY_HOURS` | `24` | Hours between readings of warcraft.wiki.gg's WoW Forever pages through its API (about seventy requests, one a second); each reading becomes an import card. `0`: never |
 | `FT_QUESTIE_EVERY_HOURS` | `6` | Hours between checks of QuestieDB's newest release on GitHub; a new release becomes an import card for its drops. `0`: never |
 | `FT_ATLASLOOT_EVERY_HOURS` | `6` | Hours between AtlasLoot checks on CurseForge; a new version becomes an import card (never applied by itself). `0`: never |
 | `FT_FOREVERCHANGES_EVERY_HOURS` | `6` | Hours between visits of foreverchanges.pro (up to `[foreverchanges] limit` files each, the gaps first, then the rest of the site); each makes an import card (never applied by itself). `0`: never |
