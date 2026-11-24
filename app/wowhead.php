@@ -168,7 +168,7 @@ function wowhead_quest_import(): array
     $tables = ['creature_questender' => ['db' => 'world', 'columns' => $columns, 'groups' => [['columns' => $columns, 'rows' => array_map(fn($r) => array_slice($r, 0, count($columns)), $rows)]]]];
     $counts = ['creature_questender' => count($rows)];
     $name = 'Wowhead quest enders ' . date('Y-m-d');
-    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, 'wowhead-quest-enders', (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
+    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [import_name($name), 'wowhead-quest-enders', (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($left)]);
     $id = (int)db()->insert_id;
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));

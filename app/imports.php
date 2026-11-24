@@ -27,6 +27,10 @@ const IMPORT_LOOT_COLUMN = ['creature_loot_template' => 'LootID', 'skinning_loot
 const IMPORT_GUID_KIND = ['creature_addon' => 'npc', 'gameobject_addon' => 'go', 'creature_formations' => 'npc', 'game_event_creature' => 'npc',
     'game_event_gameobject' => 'go', 'creature_movement_override' => 'npc'];
 
+/** The longest name a card may have (ft_imports.name); import_name() cuts a longer one. */
+const IMPORT_NAME_MAX = 1000;
+function import_name(string $name): string { return mb_strlen($name) > IMPORT_NAME_MAX ? mb_substr($name, 0, IMPORT_NAME_MAX - 1) . '…' : $name; }
+
 function import_dir(): string { return FT_ROOT . '/data/imports'; }
 
 // ------------------------------------------------------------------ who wrote a row
@@ -140,7 +144,7 @@ function import_source(int $id): string
 
 function import_schema(): void
 {
-    db()->query("CREATE TABLE IF NOT EXISTS ft_imports (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL, file VARCHAR(255) NOT NULL,
+    db()->query("CREATE TABLE IF NOT EXISTS ft_imports (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(1000) NOT NULL, file VARCHAR(255) NOT NULL,
         imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, admin VARCHAR(190) NOT NULL DEFAULT '', counts JSON, ignored JSON) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     db()->query("CREATE TABLE IF NOT EXISTS ft_import_items (item INT NOT NULL, import_id INT NOT NULL, kind VARCHAR(8) NOT NULL, source INT NOT NULL,
         PRIMARY KEY (item, import_id, kind, source), KEY ix_import (import_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -148,7 +152,11 @@ function import_schema(): void
     // these columns have neither until their next apply or preview)
     static $columns = false;
     if (!$columns) {
-        $have = array_column(rows("SELECT COLUMN_NAME c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ft_imports'"), 'c');
+        $have = array_column(rows("SELECT COLUMN_NAME c, CHARACTER_MAXIMUM_LENGTH n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ft_imports'"), 'n', 'c');
+        $width = (int)($have['name'] ?? 0);
+        $have = array_keys($have);
+        // a card's name carries its source's credit line (SOURCES): Wowhead comments' is longer than the 190 it had
+        if ($width && $width < IMPORT_NAME_MAX) db()->query('ALTER TABLE ft_imports MODIFY name VARCHAR(' . IMPORT_NAME_MAX . ') NOT NULL');
         if (!in_array('applied_at', $have, true)) db()->query('ALTER TABLE ft_imports ADD COLUMN applied_at DATETIME NULL');
         if (!in_array('done_at', $have, true)) db()->query('ALTER TABLE ft_imports ADD COLUMN done_at DATETIME NULL');
         $columns = true;
@@ -323,7 +331,7 @@ function import_file(string $path, string $name): array
     unset($entry);
     if (!$tables) return ['ok' => false, 'message' => sprintf(t('No INSERT of a world or hotfixes table was found in %s (%d statements read).', 'Aucun INSERT d’une table world ou hotfixes trouvé dans %s (%d requêtes lues).'), basename($path), $statements)];
     $counts = []; foreach ($tables as $table => $entry) $counts[$table] = array_sum(array_map(fn($g) => count($g['rows']), $entry['groups']));
-    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [$name, basename($path), (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($ignored)]);
+    rows('INSERT INTO ft_imports (name, file, admin, counts, ignored) VALUES (?, ?, ?, ?, ?)', [import_name($name), basename($path), (string)(admin()['name'] ?? 'cli'), json_encode($counts), json_encode($ignored)]);
     $id = (int)db()->insert_id;
     @mkdir(import_dir() . '/parsed', 0775, true);
     file_put_contents(import_dir() . "/parsed/$id.json", json_encode(['tables' => $tables], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
