@@ -1,6 +1,7 @@
 """What the server provides: its DB2 files, the hotfixes and world databases and the map files."""
 import json
 import os
+import re
 
 from . import corespells, db2, sqlio, summons
 from .config import CONFIG, DATA
@@ -294,6 +295,31 @@ def vendor_items(rows):
     return out
 
 
+TURN_IN_HEADING = re.compile(r'(?:Progress|Completion)\n')
+
+
+def page_has_turn_in_words(text):
+    """Whether a Wowhead quest page's text (the crawler's whole page) holds a Progress or a Completion section after
+    its Description heading (app/wowheadpages.php wowhead_pages_turn_in_text reads the same)."""
+    at = re.search(r'(?:^|\n)Description\n', text or '')
+    rest = (text or '')[at.end():] if at else (text or '')
+    return bool(TURN_IN_HEADING.search(rest))
+
+
+def quests_without_turn_in_words():
+    """{quest} whose Forever page the crawler kept whole and that shows no turn-in words; empty when the answers table
+    is not there (a tracker without the crawl)."""
+    try:
+        if not sqlio.has_table('ft_source_answers', 'tracker'):
+            return set()
+        rows = sqlio.query("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(whole, '$.text')) words FROM ft_source_answers WHERE source = 'wowhead' "
+                           "AND feed = 'page' AND kind = 'quest' AND branch = 'forever' AND status = 'found' AND whole IS NOT NULL", 'tracker')
+    except RuntimeError as error:
+        log(f'the Wowhead quest pages cannot be read ({error}): turn-in words are asked of every quest')
+        return set()
+    return {int(r['id']) for r in rows if r.get('words') and not page_has_turn_in_words(r['words'])}
+
+
 def report_sides(path=None):
     """{quest: {'Alliance', 'Horde'}} from the players' reports the website keeps (data/foreverchanges/pack.fcpack),
     for the quests its players saw; {} without a pack, or with one that cannot be read."""
@@ -474,6 +500,9 @@ def server_state():
     # What the NPC says at the turn-in: the reward text, or the "have you got it?" text of a quest that asks for items.
     ctx['quest_turn_in_text'] = ints("SELECT ID FROM quest_offer_reward WHERE COALESCE(RewardText, '') <> ''") | \
         ints("SELECT ID FROM quest_request_items WHERE COALESCE(CompletionText, '') <> ''")
+    # Quests whose Wowhead page, read whole (crawler record v3: its text), shows no Progress and no Completion words:
+    # the live game says nothing at their turn-in, so no turn-in text is asked of them (the 'texts' check).
+    ctx['quest_no_official_turn_in'] = quests_without_turn_in_words()
     # The spells a quest shows as its reward: the core reads this table, not quest_template's three columns.
     display_spells = {}
     if sqlio.has_table('quest_reward_display_spell'):

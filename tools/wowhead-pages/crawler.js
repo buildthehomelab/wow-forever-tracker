@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 4;                 // of what a page record holds: raise it when extract() keeps more (2: model; 3: full; 4: comment links)
+  const VERSION = 5;                 // of what a page record holds: raise it when extract() keeps more (2: model; 3: full; 4: comment links; 5: comments whole)
   const SKIPPED = Symbol('expression');
   // tabs that hold what users wrote or uploaded, never game data
   const NOT_DATA = new Set(['comment', 'screenshot', 'video', 'commentpreview', 'replypreview', 'guide', 'forumpost', 'topic', 'user']);
@@ -277,6 +277,29 @@
     return out.slice(0, 50);
   }
 
+  /** The comments of a page whole: [{id, date, rating, body, replies?: [{date, body}]}], the words as players wrote them
+   *  (Wowhead's markup), newest Wowhead order kept; who wrote them is left out. Deleted ones are skipped; each body is
+   *  cut to 8000 characters, the list to COMMENTS_MAX. */
+  const COMMENTS_MAX = 200;
+  function commentsWhole(html) {
+    const out = [];
+    const words = v => (typeof v === 'string' ? v.replace(/\\\//g, '/').slice(0, 8000) : '');
+    for (const m of html.matchAll(/var lv_comments\d*\s*=\s*\[/g)) {
+      let list;
+      try { [list] = readLiteral(html, m.index + m[0].length - 1); } catch (error) { continue; }
+      for (const c of Array.isArray(list) ? list : []) {
+        if (!c || typeof c.body !== 'string' || c.deleted || !c.body.trim()) continue;
+        const kept = { id: Number(c.id) || 0, date: typeof c.date === 'string' ? c.date : '', rating: Number(c.rating) || 0, body: words(c.body) };
+        const replies = (Array.isArray(c.replies) ? c.replies : []).filter(r => r && typeof r.body === 'string' && r.body.trim() && !r.deleted)
+          .map(r => ({ date: typeof r.creationdate === 'string' ? r.creationdate : (typeof r.date === 'string' ? r.date : ''), body: words(r.body) }));
+        if (replies.length) kept.replies = replies;
+        out.push(kept);
+        if (out.length >= COMMENTS_MAX) return out;
+      }
+    }
+    return out;
+  }
+
   /** The ids a quest page links to in its rewards and its series: {series: [quest...], links: {item: [...], ...}}.
    *  Only read for quests: the series is a table of quest links in the Quick Facts column. */
   function questSeries(html) {
@@ -379,7 +402,7 @@
     return tabs;
   }
 
-  /** The whole page: {name, info, title, description, text, quick, tabs, map, links}, each only when the page has it;
+  /** The whole page: {name, info, title, description, text, quick, tabs, map, links, comments}, each only when the page has it;
    *  cut to FULL_MAX characters of JSON (the linked names go first, then each tab's rows past 2000). */
   function whole(html) {
     const out = {};
@@ -403,7 +426,10 @@
     if (map) { try { const data = readLiteral(html, map.index + map[0].length - 1)[0]; if (data && Object.keys(data).length) out.map = data; } catch (error) { /* no map */ } }
     const links = gathered(html);
     if (Object.keys(links).length) out.links = links;
+    const comments = commentsWhole(html);
+    if (comments.length) out.comments = comments;
     if (JSON.stringify(out).length > FULL_MAX) { delete out.links; out.cut = true; }
+    if (JSON.stringify(out).length > FULL_MAX && out.comments) out.comments = out.comments.slice(0, 20);
     if (JSON.stringify(out).length > FULL_MAX && out.tabs) {
       for (const tab of Object.values(out.tabs)) if (tab.rows.length > 2000) { tab.total = Math.max(tab.total || 0, tab.rows.length); tab.rows = tab.rows.slice(0, 2000); }
     }
@@ -739,7 +765,7 @@
     return { p, wait };
   }
 
-  const api = { commentLinks, whole, pageText, quickFactsText, gathered, listviewsWhole, metaTag, FULL_MAX, namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
+  const api = { commentLinks, commentsWhole, whole, pageText, quickFactsText, gathered, listviewsWhole, metaTag, FULL_MAX, namedBy, models, TIERS, defaultTier, tierOf, insertAt, headAfterWanted, namedTier, retier, sortQueue, VERSION, PACE, LISTS, readLiteral, facts, listviews, quickFacts, pageInfo, mapper, questSeries, extract, extractList, extractGuide, idCriterion, rangeQuery, parseQuery, splitList, detailsOf, richEnough, parseKey, keyOf, pacer, classify, paced };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
 
   // ------------------------------------------------------------------ the crawl (browser only)

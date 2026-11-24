@@ -357,6 +357,48 @@ function wowhead_pages_evidence(array $items, array $quests, array $gapItems = [
     return [$ev, $newest];
 }
 
+/**
+ * The turn-in words of a quest's page text, as the crawler kept it since record v3 (the whole page's 'text': its
+ * objectives, then the headings Description, Progress, Completion, Rewards, Gains): ['progress' => words,
+ * 'complete' => words] as the core writes them (wiki_core_text: <name> is $N, a line break $B), each only when the page
+ * has it. A heading can follow the text before it with no line break ("...know!Completion"): it is looked for after
+ * the Description heading only, so that a word of the objectives is never taken for one.
+ */
+function wowhead_pages_turn_in_text(string $text): array
+{
+    require_once FT_APP . '/wiki.php';
+    $from = preg_match('/(?:^|\n)Description\n/u', $text, $m, PREG_OFFSET_CAPTURE) ? $m[0][1] + strlen($m[0][0]) : 0;
+    $rest = substr($text, $from);
+    $out = [];
+    foreach (['progress' => 'Progress', 'complete' => 'Completion'] as $moment => $head) {
+        if (!preg_match('/' . $head . '\n(.*?)(?=\n+(?:Progress|Completion|Rewards|Gains|Related|Comments|Screenshots)\n|$)/su', $rest, $m)) continue;
+        $words = trim($m[1]);
+        if ($words === '' || ($core = wiki_core_text($words)) === null) continue;
+        $out[$moment] = $core;
+    }
+    return $out;
+}
+
+/**
+ * What the NPC says at the turn-in of these quests ([quest => true]), from their Wowhead pages kept whole in the
+ * answers table: [[quest, 'progress'|'complete', words], ...] as source_tables() reads $ev['text'], and how many pages
+ * were read whole and had none ('wowhead_quest_no_turn_in_text').
+ */
+function wowhead_pages_texts(array $quests): array
+{
+    $ev = []; $none = 0;
+    if (!$quests || !table_exists('ft_source_answers')) return [$ev, $none];
+    foreach (array_chunk(array_map('intval', array_keys($quests)), 500) as $chunk) {
+        foreach (rows("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(whole, '$.text')) words FROM ft_source_answers WHERE source = 'wowhead' AND feed = 'page'"
+            . " AND kind = 'quest' AND branch = 'forever' AND status = 'found' AND whole IS NOT NULL AND id IN (" . implode(',', $chunk) . ')') as $r) {
+            $said = wowhead_pages_turn_in_text((string)$r['words']);
+            if (!$said) { $none++; continue; }
+            foreach ($said as $moment => $words) $ev[] = [(int)$r['id'], $moment, $words];
+        }
+    }
+    return [$ev, $none];
+}
+
 /** Every page of one shelf, the newest answer of each, read a line at a time (a whole crawl's npc pages do not fit
  *  in memory at once): a generator of records. */
 function wowhead_pages_each(string $shelf, ?array $dirs = null): Generator
@@ -715,6 +757,9 @@ function wowhead_pages_import(): array
         if (isset($quests[$quest]) || ((!isset($gaps['noGiver'][$quest]) || isset($roles['start'][$quest])) && (!isset($gaps['noEnder'][$quest]) || isset($roles['end'][$quest])))) continue;
         $unreadQuests++;
     }
+    // the turn-in words of the quests that lack them, from their pages kept whole (crawler v3)
+    [$ev['text'], $noText] = wowhead_pages_texts($gaps['noText'] ?? []);
+    if ($noText) $ev['left']['wowhead_quest_no_turn_in_text'] = $noText;
     if ($unread) $ev['left']['wowhead_item_not_read'] = $unread;
     if ($unreadQuests) $ev['left']['wowhead_quest_not_read'] = $unreadQuests;
     $date = date('Y-m-d', $newest ?: time());
@@ -1087,7 +1132,9 @@ function wowhead_pages_queue(): array
             if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
         }
     }
-    $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));
+    // the quests without a giver, an ender or their turn-in words: a page read before the crawler kept the whole page
+    // (its text, record v3) is read again with them (the v4 test above)
+    $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'] + ($gaps['noText'] ?? []), $read, (int)config('wowhead', 'crawl_min_item', 190000));
     // Season of Discovery items Forever kept: their Classic page where Forever's names no source (read in the same
     // tier as the Forever page, right after it)
     $all = wowhead_pages_order($gaps['items'], $waiting, [], [], (int)config('wowhead', 'crawl_min_item', 190000));
