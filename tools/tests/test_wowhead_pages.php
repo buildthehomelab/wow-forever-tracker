@@ -413,4 +413,8 @@ $full = wowhead_pages('item', [$bd]);
 check(wowhead_pages_has_source($brief[5]) === wowhead_pages_has_source($full[5]) && !wowhead_pages_has_source($brief[6]), 'it tells a source as the whole page does');
 @unlink("$bd/item.jsonl");
 
+// ---- a zone taken whole scales its catches down to 100; a zone with a table of its own gets no factor
+$scale = source_fish_scale([616 => [13889 => 40.85, 13760 => 18.16, 7070 => 5.28, 6359 => 60.0], 16 => [13908 => 19.5], 16591 => [6362 => 21.4]], [616 => true, 16591 => true]);
+check(abs($scale[616] - 100 / 124.29) < 1e-9 && $scale[16591] === 1 && !isset($scale[16]), 'Mount Hyjal\'s 124.29 is scaled to 100, the Riverglades\' 21.4 kept, Azshara\'s gap catch rolls on its own: ' . json_encode($scale));
+
 ft_test_done();

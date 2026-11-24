@@ -131,6 +131,19 @@ const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' =
  * server already opens it (item_loot_template has rows under its number): whether an item can be opened at all is
  * the client's word (its flags), which no row here can give.
  */
+/** The factor each zone taken whole scales its catches by: [zone => factor], 1 when they add up to 100 or less. $fish:
+ *  [zone => [item => chance]]; $whole: [zone => true]. A zone not taken whole has no factor (its catches roll on their own). */
+function source_fish_scale(array $fish, array $whole): array
+{
+    $out = [];
+    foreach ($fish as $zone => $list) {
+        if (!isset($whole[$zone])) continue;
+        $sum = array_sum(array_filter($list, fn($c) => $c > 0));
+        $out[$zone] = $sum > 100 ? 100 / $sum : 1;
+    }
+    return $out;
+}
+
 function source_loot_entries(array $npcs, array $objects, array $containers = []): array
 {
     $entryOf = ['npc' => [], 'skin' => [], 'pick' => [], 'go' => [], 'item' => []]; $known = ['npc' => [], 'go' => [], 'item' => []];
@@ -291,6 +304,10 @@ function source_tables(array $ev, string $label, array $gaps): array
     // a creature without a table of that kind is checked under its own entry (where its rows go); an object only as a chest or node
     foreach (SOURCE_LOOT_TABLES as $kind => $table) $gives[$table] = collector_loot_items($table, $kind === 'go' ? array_values(array_filter($entryOf[$kind]))
         : array_values(array_map(fn($id, $e) => $e ?: $id, array_keys($entryOf[$kind]), $entryOf[$kind])));
+    // a zone's fishing. A cast catches one thing of a group: a zone taken whole (it had no table) is one group, its chances
+    // scaled down when players' counts add up past 100 (several items in one catch; a group past 100 never gives what comes
+    // last). A catch added to a table the zone has is a roll of its own (group 0), so the zone's group stays as it was.
+    $fishScale = source_fish_scale($drops['fish'], $wholeZones);
     foreach ($drops as $kind => $sources) {
         $table = SOURCE_LOOT_TABLES[$kind];
         foreach ($sources as $id => $list) {
@@ -303,9 +320,10 @@ function source_tables(array $ev, string $label, array $gaps): array
                 if ($chance <= 0) { $left['loot_chance_unknown']++; continue; }
                 if (isset($gives[$table][$entry][$item])) { $left['loot_known']++; continue; }
                 $questOnly = isset($questItems[$item]) || isset($ev['quest_drop']["$kind:$id:$item"]);
-                // a cast catches one thing: a zone's fishing is one group, as the 1.12 tables the realm has (VMaNGOS) are
+                $whole = $kind === 'fish' && isset($fishScale[$id]);
+                if ($whole) $chance *= $fishScale[$id];
                 $rows[$table][] = ['Entry' => $entry, 'ItemType' => 0, 'Item' => $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => $questOnly ? 1 : 0,
-                    'LootMode' => 1, 'GroupId' => $kind === 'fish' ? 1 : 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
+                    'LootMode' => 1, 'GroupId' => $whole ? 1 : 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
             }
         }
     }
