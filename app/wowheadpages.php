@@ -87,6 +87,34 @@ function wowhead_pages(string $kind, ?array $dirs = null): array
     return $pages;
 }
 
+/** The pages of one shelf as the crawl queue needs them, each kept small: its id, time and status, and of an item
+ *  page the source tabs (wowhead_pages_has_source) and the zones it is fished in, each row its id only. The whole
+ *  records of every item page do not fit in PHP's memory beside the queue's other work. */
+function wowhead_pages_brief(string $kind, ?array $dirs = null): array
+{
+    static $tabs = null;
+    $tabs ??= array_flip(array_merge(array_keys(WOWHEAD_PAGES_DROP_TABS), ['sold-by', WOWHEAD_PAGES_FISHED_IN]));
+    $pages = [];
+    foreach ($dirs ?? wowhead_pages_dirs() as $dir) {
+        $handle = @fopen("$dir/$kind.jsonl", 'r');
+        if (!$handle) continue;
+        while (($line = fgets($handle)) !== false) {
+            $record = json_decode($line, true);
+            $key = is_array($record) ? wowhead_pages_entity($record) : null;
+            if ($key === null) continue;
+            if (isset($pages[$key]) && (int)($pages[$key]['fetched'] ?? 0) >= (int)($record['fetched'] ?? 0)) continue;
+            $brief = ['id' => $record['id'] ?? $key, 'fetched' => (int)($record['fetched'] ?? 0), 'status' => (string)($record['status'] ?? '')];
+            foreach (array_intersect_key(is_array($record['tabs'] ?? null) ? $record['tabs'] : [], $tabs) as $tab => $data) {
+                $rows = array_values(array_filter(array_map(fn($r) => is_array($r) && (int)($r['id'] ?? 0) > 0 ? ['id' => (int)$r['id']] : null, (array)($data['rows'] ?? []))));
+                if ($rows) $brief['tabs'][$tab] = ['rows' => $rows];
+            }
+            $pages[$key] = $brief;
+        }
+        fclose($handle);
+    }
+    return $pages;
+}
+
 /** A vendor row's cost is money and nothing else: [1500], [1500, 0, 0], [1500, [], []]. */
 function wowhead_pages_money_only($cost): bool
 {
@@ -885,7 +913,7 @@ function wowhead_pages_queue(): array
     $read = [];
     $pages = [];
     foreach (['item', 'quest', 'classic-item'] as $kind) {
-        $pages[$kind] = wowhead_pages($kind);
+        $pages[$kind] = wowhead_pages_brief($kind);
         foreach ($pages[$kind] as $id => $page) if (!wowhead_stale((int)($page['fetched'] ?? 0), ($page['status'] ?? '') === 'missing', $id)) $read[$kind][$id] = true;
     }
     $queue = wowhead_pages_order($gaps['items'], $waiting, $gaps['noGiver'] + $gaps['noEnder'], $read, (int)config('wowhead', 'crawl_min_item', 190000));

@@ -398,4 +398,19 @@ wowhead_pages_append([$guideLine], $wd);
 check(array_keys(wowhead_pages('forever-guide', [$wd])) === [WOWHEAD_WRIT_GUIDE], 'a pushed guide is read back by its path');
 @unlink("$wd/forever-guide.jsonl"); @rmdir($wd);
 
+// ---- the crawl queue's small copy of a shelf (wowhead_pages_brief): what has_source and the fishing zones read, nothing else
+$bd = ft_test_dir();
+file_put_contents("$bd/item.jsonl", implode("\n", [
+    json_encode(['id' => 5, 'fetched' => 10, 'status' => 'ok', 'tabs' => ['dropped-by' => ['template' => 'npc', 'rows' => [['id' => 7, 'count' => 3, 'outof' => 30, 'name' => 'x']]],
+        'fished-in' => ['template' => 'zone', 'rows' => [['id' => 616, 'count' => 40, 'outof' => 3089]]], 'same-model-as' => ['template' => 'item', 'rows' => [['id' => 9]]]], 'quick' => ['Level: 5']]),
+    json_encode(['id' => 5, 'fetched' => 4, 'status' => 'ok', 'tabs' => []]),
+    json_encode(['id' => 6, 'fetched' => 12, 'status' => 'missing']),
+]) . "\n");
+$brief = wowhead_pages_brief('item', [$bd]);
+check($brief === [5 => ['id' => 5, 'fetched' => 10, 'status' => 'ok', 'tabs' => ['dropped-by' => ['rows' => [['id' => 7]]], 'fished-in' => ['rows' => [['id' => 616]]]]],
+                  6 => ['id' => 6, 'fetched' => 12, 'status' => 'missing']], 'the newest answer, its source and fishing tabs as ids: ' . json_encode($brief));
+$full = wowhead_pages('item', [$bd]);
+check(wowhead_pages_has_source($brief[5]) === wowhead_pages_has_source($full[5]) && !wowhead_pages_has_source($brief[6]), 'it tells a source as the whole page does');
+@unlink("$bd/item.jsonl");
+
 ft_test_done();
