@@ -461,7 +461,26 @@ def evaluate_all(content, ctx):
             return False
         return talent or len(coded) == len(effects)
 
-    def handler(spell_id, learned=False):
+    def dummy_aura_works(spell_id, entity):
+        """How the core makes use of a spell whose only code effects are dummy auras, or None: conditions that ask for
+        the aura (the Argent Dawn Commission 17670: Scourgestones drop for whoever wears it), or the dummy aura's own
+        trigger spell, which the core casts when the aura procs (AuraEffect::HandleProcTriggerSpellAuraProc: Fist of Stone
+        1294794 restoring mana)."""
+        coded = [e for e in (entity.get('facts') or {}).get('effects') or () if code_effect(e)]
+        if not coded or any(e[2] != 4 for e in coded):
+            return None
+        conditions = ctx.get('aura_conditions', {}).get(spell_id, 0)
+        if conditions:
+            return L(f'Conditions read its aura ({conditions} of them: what drops, shows or can be done while it is on).',
+                     f'Des conditions lisent son aura ({conditions} : ce qui tombe, s’affiche ou se fait tant qu’elle est active).')
+        procs = spell_id in ctx.get('spell_procs', ()) or spell_id in (ctx.get('client_procs') or ())
+        if procs and all(e[4] for e in coded):
+            spells = ', '.join(str(e[4]) for e in coded)
+            return L(f'The core casts its dummy aura’s trigger spell ({spells}) when the aura procs.',
+                     f'Le core lance le sort déclenché de son aura « dummy » ({spells}) quand l’aura se déclenche.')
+        return None
+
+    def handler(spell_id, learned=False, entity=None):
         """(handled, how): a bound SpellScript the core registers, or the core's C++ naming the spell. For a spell
         players learn, a creature's or instance's script naming its id does not count: that is what the creature
         casts, or another spell's id (Remorseless Attacks 14144 is The Beast's Fire Blast constant)."""
@@ -474,6 +493,9 @@ def evaluate_all(content, ctx):
             return True, L('A SmartAI reacts to being hit by it (smart_scripts).', 'Un SmartAI réagit quand il est touché par ce sort (smart_scripts).')
         if spell_id in ctx.get('reviewed_dummies', {}):
             return True, ctx['reviewed_dummies'][spell_id]
+        works = dummy_aura_works(spell_id, entity) if entity is not None else None
+        if works:
+            return True, works
         orphans = sorted(bound.get(spell_id, ()))
         if orphans:
             return False, L(f"spell_script_names binds {', '.join(orphans)}, which the core{core_at} does not register: the effect does nothing.",
@@ -487,7 +509,7 @@ def evaluate_all(content, ctx):
         out = []
         counted = player and core_known and spell_id in known['spell'] and is_its_mechanic(entity, entity.get('sub') == 'talent')
         if needs_code(entity):
-            ok, detail = handler(spell_id, learned)
+            ok, detail = handler(spell_id, learned, entity)
             if not counted:
                 detail = L('To check: a dummy/script effect often needs a SpellScript (spell_script_names).',
                            'À vérifier : effet « dummy »/« script », un SpellScript est souvent nécessaire (spell_script_names).') if not ok else detail

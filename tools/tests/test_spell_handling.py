@@ -60,6 +60,26 @@ class ScriptCheck(unittest.TestCase):
         self.assertEqual(result[0], 'ok')
         self.assertEqual(next(c for c in result[2] if c['code'] == 'script')['detail'], reason)
 
+    def test_a_dummy_aura_conditions_read_is_handled(self):
+        # Argent Dawn Commission 17670: the Scourgestones' loot conditions ask for its aura
+        ctx = world(core_spells=core(), client_procs=set(), aura_conditions={9452: 170})
+        result = evaluate(spell(DUMMY), ctx)[('spell', 9452)]
+        self.assertEqual(result[0], 'ok')
+        self.assertIn('Conditions read its aura (170', next(c for c in result[2] if c['code'] == 'script')['detail']['en'])
+
+    def test_a_dummy_aura_whose_trigger_the_core_casts_on_proc_is_handled(self):
+        # Fist of Stone 1294794: a dummy aura that names 21951; the core casts it when the aura procs
+        with_trigger = [(0, 6, 4, 3, 21951)]
+        ctx = world(core_spells=core(), client_procs=set(), spell_procs={9452})
+        result = evaluate(spell(with_trigger), ctx)[('spell', 9452)]
+        self.assertEqual(result[0], 'ok')
+        self.assertIn('21951', next(c for c in result[2] if c['code'] == 'script')['detail']['en'])
+        # no proc, or a dummy aura with nothing to trigger: still nothing runs it
+        self.assertEqual(failed(evaluate(spell(with_trigger), world(core_spells=core(), client_procs=set()))[('spell', 9452)]), ['script'])
+        self.assertEqual(failed(evaluate(spell(DUMMY), world(core_spells=core(), client_procs=set(), spell_procs={9452}))[('spell', 9452)]), ['script'])
+        # a dummy effect beside it still needs code
+        self.assertEqual(failed(evaluate(spell(with_trigger + [(1, 3, 0, 0, 0)]), ctx)[('spell', 9452)]), ['script'])
+
     def test_the_shipped_reviewed_list_reads(self):
         found = corespells.reviewed()
         self.assertIn(12296, found)
