@@ -11,6 +11,28 @@ $path = trim(rawurldecode($path), '/');
 if ($path === 'index.php') $path = '';
 $parts = $path === '' ? [] : explode('/', $path);
 
+// An API call that fails answers in JSON too: PHP shows no errors (bootstrap), so an exception or a fatal error (out
+// of memory, a type error) used to leave an empty 500 the page could not read ("The string did not match the
+// expected pattern" in Safari, "Unexpected end of JSON input" elsewhere). The error goes to the log as before; an
+// administrator also sees it in the toast.
+if (($parts[0] ?? '') === 'api') {
+    $apiFail = static function (string $message): void {
+        error_log('Forever Tracker: ' . $message);
+        if (headers_sent()) return;
+        while (ob_get_level()) ob_end_clean();
+        $shown = is_admin() ? $message : t('The server met an error (see its log).', 'Le serveur a rencontré une erreur (voir son journal).');
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo json_encode(['ok' => false, 'error' => $shown, 'message' => $shown], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    };
+    set_exception_handler(static fn(Throwable $e) => $apiFail(get_class($e) . ': ' . $e->getMessage() . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')'));
+    register_shutdown_function(static function () use ($apiFail) {
+        $e = error_get_last();
+        if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) $apiFail($e['message'] . ' (' . basename($e['file']) . ':' . $e['line'] . ')');
+    });
+}
+
 $byPath = [];
 foreach (TYPES as $type => $info) $byPath[$info[0]] = $type;
 
