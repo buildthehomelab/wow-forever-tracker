@@ -1162,8 +1162,10 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     // it again. Without that a tab that crawls for weeks (the Chrome extension) never reads a page twice, and nothing
     // the tracker holds ever came due again.
     $againAll = json_encode(['again' => WOWHEAD_PAGES_AGAIN]);
-    $put = function (string $kind, array $ids, string $tier) use (&$lines, $againAll) {
-        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids)), JSON_UNESCAPED_SLASHES) . ', ' . json_encode($tier) . ", $againAll);";
+    $put = function (string $kind, array $ids, string $tier, int $minV = 0) use (&$lines, $againAll) {
+        // $minV: a copy the tab read with an older record version is read again now, not a day later (crawler minV)
+        $options = $minV ? json_encode(['again' => WOWHEAD_PAGES_AGAIN, 'minV' => $minV]) : $againAll;
+        if ($ids) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => "$kind:" . (int)$id, array_values($ids)), JSON_UNESCAPED_SLASHES) . ', ' . json_encode($tier) . ", $options);";
     };
     $items = array_values($queue['item'] ?? []);
     $blocking = (int)($queue['blocking'] ?? count($items));
@@ -1176,15 +1178,15 @@ function wowhead_pages_crawler(array $queue, bool $full = false): string
     $again = json_encode(['again' => wowhead_writ_seconds() - 6 * 3600]);
     if ($writs) $lines[] = '  await WHC.prioritize(' . json_encode(array_map(fn($id) => 'item:' . (int)$id, $writs)) . ", 'gap', $again);";
     if (!empty($queue['writGuide'])) $lines[] = '  await WHC.prioritize(' . json_encode(['guide:' . WOWHEAD_WRIT_GUIDE], JSON_UNESCAPED_SLASHES) . ", 'gap', $again);";
-    $put('quest', $queue['quest'] ?? [], 'gap');
+    $put('quest', $queue['quest'] ?? [], 'gap', WOWHEAD_PAGES_COMMENTS_V);
     // creatures and objects whose comments may name a missing giver or ender: before the items, the quests they are for
     // being what the server misses most
-    foreach ($queue['comments'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap');
-    $put('item', array_slice($items, 0, $blocking), 'gap');
+    foreach ($queue['comments'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap', WOWHEAD_PAGES_COMMENTS_V);
+    $put('item', array_slice($items, 0, $blocking), 'gap', WOWHEAD_PAGES_COMMENTS_V);
     $put('classic/item', array_slice($season, 0, $seasonBlocking), 'gap');
     // the missing quests, their creatures and objects, and the items they ask for (data/gather.json, the open phase)
     foreach ($queue['gather']['gap'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'gap');
-    $put('item', array_slice($items, $blocking), 'gapOther');
+    $put('item', array_slice($items, $blocking), 'gapOther', WOWHEAD_PAGES_COMMENTS_V);
     $put('classic/item', array_slice($season, $seasonBlocking), 'gapOther');
     // what the release phases not open yet need, earliest phase first
     foreach ($queue['gather']['later'] ?? [] as $kind => $ids) $put((string)$kind, (array)$ids, 'later');
