@@ -461,12 +461,14 @@ function wowhead_pages_card(string $source, array $ev, string $date, string $fil
     return source_card($source, $label, $source . '@' . $file, $tables, $left + $moved, array_merge($rewards, $changes));
 }
 
-/** The zones the server has a fishing table for: [zone => true]. A zone page's whole Fishing tab goes to the others. */
+/** The zones the server has a fishing table of its own for: [zone => true]. A zone page's whole Fishing tab goes to the
+ *  others. Rows this import wrote do not make a table (Mount Hyjal had none, then a Wowhead card gave it two of its item
+ *  pages' catches): such a zone still takes its page's whole table. */
 function wowhead_pages_fish_tables(): array
 {
     if (!table_exists('fishing_loot_template', 'world')) return [];
     $out = [];
-    foreach (rows('SELECT DISTINCT Entry FROM fishing_loot_template', [], 'world') as $r) $out[(int)$r['Entry']] = true;
+    foreach (rows("SELECT DISTINCT Entry FROM fishing_loot_template WHERE Comment IS NULL OR Comment NOT LIKE ?", [SOURCE_MARKS['wowhead'] . ' 2%'], 'world') as $r) $out[(int)$r['Entry']] = true;
     return $out;
 }
 
@@ -923,7 +925,8 @@ function wowhead_pages_queue(): array
         return $have;
     });
     // the Craftsman's Writs: their item pages and Wowhead's writ guide, read again every [wowhead] writ_days
-    [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), wowhead_pages('item'), wowhead_pages('forever-guide'));
+    // the item pages loaded above: a second copy of every one of them does not fit in PHP's memory (3,764 pages, about 500 MB each)
+    [$queue['writ'], $queue['writGuide']] = wowhead_pages_writ_queue(wowhead_writ_items(), $pages['item'], wowhead_pages('forever-guide'));
     // pages whose row in the answers table is due to be read again ([wowhead] refresh_days, recheck_days; app/wowheaddb.php):
     // the crawl reads them again, so that the table learns what changed on Wowhead
     $queue['recheck'] = wowhead_db_due_pages();
