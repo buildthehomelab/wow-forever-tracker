@@ -118,6 +118,11 @@ def wowhead_black_market_items(folders=None):
             if record.get('status') == 'ok' and any(str(fact).strip() == BLACK_MARKET_FACT for fact in (record.get('quick') or []))}
 
 
+def wowhead_missing_items(folders=None):
+    """The items whose Forever page on Wowhead was asked for and does not exist ({id}): the newest answer of each page."""
+    return {item for item, record in newest_item_pages(folders).items() if record.get('status') == 'missing'}
+
+
 def wowhead_unsourced_items(folders=None):
     """The items whose Forever page on Wowhead was read and names no source ({id}): the newest answer of each page
     (by its 'fetched' time) across the folders. A page Wowhead does not have, or one not read, is not in it."""
@@ -401,6 +406,14 @@ def assign(content, ctx, phases, facts):
             if item in content.get('item', {}) and item not in sources and item not in fixed['item']:
                 fixed['item'][item] = unsourced
                 facts.setdefault('wowhead_no_source_tagged', set()).add(item)
+        # A recipe Wowhead's Forever pages do not have at all (the Classic plans Forever dropped: Plans: Rough Bronze
+        # Bracers, Thorium Greatsword's): nothing gives it here either, so it waits in the same phase, and what only it
+        # teaches with it. The client may not list such an item among its resources: it waits all the same.
+        taught_by = {item for items in ctx.get('teaches', {}).values() for item in items}
+        for item in facts.get('wowhead_missing', ()):
+            if item in taught_by and item not in sources and item not in fixed['item']:
+                fixed['item'][item] = unsourced
+                facts.setdefault('wowhead_lost_recipes_tagged', set()).add(item)
 
     item_phase, quest_phase, spell_phase = dict(fixed['item']), dict(fixed['quest']), dict(fixed['spell'])
     phase_of = {'npc': npc_phase, 'go': go_phase, 'item': item_phase, 'quest': quest_phase, 'spell': spell_phase}
@@ -505,12 +518,13 @@ def run(content, ctx):
     facts = world_facts(phases, content)
     if any(p.get('wowhead_no_source') for p in phases):
         facts['wowhead_no_source'] = wowhead_unsourced_items()
-        log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source")
+        facts['wowhead_missing'] = wowhead_missing_items()
+        log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source, {len(facts['wowhead_missing'])} do not exist")
     if any(p.get('wowhead_black_market') for p in phases):
         facts['wowhead_black_market'] = wowhead_black_market_items()
         log(f"phases: {len(facts['wowhead_black_market'])} item page(s) on Wowhead say sold on the Black Market")
     tagged = assign(content, ctx, phases, facts)
-    by_rule = sorted(facts.get('wowhead_no_source_tagged', ()))
+    by_rule = sorted(set(facts.get('wowhead_no_source_tagged', ())) | set(facts.get('wowhead_lost_recipes_tagged', ())))
     by_market = sorted(facts.get('wowhead_black_market_tagged', ()))
     counts = {}
     for (kind, _id), number in tagged.items():
