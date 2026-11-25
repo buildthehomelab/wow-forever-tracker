@@ -168,8 +168,12 @@ class Names(unittest.TestCase):
     def test_test_and_placeholder_names_are_internal(self):
         for name in ('Monster - Sword2H, Corrupted Ashbringer', '[PH] Brown Prideclaw', 'Test Dungeon', 'QA Test Item', 'TEST Sword', 'Test Item 3',
                      'TestItem', 'Test2', '76 test item', 'Thunderfury, Blessed Blade of the Windseeker DEPRECATED', "Bloodied Zin'rokh Visual [DNT]",
-                     'Copy of Hearthstone', 'Sword (copy)', 'Cloak - Unused', 'UNUSED Boots', 'NOT USED', 'No Longer in Use', 'OLD Cloak', '<Unused>'):
+                     'Copy of Hearthstone', 'Sword (copy)', 'Cloak - Unused', 'UNUSED Boots', 'NOT USED', 'No Longer in Use', 'OLD Cloak', '<Unused>',
+                     'REUSE', 'REUSE ME', 'REUSEME', 'Violent Winds (Temp Disabled)'):
             self.assertTrue(output.named_internal(name), name)
+        # a real quest that only names a reuse or a disabling is no placeholder
+        for name in ('Reuse the Bones', 'The Disabled Golem', 'Field of Honor: Week 4'):
+            self.assertFalse(output.named_internal(name), name)
 
 
 class Leftovers(unittest.TestCase):
