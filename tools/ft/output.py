@@ -10,14 +10,14 @@ from .content import PLAYER_SPELLS
 # Names of things players never see. Words that real names share are pinned to the shape a test name has: "Monster -
 # Sword2H" is a weapon model, "Monster Omelet" is dinner; "Test Dungeon" and "QA Test" are tests, "Test of Faith" and
 # "The Test of Righteousness" are quests; "Copy of X" is a leftover, "Signed copy of..." is a book; "Sword - Unused" is
-# unused, the "Unused Scraping Vial" is a quest item.
+# unused, the "Unused Scraping Vial" is a quest item; "REUSE ME" and "(Temp Disabled)" are slots Blizzard keeps for later.
 INTERNAL_NAME = re.compile(
     r'^\s*\[|^\s*<|^\s*$|^zz'
     r'|\bTEST\b|\btest\b|^Test (?!of\b)|\(Test\)|\bTest (?:Item|Dungeon|Quest|Spell|NPC|Mount|Pet|Zone|Vendor|Realm|Character|Creature|Object)s?\b|Test\d|Test[A-Z]'
     r'|^Monster - |^Monstre - '
     r'|\b(OLD|Deprecated|DEPRECATED|DEP|PH|DNT|QA|UNUSED|NYI|PÉRIMÉ|NPC Equip|Template|Placeholder)\b|\(DNT\)|\(OLD\)|\(Unused\)|- Unused\b|\bUnused$'
     r'|^Copy of\b|\(copy\)|- copy\b|\bcopy$|\bNOT USED\b|\bNot Used\b|\bNo Longer in Use\b'
-    r'|^REUSE$|\bDND\b')
+    r'|^REUSE ?(?:ME)?$|\(Temp(?:orarily)? Disabled\)|\bDND\b')
 # Flight paths a quest flies you along (TaxiNodes rows named "Quest Path 11512: ..."), not flight points.
 QUEST_PATH = re.compile(r'^Quest Path \d+')
 DATA_KEYS = ('ranks', 'spell', 'item', 'map', 'pos', 'creature', 'kind', 'teach', 'creates')
