@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Class stats check.** A High Order Skyborne warrior regained no health out of combat at level 4: the Classic
+  formulas are fitted to the vanilla races, and that race's live -3 Spirit falls outside them. No table was wrong, so no
+  check saw it. The analysis now runs every race and class players can make, level 1 to 60, naked, through the core's
+  formulas (health out of combat with the Dwarf floor, mana regeneration, melee and ranged attack power) and lists where
+  one gives nothing, or under half of what the lowest vanilla race of the class gets: Checks › Class stats. On the
+  realm's tables it finds nothing with the fixed core, and the warrior (levels 1-9) and rogue (1-2) without it.
+
 - **Wowhead comments: givers and enders named in the words.** Players often write where a quest is turned in or
   started without linking the NPC ("turn it in to Griniblix the Spectator"). The *Wowhead comments* card now reads the
   words of the quest page's comments (crawler record v5) and matches the name to the one spawned creature or object

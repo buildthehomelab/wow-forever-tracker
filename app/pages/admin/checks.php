@@ -11,6 +11,14 @@ $haveQuests = table_exists('ft_quest_checks');
 $questKinds = ['all' => t('Live gives them all', 'Le jeu les donne tous'), 'choice' => t('Live offers a choice', 'Le jeu propose un choix'), 'twice' => t('Given and offered', 'Donné et proposé')];
 $questList = $rewards && $haveQuests ? rows('SELECT * FROM ft_quest_checks ORDER BY quest LIMIT 2000') : [];
 $questCount = $haveQuests ? (int)value('SELECT COUNT(*) FROM ft_quest_checks') : 0;
+// race and class combinations whose base stats give a formula nothing (ft.classstats): their own table and tab
+$classes = ($_GET['issue'] ?? '') === 'classes';
+$haveClasses = table_exists('ft_class_checks');
+$classKinds = ['hp_regen' => t('No health out of combat', 'Pas de vie hors combat'), 'hp_regen_low' => t('Little health out of combat', 'Peu de vie hors combat'),
+    'mana_regen' => t('No mana regeneration', 'Pas de régénération de mana'), 'melee_ap' => t('No melee attack power', 'Pas de puissance d’attaque'),
+    'ranged_ap' => t('No ranged attack power', 'Pas de puissance d’attaque à distance'), 'stat' => t('A stat at 0', 'Une caractéristique à 0')];
+$classList = $classes && $haveClasses ? rows('SELECT * FROM ft_class_checks ORDER BY race, class, level_from LIMIT 2000') : [];
+$classCount = $haveClasses ? (int)value('SELECT COUNT(*) FROM ft_class_checks') : 0;
 /** "19991,19992x5" as [[item, count], …]. */
 $pairs = fn(?string $list) => array_map(fn($part) => [(int)$part, (int)(explode('x', $part)[1] ?? 1)], array_filter(explode(',', (string)$list), 'strlen'));
 $itemNames = [];
@@ -46,8 +54,28 @@ page_start(t('Checks', 'Contrôles'), 'admin');
   <a class="<?= $issue === $kind ? 'is-active' : '' ?>" href="<?= e(url('admin/checks', ['issue' => $kind])) ?>"><?= e($label) ?><em><?= number($counts[$kind]) ?></em></a>
   <?php endforeach; ?>
   <a class="<?= $rewards ? 'is-active' : '' ?>" href="<?= e(url('admin/checks', ['issue' => 'rewards'])) ?>"><?= e(t('Quest rewards', 'Récompenses de quête')) ?><em><?= number($questCount) ?></em></a>
+  <a class="<?= $classes ? 'is-active' : '' ?>" href="<?= e(url('admin/checks', ['issue' => 'classes'])) ?>"><?= e(t('Class stats', 'Caractéristiques des classes')) ?><em><?= number($classCount) ?></em></a>
 </nav>
-<?php if ($rewards): ?>
+<?php if ($classes): ?>
+<?php if (!$haveClasses): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><p><?= e(t('No check yet: run the analysis.', 'Pas encore de contrôle : lancez l’analyse.')) ?></p></div><?php else: ?>
+<div class="alert"><i class="fas fa-person-running"></i><div><?= e(t('Every race and class players can make, level 1 to 60, naked: its base stats (player_classlevelstats plus player_racestats) through the core’s Classic formulas for health out of combat, mana regeneration and attack power. The formulas are fitted to the vanilla races, so a race whose offsets fall outside them can get nothing without any table being wrong (a level 4 High Order Skyborne warrior regained no health). "Little" is under half of what the lowest vanilla race of the class gets. A report: the fix is in the core or the stat tables. The formulas here are copies of the core’s (tools/ft/classstats.py): keep them in step.', 'Chaque race et classe que les joueurs peuvent créer, du niveau 1 à 60, sans équipement : ses caractéristiques de base (player_classlevelstats plus player_racestats) passées dans les formules Classic du core pour la vie hors combat, la régénération de mana et la puissance d’attaque. Les formules sont ajustées aux races d’origine : une race dont les modificateurs en sortent peut n’en tirer rien sans qu’aucune table soit fausse (un guerrier Skyborne de l’Ordre supérieur niveau 4 ne regagnait aucune vie). « Peu » : moins de la moitié de ce que reçoit la race d’origine la plus faible de la classe. Un rapport : la correction se fait dans le core ou les tables de caractéristiques. Les formules sont des copies de celles du core (tools/ft/classstats.py) : à garder alignées.')) ?></div></div>
+<?php if (!$classList): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-check"></i></div><p><?= e(t('Every race and class gets something from every formula at every level.', 'Chaque race et classe tire quelque chose de chaque formule à chaque niveau.')) ?></p></div><?php else: ?>
+<div class="table-scroll">
+<table class="table is-forge">
+  <thead><tr><th><?= e(t('Race and class', 'Race et classe')) ?></th><th><?= e(t('Levels', 'Niveaux')) ?></th><th><?= e(t('Finding', 'Constat')) ?></th></tr></thead>
+  <tbody>
+  <?php foreach ($classList as $x): ?>
+    <tr>
+      <td><strong><?= e($x['label']) ?></strong> <small class="muted"><?= e(sprintf(t('race %d, class %d', 'race %d, classe %d'), (int)$x['race'], (int)$x['class'])) ?></small></td>
+      <td><?= (int)$x['level_from'] === (int)$x['level_to'] ? (int)$x['level_from'] : (int)$x['level_from'] . '–' . (int)$x['level_to'] ?></td>
+      <td><span class="tag is-plain"><?= e($classKinds[$x['issue']] ?? $x['issue']) ?></span><br><small class="check-note"><?= e($x['note']) ?></small></td>
+    </tr>
+  <?php endforeach; ?>
+  </tbody>
+</table>
+</div>
+<?php endif; endif; ?>
+<?php elseif ($rewards): ?>
 <?php if (!$haveQuests): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-hourglass-half"></i></div><p><?= e(t('No check yet: run the analysis.', 'Pas encore de contrôle : lancez l’analyse.')) ?></p></div><?php else: ?>
 <div class="alert"><i class="fas fa-gift"></i><div><?= e(t('Quests that hand out their item rewards another way than the live game. A quest either gives its items outright (all of them) or offers them as a choice (the player takes one). Forever turned many of Classic’s choices into "you get them all". The live game is what players’ recordings (EG Link) show, from the commit Import EG Link last read. "Given and offered": the server gives an item and offers the same item as a choice, so the player is given it and picks it as well. Nothing to tick here: Import EG Link puts these changes on its card (it moves each item to the list the live game names it in), and they are applied from there.', 'Quêtes qui distribuent leurs objets autrement que le jeu officiel. Une quête donne ses objets d’office (tous) ou les propose au choix (le joueur en prend un). Forever a changé beaucoup de choix de Classic en « vous les recevez tous ». Le jeu officiel est ce que montrent les enregistrements des joueurs (EG Link), du commit lu par le dernier Import EG Link. « Donné et proposé » : le serveur donne un objet et propose le même au choix, le joueur le reçoit donc et le choisit en plus. Rien à cocher ici : Import EG Link met ces changements sur sa carte (chaque objet va dans la liste où le jeu officiel le nomme), et ils s’appliquent depuis là.')) ?></div></div>
 <?php if (!$questList): ?><div class="empty-state is-inline"><div class="empty-icon"><i class="fas fa-check"></i></div><p><?= e(t('Every quest hands out its items as the live game does.', 'Chaque quête distribue ses objets comme le jeu officiel.')) ?></p></div><?php else: ?>
