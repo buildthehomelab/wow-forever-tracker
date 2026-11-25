@@ -23,7 +23,9 @@ check(creature_template_levels($quick) === [30, 30] && creature_template_levels(
 // ---- the faction: {template: [faction, alliance, horde, spawned creatures using it]}
 $table = [35 => [35, 'friendly', 'friendly', 900], 12 => [72, 'friendly', 'hostile', 300], 11 => [72, 'friendly', 'hostile', 40], 2600 => [2586, 'friendly', 'hostile', 0],
     2601 => [2586, 'friendly', 'friendly', 0], 3388 => [2587, 'hostile', 'friendly', 2], 29 => [76, 'hostile', 'friendly', 250], 14 => [14, 'hostile', 'hostile', 5000]];
-check(creature_template_faction(['Alliance' => 'friendly'], 2586, [], $table) === [2600, 'rep_faction'] || creature_template_faction(['Alliance' => 'friendly'], 2586, [], $table) === [2601, 'rep_faction'], 'a template of the reputation faction that fits');
+check(creature_template_faction(['Alliance' => 'friendly'], 2586, [], $table) === [2600, 'rep_faction'], 'a template of the reputation faction that fits: one side shown, the other is not friendly');
+check(creature_template_faction(['Alliance' => 'friendly'], 0, [35 => 9], $table) === [12, 'reaction'], 'a same-name creature friendly to both does not fit an Alliance-only reaction');
+check(creature_template_faction(['Horde' => 'friendly'], 0, [], $table) === [29, 'reaction'], 'Horde only');
 check(creature_template_faction(['Alliance' => 'friendly', 'Horde' => 'hostile'], 2586, [], $table) === [2600, 'rep_faction'], 'both sides must fit');
 check(creature_template_faction(['Alliance' => 'hostile', 'Horde' => 'friendly'], 2587, [3388 => 1, 35 => 4], $table) === [3388, 'same_name'], 'a creature of the same name whose faction fits comes first');
 check(creature_template_faction(['Alliance' => 'hostile', 'Horde' => 'friendly'], 0, [35 => 4], $table) === [29, 'reaction'], 'one that does not fit is passed over; then the most used that fits');

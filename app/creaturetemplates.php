@@ -77,11 +77,16 @@ function creature_template_levels(array $quick): ?array
     return null;
 }
 
-/** Whether a faction table row ([faction, alliance, horde, used]) shows each side as $reaction says. */
+/** Whether a faction table row ([faction, alliance, horde, used]) shows each side as $reaction says. A side Wowhead
+ *  leaves out while it shows the other is one the creature is not friendly to: Wowhead shows only "A" for the
+ *  Alliance's own Rune Broker and supply officers, whose Horde twins are other creatures. */
 function creature_template_fits(array $row, array $reaction): bool
 {
-    foreach ($reaction as $side => $stance) if (($side === 'Alliance' ? $row[1] : $row[2]) !== $stance) return false;
-    return (bool)$reaction;
+    if (!$reaction) return false;
+    foreach (['Alliance' => 1, 'Horde' => 2] as $side => $i) {
+        if (isset($reaction[$side]) ? $row[$i] !== $reaction[$side] : $row[$i] === 'friendly') return false;
+    }
+    return true;
 }
 
 /**
