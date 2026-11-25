@@ -191,6 +191,10 @@ switch ($action) {
         // about an hour the first time (two lookups a second): in the background
         require_once FT_APP . '/sources.php';
         json_out(source_start('icyveins'));
+    case 'source_creaturetemplates':
+        // templates for the creatures gap links name, from Icy Veins' records, Wowhead's pages and the faction table
+        require_once FT_APP . '/creaturetemplates.php';
+        json_out(creature_templates_import());
     case 'source_objecttemplates':
         // templates for the objects gap links name, from Icy Veins' records in the answers table: nothing is asked
         require_once FT_APP . '/objecttemplates.php';

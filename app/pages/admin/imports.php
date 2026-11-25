@@ -182,6 +182,17 @@ $leftLabels = [
     'object_template_incomplete' => t('objects whose Icy Veins record lacks a field of the template (type, display, scale, tuning, lock or data)', 'objets du monde dont la fiche Icy Veins n’a pas tous les champs du modèle (type, affichage, taille, ajustement, serrure ou données)'),
     'object_template_no_witness' => t('objects without a Wowhead Forever page that shows their model (no second witness)', 'objets du monde sans page Forever de Wowhead qui montre leur modèle (pas de second témoin)'),
     'object_template_witness_differs' => t('objects whose Wowhead Forever page shows another model or name than Icy Veins\' record', 'objets du monde dont la page Forever de Wowhead montre un autre modèle ou nom que la fiche d’Icy Veins'),
+    // creature templates (app/creaturetemplates.php)
+    'creature_template_no_record' => t('creatures a gap link names that Icy Veins has no record of', 'PNJ nommés par un lien de manque dont Icy Veins n’a pas de fiche'),
+    'creature_template_incomplete' => t('creatures whose Icy Veins record lacks a name, type or model', 'PNJ dont la fiche Icy Veins n’a pas de nom, de type ou de modèle'),
+    'creature_template_no_witness' => t('creatures without a Wowhead Forever page that shows their model (no second witness)', 'PNJ sans page Forever de Wowhead qui montre leur modèle (pas de second témoin)'),
+    'creature_template_witness_differs' => t('creatures whose Wowhead Forever page shows another model or name than Icy Veins\' record', 'PNJ dont la page Forever de Wowhead montre un autre modèle ou nom que la fiche d’Icy Veins'),
+    'creature_template_no_level' => t('creatures whose Wowhead Forever page gives no level', 'PNJ dont la page Forever de Wowhead ne donne pas de niveau'),
+    'creature_template_no_reaction' => t('creatures whose Wowhead Forever page shows no reaction: no faction can be picked', 'PNJ dont la page Forever de Wowhead ne montre aucune réaction : aucune faction ne peut être choisie'),
+    'creature_template_no_faction' => t('creatures for whose reaction no faction template fits', 'PNJ dont aucune faction ne correspond à la réaction'),
+    'creature_template_faction_same_name' => t('written with the faction of a creature of the same name on the server', 'écrits avec la faction d’un PNJ du même nom sur le serveur'),
+    'creature_template_faction_rep_faction' => t('written with a template of the reputation faction Wowhead names', 'écrits avec une faction de la réputation que nomme Wowhead'),
+    'creature_template_faction_reaction' => t('written with the template the server uses most for that reaction', 'écrits avec la faction que le serveur emploie le plus pour cette réaction'),
     'icyveins_early_card' => t('an early card from the gaps’ answers alone, made while the rest of Icy Veins is still being read: the full card replaces it when the run ends, unless something was applied from it', 'une carte anticipée, faite des seules réponses sur les manques pendant que le reste d’Icy Veins est encore lu : la carte complète la remplace à la fin, sauf si quelque chose en a été appliqué'),
     'icyveins_lookup_limit_reached_run_again' => t('Icy Veins lookup limit of one run reached: run it again for the rest', 'limite de consultations Icy Veins d’un passage atteinte : relancez pour la suite'),
 ];
@@ -285,6 +296,7 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_foreverdb"><i class="fas fa-book-atlas"></i> <?= e(t('Import ForeverDB.net', 'Importer ForeverDB.net')) ?></button>
     <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
     <button class="btn is-small" type="button" data-scribe="source_objecttemplates" title="<?= e(t('Templates for the objects a gap link names and this server lacks: from Icy Veins\' records, with Wowhead\'s Forever page as the second witness', 'Les modèles des objets du monde qu’un lien de manque nomme et qui manquent à ce serveur : depuis les fiches d’Icy Veins, la page Forever de Wowhead en second témoin')) ?>"><i class="fas fa-cube"></i> <?= e(t('Import object templates', 'Importer les modèles d’objets du monde')) ?></button>
+    <button class="btn is-small" type="button" data-scribe="source_creaturetemplates" title="<?= e(t('Templates for the creatures a gap link names and this server lacks: Icy Veins\' records, Wowhead\'s Forever page as second witness and for level and reaction; the faction from that reaction', 'Les modèles des PNJ qu’un lien de manque nomme et qui manquent à ce serveur : fiches d’Icy Veins, page Forever de Wowhead en second témoin et pour le niveau et la réaction ; la faction d’après cette réaction')) ?>"><i class="fas fa-user-plus"></i> <?= e(t('Import creature templates', 'Importer les modèles de PNJ')) ?></button>
   </div>
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
 </section>

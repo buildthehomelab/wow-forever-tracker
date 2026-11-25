@@ -565,9 +565,27 @@ card of `gameobject_template` rows for those objects, from the answers table alo
 The card is applied at once like every card; the next card of each source then writes the links. Creatures get no such
 card: no source gives their faction template.
 
+## Creature templates
+
+The same for creatures a gap link names (a drop or sale of a gap item, a quest without a giver or ender): *Import
+creature templates* (`app/creaturetemplates.php`) writes `creature_template`, `creature_template_difficulty`,
+`creature_template_model` and `creature_classic_level` rows from the answers table:
+
+- Icy Veins' record gives type, family, class, rank, subname, type flags, health and power multipliers, movement,
+  difficulty and the models (`children.npc_display`).
+- Wowhead's Forever page is the second witness (its model, its name) and gives the level and "React".
+- No source gives a faction template. It is picked from the reaction with the client's FactionTemplate table, which
+  the analysis writes to `data/faction-templates.json` (`ft.sides.faction_table`): first the faction of a creature of
+  the same name on the server that both sides see that way (live re-added Season of Discovery creatures under new
+  numbers), then a template of the reputation faction Wowhead names, then the template spawned creatures use most for
+  that reaction. A creature whose page shows no reaction or no level is left out.
+- npcflag: quest giver when it gives or takes a gap quest, vendor when it sells a gap item.
+
+The card says how each faction was picked (`creature_template_faction_*`). Spawns come from the locator afterwards.
+
 ## Running them
 
-- The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import object templates*, *Import AtlasLoot*, *Import NorgannonDB*.
+- The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import object templates*, *Import creature templates*, *Import AtlasLoot*, *Import NorgannonDB*.
 - `php tools/source-import.php <source> --from-database`: the card from the source's last run kept in the database, nothing asked ([SNAPSHOTS.md](SNAPSHOTS.md)).
 - `php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|wowheadcomments`; `atlasloot --if-new` does nothing
   when the newest CurseForge file is the one imported last, `questie --if-new` when QuestieDB's newest release is. One run of a source at a time: a second one says the
