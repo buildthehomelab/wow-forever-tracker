@@ -129,6 +129,34 @@ class Assign(unittest.TestCase):
         # without a phase marked for it, the pages change nothing
         self.assertNotIn(('item', 6), phases.assign(content(), ctx(), PHASES, dict(FACTS, wowhead_no_source={6})))
 
+    def test_a_recipe_wowhead_does_not_have(self):
+        # item 11 is crafted with recipe 503, which only item 4444 teaches: a Classic plan Forever dropped (Wowhead has no
+        # Forever page for it, and the client does not list it); item 7's recipe item 1 drops from Ragnaros
+        listed = [dict(p) for p in PHASES] + [{'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [],
+                                               'quests': [], 'items': [], 'wowhead_no_source': True}]
+        c, x = content(), ctx()
+        c['item'][11] = {}
+        x['creates'][11] = {503}
+        x['teaches'][503] = {4444}
+        facts = dict(FACTS, wowhead_missing={4444, 1, 9})
+        tagged = phases.assign(c, x, listed, facts)
+        self.assertEqual(tagged[('item', 11)], 3)        # what only the lost plan teaches waits with it
+        self.assertNotEqual(tagged.get(('item', 7)), 3)  # item 1 has a source: a missing page changes nothing
+        self.assertNotIn(('item', 9), tagged)            # and an item that teaches nothing is not a lost recipe
+        self.assertEqual(facts['wowhead_lost_recipes_tagged'], {4444})
+        # a trainer that teaches the spell keeps the craft released
+        x['trainer_spells'] = x['trainer_spells'] + [(1, 503)]
+        self.assertNotIn(('item', 11), phases.assign(c, x, listed, dict(FACTS, wowhead_missing={4444})))
+
+    def test_wowhead_missing_items(self):
+        with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
+            def write(folder, rows):
+                with open(os.path.join(folder, 'item.jsonl'), 'w', encoding='utf-8') as handle:
+                    handle.write('\n'.join(json.dumps(r) for r in rows) + '\n')
+            write(old, [{'id': 1, 'fetched': 10, 'status': 'missing'}, {'id': 2, 'fetched': 10, 'status': 'ok', 'tabs': {}}])
+            write(new, [{'id': 1, 'fetched': 20, 'status': 'ok', 'tabs': {}}, {'id': 3, 'fetched': 20, 'status': 'missing'}])
+            self.assertEqual(phases.wowhead_missing_items([old, new]), {3})
+
     def test_wowhead_says_black_market(self):
         # item 6 has no source on the server and its page also names none: the Black Market rule comes first
         listed = [dict(p) for p in PHASES] + [
