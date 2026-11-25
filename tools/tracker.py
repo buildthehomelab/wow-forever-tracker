@@ -547,6 +547,23 @@ def side_checks():
     return found
 
 
+def faction_templates():
+    """data/faction-templates.json: each faction template's faction, how each side sees it and how many spawned
+    creatures use it (ft.sides.faction_table), for the creature template card (app/creaturetemplates.php)."""
+    from ft import sides
+    templates = {int(r['ID']): r for r in server.server_db2('FactionTemplate')}
+    if sqlio.has_table('faction_template', 'hotfixes'):
+        for r in sqlio.query('SELECT * FROM faction_template', 'hotfixes'):
+            templates[int(r['ID'])] = {k: (int(v) if str(v).lstrip('-').isdigit() else v) for k, v in r.items()}
+    if not templates:
+        return
+    used = {int(r['faction']): int(r['n']) for r in sqlio.query(
+        'SELECT ct.faction, COUNT(*) n FROM creature_template ct WHERE EXISTS (SELECT 1 FROM creature c WHERE c.id = ct.entry) GROUP BY ct.faction')}
+    table = sides.faction_table(templates, used)
+    save_json(os.path.join(DATA, 'faction-templates.json'), {'made': int(time.time()), 'templates': {str(k): v for k, v in table.items()}})
+    log(f'faction templates: {len(table)} written')
+
+
 def shown_to_one_side(sides, entries):
     """{entry: side} of the creatures the server shows to one side only: every spawn in a phase or a spawn group that
     a team condition closes to that side, or a visibility condition on the creature itself."""
@@ -643,6 +660,10 @@ def npc_checks(ask):
         log(f'side check failed, skipped: {error}')
         sided = []
     out = merge_checks(out, sided)
+    try:
+        faction_templates()
+    except Exception as error:  # a helper file for an import card: never takes the checks with it
+        log(f'faction templates not written: {error}')
     e = sqlio.escape
     path = os.path.join(DATA, 'npc-checks.sql')
     with open(path, 'w', encoding='utf-8') as f:

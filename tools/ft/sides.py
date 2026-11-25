@@ -59,6 +59,15 @@ def stance(template, side):
     return 'neutral'
 
 
+def faction_table(templates, used=None):
+    """{template id: [Faction, stance to the Alliance, stance to the Horde, creatures using it]} of every faction
+    template: what the website's creature template card picks a faction from (app/creaturetemplates.php), as players
+    of each side would see a creature of it (stance). used: {template id: how many spawned creatures use it}."""
+    used = used or {}
+    return {int(tid): [int(t.get('Faction') or 0), stance(t, ALLIANCE), stance(t, HORDE), int(used.get(int(tid), 0))]
+            for tid, t in sorted(templates.items())}
+
+
 FLOOR = -42000   # a reputation that cannot be earned out of: the other side's cities
 RACE = {ALLIANCE: 1, HORDE: 2}   # a human's and an orc's bit in a race mask
 

@@ -71,6 +71,13 @@ class Stance(unittest.TestCase):
         self.assertIsNone(sides.stance(None, 'Horde'))
 
 
+class FactionTable(unittest.TestCase):
+    def test_each_template_with_its_stances_and_use(self):
+        table = sides.faction_table({11: TEMPLATES[11], 85: TEMPLATES[85], 14: TEMPLATES[14]}, {14: 30, 11: 2})
+        self.assertEqual(table, {11: [72, 'friendly', 'hostile', 2], 14: [14, 'hostile', 'hostile', 30], 85: [76, 'hostile', 'friendly', 0]})
+        self.assertEqual(list(table), [11, 14, 85])
+
+
 class Recorded(unittest.TestCase):
     def test_reactions_and_services_of_the_live_game_only(self):
         facts = [Fact('seen', 'npc', 54, 0, 70938, 3, {'name': 'Corina Steele', 'reactions': {'Alliance': [5], 'Horde': 'x'}}),
