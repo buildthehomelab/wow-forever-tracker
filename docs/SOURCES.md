@@ -546,9 +546,28 @@ source, `changed [date]` what changed since.
 The first version of the table, `ft_wowhead`, moves in by itself (its rows become `source = 'wowhead'`) and is
 dropped.
 
+## Object templates
+
+A gap link (an open fact of a source's last snapshot: an object drops a gap item, gives a quest without a giver, takes
+one without an ender) can only be written when the server has the object's template; until then the card leaves it out
+(`object_no_loot`, `quest_unknown`). *Import object templates* (The Forge › Imports, `app/objecttemplates.php`) makes a
+card of `gameobject_template` rows for those objects, from the answers table alone:
+
+- Icy Veins' record (`source = 'icyveins'`, feed `api`, kind `gameobject`) gives the row: `type_id` → `type`,
+  `display_id` → `displayId`, `scale` → `size`, `content_tuning_id` → `ContentTuningId`, `props[n]` → `Data<n>` (34 at
+  least; `Data34` is 0 when the record stops before it). `lock_id` must be there too (the client keeps the lock in the
+  Data of the types that have one). A null tuning or lock is 0: the object has none.
+- Wowhead's Forever page of the object (`source = 'wowhead'`, feed `page`, branch `forever`) is the second witness: its
+  model list must hold the record's display, and its name, when the page keeps one, must be the record's.
+- Anything else is left out with its reason: `object_template_no_record`, `object_template_incomplete` (a field is
+  missing or not a number), `object_template_no_witness`, `object_template_witness_differs`.
+
+The card is applied at once like every card; the next card of each source then writes the links. Creatures get no such
+card: no source gives their faction template.
+
 ## Running them
 
-- The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import AtlasLoot*, *Import NorgannonDB*.
+- The Forge › Imports: *Import Wowhead pages*, *Import EG Link*, *Import ForeverDB.net*, *Import Icy Veins*, *Import object templates*, *Import AtlasLoot*, *Import NorgannonDB*.
 - `php tools/source-import.php <source> --from-database`: the card from the source's last run kept in the database, nothing asked ([SNAPSHOTS.md](SNAPSHOTS.md)).
 - `php tools/source-import.php questie|norgannondb|eglink|foreverdb|icyveins|atlasloot|wowhead|wowheadclassic|wowheadcomments`; `atlasloot --if-new` does nothing
   when the newest CurseForge file is the one imported last, `questie --if-new` when QuestieDB's newest release is. One run of a source at a time: a second one says the

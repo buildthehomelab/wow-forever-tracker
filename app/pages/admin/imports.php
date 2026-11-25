@@ -177,6 +177,11 @@ $leftLabels = [
     'icyveins_kept_flight_paths' => t('flight paths with their routes (kept in the mirror)', 'trajets aériens avec leurs routes (gardés dans le miroir)'),
     'icyveins_kept_zones' => t('zones with the NPCs and objects seen in them (kept in the mirror)', 'zones avec les PNJ et objets qu’on y a vus (gardées dans le miroir)'),
     'icyveins_recipe_other_profession' => t('recipes of another profession than the trainer’s own (a stray list in the recording)', 'recettes d’un autre métier que celui de l’entraîneur (une liste égarée dans l’enregistrement)'),
+    // object templates (app/objecttemplates.php)
+    'object_template_no_record' => t('objects a gap link names that Icy Veins has no record of', 'objets du monde nommés par un lien de manque dont Icy Veins n’a pas de fiche'),
+    'object_template_incomplete' => t('objects whose Icy Veins record lacks a field of the template (type, display, scale, tuning, lock or data)', 'objets du monde dont la fiche Icy Veins n’a pas tous les champs du modèle (type, affichage, taille, ajustement, serrure ou données)'),
+    'object_template_no_witness' => t('objects without a Wowhead Forever page that shows their model (no second witness)', 'objets du monde sans page Forever de Wowhead qui montre leur modèle (pas de second témoin)'),
+    'object_template_witness_differs' => t('objects whose Wowhead Forever page shows another model or name than Icy Veins\' record', 'objets du monde dont la page Forever de Wowhead montre un autre modèle ou nom que la fiche d’Icy Veins'),
     'icyveins_early_card' => t('an early card from the gaps’ answers alone, made while the rest of Icy Veins is still being read: the full card replaces it when the run ends, unless something was applied from it', 'une carte anticipée, faite des seules réponses sur les manques pendant que le reste d’Icy Veins est encore lu : la carte complète la remplace à la fin, sauf si quelque chose en a été appliqué'),
     'icyveins_lookup_limit_reached_run_again' => t('Icy Veins lookup limit of one run reached: run it again for the rest', 'limite de consultations Icy Veins d’un passage atteinte : relancez pour la suite'),
 ];
@@ -279,6 +284,7 @@ page_start(t('Imports', 'Imports'), 'admin');
     <button class="btn is-small is-gold" type="button" data-scribe="source_eglink"><i class="fas fa-link"></i> <?= e(t('Import EG Link', 'Importer EG Link')) ?></button>
     <button class="btn is-small is-gold" type="button" data-scribe="source_foreverdb"><i class="fas fa-book-atlas"></i> <?= e(t('Import ForeverDB.net', 'Importer ForeverDB.net')) ?></button>
     <button class="btn is-small is-gold" type="button" data-scribe="source_icyveins" <?= $icyRunning ? 'disabled' : '' ?>><i class="fas fa-snowflake"></i> <?= e($icyRunning ? t('Icy Veins: running…', 'Icy Veins : en cours…') : t('Import Icy Veins', 'Importer Icy Veins')) ?></button>
+    <button class="btn is-small" type="button" data-scribe="source_objecttemplates" title="<?= e(t('Templates for the objects a gap link names and this server lacks: from Icy Veins\' records, with Wowhead\'s Forever page as the second witness', 'Les modèles des objets du monde qu’un lien de manque nomme et qui manquent à ce serveur : depuis les fiches d’Icy Veins, la page Forever de Wowhead en second témoin')) ?>"><i class="fas fa-cube"></i> <?= e(t('Import object templates', 'Importer les modèles d’objets du monde')) ?></button>
   </div>
   <?php if ($icyLog !== ''): ?><p class="muted small">Icy Veins: <?= e($icyLog) ?></p><?php endif; ?>
 </section>
