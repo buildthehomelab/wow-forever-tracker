@@ -826,6 +826,29 @@ class SmartCredits(unittest.TestCase):
         self.assertEqual(failed(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)]), ['objectives'])
 
 
+class ObjectCredits(unittest.TestCase):
+    """A credit marker a world object's own spell gives when used: the Old Dinghy (652657, a goober casting 1294248,
+    credit 273097), a Deadwood Cauldron casting Destroy (1283593) which triggers 1283583 (credit 260373)."""
+
+    effects = [{'SpellID': 1283593, 'EffectTriggerSpell': 1283583}, {'SpellID': 1283583, 'EffectTriggerSpell': 0},
+               {'SpellID': 1294248, 'EffectTriggerSpell': 0}, {'SpellID': 9, 'EffectTriggerSpell': 9}]
+
+    def test_the_reader(self):
+        got = server.object_credits([(652657, 1294248), (630780, 1283593), (1, 9)], {273097: {1294248}, 260373: {1283583}}, self.effects)
+        self.assertEqual(got, {273097: {652657}, 260373: {630780}})
+
+    def test_a_spell_that_gives_no_credit_counts_for_nothing(self):
+        self.assertEqual(server.object_credits([(1, 9)], {273097: {1294248}}, self.effects), {})
+
+    def test_the_quest_counts_while_the_object_is_spawned(self):
+        ctx = world(spawned_npc={100}, spawned_go={652657}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)], quests={10: quest_row()},
+                    quest_turn_in_text={10}, objectives=[(10, 0, 273097, 1)])
+        ctx['object_credits'] = {273097: {652657}}
+        self.assertEqual(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)][0], 'ok')
+        ctx['spawned_go'] = set()
+        self.assertEqual(failed(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)]), ['objectives'])
+
+
 class TeachersOnly(unittest.TestCase):
     """An item whose only way in is a spell only items teach: the rules name those items for ft.output."""
 

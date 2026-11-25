@@ -173,6 +173,36 @@ SMART_KILLED_MONSTER = 33   # smart_scripts.action_type: CALL_KILLEDMONSTER, the
 SMART_TARGET_SELF = 1
 
 
+# the template column of the spell a world object casts on the player who uses it, by gameobject type (the core's
+# GameObjectTemplate): a goober's spell (Data10), a spellcaster's (Data0), a trap's (Data3)
+OBJECT_SPELL_COLUMN = {10: 'Data10', 22: 'Data0', 6: 'Data3'}
+
+
+def object_credits(objects, credit_spells, effects, depth=3):
+    """{credit creature: {object entries}}: the world objects whose own spell (OBJECT_SPELL_COLUMN), or a spell it
+    triggers (EffectTriggerSpell, up to depth steps), has a kill-credit effect for that creature (credit_spells:
+    {credit: {spells}}): using the object gives the credit (the Old Dinghy of Aeonas's Secret Refuge, the Deadwood
+    Cauldrons). objects: (entry, spell) pairs; effects: SpellEffect dicts (SpellID, EffectTriggerSpell)."""
+    triggers = {}
+    for e in effects:
+        if e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID']:
+            triggers.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
+    gives = {}
+    for credit, spells in credit_spells.items():
+        for spell in spells:
+            gives.setdefault(spell, set()).add(credit)
+    out = {}
+    for entry, spell in objects:
+        reach, edge = {spell}, {spell}
+        for _ in range(depth):
+            edge = {t for s in edge for t in triggers.get(s, ())} - reach
+            reach |= edge
+        for s in reach:
+            for credit in gives.get(s, ()):
+                out.setdefault(credit, set()).add(entry)
+    return out
+
+
 def smart_credits(rows, credit_spells, entry_of=None):
     """{credit creature: {(kind, entry)}}: the creatures ('npc') and world objects ('go') whose SmartAI gives a kill
     credit to a player: CALL_KILLEDMONSTER, or a cast of a spell with a kill-credit effect (credit_spells: {credit:
@@ -481,6 +511,10 @@ def server_state():
                 for r in q(f"SELECT guid, id FROM {table} WHERE guid IN ({','.join(map(str, guids))})"):
                     entry_of[(kind, -int(r['guid']))] = int(r['id'])
         ctx['smart_credits'] = smart_credits(rows, credit_spells, entry_of)
+    # kill credits a world object's own spell gives when used
+    objects = [(int(r['entry']), int(r['spell'])) for type_, column in OBJECT_SPELL_COLUMN.items()
+               for r in q(f'SELECT entry, {column} spell FROM gameobject_template WHERE type = {type_} AND {column} > 0')]
+    ctx['object_credits'] = object_credits(objects, credit_spells, spell_effects)
     ctx['go_counts'] = {int(r['map']): int(r['n']) for r in q('SELECT map, COUNT(*) n FROM gameobject GROUP BY map')}
     ctx['spawns'] = [(int(r['map']), float(r['x']), float(r['y']), int(r['id'])) for r in q('SELECT map, position_x x, position_y y, id FROM creature WHERE map IN (0,1) OR map >= 2000')]
     ctx['flight_spawns'] = [(int(r['map']), float(r['x']), float(r['y'])) for r in q(f'SELECT c.map, c.position_x x, c.position_y y FROM creature c JOIN creature_template ct ON ct.entry=c.id WHERE ct.npcflag & {NPCFLAG_FLIGHTMASTER}')]

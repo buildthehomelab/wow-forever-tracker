@@ -677,7 +677,8 @@ def evaluate_all(content, ctx):
             # casts when used gives the credit wherever the quest says (the Forever quest items that mark a spot)
             credited = any(ctx.get('used_spells', {}).get(spell, set()) & obtainable for spell in ctx.get('credit_spells', {}).get(obj, ())) \
                 or obj in ctx.get('script_credits', ()) \
-                or any(entry in (npc_spawned if kind_ == 'npc' else go_spawned) for kind_, entry in ctx.get('smart_credits', {}).get(obj, ()))
+                or any(entry in (npc_spawned if kind_ == 'npc' else go_spawned) for kind_, entry in ctx.get('smart_credits', {}).get(obj, ())) \
+                or bool(ctx.get('object_credits', {}).get(obj, set()) & go_spawned)
             if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned) and not credited:
                 problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
