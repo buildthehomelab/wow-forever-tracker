@@ -680,6 +680,42 @@ def quest_reward_checks():
         + f' ({len(rows)} quests with an item reward, {len(set(rows) & set(records))} of them recorded on live)')
 
 
+def class_stat_checks():
+    """Runs every race and class the server lets players make (playercreateinfo) through the core's Classic stat
+    formulas, level 1 to 60, naked (ft.classstats), and writes ft_class_checks: where a formula gives nothing (no health
+    out of combat, no attack power, a stat at 0) or far less than the vanilla races of the class. A report only."""
+    from ft import classstats
+    if not all(sqlio.has_table(t) for t in ('playercreateinfo', 'player_classlevelstats', 'player_racestats')):
+        log('class stat check: the server has no player_classlevelstats / player_racestats, skipped')
+        return
+    stat = lambda r: {k: int(r[k] or 0) for k in classstats.STATS}
+    open_races = {int(r['raceID']) for r in sqlio.query('SELECT raceID FROM race_unlock_requirement WHERE expansion = 0')} \
+        if sqlio.has_table('race_unlock_requirement') else None
+    combos = classstats.playable({(int(r['race']), int(r['class'])) for r in sqlio.query('SELECT DISTINCT race, class FROM playercreateinfo')}, open_races)
+    levels = {(int(r['class']), int(r['level'])): stat(r) for r in sqlio.query('SELECT class, level, str, agi, sta, inte, spi FROM player_classlevelstats')}
+    races = {int(r['race']): stat(r) for r in sqlio.query('SELECT race, str, agi, sta, inte, spi FROM player_racestats')}
+    found = classstats.check(combos, levels, races, max_level=CLASS_CHECK_MAX_LEVEL)
+    e = sqlio.escape
+    path = os.path.join(DATA, 'class-checks.sql')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('SET NAMES utf8mb4;\nDROP TABLE IF EXISTS ft_class_checks;\n'
+                'CREATE TABLE ft_class_checks (race INT NOT NULL, class INT NOT NULL, label VARCHAR(80) NOT NULL, issue VARCHAR(16) NOT NULL,'
+                ' level_from INT NOT NULL, level_to INT NOT NULL, value DOUBLE NOT NULL, note VARCHAR(255) NOT NULL,'
+                ' KEY ix_issue (issue)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n')
+        rows = [(race, cls, classstats.label(race, cls), issue, lo, hi, value, note) for race, cls, issue, lo, hi, value, note in found]
+        for chunk in range(0, len(rows), 500):
+            f.write('INSERT INTO ft_class_checks VALUES ' + ','.join('(' + ','.join(e(v) for v in row) + ')' for row in rows[chunk:chunk + 500]) + ';\n')
+    sqlio.execute_file(path, 'tracker')
+    counts = {}
+    for row in found:
+        counts[row[2]] = counts.get(row[2], 0) + 1
+    log('class stat check: ' + (', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'nothing found')
+        + f' ({len(combos)} race and class combinations, levels 1-{CLASS_CHECK_MAX_LEVEL})')
+
+
+CLASS_CHECK_MAX_LEVEL = 60   # WoW Forever's level cap
+
+
 EXTRAS_ASKS = 3000   # Wowhead lookups one analysis may make for the extras (the rest waits for the next run)
 
 
@@ -1046,6 +1082,10 @@ def analyse(args):
         quest_reward_checks()
     except Exception as error:  # a report only, like the creature checks
         log(f'quest reward check failed, skipped: {error}')
+    try:
+        class_stat_checks()
+    except Exception as error:  # a report only, like the checks
+        log(f'class stat check failed, skipped: {error}')
     try:
         world_extras(args.wowhead)
     except Exception as error:  # a report only, like the checks
