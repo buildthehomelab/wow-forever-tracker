@@ -158,8 +158,10 @@ function collector_tables(array $data): array
         foreach (rows('SELECT Entry, LootID FROM creature_template_difficulty WHERE DifficultyID = 0 AND Entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $lootIds[(int)$r['Entry']] = (int)$r['LootID'];
     }
     $chests = [];
+    require_once FT_APP . '/sources.php';   // source_chest_loot_id
     foreach (array_chunk(array_values(array_unique($goEntries)), 1000) as $chunk) {
-        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) $chests[(int)$r['entry']] = in_array((int)$r['type'], [3, 25], true) ? (int)$r['Data1'] : 0;
+        foreach (rows('SELECT entry, type, Data1, Data30, Data33 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r)
+            $chests[(int)$r['entry']] = source_chest_loot_id((int)$r['type'], (int)$r['Data1'], (int)$r['Data30'], (int)$r['Data33']);
     }
     $questItems = [];
     foreach (rows('SELECT DISTINCT ObjectID FROM quest_objectives WHERE Type = 1', [], 'world') as $r) $questItems[(int)$r['ObjectID']] = true;

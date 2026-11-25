@@ -1183,7 +1183,8 @@ function wowhead_pages_missing_data(): array
         $ids("$lootless AND x.npcflag = 0 ORDER BY x.entry"),
         $ids("$lootless AND x.npcflag <> 0 ORDER BY x.entry"));
     $object = $ids('SELECT g.entry FROM gameobject_template g JOIN (SELECT DISTINCT id FROM gameobject) s ON s.id = g.entry
-        LEFT JOIN (SELECT DISTINCT Entry FROM gameobject_loot_template) l ON l.Entry = g.Data1 WHERE g.type = 3 AND (g.Data1 = 0 OR l.Entry IS NULL) ORDER BY g.entry');
+        LEFT JOIN (SELECT DISTINCT Entry FROM gameobject_loot_template) l ON l.Entry = COALESCE(NULLIF(g.Data1, 0), NULLIF(g.Data30, 0), NULLIF(g.Data33, 0), 0)
+        WHERE g.type = 3 AND l.Entry IS NULL ORDER BY g.entry');   // the loot a chest rolls: source_chest_loot_id
     $out = ['npc' => array_values(array_unique($npc)), 'object' => $object];
     foreach (['npc' => 'npcs', 'object' => 'objects'] as $kind => $list) {
         $listed = wowhead_pages_listed($list);

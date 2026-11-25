@@ -138,7 +138,7 @@ const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' =
 /**
  * The loot entries of these creatures, objects and containers: [[kind => [id => entry, 0 when the creature has no
  * table of that kind yet]], [known => ['npc' => [id => true], 'go' => [id => true], 'item' => [id => true]]]]. An
- * object has an entry only as a chest or a gathering node (types 3 and 25, Data1). A container is known only when the
+ * object has an entry only as a chest or a gathering node (types 3 and 25: source_chest_loot_id). A container is known only when the
  * server already opens it (item_loot_template has rows under its number): whether an item can be opened at all is
  * the client's word (its flags), which no row here can give.
  */
@@ -153,6 +153,19 @@ function source_fish_scale(array $fish, array $whole): array
         $out[$zone] = $sum > 100 ? 100 / $sum : 1;
     }
     return $out;
+}
+
+/**
+ * The loot entry a chest (type 3) or a fishing hole (25) rolls, as the core does (GameObject::Use): a chest's chestLoot
+ * (Data1), else its personal loot (Data30, which Forever's treasures use: a chest of the client's that has no Data1),
+ * else its push loot (Data33). 0 for any other object, or a chest with none.
+ */
+function source_chest_loot_id(int $type, int $data1, int $data30 = 0, int $data33 = 0): int
+{
+    if ($type === 25) return max(0, $data1);
+    if ($type !== 3) return 0;
+    foreach ([$data1, $data30, $data33] as $id) if ($id > 0) return $id;
+    return 0;
 }
 
 function source_loot_entries(array $npcs, array $objects, array $containers = []): array
@@ -171,9 +184,9 @@ function source_loot_entries(array $npcs, array $objects, array $containers = []
         }
     }
     foreach (array_chunk(array_values(array_unique(array_map('intval', $objects))), 1000) as $chunk) {
-        foreach (rows('SELECT entry, type, Data1 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
+        foreach (rows('SELECT entry, type, Data1, Data30, Data33 FROM gameobject_template WHERE entry IN (' . implode(',', $chunk) . ')', [], 'world') as $r) {
             $known['go'][(int)$r['entry']] = true;
-            $entryOf['go'][(int)$r['entry']] = in_array((int)$r['type'], [3, 25], true) ? (int)$r['Data1'] : 0;
+            $entryOf['go'][(int)$r['entry']] = source_chest_loot_id((int)$r['type'], (int)$r['Data1'], (int)$r['Data30'], (int)$r['Data33']);
         }
     }
     return [$entryOf, $known];
