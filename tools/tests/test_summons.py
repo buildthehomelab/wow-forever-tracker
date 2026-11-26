@@ -112,6 +112,62 @@ struct go_urok_challengeAI : public GameObjectAI
         self.assertEqual(set(creatures), {10602, 10584})   # not 10999: Pick summons nothing
         self.assertEqual(set(objects), {175584})
 
+    def test_a_credit_helper_and_a_creature_that_becomes_another(self):
+        text = '''
+enum { NPC_CONFRONT_CREDIT = 256634, QUEST_CONFRONT = 92646, NPC_TAMED_KODO = 11627, NPC_NOBODY = 10999 };
+static void ClassicSceneCredit(Creature* owner, uint32 questId, uint32 creditEntry, float range)
+{
+    for (Player* player : players)
+        player->KilledMonsterCredit(creditEntry);
+}
+static void Talk(Creature* owner, uint32 creditEntry, uint32 other) { owner->Say(other); }
+struct npc_spire : public ScriptedAI
+{
+    void Done() { ClassicSceneCredit(me, QUEST_CONFRONT, NPC_CONFRONT_CREDIT, 120.0f); Talk(me, NPC_NOBODY, 0); }
+    void SpellHit() { me->UpdateEntry(NPC_TAMED_KODO); me->UpdateEntry(newEntry); }
+};
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Custom', 'spire.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(text)
+            creatures, _objects, _encounters, credits = make_summoned.scan(folder)
+        self.assertEqual(set(credits), {256634})       # not 92646 (the quest) nor 10999 (Talk credits nothing)
+        self.assertEqual(set(creatures), {11627})      # the variable is left out
+
+    def test_the_spells_each_script_casts(self):
+        text = '''
+enum { SPELL_JAINAS_AUTOGRAPH = 23122, SPELL_BENDING_SHINBONE1 = 8854, SPELL_BENDING_SHINBONE2 = 8855, SPELL_FIREBALL = 133 };
+struct npc_jaina : public ScriptedAI
+{
+    bool OnGossipSelect(Player* player, uint32, uint32) override { player->CastSpell(player, SPELL_JAINAS_AUTOGRAPH, false); return true; }
+};
+class spell_bending_shinbone : public SpellScript
+{
+    void HandleScript(SpellEffIndex) { GetCaster()->CastSpell(GetCaster(), roll_chance(20) ? SPELL_BENDING_SHINBONE1 : SPELL_BENDING_SHINBONE2, GetSpell()); }
+};
+class go_tablet : public GameObjectScript
+{
+public:
+    go_tablet() : GameObjectScript("go_tablet_of_the_seven") { }
+    struct go_tabletAI : public GameObjectAI
+    {
+        bool OnGossipHello(Player* player) override { player->CastSpell(player, 15065, false); DoCastSelf(SPELL_FIREBALL); DoCast(spellId); return true; }
+    };
+};
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Custom', 'casts.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(text)
+            casts = make_summoned.script_casts(folder)
+        self.assertEqual(casts['npc_jaina'], [23122])
+        self.assertEqual(casts['spell_bending_shinbone'], [8854, 8855])
+        self.assertEqual(casts['go_tablet_of_the_seven'], [133, 15065])   # the loader's name, the inner AI's casts
+        self.assertEqual(casts['go_tablet'], [133, 15065])
+
     def test_numbered_boss_slots(self):
         text = '''
 constexpr Entry Bosses[] = { { 0, 253201 }, { 1, 261811 }, { 1, 253218 }, { 2, 7 } };
