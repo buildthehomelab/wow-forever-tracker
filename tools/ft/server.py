@@ -443,6 +443,17 @@ def server_state():
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
     ctx['used_spells'] = used_spells(item_spells, spell_effects)
     ctx['credit_spells'] = credit_spells
+    # {spell: reagent items}: an item made from the same cards as one players get, by a spell nothing casts, is an unused
+    # copy of it (ft.rules: Forever's second Portals Deck 235275 beside the classic 19277)
+    reagent_rows = srv('SpellReagents')
+    if sqlio.has_table('spell_reagents', 'hotfixes'):
+        reagent_rows = reagent_rows + sqlio.query('SELECT * FROM spell_reagents', 'hotfixes')
+    spell_reagents = {}
+    for r in reagent_rows:
+        items = frozenset(int(r.get(f'Reagent{i}') or 0) for i in range(1, 9)) - {0}
+        if items:
+            spell_reagents[int(r['SpellID'])] = items
+    ctx['spell_reagents'] = spell_reagents
     ctx['auto_learn'] = {r['Spell'] for r in srv('SkillLineAbility') if r['AcquireMethod'] in (1, 2)}
     acquire, lines = {}, {}
     for r in srv('SkillLineAbility'):

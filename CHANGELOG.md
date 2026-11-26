@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Unused same-name copies are no gap.** Forever's client carries a second Portals Deck (235275, spell 1216291)
+  beside the classic 19277 (spell 23680). Both are made from the Ace through Eight of Portals, but the cards cast 23680,
+  so players combine them into 19277 and nothing casts 1216291. The tracker listed 235275 as Incomplete ("recipe that
+  cannot be learned"), as if a well-known item were missing. An item nothing gives, made only by spells nothing teaches,
+  trains, rewards or casts, now counts as an unused copy when an item of the same name players get is made from the same
+  reagents: its source check reads "Unused copy: players get item 19277…". Covers the Portals, Elementals, Warlords and
+  Beasts decks (235275-235278). Reagents come from the server's SpellReagents.db2 and hotfixes.spell_reagents. Shows on
+  the next analysis.
+
 - **Summoned list: a field of a struct inside a table's row.** The Gizelton Caravan quest (5943) showed no quest
   giver: the core's caravan script summons Rigger Gizelton and the kodos from a table whose rows hold a struct
   (`member.coords.entry`), and `make_summoned.py` only followed one field. It now steps through each field of the

@@ -871,5 +871,43 @@ class TeachersOnly(unittest.TestCase):
         self.assertEqual(ctx['teachers_only'], {})   # no teacher to judge it by: it stays on the list
 
 
+class UnusedCopies(unittest.TestCase):
+    """Forever's second Portals Deck (235275, spell 1216291) beside the classic 19277 (spell 23680): both made from the
+    same eight cards, the cards cast 23680. The copy is not a gap."""
+
+    CARDS = frozenset({19276, 19278, 19279, 19280, 19281, 19282, 19283, 19284})
+
+    def setUp(self):
+        # creature 100 drops the Ace; using it casts 23680, which makes 19277; 1216291 makes 235275 and nothing casts it
+        self.ctx = world(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)], item_spells={19276: {23680}},
+                         creates={19277: {23680}, 235275: {1216291}}, used_spells={23680: {19276}},
+                         spell_reagents={23680: self.CARDS, 1216291: self.CARDS})
+        self.ctx['loot']['creature'] = [(900, 0, 19276, 0)]
+        self.items = {19276: {'name': 'Ace of Portals'}, 19277: {'name': 'Portals Deck'}, 235275: {'name': 'Portals Deck'}}
+
+    def test_the_copy_is_no_gap(self):
+        result = evaluate({'item': self.items}, self.ctx)
+        self.assertEqual(result[('item', 19277)][0], 'ok')
+        self.assertEqual(result[('item', 235275)][0], 'ok')
+        self.assertIn('19277', result[('item', 235275)][2][1]['detail']['en'])
+        self.assertEqual(self.ctx['unused_copies'], {235275: {19277}})
+
+    def test_other_reagents_are_no_copy(self):
+        self.ctx['spell_reagents'][1216291] = frozenset({1, 2})
+        self.assertEqual(failed(evaluate({'item': self.items}, self.ctx)[('item', 235275)]), ['source'])
+
+    def test_another_name_is_no_copy(self):
+        self.items[235275] = {'name': 'Dunes Deck'}
+        self.assertEqual(failed(evaluate({'item': self.items}, self.ctx)[('item', 235275)]), ['source'])
+
+    def test_no_twin_players_get(self):
+        self.ctx['spawned_npc'] = set()   # nobody drops the cards: neither deck is obtainable
+        self.assertEqual(failed(evaluate({'item': self.items}, self.ctx)[('item', 235275)]), ['source'])
+
+    def test_a_spell_something_casts_is_no_copy(self):
+        self.ctx['used_spells'][1216291] = {555}   # some item casts it: its own gap, not a copy
+        self.assertEqual(failed(evaluate({'item': self.items}, self.ctx)[('item', 235275)]), ['source'])
+
+
 if __name__ == '__main__':
     unittest.main()

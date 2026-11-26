@@ -379,6 +379,37 @@ def evaluate_all(content, ctx):
         if teachers:
             teachers_only[item_id] = teachers
     ctx['teachers_only'] = teachers_only
+    # Unused copies: an item nothing gives, made only by spells nothing teaches, trains, rewards or casts, while an item
+    # of the same name players get is made from the same reagents. Forever's client carries a second Portals Deck
+    # (235275, spell 1216291) beside the classic 19277 (spell 23680): both take the Ace through Eight of Portals, but
+    # the cards cast 23680, so players combine them into 19277. Nothing is missing.
+    spell_reagents = ctx.get('spell_reagents') or {}
+    items_ = content.get('item', {})
+
+    def item_name(item_id):
+        row = items_.get(item_id) or {}
+        return normal_name(row.get('name_en') or row.get('name') or '')
+
+    made_from = {}   # (name, reagents) -> items players get, made by a spell from those reagents
+    for item_id, spells in ctx['creates'].items():
+        if item_id in sources and item_name(item_id):
+            for spell in spells:
+                if spell in spell_reagents:
+                    made_from.setdefault((item_name(item_id), spell_reagents[spell]), set()).add(item_id)
+    unused_copies = {}
+    for item_id, spells in ctx['creates'].items():
+        if item_id in sources or item_id in SCRIPT_CREATES or not item_name(item_id):
+            continue
+        if any(s in learnable or s in trained_any or s in reward_quests or s in talked or s in cast or ctx['teaches'].get(s)
+               or ctx.get('used_spells', {}).get(s) for s in spells):
+            continue
+        twins = set()
+        for spell in spells:
+            if spell in spell_reagents:
+                twins |= made_from.get((item_name(item_id), spell_reagents[spell]), set())
+        if twins - {item_id}:
+            unused_copies[item_id] = twins - {item_id}
+    ctx['unused_copies'] = unused_copies
     results = {}
     # Items only quests live no longer gives reward (ctx not_given_quests: the old Anthion's Parting Words and Just
     # Compensation, whose Mokvar and Deliana live replaced): live hands out its own copies instead (the 841xx quests'
@@ -408,6 +439,11 @@ def evaluate_all(content, ctx):
             checks.append(check(True, 'source', L(
                 f'Not given on WoW: Forever: only quest {some} rewards it, which live no longer gives (its giver was replaced).',
                 f'Pas donné sur WoW: Forever : seule la quête {some} le donne, que le jeu officiel ne propose plus (son PNJ a été remplacé).'), 3))
+        elif item_id in unused_copies:
+            twins = ', '.join(map(str, sorted(unused_copies[item_id])))
+            checks.append(check(True, 'source', L(
+                f'Unused copy: players get item {twins} of the same name, made from the same reagents; nothing casts the spell that makes this one.',
+                f'Copie inutilisée : les joueurs obtiennent l’objet {twins} du même nom, fait des mêmes composants ; rien ne lance le sort qui fait celui-ci.'), 3))
         else:
             hint = []
             if item_id in loot_unplaced:
