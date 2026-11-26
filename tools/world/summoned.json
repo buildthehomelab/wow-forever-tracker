@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "68a93b68b1",
+"commit": "d1119e7d75",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -839,6 +839,7 @@
 "176146": "Kalimdor/zone_silithus.cpp",
 "176147": "Kalimdor/zone_silithus.cpp",
 "176148": "Kalimdor/zone_silithus.cpp",
+"176149": "Custom/Classic/instances/ruins_of_ahnqiraj/classic_instance_ruins_of_ahnqiraj.cpp",
 "176211": "Custom/Classic/instances/stratholme/classic_boss_cannon_master_willey.cpp",
 "177749": "Custom/Classic/kalimdor/classic_desolace.cpp",
 "177807": "Custom/Classic/instances/blackwing_lair/classic_instance_blackwing_lair.cpp",
@@ -865,12 +866,13 @@
 "179698": "Custom/Classic/eastern_kingdoms/classic_eastern_plaguelands.cpp",
 "179699": "Custom/Classic/eastern_kingdoms/classic_eastern_plaguelands.cpp",
 "180514": "Custom/Classic/kalimdor/classic_silithus.cpp",
-"180619": "Kalimdor/RuinsOfAhnQiraj/boss_ossirian.cpp",
+"180619": "Custom/Classic/instances/ruins_of_ahnqiraj/classic_instance_ruins_of_ahnqiraj.cpp",
 "181068": "Custom/Classic/instances/ruins_of_ahnqiraj/classic_ruins_of_ahnqiraj.cpp",
 "181069": "Custom/Classic/instances/ruins_of_ahnqiraj/classic_boss_moam.cpp",
 "181142": "Custom/Classic/world/classic_world_event_scourge_invasion.cpp",
 "181229": "Custom/Classic/instances/naxxramas/classic_boss_kelthuzad.cpp",
 "181247": "Northrend/Naxxramas/boss_sapphiron.cpp",
+"181597": "OutdoorPvP/OutdoorPvPSI.cpp",
 "181987": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "182088": "Kalimdor/zone_bloodmyst_isle.cpp",
 "182091": "Kalimdor/zone_bloodmyst_isle.cpp",
@@ -892,6 +894,7 @@
 "193593": "Northrend/zone_storm_peaks.cpp",
 "193594": "Northrend/zone_storm_peaks.cpp",
 "193905": "Northrend/Nexus/EyeOfEternity/boss_malygos.cpp",
+"193908": "Northrend/Nexus/EyeOfEternity/instance_eye_of_eternity.cpp",
 "193967": "Northrend/Nexus/EyeOfEternity/boss_malygos.cpp",
 "194158": "Northrend/Nexus/EyeOfEternity/boss_malygos.cpp",
 "194159": "Northrend/Nexus/EyeOfEternity/boss_malygos.cpp",
@@ -916,7 +919,8 @@
 "412198": "Custom/Classic/world/classic_rogue_dead_drop.cpp",
 "553754": "Custom/Classic/instances/city_of_dalaran/classic_instance_city_of_dalaran.cpp",
 "617075": "Custom/Classic/world/classic_npcs_special.cpp",
-"617084": "Custom/Classic/world/classic_npcs_special.cpp"
+"617084": "Custom/Classic/world/classic_npcs_special.cpp",
+"630604": "Custom/Classic/instances/alcaz_prison/classic_instance_alcaz_prison.cpp"
 },
 "encounters": {
 "227": [
@@ -2864,6 +2868,7 @@
 "256634": "Custom/Classic/world/classic_npcs_special.cpp",
 "257964": "Custom/Classic/world/classic_spell_scripts.cpp",
 "264712": "Custom/Classic/world/classic_npcs_special.cpp",
+"264861": "Custom/Classic/instances/alcaz_prison/classic_instance_alcaz_prison.cpp",
 "266513": "Custom/Classic/world/classic_spell_scripts.cpp"
 },
 "teleports": {

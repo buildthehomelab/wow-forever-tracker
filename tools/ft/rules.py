@@ -151,7 +151,8 @@ def evaluate_all(content, ctx):
     # Windfury Cone 206170), or one a spawned creature's or object's C++ script casts (Jaina's gossip: her autograph)
     for item, spells in ctx['creates'].items():
         for kind, entry in {who for spell in spells for who in ctx.get('world_casts', {}).get(spell, ())}:
-            if entry in (npc_spawned if kind == 'npc' else go_spawned):
+            # ('at', id): an area trigger, read only when spawned (ft.server.spawned_trigger_casts)
+            if kind == 'at' or entry in (npc_spawned if kind == 'npc' else go_spawned):
                 add([item], 'script' if kind == 'npc' else 'object')
     # the marks of honor the core hands out when a battle ends (BATTLEGROUND_MARKS)
     add({item for item, map_id in BATTLEGROUND_MARKS.items() if map_id in ctx.get('battlegrounds', ())}, 'script')

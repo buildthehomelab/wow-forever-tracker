@@ -46,7 +46,9 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'world', 'summone
 CONSTANT = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\d+)\s*[,;}\n]')
 # Calls that create a creature or a world object from an entry given as their first argument.
 CREATURE_CALLS = ('SummonCreature', 'DoSummon', 'DoSummonFlyer', 'DoSpawnCreature', 'SummonTrigger')
-OBJECT_CALLS = ('SummonGameObject', 'DoSummonGameObject')
+# GameObject::CreateGameObject(entry, map, ...) and a map's AddToMap put one in the world by hand (the Perfumed Note
+# Alcaz Prison lays where Blazeroar falls)
+OBJECT_CALLS = ('SummonGameObject', 'DoSummonGameObject', 'CreateGameObject')
 # A script's own helper named so (`SummonRookeryCreature(NPC_SOLAKAR, ...)`) counts as such a call too. The first
 # argument may pick from an array (`SummonCreature(BrdRingBoss[urand(0, 5)], ...)`): every entry of the array counts.
 HELPER = r'\w*Summon\w*(?:Creature|GameObject)\w*'

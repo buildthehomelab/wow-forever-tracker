@@ -953,6 +953,15 @@ class CoreGives(unittest.TestCase):
         self.assertEqual(results[('item', 18642)][0], 'ok')
         self.assertEqual(failed(results[('item', 9)]), ['source'])   # creature 5 is not in the world
 
+    def test_a_conversations_cast_and_a_spawned_area_triggers_cast(self):
+        # Trevan Rol's gossip casts 1280553 (his notes 267454); the spawned Well of Eternity trigger 42773 casts 1293359
+        # (the Cleansed Heart 274163). ft.server reads area triggers only when spawned, so ('at', id) needs no spawn.
+        ctx = world(spawned_npc={248840}, creates={267454: {1280553}, 274163: {1293359}},
+                    world_casts={1280553: {('npc', 248840)}, 1293359: {('at', 42773)}})
+        results = evaluate({'item': {267454: {}, 274163: {}}}, ctx)
+        self.assertEqual(results[('item', 267454)][0], 'ok')
+        self.assertEqual(results[('item', 274163)][0], 'ok')
+
     def test_the_server_follows_a_spell_scripts_casts(self):
         # item 7131 casts 8856, whose C++ script casts 8854 or 8855; 8855 creates 7134
         effects = [{'SpellID': 8855, 'Effect': 24, 'EffectTriggerSpell': 0, 'EffectItemType': 7134, 'EffectMiscValue1': 0}]
