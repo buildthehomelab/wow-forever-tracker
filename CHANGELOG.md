@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Closed item loops go under Internal / test.** The Warglaives of Azzinoth (18582-18584) were Incomplete ("recipe
+  that cannot be learned"): the Twin Blades split into the Right and Left blades and the Right joins back into the Twin
+  Blades, but nothing has ever given any of the three. The Classic pack counts "made by a spell" as given, so they were
+  not filed as never given. Items only other items of a closed group make, where nothing outside the group gives any of
+  them, are now filed under Internal / test, for items of the original game; Forever's own items stay listed. Shows on
+  the next analysis.
+
 - **Unused same-name copies are no gap.** Forever's client carries a second Portals Deck (235275, spell 1216291)
   beside the classic 19277 (spell 23680). Both are made from the Ace through Eight of Portals, but the cards cast 23680,
   so players combine them into 19277 and nothing casts 1216291. The tracker listed 235275 as Incomplete ("recipe that

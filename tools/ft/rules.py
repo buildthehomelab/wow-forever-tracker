@@ -379,6 +379,17 @@ def evaluate_all(content, ctx):
         if teachers:
             teachers_only[item_id] = teachers
     ctx['teachers_only'] = teachers_only
+    # Closed loops: items only other such items make, so nothing outside the group brings one in. The Warglaives of
+    # Azzinoth: the Twin Blades 18582 split into the Right 18583 (and the Left 18584), the Right joins back into the
+    # Twin Blades, and nothing has ever given any of the three. Pruned until every teacher left is itself in the group;
+    # ft.output files what remains under Internal / test.
+    closed = set(teachers_only)
+    while True:
+        out = {item for item in closed if not teachers_only[item] <= closed}
+        if not out:
+            break
+        closed -= out
+    ctx['closed_loops'] = closed
     # Unused copies: an item nothing gives, made only by spells nothing teaches, trains, rewards or casts, while an item
     # of the same name players get is made from the same reagents. Forever's client carries a second Portals Deck
     # (235275, spell 1216291) beside the classic 19277 (spell 23680): both take the Ace through Eight of Portals, but
