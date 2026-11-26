@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Summoned list: a field of a struct inside a table's row.** The Gizelton Caravan quest (5943) showed no quest
+  giver: the core's caravan script summons Rigger Gizelton and the kodos from a table whose rows hold a struct
+  (`member.coords.entry`), and `make_summoned.py` only followed one field. It now steps through each field of the
+  path. `summoned.json` regenerated from the core fork at cd65c37908 (PTR): +2 creatures (Rigger Gizelton 11626,
+  Caravan Kodo 11564), nothing lost. Shows on the next analysis.
+
 - **Class stats check.** A High Order Skyborne warrior regained no health out of combat at level 4: the Classic
   formulas are fitted to the vanilla races, and that race's live -3 Spirit falls outside them. No table was wrong, so no
   check saw it. The analysis now runs every race and class players can make, level 1 to 60, naked, through the core's
