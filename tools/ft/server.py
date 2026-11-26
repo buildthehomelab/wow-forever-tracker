@@ -12,6 +12,7 @@ EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 EFFECT_APPLY_AURA, AURA_DUMMY = 6, 4   # SpellEffect.Effect / EffectAura: a seal's dummy aura names its judgement in its points
+AURA_CHANNEL_DEATH_ITEM = 86   # SPELL_AURA_CHANNEL_DEATH_ITEM (the core's SpellAuraDefines.h): EffectItemType made when the target dies
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
 AREATRIGGER_ACTION_TELEPORT = 2   # areatrigger_template_actions.ActionType: ActionParam is a world_safe_locs ID
 
@@ -377,14 +378,18 @@ def zone_rectangles(assignments):
     return out
 
 
-def used_spells(item_spells, effects):
+def used_spells(item_spells, effects, script_casts=None):
     """{spell: {item}}: what using an item casts, the spells those trigger included (a learn effect teaches its spell,
     it casts nothing). The Empty Leaden Collection Phial fills itself into the Full one, the Heated Ancient Blade
-    becomes the Treated one: the item a spell of these creates is made by using an item."""
+    becomes the Treated one: the item a spell of these creates is made by using an item. script_casts ({spell:
+    {spells}}) adds what a spell's C++ script casts (the Bending Shinbone 8856 casts 8854 or 8855). The keys of
+    item_spells need not be items: a world object's ('go', entry) works the same."""
     triggers = {}
     for e in effects:
         if e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID'] and e['Effect'] != EFFECT_LEARN_SPELL:
             triggers.setdefault(e['SpellID'], set()).add(e['EffectTriggerSpell'])
+    for spell, targets in (script_casts or {}).items():
+        triggers.setdefault(spell, set()).update(set(targets) - {spell})
     used = {}
     for item_id, spells in item_spells.items():
         todo, seen = list(spells), set()
@@ -422,6 +427,9 @@ def server_state():
         elif e['EffectTriggerSpell'] and e['EffectTriggerSpell'] != e['SpellID']:
             cast_by.setdefault(e['EffectTriggerSpell'], e['SpellID'])
         if e['Effect'] == EFFECT_CREATE_ITEM and e['EffectItemType']:
+            creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
+        # an aura that makes its item when the target dies under it (Drain Soul's Soul Shard 6265)
+        if e.get('EffectAura') == AURA_CHANNEL_DEATH_ITEM and e['EffectItemType']:
             creates.setdefault(e['EffectItemType'], set()).add(e['SpellID'])
         if e['Effect'] == EFFECT_SUMMON and e['EffectMiscValue1'] > 0:
             spell_summons.add(e['EffectMiscValue1'])
@@ -478,7 +486,13 @@ def server_state():
         taught |= {(int(r['SpellID']), int(r['LearnSpellID'])) for r in sqlio.query('SELECT SpellID, LearnSpellID FROM spell_learn_spell', 'hotfixes')}
     ctx['spell_teaches'] = taught
     ctx['spell_ids'] = {r['ID'] for r in srv('SpellName')} | {r['SpellID'] for r in srv('SpellMisc')}
-    ctx['start_quest_item'] = {r['StartQuestID']: r['ID'] for r in srv('ItemSparse') if r['StartQuestID']}
+    # the item that starts a quest: ItemSparse.db2, then hotfixes.item_sparse (a hotfix row replaces the file's for its
+    # item: the Forever items 277556-277558 that start 97270, 99233 and 99234 are hotfixes only)
+    starts = {r['ID']: r['StartQuestID'] for r in srv('ItemSparse')}
+    if sqlio.has_table('item_sparse', 'hotfixes'):
+        for r in sqlio.query('SELECT ID, StartQuestID FROM item_sparse ORDER BY VerifiedBuild', 'hotfixes'):
+            starts[int(r['ID'])] = int(r['StartQuestID'] or 0)
+    ctx['start_quest_item'] = {quest: item for item, quest in sorted(starts.items()) if quest}
 
     log('server: world database')
     q = sqlio.query
@@ -612,6 +626,25 @@ def server_state():
         for spell in corespells.expand(int(r['spell_id']), chains):
             bound.setdefault(spell, set()).add(r['ScriptName'] or '')
     ctx['spell_scripts'] = bound
+    # What the core's C++ scripts cast (summoned.json casts, by script name): a spell script's casts follow its spell
+    # like a trigger (using the Bending Shinbone 7131 casts 8856, whose script casts 8854 or 8855: the Dragonmaw
+    # Shinbone); a creature's or object's script casts on the player who talks to it or uses it (Jaina's gossip casts
+    # her autograph 23122, the Tablet of the Seven 15065). world_casts: {spell: {('npc'|'go', entry)}}, with a world
+    # object's own spell (OBJECT_SPELL_COLUMN: the Windfury Cone's 412365) and what those trigger.
+    casts = core.get('casts', {})
+    script_triggers = {}
+    for spell, names in bound.items():
+        for name in names:
+            script_triggers.setdefault(spell, set()).update(casts.get(name, ()))
+    ctx['used_spells'] = used_spells(item_spells, spell_effects, script_triggers)
+    holders = {}
+    for entry, spell in objects:
+        holders.setdefault(('go', entry), set()).add(spell)
+    for kind, table in (('npc', 'creature_template'), ('go', 'gameobject_template')):
+        for r in q(f"SELECT entry, ScriptName FROM {table} WHERE ScriptName <> ''"):
+            if casts.get(r['ScriptName']):
+                holders.setdefault((kind, int(r['entry'])), set()).update(casts[r['ScriptName']])
+    ctx['world_casts'] = used_spells(holders, spell_effects, script_triggers)
     ctx['scripted_spells'] = set(bound) | {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
     ctx['spell_procs'] = {spell for x in sqlio.column('SELECT SpellId FROM spell_proc') for spell in corespells.expand(int(x), chains)}
     options = {r['SpellID']: r['ProcTypeMask1'] or r['ProcTypeMask2'] for r in srv('SpellAuraOptions')

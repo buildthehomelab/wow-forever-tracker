@@ -21,10 +21,10 @@ EVENT_SUMMON_CREATURE = 10   # event_scripts.command: datalong is the creature
 
 def core(path=None):
     """{'creatures': {entry: script}, 'objects': {entry: script}, 'encounters': {encounter id: [creature entries]},
-    'credits': {entry: script} (kill credits a script gives), 'teleports': {map id: script} (maps a script teleports into)}
-    from the core's scripts; empty when the file is missing or unreadable (the analysis then knows the database's
+    'credits': {entry: script} (kill credits a script gives), 'teleports': {map id: script} (maps a script teleports into),
+    'casts': {script name: [spell ids]} (the spells each script casts)} from the core's scripts; empty when the file is missing or unreadable (the analysis then knows the database's
     summons only)."""
-    out = {'creatures': {}, 'objects': {}, 'encounters': {}, 'credits': {}, 'teleports': {}, 'commit': ''}
+    out = {'creatures': {}, 'objects': {}, 'encounters': {}, 'credits': {}, 'teleports': {}, 'casts': {}, 'commit': ''}
     try:
         with open(path or FILE, encoding='utf-8') as handle:
             raw = json.load(handle)
@@ -36,9 +36,10 @@ def core(path=None):
         out['encounters'] = {int(k): [int(x) for x in v] for k, v in (raw.get('encounters') or {}).items()}
         out['credits'] = {int(k): str(v) for k, v in (raw.get('credits') or {}).items()}
         out['teleports'] = {int(k): str(v) for k, v in (raw.get('teleports') or {}).items()}
+        out['casts'] = {str(k): [int(x) for x in v] for k, v in (raw.get('casts') or {}).items()}
         out['commit'] = str(raw.get('commit') or '')
     except (AttributeError, TypeError, ValueError):
-        return {'creatures': {}, 'objects': {}, 'encounters': {}, 'credits': {}, 'teleports': {}, 'commit': ''}
+        return {'creatures': {}, 'objects': {}, 'encounters': {}, 'credits': {}, 'teleports': {}, 'casts': {}, 'commit': ''}
     return out
 
 

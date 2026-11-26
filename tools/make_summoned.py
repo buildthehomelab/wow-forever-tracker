@@ -6,19 +6,22 @@ The database knows some summons (SmartAI, summon groups, summoning spells), but 
 `instance->SummonCreature(NPC_GANDLING, ...)`. Such a boss has no spawn row and never will, so without this list
 the analysis calls it missing and the locator offers to spawn it for good.
 
-Five lists:
+Six lists:
   creatures   entry -> script, for every SummonCreature / DoSummon call with a known entry (also a script's own
-              helper named Summon...Creature, every entry of an array the call picks from, and what an instance's
-              GetCreatureEntry hook swaps a spawn for)
+              helper named Summon...Creature, every entry of an array the call picks from, what an instance's
+              GetCreatureEntry hook swaps a spawn for, and what a creature turns into with UpdateEntry)
   objects     entry -> script, the same for SummonGameObject (a boss's chest)
   encounters  DungeonEncounter id -> creature entries, from the instance scripts' own tables: the encounter list
               `{ DATA_UROK_DOOMHOWL, {{ 271 }} }` joined to the creature of that boss (`{ NPC_X, DATA_X }`,
               `{ ENC_X, 7273 }`, or the constant of the same name, NPC_UROK_DOOMHOWL). It says which creature is the
               boss without comparing names, and it covers a boss the script creates from a variable.
   credits     entry -> script, for every KilledMonsterCredit / RewardPlayerAndGroupAtEvent call: a quest objective's
-              marker the script credits (Arathi Basin's bases, 15001-15005), which no spawn stands for
+              marker the script credits (Arathi Basin's bases, 15001-15005), which no spawn stands for; also
+              through a helper of the file that credits one of its parameters (ClassicSceneCredit)
   teleports   map id -> script, for every `TeleportTo(map, ...)` with a known map: an instance a script takes the
               player into (City of Dalaran's sewer grate) has an entrance no table shows.
+  casts       script name -> spell ids, the spells each script class casts (CastSpell, DoCast...): what a scripted
+              creature's gossip, an object's script or a spell script hands the player (Jaina's Autograph, 23122)
 
     python tools/make_summoned.py /path/to/TrinityCore            (reads src/server/scripts)
 
@@ -79,6 +82,15 @@ MIN_ENTRY = 100   # below that a number is a slot of the instance, not a creatur
 # Calls that give a player the kill credit of a creature given as their first argument: a battleground's capture, a
 # script's event. Such a creature is a quest objective's marker that no spawn ever stands for.
 CREDIT = re.compile(r'\b(KilledMonsterCredit|RewardPlayerAndGroupAtEvent)\s*\(')
+# A creature that turns into another (`me->UpdateEntry(NPC_TAMED_KODO)`): the new entry is in the world from then on,
+# and what it gives (TalkedToCreature, KilledMonsterCredit(me->GetEntry())) is given under that entry
+UPDATE_ENTRY = re.compile(r'\bUpdateEntry\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*|\d+)\s*[,)]')
+# Calls that cast a spell, and the place of the spell among their arguments (DoCast(spell) alone casts at the victim)
+CAST_CALLS = {'CastSpell': 1, 'DoCast': 1, 'DoCastSelf': 0, 'DoCastVictim': 0, 'DoCastAOE': 0}
+CAST = re.compile(r'\b(' + '|'.join(CAST_CALLS) + r')\s*\(')
+# A script class or struct, and the name a ScriptLoader constructor gives it (`CreatureScript("npc_cairne_bloodhoof")`)
+SCRIPT_CLASS = re.compile(r'\b(?:class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?:\s*(?:public\s+)?[A-Za-z_][\w:<>]*[^{;]*\{')
+LOADER_NAME = re.compile(r'\b\w*Script\s*\(\s*"([^"]+)"')
 
 
 def read(path):
@@ -164,6 +176,27 @@ def pass_through(text):
             if call not in CREATURE_CALLS + OBJECT_CALLS or token not in params:
                 continue
             out.append((name, params.index(token), call in OBJECT_CALLS))
+    return sorted(set(out))
+
+
+def credit_pass_through(text):
+    """[(function name, parameter index)] for each function of the file whose body gives the kill credit of one of its
+    own parameters: `static void ClassicSceneCredit(Creature* owner, uint32 questId, uint32 creditEntry, float range)
+    { ... player->KilledMonsterCredit(creditEntry); }` gives ('ClassicSceneCredit', 2)."""
+    out = []
+    for m in FUNCTION.finditer(text):
+        name = m.group(1)
+        if name in KEYWORDS or CREDIT.match(name + '('):
+            continue
+        params = [re.findall(r'[A-Za-z_]\w*', p.split('=')[0]) for p in split_top(m.group(2))]
+        params = [p[-1] if p else '' for p in params]
+        if not any(params):
+            continue
+        body = text[m.end():closing(text, m.end() - 1) - 1]
+        for c in CREDIT.finditer(body):
+            parts = split_top(body[c.end():closing(body, c.end() - 1) - 1])
+            if parts and parts[0].strip() in params:
+                out.append((name, params.index(parts[0].strip())))
     return sorted(set(out))
 
 
@@ -452,7 +485,76 @@ def scan(scripts):
                 entry = resolve(path, t.strip()) if re.fullmatch(r'[A-Za-z_][\w:]*|\d+', t.strip()) else None
                 if entry and entry >= MIN_ENTRY:
                     credits.setdefault(entry, script)
+        # a helper of the file that credits one of its parameters (ClassicSceneCredit(me, quest, NPC_CONFRONT_CREDIT,
+        # range)): every call of it, the argument in that place
+        for name, index in credit_pass_through(text):
+            for m in re.finditer(r'\b' + name + r'\s*\(', text):
+                if not is_call(text, m.start()):
+                    continue
+                parts = split_top(text[m.end():closing(text, m.end() - 1) - 1])
+                if index < len(parts) and re.fullmatch(r'[A-Za-z_][\w:]*|\d+', parts[index]):
+                    entry = resolve(path, parts[index])
+                    if entry and entry >= MIN_ENTRY:
+                        credits.setdefault(entry, script)
+        # a creature that becomes another: the new entry comes into the world
+        for token in UPDATE_ENTRY.findall(text):
+            entry = resolve(path, token)
+            if entry and entry >= MIN_ENTRY:
+                creatures.setdefault(entry, script)
     return creatures, objects, encounters, credits
+
+
+def script_casts(scripts):
+    """{script name: [spell ids]}: the spells each C++ script class casts (CastSpell, DoCast...), by the name the database
+    binds it with (the class name, or the name its ScriptLoader constructor gives). Jaina's gossip casts her autograph
+    (23122) on the player, the Tablet of the Seven casts 15065, the Bending Shinbone's spell script casts 8854 or 8855.
+    A spell given by a number or a SPELL_ constant with one value (in the file, else its folder, else anywhere) counts,
+    every one of a ternary's; a variable is left out. A class inside another counts for the outer one too (a
+    CreatureScript's AI)."""
+    texts = {}
+    for folder, _dirs, files in os.walk(scripts):
+        for name in files:
+            if name.endswith(('.cpp', '.h')):
+                path = os.path.join(folder, name)
+                texts[path] = read(path)
+    by_file, by_folder, everywhere = {}, {}, {}
+    for path, text in texts.items():
+        for name, value in CONSTANT.findall(text):
+            by_file.setdefault(path, {}).setdefault(name, set()).add(int(value))
+            by_folder.setdefault(os.path.dirname(path), {}).setdefault(name, set()).add(int(value))
+            everywhere.setdefault(name, set()).add(int(value))
+
+    def resolve(path, token):
+        if token.isdigit():
+            return int(token)
+        name = token.rsplit('::', 1)[-1]
+        for scope in (by_file.get(path, {}), by_folder.get(os.path.dirname(path), {}), everywhere):
+            values = scope.get(name)
+            if values:
+                return next(iter(values)) if len(values) == 1 else None
+        return None
+
+    out = {}
+    for path in sorted(texts):
+        text = texts[path]
+        for m in SCRIPT_CLASS.finditer(text):
+            body = text[m.end() - 1:closing(text, m.end() - 1)]
+            spells = set()
+            for c in CAST.finditer(body):
+                parts = split_top(body[c.end():closing(body, c.end() - 1) - 1])
+                index = CAST_CALLS[c.group(1)] if len(parts) > 1 else 0
+                if index >= len(parts):
+                    continue
+                arg = parts[index].strip()
+                tokens = [arg] if arg.isdigit() else [t for t in re.findall(r'\b[A-Za-z_][\w:]*', arg) if 'SPELL' in t.rsplit('::', 1)[-1]]
+                for t in tokens:
+                    spell = resolve(path, t)
+                    if spell:
+                        spells.add(spell)
+            if spells:
+                for name in {m.group(1)} | set(LOADER_NAME.findall(body)):
+                    out.setdefault(name, set()).update(spells)
+    return {name: sorted(spells) for name, spells in out.items()}
 
 
 TELEPORT = re.compile(r'\bTeleportTo\s*\(\s*([A-Za-z_][\w:]*|\d+)\s*,')
@@ -506,18 +608,21 @@ def main(argv):
         raise SystemExit(f'{scripts}: not a TrinityCore source tree')
     creatures, objects, encounters, credits = scan(scripts)
     maps = teleports(scripts)
+    casts = script_casts(scripts)
     out = {'source': 'TrinityCore C++ scripts (src/server/scripts): entries a script summons',
            'commit': argv[2] if len(argv) > 2 else commit(core),
            'creatures': {str(k): creatures[k] for k in sorted(creatures)},
            'objects': {str(k): objects[k] for k in sorted(objects)},
            'encounters': {str(k): sorted(encounters[k]) for k in sorted(encounters)},
            'credits': {str(k): credits[k] for k in sorted(credits)},
-           'teleports': {str(k): maps[k] for k in sorted(maps)}}
+           'teleports': {str(k): maps[k] for k in sorted(maps)},
+           'casts': {name: casts[name] for name in sorted(casts)}}
     with open(OUT, 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(out, handle, indent=0, sort_keys=False)
         handle.write('\n')
     print(f'{len(creatures)} creatures and {len(objects)} world objects summoned by scripts, {len(encounters)} boss encounters tied to a creature, '
-          f'{len(credits)} creatures whose kill credit a script gives, {len(maps)} maps scripts teleport into -> {OUT}')
+          f'{len(credits)} creatures whose kill credit a script gives, {len(maps)} maps scripts teleport into, '
+          f'{len(casts)} scripts that cast spells -> {OUT}')
 
 
 if __name__ == '__main__':

@@ -29,6 +29,13 @@ TABLES = ('ft_builds', 'ft_entities', 'ft_changes', 'ft_meta', 'ft_tooltips', 'f
 # Them Again, the Alterac Valley "Speak with..." pair, Stonesplinter Trogg Disguise, the "Chow" test quest, To The
 # Victor..., Vanquish the Invaders, Vimes's Report (1289, the copy 1288 replaced), Waskily Wabbits!, River Ends.
 NEVER_GIVEN_QUESTS = {785, 1390, 7221, 7222, 912, 9065, 9556, 8290, 1289, 7961, 7790}
+# Quests live WoW: Forever does not give, checked by hand (2026-11-26): filed under Internal / test when a check fails,
+# and (ft.rules) left out of what the imports propose a giver for. 620: the old Classic copy (item 3985 starts 8552
+# instead). 7704: its pillow was never added, the object 179832 has no live sighting. 7361: no Wowhead page, Icy Veins
+# has an empty title. 8266, 8268 (Ribbons of Sacrifice): no texts and no giver anywhere. The rest: no giver or ender in
+# any source, and Wowhead's comments say removed or the text is a placeholder.
+NOT_ON_LIVE_QUESTS = {620, 7704, 7361, 8266, 8268, 92521, 93174, 93314, 93733, 94901, 94902, 94969, 95056, 95181, 96027,
+                      96028, 96735, 95751}
 
 
 def summary(rows, closed):
@@ -259,6 +266,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 if 'starter' in failed and done_titles.get(name_en, set()) - {entity_id}:
                     internal = 1
                 if 'starter' in failed and entity_id in NEVER_GIVEN_QUESTS:
+                    internal = 1
+                if failed and entity_id in NOT_ON_LIVE_QUESTS:
                     internal = 1
                 # started only by an item the client itself marks unused ("<UNUSED> Glyphic Rune")
                 start_item = content.get('item', {}).get((ctx or {}).get('start_quest_item', {}).get(entity_id)) or {}

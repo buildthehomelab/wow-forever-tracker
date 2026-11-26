@@ -939,5 +939,56 @@ class ClosedLoops(unittest.TestCase):
         self.assertEqual(ctx['closed_loops'], set())
 
 
+
+class CoreGives(unittest.TestCase):
+    """Items the world and the core's C++ hand over without a loot row: a spawned object's spell (the Windfury Cone),
+    a scripted creature's cast (Jaina's Autograph), a spell script's casts (the Bending Shinbone), the battleground
+    marks, a spell script's own AddItem (the well samples), Drain Soul's death item."""
+
+    def test_an_objects_spell_and_a_creatures_script(self):
+        ctx = world(spawned_go={403105}, spawned_npc={4968}, creates={206170: {412365}, 18642: {23122}, 9: {99}},
+                    world_casts={412365: {('go', 403105)}, 23122: {('npc', 4968)}, 99: {('npc', 5)}})
+        results = evaluate({'item': {206170: {}, 18642: {}, 9: {}}}, ctx)
+        self.assertEqual(results[('item', 206170)][0], 'ok')
+        self.assertEqual(results[('item', 18642)][0], 'ok')
+        self.assertEqual(failed(results[('item', 9)]), ['source'])   # creature 5 is not in the world
+
+    def test_the_server_follows_a_spell_scripts_casts(self):
+        # item 7131 casts 8856, whose C++ script casts 8854 or 8855; 8855 creates 7134
+        effects = [{'SpellID': 8855, 'Effect': 24, 'EffectTriggerSpell': 0, 'EffectItemType': 7134, 'EffectMiscValue1': 0}]
+        used = server.used_spells({7131: {8856}}, effects, {8856: {8854, 8855}})
+        self.assertEqual(used, {8856: {7131}, 8854: {7131}, 8855: {7131}})
+        # a world object's own spell, keyed by ('go', entry)
+        self.assertEqual(server.used_spells({('go', 1): {5}}, effects), {5: {('go', 1)}})
+
+    def test_battleground_marks_need_the_battleground(self):
+        ctx = world(battlegrounds={30})
+        results = evaluate({'item': {20560: {}, 20558: {}}}, ctx)
+        self.assertEqual(results[('item', 20560)][0], 'ok')
+        self.assertEqual(failed(results[('item', 20558)]), ['source'])   # Warsong Gulch is not declared here
+
+    def test_a_spell_scripts_own_item(self):
+        # the Well Testing Kit 254545 (a quest's start item, given here by a vendor) casts 1258773
+        ctx = world(spawned_npc={100}, vendors=[(100, 254545)], item_spells={254545: {1258773}}, used_spells={1258773: {254545}})
+        results = evaluate({'item': {254545: {}, 254546: {}, 254547: {}}}, ctx)
+        self.assertEqual(results[('item', 254546)][0], 'ok')
+        self.assertEqual(results[('item', 254547)][0], 'ok')
+
+    def test_a_quest_started_by_a_made_item(self):
+        # 3985 starts 8552; it comes from a creature's loot
+        ctx = world(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)], start_quest_item={8552: 3985}, q_end_npc=[(100, 8552)],
+                    quests={8552: quest_row()}, quest_turn_in_text={8552})
+        ctx['loot']['creature'] = [(900, 0, 3985, 0)]
+        self.assertEqual(evaluate({'quest': {8552: {}}, 'item': {3985: {}}}, ctx)[('quest', 8552)][0], 'ok')
+
+
+class NotOnLive(unittest.TestCase):
+    def test_a_quest_live_does_not_give(self):
+        # 7704: nobody gives it; it is filed with the quests live does not give, so no import proposes a giver
+        ctx = world(spawned_npc={100}, q_end_npc=[(100, 7704)], quests={7704: quest_row()}, quest_turn_in_text={7704})
+        evaluate({'quest': {7704: {}}}, ctx)
+        self.assertIn(7704, ctx['not_given_quests'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -4,7 +4,7 @@ import math
 
 from . import bosses, corespells, reports
 from .extras import normal as normal_name
-from .output import named_internal
+from .output import NOT_ON_LIVE_QUESTS, named_internal
 from .baseline import NEW_FROM
 from .server import log
 
@@ -41,6 +41,7 @@ SOURCES = {
     'questgive': L('Given when a quest is accepted', 'Donné à l’acceptation d’une quête'),
     'use': L('Made by using an item', 'Fait en utilisant un objet'),
     'talk': L('Given in a conversation', 'Donné lors d’une conversation'),
+    'script': L('Given by a core script', 'Donné par un script du core'),
 }
 
 
@@ -53,7 +54,9 @@ QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without bein
 # Helm and Shield, An Apple Treat, the paladin lessons, Research Access, An Unfortunate End, the Legacy Rewards).
 # Turn-in text: neither Wowhead Forever nor VMaNGOS's newest row has one (The Black Box, Vimes's Report, Alterac
 # Valley's Korrak and Defusing the Threat, To Serve Kum'isha).
-NO_OFFICIAL_GIVER_TEXT = {78132, 78133, 91738, 94773, 94817, 94818, 97286, 98372, 96339, 96340, 96341, 96342}
+# Checked 2026-11-26: Wowhead Forever shows no giver's text for 81944, 84394 and 96383 either.
+NO_OFFICIAL_GIVER_TEXT = {78132, 78133, 91738, 94773, 94817, 94818, 97286, 98372, 96339, 96340, 96341, 96342,
+                          81944, 84394, 96383}
 NO_OFFICIAL_TURN_IN_TEXT = {708, 1288, 7181, 7202, 7367, 7368, 93685}
 # Items the core's own C++ scripts hand over when a player casts one of these spells, checked by hand (2026-11-19): no
 # data row links the spell to the item, so the analysis cannot see it. Create Healthstone (6201, 6202, 5699, 11729,
@@ -66,6 +69,15 @@ SCRIPT_CREATES = {
     5510: {11729}, 19010: {11729}, 19011: {11729},    # Greater Healthstone
     9421: {11730}, 19012: {11730}, 19013: {11730},    # Major Healthstone
 }
+
+# Items the core's C++ hands over with no data row and no script cast the analysis can read, checked by hand in the
+# core fork (2026-11-26). The Classic marks of honor: Battleground.cpp (ClassicMarks) casts 24950-24955 on every player
+# when a battle on that map ends; counted when the map is a battleground the server declares (battleground_template).
+BATTLEGROUND_MARKS = {20560: 30, 20558: 489, 20559: 529}   # Alterac Valley, Warsong Gulch, Arathi Basin Mark of Honor
+# {spell: items} a spell's C++ script adds to the bags itself (AddItem of a table's field: no constant to read). The
+# Well Testing Kit's 1258773 (classic_spell_scripts.cpp, classic_spell_quest_testing_the_wells) gives the Jansen Stead
+# or Molsen Farm water sample next to its well (quest 92742).
+SCRIPT_SPELL_ITEMS = {1258773: {254546, 254547}}
 
 
 def evaluate_all(content, ctx):
@@ -135,6 +147,14 @@ def evaluate_all(content, ctx):
     add({item for npc, item in ctx['quest_items_npc'] if npc in npc_spawned} | {item for go, item in ctx['quest_items_go'] if go in go_spawned}, 'questdrop')
     add({item for npc, item in ctx['vendors'] if npc in npc_spawned}, 'vendor')
     add(ctx['shop_items'], 'shop')
+    # made by a spell a spawned world object casts on its user (a goober's spell: the Windfury Cone's 412365 makes the
+    # Windfury Cone 206170), or one a spawned creature's or object's C++ script casts (Jaina's gossip: her autograph)
+    for item, spells in ctx['creates'].items():
+        for kind, entry in {who for spell in spells for who in ctx.get('world_casts', {}).get(spell, ())}:
+            if entry in (npc_spawned if kind == 'npc' else go_spawned):
+                add([item], 'script' if kind == 'npc' else 'object')
+    # the marks of honor the core hands out when a battle ends (BATTLEGROUND_MARKS)
+    add({item for item, map_id in BATTLEGROUND_MARKS.items() if map_id in ctx.get('battlegrounds', ())}, 'script')
     add({item for npc, item in ctx.get('blackmarket_items', ()) if npc in npc_spawned}, 'blackmarket')
     loot_unplaced = set()
     for items in table_items('creature').values():
@@ -182,7 +202,8 @@ def evaluate_all(content, ctx):
     def all_replaced(links):
         return bool(links) and all(kind == 'npc' and npc in replaced_by for kind, npc, _ in links)
     ctx['not_given_quests'] = {quest for quest in quests
-                               if all_replaced(enders.get(quest, [])) or all_replaced(starters.get(quest, []))}
+                               if all_replaced(enders.get(quest, [])) or all_replaced(starters.get(quest, []))} | \
+        (NOT_ON_LIVE_QUESTS & set(quests))
 
     # learning one spell teaches another (spell_learn_spell, SpellLearnSpell, a learn effect), rank after rank
     chain = {}
@@ -267,6 +288,11 @@ def evaluate_all(content, ctx):
         for item, spells in ctx['creates'].items():
             if any(ctx.get('used_spells', {}).get(spell, set()) & held for spell in spells):
                 add([item], 'use')
+        # what a spell's C++ script adds to the bags itself (SCRIPT_SPELL_ITEMS), when an item players hold casts it or
+        # they learn it
+        for spell, items in SCRIPT_SPELL_ITEMS.items():
+            if spell in learnable or ctx.get('used_spells', {}).get(spell, set()) & held:
+                add(items, 'script')
         obtainable = set(sources)
         # every quest the server has, not only the official list's: the client's QuestV2 leaves out many quests live
         # Forever runs (Lunar Festival's Festive Recipes, WRIGGLE.), and what they hand out is still in players' hands

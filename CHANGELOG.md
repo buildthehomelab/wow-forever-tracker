@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Quest false positives.** Quests that work on the realm showed as Incomplete:
+  - Quest-starting items that exist only in hotfixes (277556-277558 for 97270, 99233 and 99234; 10454 for 3373;
+    3985 for 8552; 213422 for 79624): the start item is now read from hotfixes.item_sparse too, a hotfix row winning
+    over ItemSparse.db2 for its item.
+  - Items a spawned world object's spell makes (the Windfury Cone 206170 from object 403105, the Mural of Ta'zo's
+    207972 from 405149), and what that spell triggers, count as given by a world object.
+  - Items an aura makes when its target dies (SPELL_AURA_CHANNEL_DEATH_ITEM, 86 in the core: Drain Soul's Soul Shard
+    6265) count as crafted.
+  - What the core's C++ scripts cast: `make_summoned.py` now writes, for each script class, the spells it casts
+    (`casts`). A spawned creature's or object's script that casts an item's spell gives that item (Jaina's Autograph
+    18642, Cairne's Hoofprint 18643, the Tablet of the Seven's 11470), and a spell script's casts follow its spell like
+    a trigger (the Bending Shinbone's Dragonmaw Shinbone 7134, the Fetid Skull's Resonating Skull 13155).
+  - `make_summoned.py` also reads a creature that turns into another (`UpdateEntry`: the Captured Rabid Thistle Bear
+    11836, the Tamed Kodo 11627) and a file's credit helper that credits one of its parameters (`ClassicSceneCredit`:
+    256634 for 92646 and 93835). `summoned.json` regenerated from the core fork at 68a93b68b1: +43 creatures, +5
+    credits, 3728 scripts that cast spells, nothing lost.
+  - Curated, with the core file in a comment: the marks of honor 20558-20560 the core hands out when a battle ends
+    (Battleground.cpp, only for a map the server declares as a battleground), and the Testing the Wells samples
+    254546/254547 (classic_spell_quest_testing_the_wells adds them itself).
+  - Quests live WoW: Forever does not give (620, 7704, 7361, 8266, 8268 and 13 others) go under Internal / test and get
+    no giver proposed by the imports; 81944, 84394 and 96383 have no giver's text on live either.
+  Analysis marker 50: the image analyses again after deploy.
+
 - **Closed item loops go under Internal / test.** The Warglaives of Azzinoth (18582-18584) were Incomplete ("recipe
   that cannot be learned"): the Twin Blades split into the Right and Left blades and the Right joins back into the Twin
   Blades, but nothing has ever given any of the three. The Classic pack counts "made by a spell" as given, so they were
