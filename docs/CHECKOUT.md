@@ -37,7 +37,8 @@ For each table the tracker reads (tools/schema/db2-files.json):
 
 The talent trees are among those tables. Classic 1.60 builds its talents from the trait system (`TraitTree`,
 `TraitNode`, `TraitNodeEntry`, `TraitDefinition` and the tables that join them, `content.TRAIT_TABLES`), not from
-`Talent` and `TalentTab`, so a tree Blizzard changes (a node's ranks, the spell behind a definition) is in these. A
+`Talent` and `TalentTab`, so a tree Blizzard changes (a node's ranks, the spell behind a definition, and the `Curve` /
+`CurvePoint` rows that give a definition its value at each rank) is in these. A
 build stored before they were read lacks them: `--fetch` (the Forge's Checkout button) reads them from the CDN first.
 
 All the lines are one push, numbered after every push the database holds before it runs. The file runs in one
