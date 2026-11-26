@@ -276,6 +276,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                 teachers = ((ctx or {}).get('teachers_only') or {}).get(entity_id)
                 if status != 'ok' and not internal and teachers and all(filed_internal(t, content, results, ctx, wowhead) for t in teachers):
                     internal = 1  # made only by a spell that only test or Season of Discovery items teach or cast (ft.rules)
+                if status != 'ok' and entity_id < NEW_FROM['item'] and entity_id in ((ctx or {}).get('closed_loops') or ()):
+                    internal = 1  # an original item only other items of a closed group make, nothing giving any of them (ft.rules);
+                    # Forever's own items stay listed: content still waiting for its source
             elif kind in ('achievement', 'taxi', 'zone', 'dungeon', 'boss'):
                 internal = 1 if INTERNAL_NAME.search(name_en or name) or not name or entity.get('weak') else 0
                 if kind == 'taxi' and (QUEST_PATH.search(name_en or name) or unused_taxi(entity_id, entity, baseline, content['dungeon'])):

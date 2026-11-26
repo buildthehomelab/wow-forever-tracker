@@ -289,6 +289,27 @@ class TaughtOnlyByInternalItems(unittest.TestCase):
         self.assertEqual(self.internal({5657, 999}, never_given={5657}), 0)
 
 
+class ClosedLoopsFiledInternal(unittest.TestCase):
+    """Items only each other make, nothing giving any of them (the Warglaives of Azzinoth), go under Internal / test."""
+
+    def internal(self, loops):
+        content = {'item': {18582: named('The Twin Blades of Azzinoth', quality=6), 18583: named('Warglaive of Azzinoth (Right)', quality=6)}}
+        results = {('item', i): ('partial', 40, []) for i in content['item']}
+        ctx = {'quests': {}, 'quest_fr': {}, 'quest_level': {}, 'teachers_only': {18582: {18583}, 18583: {18582}}, 'closed_loops': loops}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'import.sql')
+            output.write_sql(path, [], content, [], results, {}, {}, {}, {}, ctx, 0, {}, [])
+            with open(path, encoding='utf-8') as handle:
+                text = handle.read()
+        return int(re.search(r"\('item',18582,.*?\)(?=,\n|;\n)", text).group(0).split(',')[8])
+
+    def test_a_closed_loop_is_internal(self):
+        self.assertEqual(self.internal({18582, 18583}), 1)
+
+    def test_without_the_loop_it_stays_listed(self):
+        self.assertEqual(self.internal(set()), 0)
+
+
 class SystemItems(unittest.TestCase):
     """The client's own system items (transmog's Hidden pieces, the WoW Token) are no content."""
 

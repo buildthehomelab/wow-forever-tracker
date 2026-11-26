@@ -909,5 +909,35 @@ class UnusedCopies(unittest.TestCase):
         self.assertEqual(failed(evaluate({'item': self.items}, self.ctx)[('item', 235275)]), ['source'])
 
 
+class ClosedLoops(unittest.TestCase):
+    """The Warglaives of Azzinoth: the Twin Blades 18582 split into the Right 18583 (spell 22989, which triggers 22991
+    for the Left 18584), the Right joins back (22990). Nothing gives any of them: a closed group."""
+
+    def ctx(self, **over):
+        ctx = world(creates={18583: {22989}, 18584: {22991}, 18582: {22990}}, item_spells={18582: {22989}, 18583: {22990}},
+                    used_spells={22989: {18582}, 22991: {18582}, 22990: {18583}})
+        ctx.update(over)
+        return ctx
+
+    def test_the_loop_is_closed(self):
+        ctx = self.ctx()
+        evaluate({'item': {18582: {}, 18583: {}, 18584: {}}}, ctx)
+        self.assertEqual(ctx['closed_loops'], {18582, 18583, 18584})
+
+    def test_a_way_in_opens_it(self):
+        # a creature drops the Twin Blades: all three are made by use, none is a loop
+        ctx = self.ctx(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)])
+        ctx['loot']['creature'] = [(900, 0, 18582, 0)]
+        result = evaluate({'item': {18582: {}, 18583: {}, 18584: {}}}, ctx)
+        self.assertEqual(ctx['closed_loops'], set())
+        self.assertEqual(result[('item', 18584)][0], 'ok')
+
+    def test_a_teacher_outside_the_group_is_no_loop(self):
+        # item 8 (not in the group, nothing gives it) teaches what makes 7: 7 waits on 8, not on a loop
+        ctx = world(creates={7: {70}}, teaches={70: {8}})
+        evaluate({'item': {7: {}, 8: {}}}, ctx)
+        self.assertEqual(ctx['closed_loops'], set())
+
+
 if __name__ == '__main__':
     unittest.main()
