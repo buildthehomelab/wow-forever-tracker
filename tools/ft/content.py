@@ -21,9 +21,18 @@ FORGE_TABLES = ['ItemSearchName', 'ItemModifiedAppearance', 'ItemAppearance', 'S
                 'SpellCategories', 'SpellClassOptions', 'SpellEquippedItems', 'SpellEmpower', 'SpellInterrupts', 'SpellLabel', 'SpellLearnSpell',
                 'SpellReagentsCurrency', 'SpellScaling', 'SpellShapeshift', 'SpellXSpellVisual', 'SpellCategory', 'MountXDisplay',
                 'CriteriaTree', 'Criteria']
+# The talent trees: Classic 1.60 builds its talents from the trait system (C_ClassTalents), not from Talent/TalentTab.
+# Copied by the checkout, so a tree Blizzard changes (a node's ranks, a definition's spell) reaches the server's
+# hotfixes database like any other record.
+TRAIT_TABLES = ['TraitTree', 'TraitNode', 'TraitNodeEntry', 'TraitDefinition', 'TraitDefinitionEffectPoints', 'TraitEdge',
+                'TraitNodeXTraitNodeEntry', 'TraitNodeGroup', 'TraitNodeGroupXTraitNode', 'TraitNodeGroupXTraitCond',
+                'TraitNodeGroupXTraitCost', 'TraitNodeXTraitCond', 'TraitNodeXTraitCost', 'TraitNodeEntryXTraitCond',
+                'TraitNodeEntryXTraitCost', 'TraitCond', 'TraitCondAccountElement', 'TraitCost', 'TraitCurrency',
+                'TraitCurrencySource', 'TraitSubTree', 'TraitSystem', 'TraitTreeLoadout', 'TraitTreeLoadoutEntry',
+                'TraitTreeXTraitCost', 'TraitTreeXTraitCurrency']
 # Extra tables of the latest build used by the locator to turn map percentages into world positions.
 MAP_TABLES = ['UiMap', 'UiMapAssignment', 'UiMapGroupMember']
-TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES
+TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES + TRAIT_TABLES
 
 PROFESSION_CATEGORIES = {9, 11}       # SkillLine.CategoryID: secondary, primary professions
 CLASS_CATEGORY, RACIAL_CATEGORY = 7, 12

@@ -1,5 +1,5 @@
 {
- "about": "File data id of each client table the tracker snapshots (TABLES of tools/ft/content.py), from WoWDBDefs' manifest.json (github.com/wowdev/WoWDBDefs). tools/make_db2_files.py writes it again.",
+ "about": "File data id of each client table the tracker snapshots (TABLES of tools/ft/content.py), from WoWDBDefs' manifest.json (github.com/wowdev/WoWDBDefs). tools/make_db2_files.py writes it again; the trait tables' ids are also in the core's DB2Metadata.h (FileDataId).",
  "files": {
   "ItemSparse": 1572924,
   "Item": 841626,
@@ -74,6 +74,32 @@
   "Criteria": 1263817,
   "UiMap": 1957206,
   "UiMapAssignment": 1957219,
-  "UiMapGroupMember": 1957204
+  "UiMapGroupMember": 1957204,
+  "TraitTree": 4420305,
+  "TraitNode": 4420297,
+  "TraitNodeEntry": 4420298,
+  "TraitDefinition": 4420327,
+  "TraitDefinitionEffectPoints": 4536895,
+  "TraitEdge": 4420308,
+  "TraitNodeXTraitNodeEntry": 4420304,
+  "TraitNodeGroup": 4420300,
+  "TraitNodeGroupXTraitNode": 4420302,
+  "TraitNodeGroupXTraitCond": 4543090,
+  "TraitNodeGroupXTraitCost": 4420301,
+  "TraitNodeXTraitCond": 4543092,
+  "TraitNodeXTraitCost": 4420303,
+  "TraitNodeEntryXTraitCond": 4543088,
+  "TraitNodeEntryXTraitCost": 4420299,
+  "TraitCond": 4543085,
+  "TraitCondAccountElement": 5890759,
+  "TraitCost": 4420295,
+  "TraitCurrency": 4524216,
+  "TraitCurrencySource": 4539393,
+  "TraitSubTree": 5534447,
+  "TraitSystem": 4635649,
+  "TraitTreeLoadout": 4669507,
+  "TraitTreeLoadoutEntry": 4669509,
+  "TraitTreeXTraitCost": 4420306,
+  "TraitTreeXTraitCurrency": 4524218
  }
 }

@@ -35,6 +35,11 @@ For each table the tracker reads (tools/schema/db2-files.json):
   out of its store and tells the clients to drop it;
 - records that are the same are not written: the server's own file already says them.
 
+The talent trees are among those tables. Classic 1.60 builds its talents from the trait system (`TraitTree`,
+`TraitNode`, `TraitNodeEntry`, `TraitDefinition` and the tables that join them, `content.TRAIT_TABLES`), not from
+`Talent` and `TalentTab`, so a tree Blizzard changes (a node's ranks, the spell behind a definition) is in these. A
+build stored before they were read lacks them: `--fetch` (the Forge's Checkout button) reads them from the CDN first.
+
 All the lines are one push, numbered after every push the database holds before it runs. The file runs in one
 transaction and **replaces** the tables it names: it empties them and their `hotfix_data` lines first, so what was
 there before (rows the Forge applied, rows of the core's own update files, an earlier checkout) goes too. A table the
