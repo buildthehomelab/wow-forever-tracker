@@ -135,6 +135,7 @@ static constexpr DungeonEncounterData encounters[] = { { 0, {{ 3498 }} }, { 1, {
 SILITHUS = '''
 enum { NPC_TEMPLAR_FIRE = 15209, NPC_TEMPLAR_WATER = 15211, NPC_DUKE_FIRE = 15206, SPELL_TEMPLAR_FIRE = 24748, NPC_HELPER_SPELL_NPC_X = 1 };
 enum { SPELL_SUMMON_NPC_ROYAL = 24800, CLASSIC_BWL_NPC_DRAKANOID = 14302, NPC_RIDER = 13576, NPC_THORIM_ADD = 32885, NPC_SCRYER_ADD = 14514, NPC_ROYAL_GONE = 15999 };
+enum { NPC_CARAVAN_KODO = 11564, NPC_RIGGER_GIZELTON = 11626 };
 struct WaveData
 {
     uint8 SpawnCount;
@@ -163,6 +164,23 @@ std::array<Scryer, 2> const Scryers = {{
     { 1, 1, NPC_SCRYER_ADD, true, { 103.0f, 141.2f, 93.9f, 1.4f } },
     { 2, 5, 14516, false, { 121.7f, 136.9f, 93.4f, 1.0f } },
 }};
+struct GizeltonCoords
+{
+    uint32 entry;
+    float x, y, z, o;
+};
+struct GizeltonFormation { float distance, angle; };
+struct GizeltonCaravanMember
+{
+    GizeltonCoords coords;
+    GizeltonFormation form;
+};
+static GizeltonCaravanMember const Caravan[] =
+{
+    { { NPC_CARAVAN_KODO,     -1887.26f, 2465.12f, 59.8224f, 4.48f }, { 26.0f, 3.14f } },
+    { { NPC_RIGGER_GIZELTON,  -1883.63f, 2471.68f, 59.8224f, 4.48f }, { 18.0f, 3.14f } },
+};
+void SummonCaravan() { for (GizeltonCaravanMember const& member : Caravan) me->SummonCreature(member.coords.entry, member.coords.x, member.coords.y, member.coords.z, member.coords.o, TEMPSUMMON_DEAD_DESPAWN, 30s); }
 void SummonNPC(GameObject* go, Player* player, uint32 npc, uint32 spell) { go->SummonCreature(npc, pos); }
 void Use() { SummonNPC(me, player, NPC_TEMPLAR_FIRE, SPELL_TEMPLAR_FIRE); SummonNPC(me, player, RAND(NPC_TEMPLAR_WATER, NPC_DUKE_FIRE), SPELL_SUMMON_NPC_ROYAL); }
 void Waves() { me->SummonCreature(WavesInfo[WaveCount].CreatureId, SpawnLocation[i]); }
@@ -197,6 +215,10 @@ class Helpers(unittest.TestCase):
 
     def test_a_row_of_a_range_for_and_a_reference(self):
         self.assertTrue({32885, 32886, 14514, 14516} <= self.creatures, 'nested positions, std::array, `Row const& data = Table[i]`')
+
+    def test_a_field_of_a_field_of_a_row(self):
+        # classic_desolace.cpp: the Gizelton caravan summons `member.coords.entry`, a struct inside each row
+        self.assertTrue({11564, 11626} <= self.creatures, '`member.coords.entry` of a range-for over Caravan')
 
     def test_a_scripts_own_prefix_and_a_ternary(self):
         self.assertTrue({14302, 13576} <= self.creatures)

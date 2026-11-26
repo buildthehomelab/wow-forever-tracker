@@ -27,7 +27,8 @@ summoning call counts when it is a constant named as a creature (NPC_…) or obj
 the entry later (`SummonNPC(me, player, NPC_TEMPLAR_FIRE, SPELL_TEMPLAR_FIRE)`, `RAND(NPC_A, NPC_B)`). A field of a
 table counts too (`SummonCreature(WavesInfo[i].CreatureId, ...)`, `for (SummonLocation const& s : AddLocations)
 SummonCreature(s.entry, ...)`, `Row const& data = Rows[slot]; SummonCreature(data.Entry, ...)`): that field of every
-row of the table, by the place of the field in the table's struct. Another variable (`SummonCreature(entry, ...)`) is
+row of the table, by the place of the field in the table's struct, also through a struct inside the row
+(`for (Member const& member : Caravan) SummonCreature(member.coords.entry, ...)`). Another variable (`SummonCreature(entry, ...)`) is
 left out, so the list errs on the side of fewer entries. Run it again when the
 core moves to a commit with new scripts.
 """
@@ -57,8 +58,9 @@ ENTRY_HOOK = re.compile(r'\bGetCreatureEntry\s*\([^)]*\)[^{;]*\{')
 ANY_CALL = re.compile(r'\b(\w*Summon\w*|DoSpawnCreature)\s*\(')
 NOT_SUMMONING = re.compile(r'^(?:Get|Has|Is|Count|Find|Despawn|Remove|Un|Just|On|Handle)|Summoned|Summoner|Summons|Group|List')
 OBJECT_PREFIXES = ('GO_', 'OBJECT_', 'GAMEOBJECT_')
-# `Name[i].Field`, or `var.Field` / `var->Field` of a variable bound to a table's row
-TABLE_FIELD = re.compile(r'^([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:\.|->)\s*([A-Za-z_]\w*)$')
+# `Name[i].Field`, or `var.Field` / `var->Field` of a variable bound to a table's row; also a field of a struct inside
+# the row, `member.coords.entry` (each step a field of the one before)
+TABLE_FIELD = re.compile(r'^([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?((?:\s*(?:\.|->)\s*[A-Za-z_]\w*)+)$')
 # `Type const Name[] = {` and `std::array<Type, N> const Name = {`
 TABLE = re.compile(r'\b(?:std::array\s*<\s*([A-Za-z_][\w:]*)\s*,[^>]*>|([A-Za-z_][\w:]*))\s+(?:const\s+|constexpr\s+)*([A-Za-z_]\w*)\s*(\[\s*\w*\s*\])?\s*=\s*\{')
 STRUCT = re.compile(r'\b(?:struct|class)\s+([A-Za-z_]\w*)\s*(?::[^{;]*)?\{')
@@ -193,6 +195,35 @@ def fields(body):
     return out
 
 
+def field_types(body):
+    """{data member: its type's last name} of a struct body, for the members declared with a plain type name
+    (`GizeltonCoords coords;`, `float x, y;`): what a field of a field (`member.coords.entry`) steps into."""
+    out = {}
+    depth, flat = 0, ''
+    for c in body:
+        if c == '{':
+            depth += 1
+            continue
+        if c == '}':
+            depth -= 1
+            flat += ';' if depth == 0 else ''
+            continue
+        if depth == 0:
+            flat += c
+    for statement in flat.split(';'):
+        statement = re.sub(r'\b(?:public|private|protected)\s*:', '', statement).strip()
+        if not statement or '(' in statement:
+            continue
+        m = re.match(r'(?:(?:const|mutable|static)\s+)*([A-Za-z_][\w:]*)\s+(.+)$', statement, re.S)
+        if not m:
+            continue
+        for part in split_top(re.sub(r'\[[^\]]*\]', '', m.group(2))):
+            names = re.findall(r'[A-Za-z_]\w*', part.split('=')[0])
+            if names:
+                out[names[0]] = m.group(1).rsplit('::', 1)[-1]
+    return out
+
+
 def scan(scripts):
     """({creature entry: script}, {object entry: script}) for every script file under `scripts`."""
     texts = {}
@@ -230,9 +261,12 @@ def scan(scripts):
             arrays.setdefault((None, name), tokens)
 
     structs, tables = {}, {}   # name -> fields; (scope, name) -> (struct name or '', [rows as parts])
+    types = {}                 # struct name -> {field: type name}
     for path, text in texts.items():
         for m in STRUCT.finditer(text):
-            structs.setdefault(m.group(1), fields(text[m.end():closing(text, m.end() - 1) - 1]))
+            body = text[m.end():closing(text, m.end() - 1) - 1]
+            structs.setdefault(m.group(1), fields(body))
+            types.setdefault(m.group(1), field_types(body))
         for m in TABLE.finditer(text):
             kind, name = (m.group(1) or m.group(2)).rsplit('::', 1)[-1], m.group(3)
             body = text[m.end():closing(text, m.end() - 1) - 1].strip()
@@ -248,7 +282,8 @@ def scan(scripts):
         m = TABLE_FIELD.match(token.strip())
         if not m:
             return []
-        name, field = m.groups()
+        name = m.group(1)
+        path_fields = re.findall(r'[A-Za-z_]\w*', m.group(2))
         found = tables.get((path, name)) or tables.get((os.path.dirname(path), name)) or tables.get((None, name))
         kind = None
         if not found:   # a variable bound to a row: `for (Row const& s : Table)`, `Row const& data = Table[i]`
@@ -264,7 +299,19 @@ def scan(scripts):
         if not found:
             return []
         struct, rows, body = found
-        names = structs.get(kind or struct)
+        struct = kind or struct
+        # every step but the last goes into a struct inside the row: `{ { NPC_X, x, y }, { 26.0f } }`
+        for step in path_fields[:-1]:
+            names = structs.get(struct)
+            if not names or step not in names:
+                struct = None
+                break
+            index = names.index(step)
+            inner = [row[index] for row in rows if index < len(row)]
+            rows = [split_top(part[1:-1]) for part in inner if part.startswith('{') and part.endswith('}')]
+            struct = types.get(struct, {}).get(step)
+        names = structs.get(struct) if struct else None
+        field = path_fields[-1]
         if names and field in names:
             index = names.index(field)
             return [row[index] for row in rows if index < len(row)]

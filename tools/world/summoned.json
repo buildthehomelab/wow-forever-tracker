@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "01783245fb",
+"commit": "cd65c37908",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -191,8 +191,10 @@
 "11460": "Custom/Classic/instances/dire_maul/classic_instance_dire_maul.cpp",
 "11502": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
 "11560": "Custom/Classic/kalimdor/classic_desolace.cpp",
+"11564": "Custom/Classic/kalimdor/classic_desolace.cpp",
 "11583": "Custom/Classic/instances/blackwing_lair/classic_boss_victor_nefarius.cpp",
 "11598": "Custom/Classic/instances/scholomance/classic_instance_scholomance.cpp",
+"11626": "Custom/Classic/kalimdor/classic_desolace.cpp",
 "11663": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
 "11664": "Custom/Classic/instances/molten_core/classic_boss_majordomo_executus.cpp",
 "11876": "Custom/Classic/kalimdor/classic_desolace.cpp",
@@ -868,6 +870,7 @@
 "201722": "Northrend/IcecrownCitadel/boss_sindragosa.cpp",
 "207415": "Maelstrom/Stonecore/stonecore.cpp",
 "375901": "Shadowlands/SepulcherOfTheFirstOnes/boss_anduin_wrynn.cpp",
+"412198": "Custom/Classic/world/classic_rogue_dead_drop.cpp",
 "553754": "Custom/Classic/instances/city_of_dalaran/classic_instance_city_of_dalaran.cpp",
 "617075": "Custom/Classic/world/classic_npcs_special.cpp",
 "617084": "Custom/Classic/world/classic_npcs_special.cpp"
@@ -2812,7 +2815,8 @@
 "252863": "Custom/Classic/world/classic_npcs_special.cpp",
 "255013": "Custom/Classic/world/classic_go_scripts.cpp",
 "256247": "Custom/Classic/world/classic_npcs_special.cpp",
-"257964": "Custom/Classic/world/classic_spell_scripts.cpp"
+"257964": "Custom/Classic/world/classic_spell_scripts.cpp",
+"266513": "Custom/Classic/world/classic_spell_scripts.cpp"
 },
 "teleports": {
 "469": "Custom/Classic/instances/blackwing_lair/classic_instance_blackwing_lair.cpp",
