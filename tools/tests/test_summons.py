@@ -22,7 +22,7 @@ enum SPCreatureIds
     NPC_THELDREN_CREDIT = 16166
 };
 enum SPData { DATA_UROK_DOOMHOWL = 4, DATA_HALYCON = 6, DATA_GIZRUL = 7, DATA_DOOR = 9 };
-enum SPObjects { GO_CHEST = 175245, GO_DOOR = 175244 };
+enum SPObjects { GO_CHEST = 175245, GO_DOOR = 175244, GO_NOTE = 630604 };
 '''
 INSTANCE = '''
 static constexpr DoorData doorData[] = { { GO_DOOR, DATA_HALYCON, EncounterDoorBehavior::OpenWhenDone } };
@@ -34,6 +34,7 @@ static constexpr DungeonEncounterData Encounters[] =
     { DATA_GIZRUL, {{ 273 }} },
 };
 void Spawn() { me->SummonCreature(NPC_OGRE, pos); instance->DoSummonGameObject(GO_CHEST, pos); }
+void Note() { GameObject* note = GameObject::CreateGameObject(GO_NOTE, instance, pos, rot, 255, GO_STATE_READY); instance->AddToMap(note); }
 // me->SummonCreature(99999, pos);
 void Other(uint32 entry) { me->SummonCreature(entry, pos); me->SummonCreature(12345, pos); }
 struct NodeInfo { uint32 Flag; uint32 KillCredit; };
@@ -297,7 +298,8 @@ class Scan(unittest.TestCase):
 
     def test_a_summon_call_with_a_constant_or_a_number(self):
         self.assertEqual(self.creatures, {10601: 'Spire/instance_spire.cpp', 12345: 'Spire/instance_spire.cpp'})
-        self.assertEqual(self.objects, {175245: 'Spire/instance_spire.cpp'})
+        # a summon call, and an object made by hand (GameObject::CreateGameObject, then AddToMap)
+        self.assertEqual(self.objects, {175245: 'Spire/instance_spire.cpp', 630604: 'Spire/instance_spire.cpp'})
 
     def test_a_kill_credit_a_script_gives(self):
         # a field of a table's rows (Arathi Basin's bases) and a constant; the function's own definition is no call

@@ -258,6 +258,20 @@ def smart_credits(rows, credit_spells, entry_of=None):
     return out
 
 
+AREATRIGGER_ACTION_CAST = 0   # areatrigger_template_actions.ActionType: cast ActionParam on the unit that enters
+
+
+def spawned_trigger_casts(q, has_table):
+    """[{AreaTriggerId, ActionParam}]: the spells the area triggers spawned in the world (an `areatrigger` row, through
+    its create properties) cast on who enters them."""
+    if not all(has_table(t) for t in ('areatrigger', 'areatrigger_create_properties', 'areatrigger_template_actions')):
+        return []
+    return q(f"SELECT DISTINCT a.AreaTriggerId, a.ActionParam FROM areatrigger_template_actions a "
+             f"JOIN areatrigger_create_properties p ON p.AreaTriggerId = a.AreaTriggerId AND p.IsAreatriggerCustom = a.IsCustom "
+             f"JOIN areatrigger s ON s.AreaTriggerCreatePropertiesId = p.Id AND s.IsCustom = p.IsCustom "
+             f"WHERE a.ActionType = {AREATRIGGER_ACTION_CAST} AND a.ActionParam > 0")
+
+
 def read_conversations(q, has_table):
     """conversation_casts() from the world database."""
     whole = lambda v: int(v or 0)
@@ -644,6 +658,14 @@ def server_state():
         for r in q(f"SELECT entry, ScriptName FROM {table} WHERE ScriptName <> ''"):
             if casts.get(r['ScriptName']):
                 holders.setdefault((kind, int(r['entry'])), set()).update(casts[r['ScriptName']])
+    # what a conversation casts on the player makes items too (SmartAI on a menu choice: Trevan Rol's gossip casts
+    # Trevan's Weapon Notes 1280553, the note of A Moon-Kissed Blade)
+    for kind, entry, spell in ctx['conversation_casts']:
+        holders.setdefault((kind, entry), set()).add(spell)
+    # and what a spawned area trigger casts on whoever walks in (areatrigger_template_actions, ActionType 0 = cast):
+    # the Well of Eternity trigger 42773 casts Cleanse Heart 1293359 (Power Wash). ('at', id): only spawned ones.
+    for r in spawned_trigger_casts(q, sqlio.has_table):
+        holders.setdefault(('at', int(r['AreaTriggerId'])), set()).add(int(r['ActionParam']))
     ctx['world_casts'] = used_spells(holders, spell_effects, script_triggers)
     ctx['scripted_spells'] = set(bound) | {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
     ctx['spell_procs'] = {spell for x in sqlio.column('SELECT SpellId FROM spell_proc') for spell in corespells.expand(int(x), chains)}
