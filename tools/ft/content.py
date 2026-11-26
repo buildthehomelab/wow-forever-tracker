@@ -29,7 +29,9 @@ TRAIT_TABLES = ['TraitTree', 'TraitNode', 'TraitNodeEntry', 'TraitDefinition', '
                 'TraitNodeGroupXTraitCost', 'TraitNodeXTraitCond', 'TraitNodeXTraitCost', 'TraitNodeEntryXTraitCond',
                 'TraitNodeEntryXTraitCost', 'TraitCond', 'TraitCondAccountElement', 'TraitCost', 'TraitCurrency',
                 'TraitCurrencySource', 'TraitSubTree', 'TraitSystem', 'TraitTreeLoadout', 'TraitTreeLoadoutEntry',
-                'TraitTreeXTraitCost', 'TraitTreeXTraitCurrency']
+                'TraitTreeXTraitCost', 'TraitTreeXTraitCurrency',
+                # a definition's value per rank is a curve (TraitDefinitionEffectPoints.CurveID): a new rank value is a new curve
+                'Curve', 'CurvePoint']
 # Extra tables of the latest build used by the locator to turn map percentages into world positions.
 MAP_TABLES = ['UiMap', 'UiMapAssignment', 'UiMapGroupMember']
 TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES + TRAIT_TABLES

@@ -31,7 +31,7 @@ server lacks show as gaps before the server has moved to it.
 | Which file is which table | `tools/schema/db2-files.json`: each table's file data id, from WoWDBDefs' manifest (`tools/make_db2_files.py`) |
 
 The first read of a build downloads its encoding file and archive indexes, about 315 MB, and takes a few minutes;
-the 100 tables themselves are then a few seconds. The lookup files go to `data/cdn` and are removed once the build is
+the 102 tables themselves are then a few seconds. The lookup files go to `data/cdn` and are removed once the build is
 stored (`--keep-cache` keeps them). Every whole file is checked against its content key.
 
 ## Unreleased content: read again when it opens
