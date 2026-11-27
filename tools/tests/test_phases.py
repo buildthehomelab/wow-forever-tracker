@@ -129,6 +129,20 @@ class Assign(unittest.TestCase):
         # without a phase marked for it, the pages change nothing
         self.assertNotIn(('item', 6), phases.assign(content(), ctx(), PHASES, dict(FACTS, wowhead_no_source={6})))
 
+    def test_a_mount_whose_spell_the_client_lacks(self):
+        # Translocation 2971: its spell 1290805 is not in the client (encrypted until it ships) and nothing teaches it
+        listed = [dict(p) for p in PHASES] + [{'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [],
+                                               'quests': [], 'items': [], 'wowhead_no_source': True}]
+        c = content()
+        c['mount'].update({2971: {'spell': 1290805}, 21: {'spell': 700}})
+        c['spell'][700] = {'sub': 'other'}
+        tagged = phases.assign(c, ctx(), listed, FACTS)
+        self.assertEqual(tagged[('mount', 2971)], 3)
+        self.assertEqual(tagged[('mount', 20)], 2)      # its spell is taught by a raid drop: that phase first
+        self.assertNotIn(('mount', 21), tagged)          # the client has its spell: a gap of today if nothing gives it
+        # with no not-out phase it stays a gap
+        self.assertNotIn(('mount', 2971), phases.assign(c, ctx(), PHASES, FACTS))
+
     def test_a_recipe_wowhead_does_not_have(self):
         # item 11 is crafted with recipe 503, which only item 4444 teaches: a Classic plan Forever dropped (Wowhead has no
         # Forever page for it, and the client does not list it); item 7's recipe item 1 drops from Ragnaros
