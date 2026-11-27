@@ -271,6 +271,24 @@ class Quests(unittest.TestCase):
         self.ctx['spawned_npc'] = {100, 301}
         self.assertEqual(self.run_quest()[0], 'ok')
 
+    def test_an_unmet_credit_names_what_gives_it(self):
+        # Sickening Lights 95602: credit 272603 comes from killing the Twilight Ritual Circle 262006, which nobody spawns
+        self.ctx['objectives'] = [(10, 0, 272603, 5)]
+        self.ctx['kill_credit'] = {272603: {262006}}
+        self.assertEqual(self.objective_detail(), 'credit 272603 from creature 262006 not spawned')
+        # credited by an item's spell that nobody can get, or by a spell nothing casts
+        self.ctx['kill_credit'] = {}
+        self.ctx.update(credit_spells={272603: {77}}, used_spells={77: {5000}})
+        self.assertEqual(self.objective_detail(), 'credit 272603 from item 5000 not obtainable')
+        self.ctx['used_spells'] = {}
+        self.assertEqual(self.objective_detail(), 'credit 272603: nothing casts spell 77')
+        self.ctx['credit_spells'] = {}
+        self.assertEqual(self.objective_detail(), 'creature 272603 not spawned')
+
+    def objective_detail(self):
+        result = self.run_quest()
+        return next(c['detail']['en'] for c in result[2] if c['code'] == 'objectives')
+
     def test_the_package_handed_over_on_accept(self):
         self.ctx['quests'][10]['StartItem'] = 4
         results = evaluate({'quest': {10: {}}, 'item': {4: {}}}, self.ctx)
