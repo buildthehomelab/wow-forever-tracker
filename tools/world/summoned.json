@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "d1119e7d75",
+"commit": "fd6362da3a",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -2869,7 +2869,8 @@
 "257964": "Custom/Classic/world/classic_spell_scripts.cpp",
 "264712": "Custom/Classic/world/classic_npcs_special.cpp",
 "264861": "Custom/Classic/instances/alcaz_prison/classic_instance_alcaz_prison.cpp",
-"266513": "Custom/Classic/world/classic_spell_scripts.cpp"
+"266513": "Custom/Classic/world/classic_spell_scripts.cpp",
+"275188": "Battlegrounds/DarkspearIslands/battleground_darkspear_islands.cpp"
 },
 "teleports": {
 "469": "Custom/Classic/instances/blackwing_lair/classic_instance_blackwing_lair.cpp",
@@ -8109,6 +8110,9 @@
 "classic_aq40_cthun_claw_tentacle": [
 26234
 ],
+"classic_at_cozy_sleeping_bag": [
+429960
+],
 "classic_at_energizing_vortex": [
 1258510
 ],
@@ -9589,6 +9593,9 @@
 15493,
 15655
 ],
+"classic_npc_hun_summoned_hawk": [
+415431
+],
 "classic_npc_jinxed_voodoo_pile": [
 24178
 ],
@@ -10002,9 +10009,6 @@
 "classic_spell_pal_infusion_of_light": [
 437063
 ],
-"classic_spell_pal_judgement": [
-25942
-],
 "classic_spell_pal_judgement_of_fury": [
 9970901
 ],
@@ -10078,6 +10082,9 @@
 ],
 "classic_spell_rog_ruthlessness": [
 14157
+],
+"classic_spell_rog_sap_quick_getaway": [
+1329282
 ],
 "classic_spell_rog_seal_fate": [
 14189

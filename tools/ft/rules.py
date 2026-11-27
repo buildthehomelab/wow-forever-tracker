@@ -55,9 +55,12 @@ QUEST_TYPE_AUTOCOMPLETE = 0   # quest_template.QuestType: handed in without bein
 # Turn-in text: neither Wowhead Forever nor VMaNGOS's newest row has one (The Black Box, Vimes's Report, Alterac
 # Valley's Korrak and Defusing the Threat, To Serve Kum'isha).
 # Checked 2026-11-26: Wowhead Forever shows no giver's text for 81944, 84394 and 96383 either.
+# The Darkspear Islands care packages (98910-98915, bought with reputation at the two quartermasters) have no words on
+# live: Icy Veins' rows hold no description, objective or completion text and Wowhead's pages show none (2026-11-26).
+DARKSPEAR_CARE_PACKAGES = set(range(98910, 98916))
 NO_OFFICIAL_GIVER_TEXT = {78132, 78133, 91738, 94773, 94817, 94818, 97286, 98372, 96339, 96340, 96341, 96342,
-                          81944, 84394, 96383}
-NO_OFFICIAL_TURN_IN_TEXT = {708, 1288, 7181, 7202, 7367, 7368, 93685}
+                          81944, 84394, 96383} | DARKSPEAR_CARE_PACKAGES
+NO_OFFICIAL_TURN_IN_TEXT = {708, 1288, 7181, 7202, 7367, 7368, 93685} | DARKSPEAR_CARE_PACKAGES
 # Items the core's own C++ scripts hand over when a player casts one of these spells, checked by hand (2026-11-19): no
 # data row links the spell to the item, so the analysis cannot see it. Create Healthstone (6201, 6202, 5699, 11729,
 # 11730) is a script effect in the client; the core's warlock script (classic_talent_warl_create_healthstone) creates
