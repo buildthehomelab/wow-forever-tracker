@@ -647,8 +647,8 @@ def server_state():
     # chestPushLoot (Data33, put straight into the bags); one row for each it has.
     ctx['go_loot'] = []
     for r in q('SELECT entry, type, Data1, Data30, Data33 FROM gameobject_template WHERE type IN (3, 25)'):
-        ids = [r['Data1']] + ([r['Data30'], r['Data33']] if int(r['type']) == 3 else [])
-        ctx['go_loot'] += [(int(r['entry']), int(r['type']), int(i)) for i in dict.fromkeys(int(x or 0) for x in ids) if i] \
+        loot_ids = [r['Data1']] + ([r['Data30'], r['Data33']] if int(r['type']) == 3 else [])
+        ctx['go_loot'] += [(int(r['entry']), int(r['type']), int(i)) for i in dict.fromkeys(int(x or 0) for x in loot_ids) if i] \
             or [(int(r['entry']), int(r['type']), 0)]
     ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
     # {item: {(vendor, ExtendedCost)}}: an item one vendor sells for currencies and another hands out for its money
