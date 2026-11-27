@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The Chrome extension's crawl stood still (since 2026-11-26).** Building its crawler (api/wowhead-crawler) takes about
+  35 s with 40,000 kept pages, and Chrome stops an extension's service worker whose fetch() waits more than 30 s: the
+  extension never got a crawler, stayed on "starting" and showed no error. The crawler is now kept in
+  data/wowhead-crawler.js and made again in the background (tools/wowhead-crawler-build.php) when older than
+  `[wowhead] crawler_minutes` (15) or when pages are asked for first; the request answers at once, or 503 while the
+  first one is made (the extension tries again 5 minutes later).
+
 - **The Tarnished Undermine Real drops as a currency.** Forever turned the Season of Discovery item 226404 into the
   currency 3469: Pix Xizzix's prices (ItemExtendedCost) and Show Me the Money! (an obtain-currency objective) ask the
   currency, and nothing turns the item into it. An import's drop of the item is now written as a currency row
