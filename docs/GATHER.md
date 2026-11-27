@@ -6,7 +6,7 @@ A release phase that is not open yet ([PHASES.md](PHASES.md)) shows its quests, 
 analysis the tracker writes a **work list**: per phase, what each thing needs and which source already holds it. The
 crawl and the Icy Veins import read what it names, so the data is fetched and kept before the phase opens.
 
-The open game is on the list too, as **Open now**: the official quests the server has no record of, and the
+The open game is on the list too, as **Open now**: the official quests the server has no record of or no giver or ender for, and the
 creatures, objects and items that the server's own quests wait for.
 
 ## What is listed
