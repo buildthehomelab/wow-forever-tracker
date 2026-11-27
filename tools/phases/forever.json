@@ -13,8 +13,9 @@
    "key": "winter-veil",
    "name": "Feast of Winter Veil",
    "opens": "2026-12-16",
-   "source": "Feast of Winter Veil: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: Filled Festive Mug, Fresh Holly, Mistletoe (2026-11-19)",
-   "items": [21171, 21212, 21519]
+   "source": "Feast of Winter Veil: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not handed these items out yet (the user's rule of 2026-11-18 for holiday items). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table. Items: Filled Festive Mug, Fresh Holly, Mistletoe (2026-11-19). Forever's new A Winter Veil Gift: quest 99145 and the gift it hands out, item 286210 (Wowhead names only the reward; no giver, ender or text in any source yet, 2026-11-27)",
+   "quests": [99145],
+   "items": [21171, 21212, 21519, 286210]
   },
   {
    "key": "lunar-festival",
