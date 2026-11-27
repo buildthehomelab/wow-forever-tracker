@@ -252,7 +252,10 @@ for them yet; its Classic pages, which hold Season of Discovery's data, do (the 
   Season of Discovery had it; any other item fifteen or more creatures drop stays out.
 - **Vendors**: never from Classic. Forever cut the Season vendors' stock (Wowhead's Forever guide lists 37 of the 194 items
   Classic's page says the Undermine Real buys), so only Forever's own npc pages give it, and stock paid with an item or a currency needs an extended
-  cost the client knows. Neither the client nor its hotfixes (build 70938) hold one paid in the Undermine Real yet.
+  cost the client knows. The client's prices ask the currency 3469, not the item (the Undermine Real is a currency on
+  Forever), so Pix Xizzix's 54 rows use ItemExtendedCost 9077-9881.
+- **Currency drops**: an item Forever turned into a currency (`SOURCE_ITEM_CURRENCIES` in app/sources.php: the
+  Undermine Real 226404 is currency 3469) is written as a currency row (ItemType 2), never as the item.
 
 ## Craftsman's Writs
 
