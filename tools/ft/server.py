@@ -649,9 +649,16 @@ def server_state():
     ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
     # {item: {(vendor, ExtendedCost)}}: an item one vendor sells for currencies and another hands out for its money
     # price alone (ExtendedCost 0) is a lost price (ft.rules 'price')
+    # A row whose ExtendedCost is in neither ItemExtendedCost.db2 nor its hotfixes is dropped by the core on load
+    # (ObjectMgr::IsVendorItemValid "wrong ExtendedCost, ignore"), so it asks nothing: the PvP tabards' old TBC honor
+    # rows (1003, 1006, 1007, 202, 2969) beside their gold-price rows. With no ItemExtendedCost.db2 every row counts.
+    known_costs = ids('ItemExtendedCost') | hot('item_extended_cost')
     vendor_costs = {}
     for r in q('SELECT entry, item, ExtendedCost FROM npc_vendor WHERE type = 1 AND item > 0'):
-        vendor_costs.setdefault(int(r['item']), set()).add((int(r['entry']), int(r['ExtendedCost'] or 0)))
+        cost = int(r['ExtendedCost'] or 0)
+        if cost and known_costs and cost not in known_costs:
+            continue
+        vendor_costs.setdefault(int(r['item']), set()).add((int(r['entry']), cost))
     ctx['vendor_costs'] = vendor_costs
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]
