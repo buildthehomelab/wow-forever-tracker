@@ -10,6 +10,7 @@ from .content import EFFECT_CREATE_ITEM, EFFECT_LEARN_SPELL
 NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
+EFFECT_QUEST_START = 150         # SpellEffect.Effect: offers the quest EffectMiscValue1 (Legacy of Valor's [DNT] Arena Victory)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
 ITEM_FLAG_HAS_LOOT = 0x4   # ItemSparse Flags[0]: the item opens as loot (ITEM_FLAG_HAS_LOOT)
 EFFECT_APPLY_AURA, AURA_DUMMY = 6, 4   # SpellEffect.Effect / EffectAura: a seal's dummy aura names its judgement in its points
@@ -447,7 +448,7 @@ def server_state():
         'mount': ids('Mount') | hot('mount'), 'toy': ids('Toy') | hot('toy'), 'pet': ids('BattlePetSpecies') | hot('battle_pet_species'),
         'recipe': {r['Spell'] for r in srv('SkillLineAbility')} | {int(x) for x in sqlio.column('SELECT Spell FROM skill_line_ability', 'hotfixes')},
     }
-    learn, creates, spell_summons, cast_by, credit_spells = {}, {}, set(), {}, {}
+    learn, creates, spell_summons, cast_by, credit_spells, quest_start_spells = {}, {}, set(), {}, {}, {}
     spell_effects = srv('SpellEffect')
     for e in spell_effects:
         if e['Effect'] == EFFECT_LEARN_SPELL and e['EffectTriggerSpell']:
@@ -463,6 +464,8 @@ def server_state():
             spell_summons.add(e['EffectMiscValue1'])
         if e['Effect'] in EFFECT_KILL_CREDIT and e['EffectMiscValue1'] > 0:
             credit_spells.setdefault(e['EffectMiscValue1'], set()).add(e['SpellID'])
+        if e['Effect'] == EFFECT_QUEST_START and e['EffectMiscValue1'] > 0:
+            quest_start_spells.setdefault(e['EffectMiscValue1'], set()).add(e['SpellID'])
     effects = {r['ID']: r['SpellID'] for r in srv('ItemEffect')}
     for row in sqlio.query('SELECT ID, SpellID FROM item_effect', 'hotfixes'):
         effects[int(row['ID'])] = int(row['SpellID'])
@@ -479,6 +482,7 @@ def server_state():
     ctx['creates'], ctx['teaches'], ctx['item_spells'] = creates, teaches, item_spells
     ctx['used_spells'] = used_spells(item_spells, spell_effects)
     ctx['credit_spells'] = credit_spells
+    ctx['quest_start_spells'] = quest_start_spells   # {quest: {spells that offer it}}
     # {spell: reagent items}: an item made from the same cards as one players get, by a spell nothing casts, is an unused
     # copy of it (ft.rules: Forever's second Portals Deck 235275 beside the classic 19277)
     reagent_rows = srv('SpellReagents')
