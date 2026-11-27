@@ -172,6 +172,10 @@ def choice_spells(choices, lists):
 
 SMART_KILLED_MONSTER = 33   # smart_scripts.action_type: CALL_KILLEDMONSTER, the credit creature is action_param1
 SMART_TARGET_SELF = 1
+# smart_scripts.action_type FOLLOW: the scripted creature follows its target, and when it reaches the creature
+# action_param3 the core gives the credit action_param4 (action_param5 0 = as a kill): the Escaped Sheep 265962 led back
+# to Mirt 248419 (Ewe Wandered Off)
+SMART_FOLLOW = 29
 
 
 # the template column of the spell a world object casts on the player who uses it, by gameobject type (the core's
@@ -206,7 +210,7 @@ def object_credits(objects, credit_spells, effects, depth=3):
 
 def smart_credits(rows, credit_spells, entry_of=None):
     """{credit creature: {(kind, entry)}}: the creatures ('npc') and world objects ('go') whose SmartAI gives a kill
-    credit to a player: CALL_KILLEDMONSTER, or a cast of a spell with a kill-credit effect (credit_spells: {credit:
+    credit to a player: CALL_KILLEDMONSTER, FOLLOW to a creature that ends in a credit, or a cast of a spell with a kill-credit effect (credit_spells: {credit:
     {spells}}), at a target other than the scripted thing itself. A timed action list counts for every script that
     calls it. rows: smart_scripts dicts (entryorguid, source_type, action_type, action_param1..6, target_type);
     entry_of: {(kind, -guid): entry} for one spawn's own script (a negative entryorguid)."""
@@ -239,6 +243,8 @@ def smart_credits(rows, credit_spells, entry_of=None):
         if int(r.get('target_type') or 0) == SMART_TARGET_SELF:
             continue
         found = {params[0]} if action == SMART_KILLED_MONSTER and params[0] else gives.get(params[0], set()) if action in SMART_CASTS else set()
+        if action == SMART_FOLLOW and params[2] and params[3] and not params[4]:
+            found = {params[3]}
         for credit in found:
             credits_of.setdefault(owner, set()).add(credit)
     out = {}
@@ -270,6 +276,13 @@ def spawned_trigger_casts(q, has_table):
              f"JOIN areatrigger_create_properties p ON p.AreaTriggerId = a.AreaTriggerId AND p.IsAreatriggerCustom = a.IsCustom "
              f"JOIN areatrigger s ON s.AreaTriggerCreatePropertiesId = p.Id AND s.IsCustom = p.IsCustom "
              f"WHERE a.ActionType = {AREATRIGGER_ACTION_CAST} AND a.ActionParam > 0")
+
+
+def spellclick_casts(q, has_table):
+    """[(npc entry, spell)]: the spells creatures make whoever clicks them cast (npc_spellclick_spells)."""
+    if not has_table('npc_spellclick_spells'):
+        return []
+    return [(int(r['npc_entry']), int(r['spell_id'])) for r in q('SELECT DISTINCT npc_entry, spell_id FROM npc_spellclick_spells WHERE spell_id > 0')]
 
 
 def read_conversations(q, has_table):
@@ -542,7 +555,7 @@ def server_state():
     if sqlio.has_table('smart_scripts'):
         rows = q(f"SELECT entryorguid, source_type, action_type, action_param1, action_param2, action_param3, action_param4, action_param5, "
                  f"action_param6, target_type FROM smart_scripts WHERE source_type IN (0, 1, {SMART_TIMED_LIST}) "
-                 f"AND action_type IN ({SMART_KILLED_MONSTER}, {','.join(map(str, SMART_CASTS))}, {SMART_CALL_LIST}, {SMART_CALL_RANDOM_LIST}, {SMART_CALL_RANGE_LIST})")
+                 f"AND action_type IN ({SMART_KILLED_MONSTER}, {SMART_FOLLOW}, {','.join(map(str, SMART_CASTS))}, {SMART_CALL_LIST}, {SMART_CALL_RANDOM_LIST}, {SMART_CALL_RANGE_LIST})")
         entry_of = {}
         for kind, table, source in (('npc', 'creature', 0), ('go', 'gameobject', 1)):
             guids = sorted({-int(r['entryorguid']) for r in rows if int(r['entryorguid']) < 0 and int(r['source_type']) == source})
@@ -666,6 +679,10 @@ def server_state():
     # the Well of Eternity trigger 42773 casts Cleanse Heart 1293359 (Power Wash). ('at', id): only spawned ones.
     for r in spawned_trigger_casts(q, sqlio.has_table):
         holders.setdefault(('at', int(r['AreaTriggerId'])), set()).add(int(r['ActionParam']))
+    # and what a creature makes its clicker cast (npc_spellclick_spells): Break Chain 1263364 on a Gelkis Captive 253431
+    # (Saving Our Own), Planting Seed 1246989 on Sunderbark's corpse 248709 (The Dying Ancients)
+    for entry, spell in spellclick_casts(q, sqlio.has_table):
+        holders.setdefault(('npc', entry), set()).add(spell)
     ctx['world_casts'] = used_spells(holders, spell_effects, script_triggers)
     ctx['scripted_spells'] = set(bound) | {abs(int(x)) for x in sqlio.column('SELECT spell_id FROM spell_script_names')}
     ctx['spell_procs'] = {spell for x in sqlio.column('SELECT SpellId FROM spell_proc') for spell in corespells.expand(int(x), chains)}

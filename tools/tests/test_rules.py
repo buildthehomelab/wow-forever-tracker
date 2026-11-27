@@ -813,6 +813,16 @@ class SmartCredits(unittest.TestCase):
         rows = [{'entryorguid': 255833, 'source_type': 0, 'action_type': 11, 'action_param1': 1269471, 'target_type': 1}]
         self.assertEqual(server.smart_credits(rows, {256634: {1269471}}), {})
 
+    def test_a_follow_that_ends_in_a_credit_counts(self):
+        # Ewe Wandered Off 96674: the Escaped Sheep 265962 follows its clicker; at Mirt 248419 the core gives 265988
+        rows = [{'entryorguid': 265962, 'source_type': 0, 'action_type': 29, 'action_param1': 0, 'action_param2': 0,
+                 'action_param3': 248419, 'action_param4': 265988, 'action_param5': 0, 'target_type': 7}]
+        self.assertEqual(server.smart_credits(rows, {}), {265988: {('npc', 265962)}})
+        rows[0]['action_param5'] = 1   # an event credit, not a kill
+        self.assertEqual(server.smart_credits(rows, {}), {})
+        rows[0].update(action_param5=0, action_param3=0)   # a plain follow
+        self.assertEqual(server.smart_credits(rows, {}), {})
+
     def test_a_timed_list_counts_for_its_callers(self):
         rows = [{'entryorguid': 1229600, 'source_type': 9, 'action_type': 33, 'action_param1': 12297, 'target_type': 7},
                 {'entryorguid': 12296, 'source_type': 0, 'action_type': 80, 'action_param1': 1229600, 'target_type': 1}]
@@ -825,6 +835,20 @@ class SmartCredits(unittest.TestCase):
         ctx['spawned_go'] = set()
         self.assertEqual(failed(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)]), ['objectives'])
 
+
+    def test_a_credit_spell_a_spawned_creature_has_its_clicker_cast_counts(self):
+        # Saving Our Own 93058: clicking a Gelkis Captive 253431 casts Break Chain 1263364, the credit 254825
+        ctx = world(spawned_npc={100, 253431}, q_start_npc=[(100, 10)], q_end_npc=[(100, 10)], quests={10: quest_row()},
+                    quest_turn_in_text={10}, objectives=[(10, 0, 254825, 5)], credit_spells={254825: {1263364}},
+                    world_casts={1263364: {('npc', 253431)}})
+        self.assertEqual(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)][0], 'ok')
+        ctx['spawned_npc'] = {100}
+        self.assertEqual(failed(evaluate({'quest': {10: {}}}, ctx)[('quest', 10)]), ['objectives'])
+
+    def test_the_spell_click_reader(self):
+        rows = [{'npc_entry': 253431, 'spell_id': 1263364}]
+        self.assertEqual(server.spellclick_casts(lambda sql: rows, lambda t: True), [(253431, 1263364)])
+        self.assertEqual(server.spellclick_casts(lambda sql: rows, lambda t: False), [])
 
 class ObjectCredits(unittest.TestCase):
     """A credit marker a world object's own spell gives when used: the Old Dinghy (652657, a goober casting 1294248,
