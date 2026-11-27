@@ -1015,6 +1015,61 @@ class CoreGives(unittest.TestCase):
         self.assertEqual(evaluate({'quest': {8552: {}}, 'item': {3985: {}}}, ctx)[('quest', 8552)][0], 'ok')
 
 
+class WritsAndPouches(unittest.TestCase):
+    """The Craftsman's Writ gaps of 2026-11-27: a writ destroyed on accept, a Coin Pouch that opens empty, a camp
+    vendor handing out what the other side's sells for Merchant's Favor, and the writ a sealed letter gives."""
+
+    def writ(self, start_item, unique=()):
+        # writ 264121 starts 94321 and is its first objective; creature 100 drops it and takes the quest
+        ctx = world(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)], start_quest_item={94321: 264121}, q_end_npc=[(100, 94321)],
+                    quests={94321: quest_row(StartItem=start_item)}, quest_turn_in_text={94321},
+                    objectives=[(94321, 1, 264121, 1)], item_unique=set(unique))
+        ctx['loot']['creature'] = [(900, 0, 264121, 0)]
+        return evaluate({'quest': {94321: {}}, 'item': {264121: {}}}, ctx)[('quest', 94321)]
+
+    def test_a_writ_without_its_start_item_is_destroyed_on_accept(self):
+        self.assertEqual(failed(self.writ(0)), ['start_item'])
+
+    def test_the_writ_as_start_item(self):
+        self.assertEqual(failed(self.writ(264121)), [])
+
+    def test_a_unique_writ_is_kept_anyway(self):
+        self.assertEqual(failed(self.writ(0, unique={264121})), [])
+
+    def pouch(self, **over):
+        ctx = world(spawned_npc={100}, vendors=[(100, 284586)], item_has_loot={284586}, **over)
+        return evaluate({'item': {284586: {}}}, ctx)[('item', 284586)]
+
+    def test_a_pouch_with_nothing_in_it(self):
+        self.assertEqual(failed(self.pouch()), ['contents'])
+
+    def test_a_pouch_with_money(self):
+        self.assertEqual(failed(self.pouch(item_money={284586})), [])
+
+    def test_a_pouch_with_loot(self):
+        ctx = world(spawned_npc={100}, vendors=[(100, 284586)], item_has_loot={284586})
+        ctx['loot']['item'] = [(284586, 0, 2589, 0)]
+        self.assertEqual(failed(evaluate({'item': {284586: {}, 2589: {}}}, ctx)[('item', 284586)]), [])
+
+    def test_a_vendor_that_lost_the_price(self):
+        ctx = world(spawned_npc={100, 101}, vendors=[(100, 262764), (101, 262764)],
+                    vendor_costs={262764: {(100, 0), (101, 11041)}})
+        result = evaluate({'item': {262764: {}}}, ctx)[('item', 262764)]
+        self.assertEqual(failed(result), ['price'])
+        ctx = world(spawned_npc={100, 101}, vendors=[(100, 262764), (101, 262764)],
+                    vendor_costs={262764: {(100, 11041), (101, 11041)}})
+        self.assertEqual(failed(evaluate({'item': {262764: {}}}, ctx)[('item', 262764)]), [])
+
+    def test_what_a_sealed_letter_gives_is_its_content_not_a_craft(self):
+        # 248206 Sealed Craftsman's Writ is sold; using it casts 1247526, whose loot is the writ
+        ctx = world(spawned_npc={100}, vendors=[(100, 248206)], item_spells={248206: {1247526}}, used_spells={1247526: {248206}},
+                    known={kind: set() for kind in KINDS})
+        ctx['loot']['spell'] = [(1247526, 0, 264121, 0)]
+        result = evaluate({'item': {248206: {}, 264121: {}}}, ctx)[('item', 264121)]
+        source = [c for c in result[2] if c['code'] == 'source'][0]
+        self.assertEqual(source['detail']['en'], 'Container content')
+
+
 class NotOnLive(unittest.TestCase):
     def test_a_quest_live_does_not_give(self):
         # 7704: nobody gives it; it is filed with the quests live does not give, so no import proposes a giver

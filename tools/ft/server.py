@@ -11,6 +11,7 @@ NPCFLAG_FLIGHTMASTER = 8192
 EFFECT_SUMMON = 28   # SpellEffect.Effect: EffectMiscValue1 is the creature
 EFFECT_KILL_CREDIT = (90, 134)   # SpellEffect.Effect: kill credit of the creature EffectMiscValue1 (personal, party)
 ACQUIRE_NEVER = 3   # SkillLineAbility.AcquireMethod: the core's NeverLearned
+ITEM_FLAG_HAS_LOOT = 0x4   # ItemSparse Flags[0]: the item opens as loot (ITEM_FLAG_HAS_LOOT)
 EFFECT_APPLY_AURA, AURA_DUMMY = 6, 4   # SpellEffect.Effect / EffectAura: a seal's dummy aura names its judgement in its points
 AURA_CHANNEL_DEATH_ITEM = 86   # SPELL_AURA_CHANNEL_DEATH_ITEM (the core's SpellAuraDefines.h): EffectItemType made when the target dies
 SMART_ACTIVATE_TAXI = 52   # smart_scripts.action_type: action_param1 is the TaxiPath
@@ -520,6 +521,17 @@ def server_state():
         for r in sqlio.query('SELECT ID, StartQuestID FROM item_sparse ORDER BY VerifiedBuild', 'hotfixes'):
             starts[int(r['ID'])] = int(r['StartQuestID'] or 0)
     ctx['start_quest_item'] = {quest: item for item, quest in sorted(starts.items()) if quest}
+    # items that open as loot (ItemSparse Flags[0] 0x4 HAS_LOOT: the Coin Pouches, lockboxes) and items a player can
+    # hold only one of (MaxCount 1: the core keeps such a quest item on accept), the file's then the hotfix's
+    sparse = {r['ID']: (int(r.get('Flags1') or 0), int(r.get('MaxCount') or 0)) for r in srv('ItemSparse')}
+    if sqlio.has_table('item_sparse', 'hotfixes'):
+        try:
+            for r in sqlio.query('SELECT ID, Flags1, MaxCount FROM item_sparse ORDER BY VerifiedBuild', 'hotfixes'):
+                sparse[int(r['ID'])] = (int(r['Flags1'] or 0), int(r['MaxCount'] or 0))
+        except Exception:   # an older hotfixes schema without the columns: the file's values stand
+            pass
+    ctx['item_has_loot'] = {item for item, (flags, _) in sparse.items() if flags & ITEM_FLAG_HAS_LOOT}
+    ctx['item_unique'] = {item for item, (_, most) in sparse.items() if most == 1}
 
     log('server: world database')
     q = sqlio.query
@@ -622,6 +634,9 @@ def server_state():
         rows = q(f'SELECT Entry, ItemType, Item FROM {name}_loot_template')
         loot[name] = [(int(r['Entry']), int(r['ItemType'] or 0), int(r['Item']), int(r['Item']) if int(r['ItemType'] or 0) == 1 else 0) for r in rows]
     ctx['loot'] = loot
+    # items that open with money of their own (item_template_addon MinMoneyLoot/MaxMoneyLoot: the core rolls it when
+    # the item is opened, SpellHandler HandleOpenItemOpcode)
+    ctx['item_money'] = ints('SELECT Id FROM item_template_addon WHERE MaxMoneyLoot > 0') if sqlio.has_table('item_template_addon') else set()
     ctx['npc_loot'] = [(int(r['Entry']), int(r['LootID'] or 0), int(r['PickPocketLootID'] or 0), int(r['SkinLootID'] or 0))
                        for r in q('SELECT Entry, LootID, PickPocketLootID, SkinLootID FROM creature_template_difficulty WHERE DifficultyID IN (0,1)')]
     # (entry, type, loot id) of each chest and fishing hole. A chest has three loot ids the core fills: chestLoot (Data1),
@@ -633,6 +648,12 @@ def server_state():
         ctx['go_loot'] += [(int(r['entry']), int(r['type']), int(i)) for i in dict.fromkeys(int(x or 0) for x in ids) if i] \
             or [(int(r['entry']), int(r['type']), 0)]
     ctx['vendors'] = vendor_items(pairs('SELECT entry, item FROM npc_vendor WHERE type = 1'))
+    # {item: {(vendor, ExtendedCost)}}: an item one vendor sells for currencies and another hands out for its money
+    # price alone (ExtendedCost 0) is a lost price (ft.rules 'price')
+    vendor_costs = {}
+    for r in q('SELECT entry, item, ExtendedCost FROM npc_vendor WHERE type = 1 AND item > 0'):
+        vendor_costs.setdefault(int(r['item']), set()).add((int(r['entry']), int(r['ExtendedCost'] or 0)))
+    ctx['vendor_costs'] = vendor_costs
     ctx['trainer_rows'] = [{k: int(v or 0) for k, v in r.items()} for r in q('SELECT TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqLevel FROM trainer_spell')]
     ctx['trainer_spells'] = [(r['TrainerId'], r['SpellId']) for r in ctx['trainer_rows']]
     ctx['trainers'] = pairs('SELECT CreatureID, TrainerID FROM creature_trainer')

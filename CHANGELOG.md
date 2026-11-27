@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Craftsman's Writ gaps the analysis missed.** New checks, after a 2026-11-27 audit against live found them all
+  marked OK:
+  - `start_item` (quests): an item that starts a quest and is also one of its objectives, while StartItem is not that
+    item and the item is not unique. The core destroys the starting item on accept, so the quest can never be handed
+    in (17 Artisan writs).
+  - `contents` (items): an item players get that opens as loot (ItemSparse HAS_LOOT) with no item_loot_template rows
+    and no money in item_template_addon opens empty (the three Coin Pouches).
+  - `price` (items): one spawned vendor sells an item with no ExtendedCost while others ask a cost for it (the Horde
+    camp's tabard, Advertising License and Packmule Treat).
+  - What a held item's spell loot gives (a Sealed Craftsman's Writ's letter) now reads "Container content", not
+    "Crafting".
 - **Quest false positives.** Quests that work on the realm showed as Incomplete:
   - Quest-starting items that exist only in hotfixes (277556-277558 for 97270, 99233 and 99234; 10454 for 3373;
     3985 for 8552; 213422 for 79624): the start item is now read from hotfixes.item_sparse too, a hotfix row winning
