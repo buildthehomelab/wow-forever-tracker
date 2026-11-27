@@ -1421,6 +1421,8 @@ function wowhead_wanted_set(string $kind, array $ids, bool $replace = false, ?st
     $path = $file ?? wowhead_wanted_file();
     @mkdir(dirname($path), 0775, true);
     if (@file_put_contents($path, json_encode($all, JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX) === false) throw new RuntimeException('not writable');
+    // the extension's next load gets them: the crawler kept for it is made again with them
+    if ($file === null) wowhead_crawler_cache_clear();
     return $all;
 }
 
@@ -1435,6 +1437,54 @@ function wowhead_pages_get(string $kind, array $ids, ?array $dirs = null): array
 }
 
 // ---------------------------------------------------------------- the Chrome extension (tools/wowhead-pages/extension)
+//
+// The crawler the extension loads (api/wowhead-crawler) is kept in a file and made again in the background
+// (tools/wowhead-crawler-build.php). Building it means reading every kept page (about 35 s with 40,000 pages), and
+// Chrome stops an extension's service worker whose fetch() waits more than 30 s for its answer: the extension then
+// never got a crawler and the crawl stood still with no error (2026-11-26). The request now answers at once: the kept
+// crawler (and a new one started when it is older than [wowhead] crawler_minutes), or 503 while the first is made.
+
+function wowhead_crawler_cache_file(): string { return FT_ROOT . '/data/wowhead-crawler.js'; }
+
+/** The kept crawler and whether it is due to be made again: [code, due]; code '' when none is kept. */
+function wowhead_crawler_cache(?string $file = null, ?int $now = null, ?int $minutes = null): array
+{
+    $file ??= wowhead_crawler_cache_file();
+    $minutes ??= max(1, (int)config('wowhead', 'crawler_minutes', 15));
+    clearstatcache(true, $file);
+    $code = is_file($file) ? (string)@file_get_contents($file) : '';
+    if ($code === '') return ['', true];
+    return [$code, ($now ?? time()) - (int)@filemtime($file) >= $minutes * 60];
+}
+
+/** Keeps a crawler (written beside and renamed, so a request never reads half of one). */
+function wowhead_crawler_cache_put(string $code, ?string $file = null): void
+{
+    $file ??= wowhead_crawler_cache_file();
+    @mkdir(dirname($file), 0775, true);
+    $tmp = $file . '.' . getmypid() . '.tmp';
+    if (@file_put_contents($tmp, $code) === false || !@rename($tmp, $file)) { @unlink($tmp); throw new RuntimeException('not writable'); }
+}
+
+/** Forgets the kept crawler: the next request starts a new one (the queue changed: pages asked for first). */
+function wowhead_crawler_cache_clear(?string $file = null): void
+{
+    @unlink($file ?? wowhead_crawler_cache_file());
+}
+
+/** Makes the crawler again in the background, unless a build already runs (it holds data/wowhead-crawler.lock). */
+function wowhead_crawler_build_start(): void
+{
+    $lock = @fopen(FT_ROOT . '/data/wowhead-crawler.lock', 'c');
+    if (!$lock) return;
+    $free = flock($lock, LOCK_EX | LOCK_NB);
+    if ($free) flock($lock, LOCK_UN);
+    fclose($lock);
+    if (!$free) return;
+    $php = (string)config('tools', 'php', PHP_BINARY ?: 'php');
+    exec('(' . escapeshellarg($php) . ' ' . escapeshellarg(FT_ROOT . '/tools/wowhead-crawler-build.php') . ') > /dev/null 2>&1 &');
+}
+
 //
 // The extension keeps a Wowhead tab open in Chrome, loads the crawler this tracker builds into it after every load, and
 // sends what it reads to api/wowhead-push: a crawl that starts and goes on by itself (docs/WOWHEAD-PAGES.md). It sends
