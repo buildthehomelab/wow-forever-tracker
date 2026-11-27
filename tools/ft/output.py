@@ -143,12 +143,16 @@ def leftover(kind, entity_id, entity, status, items, wowhead, baseline, trained=
 
 def unused_taxi(node_id, entity, baseline, dungeons):
     """A flight point no player flies from: a node inside a battleground (Alterac Valley's), or one the original game
-    already had that neither faction can use (boats, zeppelins, script targets, Programmer Isle). Forever's own
-    nodes carry no faction bit either, so only the Classic Era ones are judged by it."""
+    already had that neither faction can use (boats, zeppelins, script targets, Programmer Isle). Some of Forever's own
+    nodes carry no faction bit either, so a Forever node is judged by its paths too: no faction bit and no flight path
+    to or from it is a point nobody flies to yet (Tidegear Coast 3205; Powderfuse Port 3274/3275, the next copies of
+    the zzOLD 3208, while Rog'mar, Farholde Keep and the Tainted Foothills carry their bits and six to eight paths)."""
     if entity.get('map') in dungeons:
         return True
     flags = int((entity.get('facts') or {}).get('flags') or 0)
-    return not flags & 3 and baseline.has('TaxiNodes', node_id) is True
+    if flags & 3:
+        return False
+    return baseline.has('TaxiNodes', node_id) is True or entity.get('paths') == 0
 
 SCHEMA_SQL = """
 CREATE TABLE ft_builds_new (build INT NOT NULL, version VARCHAR(32), released DATE NULL, note TEXT, source VARCHAR(255), is_server TINYINT NOT NULL DEFAULT 0, counts JSON,

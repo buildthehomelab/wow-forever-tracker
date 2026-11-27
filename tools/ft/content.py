@@ -34,7 +34,9 @@ TRAIT_TABLES = ['TraitTree', 'TraitNode', 'TraitNodeEntry', 'TraitDefinition', '
                 'Curve', 'CurvePoint']
 # Extra tables of the latest build used by the locator to turn map percentages into world positions.
 MAP_TABLES = ['UiMap', 'UiMapAssignment', 'UiMapGroupMember']
-TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES + TRAIT_TABLES
+# The flight paths between nodes: a node no path reaches is a point nobody flies to (ft.output.unused_taxi).
+FLIGHT_TABLES = ['TaxiPath']
+TABLES = DIFF_TABLES + TOOLTIP_TABLES + FORGE_TABLES + MAP_TABLES + TRAIT_TABLES + FLIGHT_TABLES
 
 PROFESSION_CATEGORIES = {9, 11}       # SkillLine.CategoryID: secondary, primary professions
 CLASS_CATEGORY, RACIAL_CATEGORY = 7, 12
@@ -323,11 +325,19 @@ def official(folder, read=None):
                                     'facts': {'title': r['Title'], 'desc': r['Description'], 'points': r['Points'], 'reward': r['Reward'],
                                               'category': r['Category'], 'item': r['RewardItemID']}} for r in t('Achievement')}
     taxi_en = en('TaxiNodes')
+    # how many flight paths start or end at each node; None when the snapshot has no TaxiPath (read from 2026-11-27 on)
+    taxi_paths = t('TaxiPath')
+    path_count = {}
+    for r in taxi_paths:
+        for end in (r['FromTaxiNode'], r['ToTaxiNode']):
+            path_count[end] = path_count.get(end, 0) + 1
     out['taxi'] = {r['ID']: {'name': r['Name'], 'name_en': taxi_en.get(r['ID'], {}).get('Name', ''), 'map': r['ContinentID'],
                              'sub': maps.get(r['ContinentID'], {}).get('MapName', ''), 'pos': [round(r['PosX'], 1), round(r['PosY'], 1), round(r['PosZ'], 1)],
                              # a node without a bit in the character's list of known flight points is never learned:
                              # no flight master opens it (the druids' flights out of Nighthaven, quest flights)
                              'learned': bool(r.get('CharacterBitNumber', 1)),
+                             # kept out of 'facts' so the changelog does not see every node change the day it is read
+                             'paths': path_count.get(r['ID'], 0) if taxi_paths else None,
                              'facts': {'name': r['Name'], 'map': r['ContinentID'], 'pos': [round(r['PosX']), round(r['PosY'])], 'flags': r['Flags']}}
                    for r in t('TaxiNodes') if r['Name']}
 
