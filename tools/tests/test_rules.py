@@ -236,6 +236,31 @@ class Quests(unittest.TestCase):
     def test_a_complete_quest(self):
         self.assertEqual(self.run_quest()[0], 'ok')
 
+    def starter_detail(self):
+        return next(c for c in self.run_quest()[2] if c['code'] == 'starter')
+
+    def test_a_quest_a_spell_offers(self):
+        # Legacy of Valor 84124: no giver, offered by [DNT] Arena Victory 459623/459625, which nothing casts here
+        self.ctx.update(q_start_npc=[], quest_start_spells={10: {459623, 459625}})
+        starter = self.starter_detail()
+        self.assertFalse(starter['ok'])
+        self.assertTrue(starter['detail']['en'].startswith('Spell 459623, 459625 offers it (quest-start effect), but nothing casts it'))
+        # a spawned creature casts it (its script, a spell click): given
+        self.ctx['world_casts'] = {459625: {('npc', 100)}}
+        starter = self.starter_detail()
+        self.assertTrue(starter['ok'])
+        self.assertEqual(starter['detail']['en'], 'Spell 459623, 459625 offers it, cast by a spawned creature')
+        # the creature is not there: not given
+        self.ctx['spawned_npc'] = set()
+        self.assertFalse(self.starter_detail()['ok'])
+        # the core's C++ names the spell: counted as cast
+        self.ctx['core_spells'] = {'spells': {459623: 'scripts/Custom/x.cpp'}}
+        self.assertEqual(self.starter_detail()['detail']['en'], 'Spell 459623, 459625 offers it, cast by the core’s C++')
+
+    def test_a_giver_still_comes_first(self):
+        self.ctx['quest_start_spells'] = {10: {459623}}
+        self.assertEqual(self.starter_detail()['detail']['en'], 'NPC 100')
+
     def test_no_quest_text(self):
         self.ctx['quests'][10]['HasText'] = 0
         result = self.run_quest()

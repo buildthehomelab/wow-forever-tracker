@@ -744,6 +744,22 @@ def evaluate_all(content, ctx):
         start = starters.get(quest_id, [])
         item_start = ctx['start_quest_item'].get(quest_id)
         start_ok = any(s[2] for s in start) or item_start in obtainable
+        # offered by a spell's quest-start effect (SPELL_EFFECT_QUEST_START): Legacy of Valor 84124 comes from [DNT] Arena
+        # Victory 459623/459625 once the Revered Champion yields. It counts when something casts the spell: an item
+        # players hold, a spawned creature, object or area trigger (world_casts), or the core's C++ naming it.
+        start_spells = sorted(ctx.get('quest_start_spells', {}).get(quest_id, ()))
+        core_named = (ctx.get('core_spells') or {}).get('spells', {})
+
+        def spell_cast(spell):
+            if ctx.get('used_spells', {}).get(spell, set()) & obtainable:
+                return 'item'
+            for kind_, entry in ctx.get('world_casts', {}).get(spell, ()):
+                if kind_ == 'at' or entry in (npc_spawned if kind_ == 'npc' else go_spawned):
+                    return kind_
+            return 'core' if spell in core_named else ''
+        cast_start = {spell: spell_cast(spell) for spell in start_spells}
+        if not start_ok and any(cast_start.values()):
+            start_ok = True
         def listing(rows, en_prefix, fr_prefix):
             en = ', '.join(f"{r[1]}{'' if r[2] else ' (not spawned)'}" for r in rows)
             fr = ', '.join(f"{r[1]}{'' if r[2] else ' (non placé)'}" for r in rows)
@@ -776,6 +792,18 @@ def evaluate_all(content, ctx):
         if item_start:
             en = (en + ' · ' if en else '') + f"item {item_start}{'' if item_start in obtainable else ' (not obtainable)'}"
             fr = (fr + ' · ' if fr else '') + f"objet {item_start}{'' if item_start in obtainable else ' (non obtenable)'}"
+        if start_spells and not en:
+            some = ', '.join(map(str, start_spells[:3])) + ('…' if len(start_spells) > 3 else '')
+            by = {'item': ('an item players hold', 'un objet des joueurs'), 'npc': ('a spawned creature', 'un PNJ placé'),
+                  'go': ('a spawned object', 'un objet du monde placé'), 'at': ('an area trigger', 'un déclencheur de zone'),
+                  'core': ('the core’s C++', 'le C++ du core')}
+            casters = sorted({v for v in cast_start.values() if v})
+            if casters:
+                en = f'Spell {some} offers it, cast by ' + ', '.join(by[c][0] for c in casters)
+                fr = f'Le sort {some} la propose, lancé par ' + ', '.join(by[c][1] for c in casters)
+            else:
+                en = f'Spell {some} offers it (quest-start effect), but nothing casts it: no item, spawned creature or object, nor the core’s C++.'
+                fr = f'Le sort {some} la propose (effet de début de quête), mais rien ne le lance : ni objet, ni PNJ ou objet du monde placé, ni le C++ du core.'
         checks.append(check(start_ok, 'starter', L(en or 'No quest giver (creature/gameobject_queststarter).', fr or 'Aucun donneur (creature/gameobject_queststarter).'), 2))
         end = enders.get(quest_id, [])
         en, fr = listing(end, '', '')
