@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The `price` check ignores vendor rows the core drops.** A row whose ExtendedCost is in neither ItemExtendedCost.db2
+  nor its hotfixes is skipped on load ("wrong ExtendedCost, ignore"), so it asks nothing. The eight PvP tabards have
+  such old TBC honor rows beside their gold-price rows and were flagged as sold for free.
+
 - **The Chrome extension's crawl stood still (since 2026-11-26).** Building its crawler (api/wowhead-crawler) takes about
   35 s with 40,000 kept pages, and Chrome stops an extension's service worker whose fetch() waits more than 30 s: the
   extension never got a crawler, stayed on "starting" and showed no error. The crawler is now kept in
