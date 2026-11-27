@@ -7,6 +7,12 @@
   currency, and nothing turns the item into it. An import's drop of the item is now written as a currency row
   (ItemType 2, 3469), and such a row counts as the item's drop, so the next Wowhead Classic or QuestieDB card does not
   bring the item back, and the analysis counts it as the item's source (`SOURCE_ITEM_CURRENCIES`, `CURRENCY_ITEMS`).
+- **Follow-ups to the writ checks, after the first analysis with them (2026-11-27).**
+  - `start_item` is gone: the core now keeps any starting item a quest needs, unique or not, as live does
+    (wow-trinitycore-everlake #172). Its 6 hits (Sign Me Up! ×2, Forlorn Necklace, Tattered Journal, The Offering
+    Stone, Anyone Can Cook) work once that is deployed.
+  - `price` compares spawned vendors only. The 8 old PvP tabards were flagged because the unspawned TBC honor
+    quartermasters (Issca, Kredis) list them for honor; the spawned vendors sell them for gold, as on live.
 - **Craftsman's Writ gaps the analysis missed.** New checks, after a 2026-11-27 audit against live found them all
   marked OK:
   - `start_item` (quests): an item that starts a quest and is also one of its objectives, while StartItem is not that

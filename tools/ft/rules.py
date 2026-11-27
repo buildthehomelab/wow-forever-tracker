@@ -509,8 +509,10 @@ def evaluate_all(content, ctx):
         # Sold for currencies or items by one vendor and for nothing but its money price by another (the Horde camp's
         # tabard beside the Alliance one's 200 Merchant's Favor): the free row lost its ExtendedCost.
         sold = ctx.get('vendor_costs', {}).get(item_id, ())
+        # Only spawned vendors count on both sides: the TBC honor quartermasters (Issca, Kredis) still list the old
+        # PvP tabards for honor, but nobody can reach them, and the spawned Classic vendors sell them for gold.
         free = sorted(npc for npc, cost in sold if not cost and npc in npc_spawned)
-        paid = sorted({cost for npc, cost in sold if cost})
+        paid = sorted({cost for npc, cost in sold if cost and npc in npc_spawned})
         if free and paid:
             checks.append(check(False, 'price', L(
                 f"Vendor {', '.join(map(str, free[:3]))} sells it with no ExtendedCost; other vendors ask cost {', '.join(map(str, paid[:3]))}.",
@@ -797,16 +799,6 @@ def evaluate_all(content, ctx):
             count = len(objectives[quest_id])
             detail = L('; '.join(p['en'] for p in problems[:4]), '; '.join(p['fr'] for p in problems[:4])) if problems else L(f'{count} objective(s)', f'{count} objectif(s)')
             checks.append(check(not problems, 'objectives', detail, 2))
-        # The item that starts the quest is also what it asks for (a Craftsman's Writ): on accept the core destroys the
-        # starting item unless it is the quest's StartItem or a unique objective (Player::AddQuestAndCheckCompletion),
-        # so with StartItem 0 the quest can never be handed in.
-        if item_start and any(kind == 1 and obj == item_start for kind, obj, _ in objectives.get(quest_id, [])) \
-                and int(row.get('StartItem') or 0) != item_start and item_start not in ctx.get('item_unique', ()):
-            checks.append(check(False, 'start_item', L(
-                f'Item {item_start} starts it and is one of its objectives, but StartItem is {int(row.get("StartItem") or 0)}: '
-                'the core destroys the item on accept, so the quest cannot be finished.',
-                f'L’objet {item_start} la lance et fait partie de ses objectifs, mais StartItem vaut {int(row.get("StartItem") or 0)} : '
-                'le core détruit l’objet à l’acceptation, la quête ne peut pas être rendue.'), 3))
         if quest_id in disabled_quests:
             checks.append(check(False, 'enabled', L('Disabled in the disables table.', 'Désactivée dans la table disables.'), 3))
         # The words: a quest that works with an empty window is not finished. Only what every such quest shows is

@@ -1016,25 +1016,9 @@ class CoreGives(unittest.TestCase):
 
 
 class WritsAndPouches(unittest.TestCase):
-    """The Craftsman's Writ gaps of 2026-11-27: a writ destroyed on accept, a Coin Pouch that opens empty, a camp
-    vendor handing out what the other side's sells for Merchant's Favor, and the writ a sealed letter gives."""
-
-    def writ(self, start_item, unique=()):
-        # writ 264121 starts 94321 and is its first objective; creature 100 drops it and takes the quest
-        ctx = world(spawned_npc={100}, npc_loot=[(100, 900, 0, 0)], start_quest_item={94321: 264121}, q_end_npc=[(100, 94321)],
-                    quests={94321: quest_row(StartItem=start_item)}, quest_turn_in_text={94321},
-                    objectives=[(94321, 1, 264121, 1)], item_unique=set(unique))
-        ctx['loot']['creature'] = [(900, 0, 264121, 0)]
-        return evaluate({'quest': {94321: {}}, 'item': {264121: {}}}, ctx)[('quest', 94321)]
-
-    def test_a_writ_without_its_start_item_is_destroyed_on_accept(self):
-        self.assertEqual(failed(self.writ(0)), ['start_item'])
-
-    def test_the_writ_as_start_item(self):
-        self.assertEqual(failed(self.writ(264121)), [])
-
-    def test_a_unique_writ_is_kept_anyway(self):
-        self.assertEqual(failed(self.writ(0, unique={264121})), [])
+    """The Craftsman's Writ gaps of 2026-11-27: a Coin Pouch that opens empty, a camp vendor handing out what the
+    other side's sells for Merchant's Favor, and the writ a sealed letter gives. (A writ destroyed on accept is a
+    core fix since wow-trinitycore-everlake #172: the core keeps any starting item the quest needs.)"""
 
     def pouch(self, **over):
         ctx = world(spawned_npc={100}, vendors=[(100, 284586)], item_has_loot={284586}, **over)
@@ -1059,6 +1043,12 @@ class WritsAndPouches(unittest.TestCase):
         ctx = world(spawned_npc={100, 101}, vendors=[(100, 262764), (101, 262764)],
                     vendor_costs={262764: {(100, 11041), (101, 11041)}})
         self.assertEqual(failed(evaluate({'item': {262764: {}}}, ctx)[('item', 262764)]), [])
+
+    def test_a_price_only_an_unspawned_vendor_asks(self):
+        # Private's Tabard: Officer Areyn (spawned) sells it for gold; Issca (not spawned) lists it for honor
+        ctx = world(spawned_npc={12805}, vendors=[(12805, 15196), (16766, 15196)],
+                    vendor_costs={15196: {(12805, 0), (16766, 1007)}})
+        self.assertEqual(failed(evaluate({'item': {15196: {}}}, ctx)[('item', 15196)]), [])
 
     def test_what_a_sealed_letter_gives_is_its_content_not_a_craft(self):
         # 248206 Sealed Craftsman's Writ is sold; using it casts 1247526, whose loot is the writ
