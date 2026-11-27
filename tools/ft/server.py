@@ -531,7 +531,6 @@ def server_state():
         except Exception:   # an older hotfixes schema without the columns: the file's values stand
             pass
     ctx['item_has_loot'] = {item for item, (flags, _) in sparse.items() if flags & ITEM_FLAG_HAS_LOOT}
-    ctx['item_unique'] = {item for item, (_, most) in sparse.items() if most == 1}
 
     log('server: world database')
     q = sqlio.query
