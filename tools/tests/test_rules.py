@@ -1000,6 +1000,12 @@ class CoreGives(unittest.TestCase):
         self.assertEqual(results[('item', 20560)][0], 'ok')
         self.assertEqual(failed(results[('item', 20558)]), ['source'])   # Warsong Gulch is not declared here
 
+    def test_darkspear_islands_marks(self):
+        # WoW Forever's battleground: the core gives its Mark of Honor at the end of a battle like the vanilla ones
+        results = evaluate({'item': {274895: {}}}, world(battlegrounds={2997}))
+        self.assertEqual(results[('item', 274895)][0], 'ok')
+        self.assertEqual(failed(evaluate({'item': {274895: {}}}, world(battlegrounds={30}))[('item', 274895)]), ['source'])
+
     def test_a_spell_scripts_own_item(self):
         # the Well Testing Kit 254545 (a quest's start item, given here by a vendor) casts 1258773
         ctx = world(spawned_npc={100}, vendors=[(100, 254545)], item_spells={254545: {1258773}}, used_spells={1258773: {254545}})

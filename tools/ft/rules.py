@@ -80,7 +80,9 @@ SCRIPT_CREATES = {
 # Items the core's C++ hands over with no data row and no script cast the analysis can read, checked by hand in the
 # core fork (2026-11-26). The Classic marks of honor: Battleground.cpp (ClassicMarks) casts 24950-24955 on every player
 # when a battle on that map ends; counted when the map is a battleground the server declares (battleground_template).
-BATTLEGROUND_MARKS = {20560: 30, 20558: 489, 20559: 529}   # Alterac Valley, Warsong Gulch, Arathi Basin Mark of Honor
+# {mark item: battleground map} as the core's Battleground::EndBattleground ClassicMarks table hands them out: Alterac Valley,
+# Warsong Gulch, Arathi Basin Mark of Honor, and WoW Forever's Darkspear Islands Mark of Honor (map 2997, spells 1255230/1255231)
+BATTLEGROUND_MARKS = {20560: 30, 20558: 489, 20559: 529, 274895: 2997}
 # {spell: items} a spell's C++ script adds to the bags itself (AddItem of a table's field: no constant to read). The
 # Well Testing Kit's 1258773 (classic_spell_scripts.cpp, classic_spell_quest_testing_the_wells) gives the Jansen Stead
 # or Molsen Farm water sample next to its well (quest 92742).
