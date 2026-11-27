@@ -43,6 +43,8 @@ $fmt = fn($v) => is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : (($v =
 $otherName = other_name($r);
 $name = display_name($r);
 $isItemLike = in_array($type, ['item', 'toy'], true);
+$auction = null;
+if ($isItemLike) { require_once FT_APP . '/auctionprices.php'; $auction = auction_price($id); }
 page_start($name, $type);
 ?>
 <nav class="crumbs"><a href="<?= e(url()) ?>"><i class="fas fa-house"></i></a><i class="fas fa-chevron-right"></i><a href="<?= e(type_url($type)) ?>"><?= e(type_label($type)) ?></a><i class="fas fa-chevron-right"></i><span><?= e($name) ?></span></nav>
@@ -88,6 +90,8 @@ page_start($name, $type);
         <?php if (isset($data['pos'])): ?><div><dt><?= e(t('Position', 'Position')) ?></dt><dd><?= e(implode(' / ', $data['pos'])) ?> · <?= e(t('map', 'carte')) ?> <?= (int)($data['map'] ?? 0) ?></dd></div><?php endif; ?>
         <?php if ($r['sub'] !== '' && !in_array($type, ['quest', 'item'], true)): ?><div><dt><?= e(t('Category', 'Catégorie')) ?></dt><dd><?= e(sub_label($r['sub'])) ?></dd></div><?php endif; ?>
         <div><dt><?= e(t('First seen', 'Vu depuis')) ?></dt><dd><?= e(build_name((int)$r['first_build'])) ?></dd></div>
+        <?php if ($auction): ?><div><dt title="<?= e($auction['tsm'] ? t('TradeSkillMaster’s market value for WoW: Forever (US region), the price the server’s auction house bot lists it at (never below what a vendor pays).', 'Valeur de marché TradeSkillMaster pour WoW: Forever (région US), le prix auquel le bot de l’hôtel des ventes du serveur le met en vente (jamais sous ce qu’un marchand en donne).') : t('Lowest buyout seen in auction house scans, the price the server’s auction house bot lists it at.', 'Plus bas prix d’achat vu dans les relevés de l’hôtel des ventes, le prix auquel le bot du serveur le met en vente.')) ?>"><?= e(t('Auction house', 'Hôtel des ventes')) ?></dt>
+          <dd><?= money_html($auction['price']) ?> <small class="muted"><?= e($auction['tsm'] ? 'TSM' : t('scan', 'relevé')) ?><?php if ($auction['tsm'] && $auction['sold']): ?> · <?= e(sprintf(t('%s sold a day', '%s vendus par jour'), number($auction['sold']))) ?><?php endif; ?></small></dd></div><?php endif; ?>
         <?php if ($zoneQuests): ?><div><dt><?= e(t('Quests of the zone', 'Quêtes de la zone')) ?></dt><dd class="badges"><?php foreach ($zoneQuests as $zq): ?><?= $zq['status'] === 'later' ? '<span class="badge is-later"><i></i>' . e(t('Later', 'Plus tard')) . '</span>' : status_badge($zq['status']) ?> <b><?= (int)$zq['n'] ?></b> <?php endforeach; ?></dd></div><?php endif; ?>
       </dl>
       <?php if (!empty($data['text'])): ?><blockquote class="quote"><?= e($data['text']) ?><cite>Wowhead Forever</cite></blockquote><?php endif; ?>
