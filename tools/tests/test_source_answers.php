@@ -86,6 +86,9 @@ check(str_contains($icy, "WHEN status = 'missing' THEN fetched_at + INTERVAL 604
 check(str_contains(source_answers_due_case('icyveins', ['epoch' => 1700000000]), 'WHEN fetched_at < FROM_UNIXTIME(1700000000) THEN fetched_at'), 'Icy Veins: "ask every source again"');
 check(source_answers_due_case('foreverchanges', ['older_days' => 14]) === "CASE WHEN status = 'missing' THEN fetched_at + INTERVAL 4838400 SECOND ELSE fetched_at + INTERVAL 1209600 SECOND END", 'ForeverChanges: older days, four times that for a 404');
 check(source_answers_due_case('eglink') === 'NULL', 'a versioned source: never by itself');
+check(str_ends_with(source_answers_due_sql('eglink'), 'AND due_at IS NOT NULL') && str_contains(source_answers_due_sql('eglink'), 'SET due_at = NULL'),
+    'a versioned source\'s due times: only rows still holding one, never all its rows');
+check(!str_contains(source_answers_due_sql('icyveins', '1', ['epoch' => 0]), 'due_at IS NOT NULL'), 'a source asked again: every row it names');
 
 if (!$mysql) { echo "(FT_TEST_MYSQL not set: the rows are not written to MySQL)\n"; ft_test_done(); }
 
@@ -111,7 +114,7 @@ check($moved && $moved['whole'] === '{"name":"Kurzen Elite"}' && $moved['version
 $t = time() - 30 * 86400;
 source_answers_put([icyveins_answer_row('npc', 448, ['entity' => ['name' => 'Hogger'], 'fetched' => $t], ['entity' => ['name' => 'Hogger'], 'links' => 1])], $link);
 $r = $get('icyveins', 'api', 'npc', '448');
-check($r && (int)$r['c'] === $t && (int)$r['d'] === $t + 14 * 86400 && str_contains($r['whole'], 'links'), 'an Icy Veins answer: due after 14 days, the whole answer kept');
+check($r && (int)$r['c'] === $t && (int)$r['d'] === $t + 7 * 86400 && str_contains($r['whole'], 'links'), 'an Icy Veins answer nothing players\' addons recorded: due after 7 days, the whole answer kept');
 source_answers_put([icyveins_answer_row('npc', 448, ['entity' => ['name' => 'Hogger'], 'fetched' => $t + 10], ['entity' => ['name' => 'Hogger'], 'links' => 2])], $link);
 $r = $get('icyveins', 'api', 'npc', '448');
 check((int)$r['f'] === $t + 10 && (int)$r['c'] === $t && str_contains($r['whole'], '"links":2'), 'asked again, only its links differ: no change, the new whole kept');
@@ -164,6 +167,10 @@ check($r && $r['name'] === 'Wolf Pelts' && (int)$r['f'] === $now - 200 && $r['wh
     'ForeverChanges: the last reading of a page, what it states, its text, due after older days');
 $r = $get('questie', 'file', 'foreverItemDB', 'data/Forever/foreverItemDB.lua#QuestieDB.itemData/5');
 check($r && $r['version'] === $new && str_contains($r['data'], '{99}') && $r['id'] === '5' && $r['name'] === 'Item 5' && $r['due_at'] === null, 'QuestieDB: the newest commit only, an item a row');
+$link->query("UPDATE ft_source_answers SET due_at = NOW() WHERE source = 'questie' AND ref = 'data/Forever/foreverItemDB.lua#QuestieDB.itemData/5'");
+$link->query(source_answers_due_sql('questie'));
+check($link->affected_rows === 1 && $get('questie', 'file', 'foreverItemDB', 'data/Forever/foreverItemDB.lua#QuestieDB.itemData/5')['due_at'] === null,
+    'a versioned source\'s due times: the one row holding a time is cleared, the other 2,499 are not touched');
 check($get('questie', 'file', 'foreverItemDB', 'data/Forever/foreverItemDB.lua#QuestieDB.itemData/7') === null, 'the older commit is not read (it was superseded before the table)');
 check($get('atlasloot', 'file', 'data', 'AtlasLootClassic_DungeonsAndRaids/data.lua') !== null && $get('vmangos', 'file', 'pack', 'pack.json') !== null, 'AtlasLoot\'s zip and a VMaNGOS pack');
 $again = source_answers_backfill(false, null, $link, $data);
