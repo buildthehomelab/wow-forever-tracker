@@ -17,6 +17,13 @@
    "items": [21171, 21212, 21519]
   },
   {
+   "key": "lunar-festival",
+   "name": "Lunar Festival",
+   "opens": "2027-01-24",
+   "source": "Lunar Festival: WoW Forever launched on 2026-11-04 and the holiday has not come round since, so live Forever has not shown these yet (the user's rule of 2026-11-18 for holiday content). Blizzard has not announced Forever's holiday calendar: the date is the next start in the realm's own game_event table (event 7). Quests: Mossheart the Elder and Frostleaf the Elder, Forever's two new elders, whose NPCs no source names yet (2026-11-27)",
+   "quests": [98977, 98983]
+  },
+  {
    "key": "love-is-in-the-air",
    "name": "Love is in the Air",
    "opens": "2027-02-11",
