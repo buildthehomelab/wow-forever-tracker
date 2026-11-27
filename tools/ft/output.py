@@ -33,9 +33,12 @@ NEVER_GIVEN_QUESTS = {785, 1390, 7221, 7222, 912, 9065, 9556, 8290, 1289, 7961, 
 # and (ft.rules) left out of what the imports propose a giver for. 620: the old Classic copy (item 3985 starts 8552
 # instead). 7704: its pillow was never added, the object 179832 has no live sighting. 7361: no Wowhead page, Icy Veins
 # has an empty title. 8266, 8268 (Ribbons of Sacrifice): no texts and no giver anywhere. The rest: no giver or ender in
-# any source, and Wowhead's comments say removed or the text is a placeholder.
+# any source, and Wowhead's comments say removed or the text is a placeholder. 79970 (Aeonas the Vindicated, checked
+# 2026-11-27): the end of Season of Discovery's paladin chain (Orders from the Grand Crusader 79945, A Brother In Need
+# 79946, By The Light's Grace 79963, then The Ritual 81885), whose other links the client leaves unnamed and this filing
+# already hides; its giver Aeonas 217996 appears only in those, and EG Link saw none of them on live.
 NOT_ON_LIVE_QUESTS = {620, 7704, 7361, 8266, 8268, 92521, 93174, 93314, 93733, 94901, 94902, 94969, 95056, 95181, 96027,
-                      96028, 96735, 95751}
+                      96028, 96735, 95751, 79970}
 
 
 def summary(rows, closed):
