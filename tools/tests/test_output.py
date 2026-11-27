@@ -347,3 +347,29 @@ class Writs(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UnusedTaxi(unittest.TestCase):
+    """A flight point nobody flies from: no faction bit, and either the Classic Era client already had it or no flight
+    path reaches it (Forever's Tidegear Coast 3205 and the new Powderfuse Port 3274/3275)."""
+
+    class Baseline:
+        def __init__(self, old):
+            self.old = old
+
+        def has(self, table, entry):
+            return entry in self.old
+
+    def unused(self, node, flags, paths, old=()):
+        entity = {'map': 0, 'facts': {'flags': flags}, 'paths': paths}
+        return output.unused_taxi(node, entity, self.Baseline(set(old)), {})
+
+    def test_a_forever_node_no_path_reaches(self):
+        self.assertTrue(self.unused(3205, 1152, 0))
+        self.assertFalse(self.unused(3276, 1025, 6))          # Farholde Keep: Alliance bit and paths
+        self.assertFalse(self.unused(3261, 1024, 2))          # a quest flight's node: no bit, but flown
+        self.assertFalse(self.unused(3274, 1024, None))       # a snapshot without TaxiPath says nothing
+
+    def test_a_classic_node_neither_faction_uses(self):
+        self.assertTrue(self.unused(59, 0, 4, old={59}))
+        self.assertFalse(self.unused(2, 3, 0, old={2}))
