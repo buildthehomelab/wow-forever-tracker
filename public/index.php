@@ -95,7 +95,7 @@ switch (true) {
             maps_serve((int)($_GET['id'] ?? 0));
             exit;
         }
-        if (in_array($section, ['forge', 'notes', 'history', 'spawns', 'imports', 'checks', 'extras', 'spawnaudit', 'alwaysup', 'checkout', 'crawl', 'writs', 'later', 'query'], true) && count($parts) <= 2) $page('admin/' . $section);
+        if (in_array($section, ['forge', 'notes', 'history', 'spawns', 'imports', 'checks', 'extras', 'spawnaudit', 'alwaysup', 'checkout', 'crawl', 'writs', 'later', 'query', 'prices'], true) && count($parts) <= 2) $page('admin/' . $section);
         break;
     case ($parts[0] ?? '') === 'api' && count($parts) === 4 && $parts[1] === 'tooltip':
         require FT_APP . '/api/tooltip.php';
