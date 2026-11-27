@@ -157,6 +157,16 @@ class Targets(unittest.TestCase):
         self.assertEqual(out['first-raids']['npc'], {90: ['instance']})
         self.assertNotIn(301, out['now']['item'])
 
+    def test_open_quest_without_ender(self):
+        # a Craftsman's Writ the server has, with no ender: listed so the crawl reads its page; one with both is not
+        no_ender = json.dumps([{'code': 'starter', 'ok': True}, {'code': 'ender', 'ok': False}])
+        no_giver = json.dumps([{'code': 'starter', 'ok': False}, {'code': 'ender', 'ok': True}])
+        both = json.dumps([{'code': 'starter', 'ok': True}, {'code': 'ender', 'ok': True}, {'code': 'objectives', 'ok': False}])
+        rows = [('quest', 94330, 'Writ', 'partial', 'now', no_ender), ('quest', 98830, 'Glaive', 'partial', 'now', no_giver),
+                ('quest', 98893, 'Marks', 'partial', 'now', both), ('quest', 7, 'Broken', 'partial', 'now', '{not json')]
+        out = gather.targets_from(rows, {}, {})
+        self.assertEqual(set(out['now']['quest']), {94330, 98830})
+
 
 class Run(unittest.TestCase):
     """run() end to end: the tracker's rows and the world from a made-up database, EG Link from a made-up download."""

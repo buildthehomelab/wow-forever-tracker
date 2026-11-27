@@ -12,8 +12,8 @@ thing needs and which sources already hold it, and names the pages and answers s
   Veins' addon points, Wowhead's map pins), a model (Wowhead's page);
 - **items**: where they come from (Icy Veins' dropped by / sold by, Wowhead's item page tabs).
 
-The open phase is listed too, as "now": the official quests the server has no record of, and the creatures, objects
-and items that open quests wait for. Nothing is written into the world here and nothing is guessed: a thing no source
+The open phase is listed too, as "now": the official quests the server has no record of or no giver or ender for, and
+the creatures, objects and items that open quests wait for. Nothing is written into the world here and nothing is guessed: a thing no source
 names stays without it.
 
 What it fetches itself: the EG Link and QuestieDB files of the commits the website's imports already downloaded
@@ -40,6 +40,9 @@ OBJECTIVE_KINDS = {'monster': 'npc', 'gameObject': 'object', 'object': 'object',
 QUICK_LINK = re.compile(r'/forever/(npc|object|item)=(\d+)')
 CHECK_SPAWN = re.compile(r'\b(creature|object) (\d+) not spawned')
 CHECK_ITEM = re.compile(r'\bitem (\d+) not obtainable')
+# the checks of a quest that ask for who gives or takes it: an open quest failing one is listed, so the crawl reads its
+# Wowhead page and Import Icy Veins asks for it (a Craftsman's Writ with no ender, a quest whose giver nobody spawned)
+GIVER_CHECKS = ('starter', 'ender')
 # the tabs of a creature's, object's or item's Wowhead page that place it or say where an item comes from
 ITEM_TABS = phase_rules.WOWHEAD_SOURCE_TABS
 NAMED_MAX = 5           # what a thing is needed for: the first few, the rest counted
@@ -311,6 +314,17 @@ def build(targets, server, src, phase_list):
 
 # ------------------------------------------------------------------ the analysis' side: what each phase brings
 
+def lacks_giver(checks):
+    """Whether a quest's checks (ft_entities.checks, a JSON list of {'code', 'ok'}) fail on its giver or its ender."""
+    try:
+        listed = json.loads(checks) if checks else []
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(listed, list):
+        return False
+    return any(isinstance(c, dict) and c.get('code') in GIVER_CHECKS and c.get('ok') is False for c in listed)
+
+
 def targets_from(rows, map_areas, listed):
     """{phase key: {'quest', 'item', 'npc', 'object'}} from ft_entities rows (type, id, name_en, status, phase key,
     checks text) of what is not ok, and the creatures and objects Wowhead's lists place in a phase's instances
@@ -319,7 +333,7 @@ def targets_from(rows, map_areas, listed):
     for kind, entry, name, status, key, checks in rows:
         want = out[key]
         if kind == 'quest':
-            if key != NOW or status == 'missing':
+            if key != NOW or status == 'missing' or (status == 'partial' and lacks_giver(checks)):
                 want['quest'][entry] = {'name': name, 'status': status}
             if status == 'partial':
                 for what, other in CHECK_SPAWN.findall(checks or ''):
