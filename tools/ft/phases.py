@@ -500,9 +500,16 @@ def assign(content, ctx, phases, facts):
     for kind in ('spell', 'recipe'):
         for spell in content.get(kind, {}):
             put(kind, spell, spell_phase.get(spell, 0))
+    # A mount or pet whose spell the client does not have (kept encrypted until it ships: Translocation 2971's
+    # 1290805, the Swift Hyjal Stag's 1292482) is not out yet: it waits in the wowhead_no_source phase.
+    unshipped = next((number for number, phase in enumerate(phases, 1) if phase.get('wowhead_no_source')), 0) if phases else 0
     for kind in ('mount', 'pet'):
         for entity_id, entity in content.get(kind, {}).items():
-            put(kind, entity_id, spell_phase.get(int(entity.get('spell') or 0), 0))
+            spell = int(entity.get('spell') or 0)
+            p = spell_phase.get(spell, 0)
+            if not p and spell and spell not in content.get('spell', {}):
+                p = unshipped
+            put(kind, entity_id, p)
     for toy_id, toy in content.get('toy', {}).items():
         put('toy', toy_id, item_phase.get(int(toy.get('item') or 0), 0))
     return out
