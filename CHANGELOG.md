@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The Tarnished Undermine Real drops as a currency.** Forever turned the Season of Discovery item 226404 into the
+  currency 3469: Pix Xizzix's prices (ItemExtendedCost) and Show Me the Money! (an obtain-currency objective) ask the
+  currency, and nothing turns the item into it. An import's drop of the item is now written as a currency row
+  (ItemType 2, 3469), and such a row counts as the item's drop, so the next Wowhead Classic or QuestieDB card does not
+  bring the item back, and the analysis counts it as the item's source (`SOURCE_ITEM_CURRENCIES`, `CURRENCY_ITEMS`).
 - **Craftsman's Writ gaps the analysis missed.** New checks, after a 2026-11-27 audit against live found them all
   marked OK:
   - `start_item` (quests): an item that starts a quest and is also one of its objectives, while StartItem is not that

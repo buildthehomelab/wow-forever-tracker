@@ -132,6 +132,15 @@ function source_trainer_npcs(): array
 /** The loot table each kind of drop goes to. */
 const SOURCE_LOOT_TABLES = ['npc' => 'creature_loot_template', 'skin' => 'skinning_loot_template', 'pick' => 'pickpocketing_loot_template', 'go' => 'gameobject_loot_template',
     'item' => 'item_loot_template', 'fish' => 'fishing_loot_template'];
+/**
+ * Season of Discovery items Forever turned into a currency: [item => CurrencyTypes ID]. Wowhead Classic and QuestieDB
+ * name the item as the drop, but Forever's vendors (ItemExtendedCost) and quests (QUEST_OBJECTIVE_OBTAIN_CURRENCY) ask
+ * the currency, which no item turns into. So a drop of one is written as a currency row (ItemType 2), and such a row
+ * counts as the item's drop (collector_loot_items) and as its source in the analysis (tools/ft/rules.py
+ * CURRENCY_ITEMS, the same list). The Tarnished Undermine Real: client CurrencyTypes 3469.
+ */
+const SOURCE_ITEM_CURRENCIES = [226404 => 3469];
+
 /** The creature_template_difficulty column that points a creature to each of its tables. */
 const SOURCE_LOOT_COLUMNS = ['npc' => 'LootID', 'skin' => 'SkinLootID', 'pick' => 'PickPocketLootID'];
 
@@ -417,7 +426,9 @@ function source_tables(array $ev, string $label, array $gaps): array
                 $questOnly = isset($questItems[$item]) || isset($ev['quest_drop']["$kind:$id:$item"]);
                 $whole = $kind === 'fish' && isset($fishScale[$id]);
                 if ($whole) $chance *= $fishScale[$id];
-                $rows[$table][] = ['Entry' => $entry, 'ItemType' => 0, 'Item' => $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => $questOnly ? 1 : 0,
+                // an item Forever made a currency drops as the currency (SOURCE_ITEM_CURRENCIES)
+                $currency = SOURCE_ITEM_CURRENCIES[(int)$item] ?? 0;
+                $rows[$table][] = ['Entry' => $entry, 'ItemType' => $currency ? 2 : 0, 'Item' => $currency ?: $item, 'Chance' => round(min(100, max(0.01, $chance)), 2), 'QuestRequired' => $questOnly && !$currency ? 1 : 0,
                     'LootMode' => 1, 'GroupId' => $whole ? 1 : 0, 'MinCount' => 1, 'MaxCount' => 1, 'Comment' => mb_substr($label, 0, 60)];
             }
         }

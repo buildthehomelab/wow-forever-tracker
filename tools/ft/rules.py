@@ -8,6 +8,10 @@ from .output import NOT_ON_LIVE_QUESTS, named_internal
 from .baseline import NEW_FROM
 from .server import log
 
+# Season of Discovery items Forever turned into a currency: {CurrencyTypes ID: item}. Their drops are currency rows
+# (loot ItemType 2), which count as the item's source. Same list as SOURCE_ITEM_CURRENCIES in app/sources.php.
+CURRENCY_ITEMS = {3469: 226404}   # Tarnished Undermine Real
+
 
 # Spell effects and auras that do nothing without code (a SpellScript or the core's C++): SPELL_EFFECT_DUMMY and
 # SPELL_EFFECT_SCRIPT_EFFECT; SPELL_AURA_DUMMY and SPELL_AURA_PERIODIC_DUMMY; and a proc aura with no spell to trigger.
@@ -114,6 +118,8 @@ def evaluate_all(content, ctx):
                 stack.extend(references.get(ref, []))
             elif kind == 0 and item:
                 out.add(item)
+            elif kind == 2 and item in CURRENCY_ITEMS:
+                out.add(CURRENCY_ITEMS[item])   # a currency drop of an item Forever made a currency
         return out
 
     def table_items(name, entries=None):

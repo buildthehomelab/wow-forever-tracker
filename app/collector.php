@@ -87,10 +87,13 @@ function collector_is(string $path): bool
 function collector_loot_items(string $table, array $entries): array
 {
     $out = []; $refsOf = [];
+    $currencyItems = defined('SOURCE_ITEM_CURRENCIES') ? array_flip(SOURCE_ITEM_CURRENCIES) : [];
     foreach (array_chunk(array_values(array_unique($entries)), 1000) as $chunk) {
         foreach (rows("SELECT Entry, ItemType, Item FROM `$table` WHERE Entry IN (" . implode(',', $chunk) . ')', [], 'world') as $r) {
             if ((int)$r['ItemType'] === 0) $out[(int)$r['Entry']][(int)$r['Item']] = true;
             elseif ((int)$r['ItemType'] === 1) $refsOf[(int)$r['Entry']][] = (int)$r['Item'];
+            // a currency Forever made of an item is that item's drop (SOURCE_ITEM_CURRENCIES)
+            elseif ((int)$r['ItemType'] === 2 && ($item = $currencyItems[(int)$r['Item']] ?? 0)) $out[(int)$r['Entry']][$item] = true;
         }
     }
     // the items of every reference, references inside references included
