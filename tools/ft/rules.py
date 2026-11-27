@@ -780,6 +780,43 @@ def evaluate_all(content, ctx):
         end = enders.get(quest_id, [])
         en, fr = listing(end, '', '')
         checks.append(check(any(e[2] for e in end), 'ender', L(en or 'No quest ender.', fr or 'Aucun valideur.'), 2))
+        def credit_problem(obj):
+            """What blocks a kill objective nothing gives. A credit marker live never spawns ('[DNT] Kill Credit') is given
+            by something else: name that (the creature to kill, the object to use, the item whose spell credits it), so the
+            work list and the crawl go after the thing players meet (Sickening Lights: kill the Twilight Ritual Circle
+            262006, not the marker 272603). Wording 'creature N not spawned' is what ft.gather reads to queue a spawn."""
+            spells = sorted(ctx.get('credit_spells', {}).get(obj, ()))
+            givers = []
+            for npc in sorted(kill_credit.get(obj, ())):
+                givers.append(('creature', npc, 'not spawned'))
+            for kind_, entry in sorted(ctx.get('smart_credits', {}).get(obj, ())):
+                givers.append(('creature' if kind_ == 'npc' else 'object', entry, 'not spawned'))
+            for entry in sorted(ctx.get('object_credits', {}).get(obj, ())):
+                givers.append(('object', entry, 'not spawned'))
+            for spell in spells:
+                for kind_, entry in sorted(ctx.get('world_casts', {}).get(spell, ()), key=str):
+                    if kind_ in ('npc', 'go'):
+                        givers.append(('creature' if kind_ == 'npc' else 'object', entry, 'not spawned'))
+                for holder in sorted(ctx.get('used_spells', {}).get(spell, ()), key=str):
+                    if isinstance(holder, int):
+                        givers.append(('item', holder, 'not obtainable'))
+            fr_what = {'creature': 'PNJ', 'object': 'objet du monde', 'item': 'objet'}
+            fr_state = {'not spawned': 'non placé', 'not obtainable': 'non obtenable'}
+            seen, unique = set(), []
+            for g in givers:
+                if g not in seen:
+                    seen.add(g)
+                    unique.append(g)
+            if unique:
+                shown = unique[:3]
+                more = f' (+{len(unique) - 3})' if len(unique) > 3 else ''
+                return L(f'credit {obj} from ' + ', '.join(f'{w} {e} {st}' for w, e, st in shown) + more,
+                         f'crédit {obj} donné par ' + ', '.join(f'{fr_what[w]} {e} {fr_state[st]}' for w, e, st in shown) + more)
+            if spells:
+                some = ', '.join(map(str, spells[:3]))
+                return L(f'credit {obj}: nothing casts spell {some}', f'crédit {obj} : rien ne lance le sort {some}')
+            return L(f'creature {obj} not spawned', f'PNJ {obj} non placé')
+
         problems = []
         for kind, obj, amount in objectives.get(quest_id, []):
             # a creature the objective only counts (a credit marker) is credited by a spell; one an item players hold
@@ -792,7 +829,7 @@ def evaluate_all(content, ctx):
                 or any(kind_ == 'at' or entry in (npc_spawned if kind_ == 'npc' else go_spawned)
                        for spell in ctx.get('credit_spells', {}).get(obj, ()) for kind_, entry in ctx.get('world_casts', {}).get(spell, ()))
             if kind == 0 and obj not in npc_spawned and not (kill_credit.get(obj, set()) & npc_spawned) and not credited:
-                problems.append(L(f'creature {obj} not spawned', f'PNJ {obj} non placé'))
+                problems.append(credit_problem(obj))
             elif kind == 1 and obj not in obtainable and obj != int(row.get('StartItem') or 0):
                 problems.append(L(f'item {obj} not obtainable', f'objet {obj} non obtenable'))
             elif kind == 2 and obj not in go_spawned:
