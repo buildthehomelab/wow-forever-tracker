@@ -184,11 +184,30 @@ function source_answers_due_case(string $source, array $settings = []): string
     }
 }
 
-/** The UPDATE that sets due_at of a source's rows ($where limits them). */
+/**
+ * The UPDATE that sets due_at of a source's rows ($where limits them). A source never asked again by itself (due_at
+ * always NULL: the versioned ones) touches only a row that still holds a time, not every row it has: eglink has more
+ * than half a million, and setting each to the NULL it holds kept MySQL writing for hours (2026-11-27).
+ */
 function source_answers_due_sql(string $source, string $where = '1', array $settings = []): string
 {
-    return 'UPDATE ' . SOURCE_ANSWERS_TABLE . ' SET due_at = IF(status = \'gone\', NULL, ' . source_answers_due_case($source, $settings) . ")
-        WHERE source = '" . addslashes($source) . "' AND ($where)";
+    $case = source_answers_due_case($source, $settings);
+    return 'UPDATE ' . SOURCE_ANSWERS_TABLE . ' SET due_at = ' . ($case === 'NULL' ? 'NULL' : "IF(status = 'gone', NULL, $case)") . "
+        WHERE source = '" . addslashes($source) . "' AND ($where)" . ($case === 'NULL' ? ' AND due_at IS NOT NULL' : '');
+}
+
+/**
+ * The UPDATE that sets due_at of the rows just written (their keys), or null when their source is never asked again
+ * by itself (a new row's due_at is NULL already). By key, not by fetch time: the rows of a version all share the
+ * version's time, so "fetched since" was every row of the version again after each INSERT.
+ */
+function source_answers_due_rows_sql(mysqli $link, string $source, array $rows): ?string
+{
+    if (!$rows || source_answers_due_case($source) === 'NULL') return null;
+    $q = fn($v) => "'" . $link->real_escape_string((string)$v) . "'";
+    $keys = [];
+    foreach ($rows as $r) $keys['(' . implode(',', [$q($r['feed']), $q($r['branch']), $q($r['kind']), $q($r['ref'])]) . ')'] = true;
+    return source_answers_due_sql($source, '(feed, branch, kind, ref) IN (' . implode(',', array_keys($keys)) . ')');
 }
 
 // ------------------------------------------------------------------ writing
@@ -205,19 +224,19 @@ function source_answers_put(array $rows, ?mysqli $link = null): int
     $flush = function () use (&$chunk, &$bytes, &$sent, $link) {
         if (!$chunk) return;
         $link->query(source_answers_insert_sql($link, $chunk));
+        // the rows just written: their due time from their (maybe new) fetch time
+        $bySource = [];
+        foreach ($chunk as $r) $bySource[$r['source']][] = $r;
+        foreach ($bySource as $source => $written) if ($sql = source_answers_due_rows_sql($link, $source, $written)) $link->query($sql);
         $sent += count($chunk);
         $chunk = []; $bytes = 0;
     };
-    $since = [];
     foreach ($rows as $r) {
         $size = strlen($r['data']) + strlen((string)$r['whole']) + strlen($r['ref']) + 512;
         if ($chunk && (count($chunk) >= SOURCE_ANSWERS_CHUNK_ROWS || $bytes + $size > SOURCE_ANSWERS_CHUNK_BYTES)) $flush();
         $chunk[] = $r; $bytes += $size;
-        $since[$r['source']] = min($since[$r['source']] ?? PHP_INT_MAX, (int)$r['fetched']);
     }
     $flush();
-    // the rows just written: their due time from their (maybe new) fetch time
-    foreach ($since as $source => $at) $link->query(source_answers_due_sql($source, 'fetched_at >= FROM_UNIXTIME(' . (int)$at . ')'));
     return $sent;
 }
 
