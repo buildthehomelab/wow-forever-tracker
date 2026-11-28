@@ -93,6 +93,10 @@ CAST = re.compile(r'\b(' + '|'.join(CAST_CALLS) + r')\s*\(')
 # A script class or struct, and the name a ScriptLoader constructor gives it (`CreatureScript("npc_cairne_bloodhoof")`)
 SCRIPT_CLASS = re.compile(r'\b(?:class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?:\s*(?:public\s+)?[A-Za-z_][\w:<>]*[^{;]*\{')
 LOADER_NAME = re.compile(r'\b\w*Script\s*\(\s*"([^"]+)"')
+# a script class registered under a name of its own with the spell it casts as an argument (midsummer.cpp:
+# RegisterSpellScriptWithArgs(spell_midsummer_cleansing_flames, "spell_midsummer_cleansing_flames_orgrimmar",
+# SPELL_CREATE_FLAME_OF_ORGRIMMAR)): the class casts a member set from it
+REGISTER_WITH_ARGS = re.compile(r'\bRegister\w*WithArgs\s*\(')
 
 
 def read(path):
@@ -537,10 +541,13 @@ def script_casts(scripts):
         return None
 
     out = {}
+    casting = set()   # the classes with a cast call of their own, whatever its argument
     for path in sorted(texts):
         text = texts[path]
         for m in SCRIPT_CLASS.finditer(text):
             body = text[m.end() - 1:closing(text, m.end() - 1)]
+            if CAST.search(body):
+                casting.add(m.group(1))
             spells = set()
             for c in CAST.finditer(body):
                 parts = split_top(body[c.end():closing(body, c.end() - 1) - 1])
@@ -556,6 +563,22 @@ def script_casts(scripts):
             if spells:
                 for name in {m.group(1)} | set(LOADER_NAME.findall(body)):
                     out.setdefault(name, set()).update(spells)
+    # the names a class is registered under with arguments: the SPELL_ constants among them are what that name casts
+    for path in sorted(texts):
+        text = texts[path]
+        for m in REGISTER_WITH_ARGS.finditer(text):
+            parts = split_top(text[m.end():closing(text, m.end() - 1) - 1])
+            if len(parts) < 3 or parts[0].strip() not in casting:
+                continue
+            name = parts[1].strip().strip('"')
+            if not re.fullmatch(r'\w+', name):
+                continue
+            for arg in parts[2:]:
+                for t in re.findall(r'\b[A-Za-z_][\w:]*', arg):
+                    if 'SPELL' in t.rsplit('::', 1)[-1]:
+                        spell = resolve(path, t)
+                        if spell:
+                            out.setdefault(name, set()).add(spell)
     return {name: sorted(spells) for name, spells in out.items()}
 
 
