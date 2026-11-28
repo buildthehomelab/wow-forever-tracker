@@ -618,6 +618,12 @@ def server_state():
     ctx['q_start_npc'] = pairs('SELECT id, quest FROM creature_queststarter')
     ctx['q_end_npc'] = pairs('SELECT id, quest FROM creature_questender')
     ctx['q_start_go'] = pairs('SELECT id, quest FROM gameobject_queststarter')
+    # a holiday's quests are offered while its game event runs (game_event_creature_quest / _gameobject_quest: the core
+    # adds them to the creature's or object's quest relations): Hallow's End's innkeepers, the fishing tournament's Jang
+    for key, table in (('q_start_npc', 'game_event_creature_quest'), ('q_start_go', 'game_event_gameobject_quest')):
+        if sqlio.has_table(table):
+            have = set(ctx[key])
+            ctx[key] += [pair for pair in pairs(f'SELECT id, quest FROM {table}') if pair not in have]
     ctx['q_end_go'] = pairs('SELECT id, quest FROM gameobject_questender')
     # names of the creatures that give or take quests: a giver live replaced is found by its name (ft.rules)
     ctx['quest_npc_names'] = {int(r['entry']): r['name'] or '' for r in q(
