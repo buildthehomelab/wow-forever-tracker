@@ -122,13 +122,24 @@ def quest_rewards(quests):
     return out
 
 
+def looted_items(ctx):
+    """The items any loot table of the server holds as an item row ({id}), worked out once per ctx."""
+    if '_looted_items' not in ctx:
+        ctx['_looted_items'] = {item for rows in (ctx.get('loot') or {}).values() for _entry, kind, item, _ref in rows if kind == 0}
+    return ctx['_looted_items']
+
+
 def sold_by_unseen_vendors(item_id, ctx):
     """True when an item's only way in is a vendor the realm does not spawn and the live server never showed (EG Link's
     recording has no record of the creature): Season of Discovery's Rune Brokers 233335/233428 and Ziri "The Wrench"
     Littlesprocket 217689, the Noblegarden vendors 32836/32837. Wowhead's Forever pages still list such sellers from the
-    Classic data. Without a live recording nothing counts as unseen."""
+    Classic data. Without a live recording nothing counts as unseen. An item some loot table also holds is not sold
+    only: Love is in the Air's Bag of Candies, Love Fool and Truesilver Shafted Arrow are in the gift boxes too, beside
+    the Lovely Merchant (37674) and Season of Discovery sellers, and wait with that holiday."""
     live = (ctx or {}).get('live_npcs') or {}
     if not live:
+        return False
+    if item_id in looted_items(ctx):
         return False
     vendors = {npc for npc, item in (ctx or {}).get('vendors', ()) if item == item_id}
     if not vendors:
