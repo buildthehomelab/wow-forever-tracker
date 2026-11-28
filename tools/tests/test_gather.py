@@ -208,9 +208,16 @@ class Run(unittest.TestCase):
         self.assertEqual([r['id'] for r in out['phases'][0]['npcs']], [])
         self.assertNotIn('npc', out['wowhead']['now'])
 
+    def test_a_creature_a_summoning_spell_brings_is_in_the_world(self):
+        # creature 70 comes from a summoning spell (a boss's script casts it, Nefarian's drakonids): the analysis hands
+        # the spells' creatures over, and the work list does not ask for a spawn
+        out = self.run_gather(set(), spell_summons={70})
+        self.assertEqual([r['id'] for r in out['phases'][0]['npcs']], [])
+        self.assertNotIn('npc', out['wowhead']['now'])
+
     commit = 'a' * 40
 
-    def run_gather(self, summoned):
+    def run_gather(self, summoned, spell_summons=()):
         from unittest import mock
         commit = self.commit
         commit = 'a' * 40
@@ -224,7 +231,7 @@ class Run(unittest.TestCase):
             entities = [{'type': 'quest', 'id': '100', 'name_en': 'New', 'status': 'missing', 'phase': '0', 'checks': None},
                         {'type': 'item', 'id': '300', 'name_en': 'Loot', 'status': 'missing', 'phase': '1', 'checks': ''}]
             # a summoned creature has its template (Majordomo Executus): only its spawn row is missing
-            world = {'quest_template': [], 'creature_template': ['50', '205'] + [str(e) for e in summoned], 'creature': ['50', '205'], 'gameobject_template': [], 'gameobject': []}
+            world = {'quest_template': [], 'creature_template': ['50', '205'] + [str(e) for e in set(summoned) | set(spell_summons)], 'creature': ['50', '205'], 'gameobject_template': [], 'gameobject': []}
             # the quest also asks for item 4234, which creature 205 (on the server, spawned) drops
             icy = {('item', 4234): {'relations': {'addon_dropped_by': [{'npc_id': 205}]}}}
             with open(os.path.join(build, 'quests.enUS.json')) as f:
@@ -245,9 +252,9 @@ class Run(unittest.TestCase):
                     mock.patch.object(gather.facts, 'fetch_eglink', lambda *a, **k: 0), \
                     mock.patch.object(gather.phase_rules, 'load', lambda: []), \
                     mock.patch.object(gather.icyveins, 'cached', lambda kind, entry, folder=None: icy.get((kind, entry))), \
-                    mock.patch.object(gather.summons, 'known', lambda: (summoned, set(), {})), \
+                    mock.patch.object(gather.summons, 'known', lambda spells=(): (summoned | set(spells), set(), {})), \
                     mock.patch.object(gather, 'log', lambda message: None):
-                gather.run({'dungeon': {}}, phase_list, folders=[pages])
+                gather.run({'dungeon': {}}, phase_list, folders=[pages], spell_summons=spell_summons)
             with open(os.path.join(data, 'gather.json')) as f:
                 return json.load(f)
 

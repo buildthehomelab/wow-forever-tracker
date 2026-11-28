@@ -1146,7 +1146,7 @@ def analyse(args):
     # what the content still to come needs, listed and fetched now (docs/GATHER.md): a report, it never stops the analysis
     try:
         from ft import gather
-        gather.run(content, phase_list)
+        gather.run(content, phase_list, spell_summons=ctx.get('spell_summons') or ())
     except Exception as error:
         # a report, not a failure: app/forge.php marks a run whose log says "Error" as failed, so the word is lowered
         report = f'{type(error).__name__}: {str(error)[:200]}'.replace('Error', 'error')

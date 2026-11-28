@@ -361,9 +361,11 @@ def targets_from(rows, map_areas, listed):
     return out
 
 
-def run(content, phase_list, folders=None):
+def run(content, phase_list, folders=None, spell_summons=()):
     """After the analysis was loaded: fetches the EG Link and QuestieDB datasets this needs, builds the work list and
-    writes data/gather.json. Never stops the analysis: a source that cannot be read is said and left out."""
+    writes data/gather.json. Never stops the analysis: a source that cannot be read is said and left out.
+    spell_summons: the creatures a summoning spell of the server's DB2 files brings in (the analysis's
+    ctx['spell_summons']), so a raid boss's adds that its script summons by spell count as in the world."""
     started = time.time()
     keys = {n: p['key'] for n, p in enumerate(phase_list, 1)}
     rows = []
@@ -440,9 +442,11 @@ def run(content, phase_list, folders=None):
             chunk = ','.join(map(str, wanted[start:start + 1000]))
             server[name] |= {int(v) for v in sqlio.column(f'SELECT DISTINCT `{column}` FROM `{table}` WHERE `{column}` IN ({chunk})')}
     # what a script, a summon group or an event brings in needs no spawn row (Majordomo Executus and his Flamewakers,
-    # Ragnaros, a raid boss's adds): counted as in the world, as the analysis and the locator count it (ft.summons)
+    # Ragnaros, a raid boss's adds): counted as in the world, as the analysis and the locator count it (ft.summons).
+    # The summoning spells count too: Nefarian's drakonids, Moam's Mana Fiends and Noth's Plagued Guardians come from a
+    # spell the boss's script casts (22654-22680, 25681, 29239), not from a SummonCreature call with their entry.
     try:
-        summoned_npc, summoned_go, _lists = summons.known()
+        summoned_npc, summoned_go, _lists = summons.known(spell_summons)
         server['npc_spawned'] |= set(summoned_npc) & ids['npc']
         server['object_spawned'] |= set(summoned_go) & ids['object']
     except Exception as error:   # never stops the analysis: without it, summoned ones only show as unplaced

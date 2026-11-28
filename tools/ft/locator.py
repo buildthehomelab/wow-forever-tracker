@@ -82,9 +82,10 @@ def summoned_in_classic(found, said):
     return out
 
 
-def candidates(creates=None):
+def candidates(creates=None, spell_summons=()):
     """{(kind, entry): {'name', 'reasons': [[role, type, id], ...]}} of templates that exist and are not spawned.
-    creates: {spell: item} of the client's create-item effects, for the objects whose own spell makes a needed item."""
+    creates: {spell: item} of the client's create-item effects, for the objects whose own spell makes a needed item.
+    spell_summons: the creatures the client's summoning spells bring in (a raid boss's adds): never offered a spawn."""
     found = {}
 
     def add(kind, entry, role, ref_type, ref_id):
@@ -170,7 +171,7 @@ def candidates(creates=None):
 
     # What a script, a summon group or an event brings in needs no spawn row: spawning it for good would put a
     # second Reginald Windsor in Stormwind. (The analysis already counts them as present; this is the same list.)
-    summoned_npc, summoned_go, _core = summons.known()
+    summoned_npc, summoned_go, _core = summons.known(spell_summons)
     for key in [k for k in found if k[1] in (summoned_npc if k[0] == 'npc' else summoned_go)]:
         del found[key]
 
@@ -292,9 +293,13 @@ def run(args):
     except OSError as error:
         log(f'locator: zone maps not written ({error})')
     log('locator: looking for unspawned creatures and objects that the content needs')
-    creates = {int(e['SpellID']): int(e['EffectItemType']) for e in table(folder, 'SpellEffect')
+    effects = table(folder, 'SpellEffect')
+    creates = {int(e['SpellID']): int(e['EffectItemType']) for e in effects
                if int(e.get('Effect') or 0) == server.EFFECT_CREATE_ITEM and int(e.get('EffectItemType') or 0) > 0}
-    found = candidates(creates)
+    # as the analysis counts them (ft.server): a creature a summoning spell brings in needs no spawn row
+    spell_summons = {int(e['EffectMiscValue1']) for e in effects
+                     if int(e.get('Effect') or 0) == server.EFFECT_SUMMON and int(e.get('EffectMiscValue1') or 0) > 0}
+    found = candidates(creates, spell_summons)
     log(f"locator: {len(found)} candidates ({sum(1 for k, _ in found if k == 'npc')} creatures, {sum(1 for k, _ in found if k == 'go')} objects)")
     said = classic_spawning()
     summoned = summoned_in_classic(found, said) if said else {}
