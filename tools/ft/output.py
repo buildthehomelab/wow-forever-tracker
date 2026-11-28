@@ -108,6 +108,20 @@ def item_internal(item_id, items, wowhead):
     return bool(not name or INTERNAL_NAME.search(name) or (wowhead or {}).get(('item', item_id)) == 'season')
 
 
+REWARD_COLUMNS = tuple(f'RewardItem{i}' for i in range(1, 5)) + tuple(f'RewardChoiceItemID{i}' for i in range(1, 7))
+
+
+def quest_rewards(quests):
+    """{item: {quests}}: the quests of the server's quest_template rows (ctx['quests']) that hand each item out."""
+    out = {}
+    for quest, row in quests.items():
+        for column in REWARD_COLUMNS:
+            item = int((row or {}).get(column) or 0)
+            if item > 0:
+                out.setdefault(item, set()).add(quest)
+    return out
+
+
 def sold_by_unseen_vendors(item_id, ctx):
     """True when an item's only way in is a vendor the realm does not spawn and the live server never showed (EG Link's
     recording has no record of the creature): Season of Discovery's Rune Brokers 233335/233428 and Ziri "The Wrench"
@@ -251,7 +265,11 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
             title = ((ctx or {}).get('quests', {}).get(entity_id) or {}).get('LogTitle') if kind == 'quest' and status == 'ok' else None
             if title:
                 done_titles.setdefault(title, set()).add(entity_id)
-        for (kind, entity_id), (status, score, checks) in results.items():
+        # The items each quest hands out (its rewards and choices), for the items only hidden quests give
+        rewarded_by = quest_rewards((ctx or {}).get('quests') or {})
+        hidden_quests = set()
+        # quests first: an item's line looks at whether the quests that reward it were filed under Internal / test
+        for (kind, entity_id), (status, score, checks) in sorted(results.items(), key=lambda kv: kv[0][0] != 'quest'):
             entity = content[kind][entity_id]
             name = entity.get('name') or ''
             name_en = entity.get('name_en') or ''
@@ -304,6 +322,9 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
                 internal = 1 if filed_internal(entity_id, content, results, ctx, wowhead) else 0
+                quests_of = rewarded_by.get(entity_id)
+                if status != 'ok' and not internal and quests_of and quests_of <= hidden_quests:
+                    internal = 1  # only quests filed under Internal / test reward it (Season of Discovery, not on live)
                 if status != 'ok' and not internal and sold_by_unseen_vendors(entity_id, ctx):
                     internal = 1  # sold only by vendors live never showed and the realm does not spawn: not given on WoW Forever
                 teachers = ((ctx or {}).get('teachers_only') or {}).get(entity_id)
@@ -356,6 +377,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     data[key] = entity[key]
             if (kind, entity_id) in covered:
                 data['dup'] = covered[(kind, entity_id)]  # the work list shows it once, on that other line
+            if kind == 'quest' and internal:
+                hidden_quests.add(entity_id)
             icon = icons.get(entity.get('icon') or 0, '')
             batch.add(f"({e(kind)},{entity_id},{e(name[:250])},{e(name_en[:250])},{e(str(entity.get('sub', ''))[:120])},{int(entity.get('level') or 0)},"
                       f"{int(entity.get('quality', -1)) if kind == 'item' else -1},{e(icon)},{internal},{1 if baseline.is_new(kind, entity_id, entity) else 0},{e(status)},{score},"
