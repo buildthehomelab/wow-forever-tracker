@@ -37,6 +37,21 @@ A page Wowhead does not have is kept as `"status": "missing"`, so that it is not
 A creature's or object's page also keeps the model display ids its model viewer shows (`"model": [140708]`, record
 version 2): a creature the server has no template for needs one.
 
+**No pins inside dungeons.** The map pins are the page's `g_mapperData`, `{zone: [{count, coords: [[x%, y%]...],
+uiMapId}]}`, kept whole. Wowhead's Forever database has no pins inside instances: the page says only where the
+creature is ("This NPC can be found in Blackmaw Hold."), with no map and no count, while a zone with pins gets its count
+("Felwood (69)", "Azshara (3) and Blackmaw Hold."). The tooltip answers the same way (`"map": {"zone": 16554,
+"coords": []}`). Checked 2026-11-27 on the answers table: of 5,136 Forever creature and object pages (record v4 and
+later) that say where they are found, every one with a count has its map kept; the 605 without a map have no count; no
+page holds a pin in an instance zone (Classic dungeons such as The Deadmines and Molten Core included). So dungeon
+spawns cannot be checked against Wowhead pins, and the crawl has nothing more to keep for them. Should Wowhead add
+them later, they would come in the same `g_mapperData` and be kept as they are.
+
+Even then, pins inside a dungeon would be percentages on one floor's map picture, not world positions:
+`tools/ft/geo.py` turns zone percentages into positions through the client's UiMapAssignment rows, and Forever 1.60
+has none for the Forever-only dungeon maps (2970, 2974, 2994, 3001, 3039). Placing them would need a projection
+fitted per dungeon and per floor from known points, and no sniffed spawns exist in those maps to fit one from.
+
 ## Reading pages
 
 1. The Forge › Imports › **Download the crawler**. The file holds the crawler and its queue, each page with what it
