@@ -27,7 +27,7 @@ import os
 import re
 import time
 
-from . import facts, icyveins, phases as phase_rules, sqlio
+from . import facts, icyveins, phases as phase_rules, sqlio, summons
 from .config import DATA
 from .server import log
 
@@ -439,6 +439,14 @@ def run(content, phase_list, folders=None):
         for start in range(0, len(wanted), 1000):
             chunk = ','.join(map(str, wanted[start:start + 1000]))
             server[name] |= {int(v) for v in sqlio.column(f'SELECT DISTINCT `{column}` FROM `{table}` WHERE `{column}` IN ({chunk})')}
+    # what a script, a summon group or an event brings in needs no spawn row (Majordomo Executus and his Flamewakers,
+    # Ragnaros, a raid boss's adds): counted as in the world, as the analysis and the locator count it (ft.summons)
+    try:
+        summoned_npc, summoned_go, _lists = summons.known()
+        server['npc_spawned'] |= set(summoned_npc) & ids['npc']
+        server['object_spawned'] |= set(summoned_go) & ids['object']
+    except Exception as error:   # never stops the analysis: without it, summoned ones only show as unplaced
+        log(f'later: summons not read ({error})')
     listing = [{'key': NOW, 'name': 'Open now', 'opens': None}] + [dict(p) for p in phase_list]
     result = build(targets, server, src, listing)
     result = {'made': int(time.time()), 'sources': said, **result}
