@@ -208,6 +208,17 @@ class MadeByUse(unittest.TestCase):
         self.ctx['spawned_npc'] = set()
         self.assertEqual(failed(evaluate({'item': {1: {}, 2: {}}}, self.ctx)[('item', 2)]), ['source'])
 
+    def test_what_wowhead_says_casts_the_spell(self):
+        # item 2895 is made by spell 2838 only; Wowhead's spell page says creature 7 (not spawned) and object 8 cast it
+        ctx = world(creates={2895: {2838}}, wowhead_spell_users={2838: {('npc', 7), ('object', 8)}}, spawned_go={8})
+        check = next(c for c in evaluate({'item': {2895: {}}}, ctx)[('item', 2895)][2] if c['code'] == 'source')
+        self.assertFalse(check['ok'])
+        self.assertEqual(check['detail']['en'], 'Inactive source: recipe that cannot be learned (spell 2838); on Wowhead it is cast by '
+                                                'creature 7 not spawned, object 8 spawned, nothing here makes it cast it')
+        ctx['wowhead_spell_users'] = {}
+        check = next(c for c in evaluate({'item': {2895: {}}}, ctx)[('item', 2895)][2] if c['code'] == 'source')
+        self.assertEqual(check['detail']['en'], 'Inactive source: recipe that cannot be learned (spell 2838)')
+
     def test_a_credit_an_item_gives(self):
         # quest 10 asks for creature 300, a credit marker no one spawns: using item 1 casts spell 50, which credits it
         self.ctx.update(quests={10: quest_row()}, objectives=[(10, 0, 300, 1)], q_start_npc=[(100, 10)], q_end_npc=[(100, 10)],

@@ -157,6 +157,18 @@ class Targets(unittest.TestCase):
         self.assertEqual(out['first-raids']['npc'], {90: ['instance']})
         self.assertNotIn(301, out['now']['item'])
 
+    def test_spells_that_make_an_item(self):
+        # Creeping Pain 2895: made by spell 2838 nothing here casts; Wowhead's page of a second spell names an unspawned caster
+        checks = json.dumps([{'code': 'source', 'ok': False, 'detail': {'en': 'Inactive source: recipe that cannot be learned (spell 2838, 2840); '
+                                                                            'on Wowhead it is cast by creature 7 not spawned'}}])
+        out = gather.targets_from([('item', 2895, 'Creeping Pain', 'partial', 'now', checks)], {}, {})
+        self.assertEqual(out['now']['spell'], {2838: ['item:2895'], 2840: ['item:2895']})
+        self.assertEqual(out['now']['npc'], {7: ['item:2895']})
+        self.assertEqual(out['now']['item'], {})                     # an open item itself is not the list's
+        built = gather.build(out, {'quest': set(), 'npc_template': set(), 'npc_spawned': set(), 'object_template': set(),
+                                   'object_spawned': set()}, sources(), [{'key': 'now', 'name': 'Open now', 'opens': None}])
+        self.assertEqual(built['wowhead']['now']['spell'], [2838, 2840])
+
     def test_open_quest_without_ender(self):
         # a Craftsman's Writ the server has, with no ender: listed so the crawl reads its page; one with both is not
         no_ender = json.dumps([{'code': 'starter', 'ok': True}, {'code': 'ender', 'ok': False}])

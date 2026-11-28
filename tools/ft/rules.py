@@ -487,6 +487,36 @@ def evaluate_all(content, ctx):
     for item in rewarded_elsewhere | loot_unplaced | vendor_unplaced | set(ctx['creates']):
         not_given_rewards.pop(item, None)
 
+    def made_by_hint(item_id):
+        """'recipe that cannot be learned (spell 2838)', and what Wowhead's spell page says uses that spell and the realm
+        lacks: 'spell 2838 is cast by creature 7 not spawned'. ft.gather reads 'spell N' to queue the spell's page and
+        'creature N not spawned' / 'object N not spawned' to queue those."""
+        spells = sorted(ctx['creates'].get(item_id, ()))
+        some = ', '.join(map(str, spells[:3])) + ('…' if len(spells) > 3 else '')
+        users = ctx.get('wowhead_spell_users') or {}
+        said_en, said_fr = [], []
+        for spell in spells[:3]:
+            for kind, entry in sorted(users.get(spell, ()))[:3]:
+                if kind in ('npc', 'object'):
+                    there = entry in (npc_spawned if kind == 'npc' else go_spawned)
+                    what_en, what_fr = ('creature', 'PNJ') if kind == 'npc' else ('object', 'objet du monde')
+                    state_en = 'spawned, nothing here makes it cast it' if there else 'not spawned'
+                    state_fr = 'placé, rien ici ne le lui fait lancer' if there else 'non placé'
+                    said_en.append(f'{what_en} {entry} {state_en}')
+                    said_fr.append(f'{what_fr} {entry} {state_fr}')
+                elif kind == 'item':
+                    said_en.append(f'item {entry}{"" if entry in sources else " not obtainable"}')
+                    said_fr.append(f'objet {entry}{"" if entry in sources else " non obtenable"}')
+                else:
+                    said_en.append(f'quest {entry}')
+                    said_fr.append(f'quête {entry}')
+        en = f'recipe that cannot be learned (spell {some})' if spells else 'recipe that cannot be learned'
+        fr = f'recette non apprenable (sort {some})' if spells else 'recette non apprenable'
+        if said_en:
+            en += '; on Wowhead it is cast by ' + ', '.join(said_en)
+            fr += ' ; sur Wowhead il est lancé par ' + ', '.join(said_fr)
+        return L(en, fr)
+
     def item_result(item_id, entity):
         checks = [check(item_id in known['item'], 'core', L('In the server DB2 or in hotfixes.item_sparse.', 'Présent dans les DB2 du serveur ou dans hotfixes.item_sparse.'), 2)]
         found = sorted(sources.get(item_id, []))
@@ -510,7 +540,7 @@ def evaluate_all(content, ctx):
             if item_id in vendor_unplaced:
                 hint.append(L('sold by a creature that is not spawned', 'vendu par un PNJ non placé'))
             if item_id in ctx['creates']:
-                hint.append(L('recipe that cannot be learned', 'recette non apprenable'))
+                hint.append(made_by_hint(item_id))
             detail = L('Inactive source: ' + join(hint)['en'], 'Source existante mais inactive : ' + join(hint)['fr']) if hint else \
                 L('No source: loot, vendor, quest, craft or shop.', 'Aucune source : butin, marchand, quête, artisanat ou boutique.')
             checks.append(check(False, 'source', detail, 3))

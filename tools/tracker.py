@@ -1083,6 +1083,7 @@ def analyse(args):
             hotfix_changes[index] = change[:6] + (name,)
     ctx['season'] = baseline.season
     ctx['wowhead_reward_quests'] = phases.wowhead_reward_quests()   # quests Wowhead shows rewarding items: never Internal (ft.output)
+    ctx['wowhead_spell_users'] = phases.wowhead_spell_users()   # who Wowhead says casts a spell (ft.rules: items made by it)
     ctx['classic_taught'], ctx['classic_never_given'], ctx['classic_quest_taught'] = classic_facts()
     # What WoW: Forever made itself: neither the original game (patch 1.12, the changelog's start) nor the Classic Era
     # client has it. The original game's database says nothing about such a spell.
