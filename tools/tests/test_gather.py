@@ -169,6 +169,14 @@ class Targets(unittest.TestCase):
                                    'object_spawned': set()}, sources(), [{'key': 'now', 'name': 'Open now', 'opens': None}])
         self.assertEqual(built['wowhead']['now']['spell'], [2838, 2840])
 
+    def test_spell_items_with_instance_lists(self):
+        # a spell item read before the closed phases' instances: its spells did not replace Wowhead's lists (an
+        # AttributeError 'str' object has no attribute 'items' ended every run's work list)
+        rows = [('item', 2895, 'Creeping Pain', 'partial', 'now', 'recipe that cannot be learned (spell 2838)')]
+        out = gather.targets_from(rows, {'first-raids': {2159}}, {('npc', 90): [2159]})
+        self.assertEqual(out['now']['spell'], {2838: ['item:2895']})
+        self.assertEqual(out['first-raids']['npc'], {90: ['instance']})
+
     def test_open_quest_without_ender(self):
         # a Craftsman's Writ the server has, with no ender: listed so the crawl reads its page; one with both is not
         no_ender = json.dumps([{'code': 'starter', 'ok': True}, {'code': 'ender', 'ok': False}])
