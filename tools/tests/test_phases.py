@@ -236,7 +236,18 @@ class Assign(unittest.TestCase):
             write(2, {'addon_sold_by': [{'npc_id': 5}]})
             write(3, {'addon_dropped_by': []})
             # 4 has no answer kept at all
-            self.assertEqual(phases.icyveins_sourced({1, 2, 3, 4}, folder), {1, 2})
+            write(5, {'addon_gathered_from': [{'src': 'fishing', 'gather': 'fish'}]})
+            # what Icy Veins reads from the game's data, not players' addons: no sign it is out
+            write(6, {'looted_from': [{'id': 654624}], 'needed_for_quests': [{'id': 96616}]})
+            # seen inside a container that live has since removed: not out any more; one still in the game counts
+            def entity(item, fields):
+                with gzip.open(os.path.join(folder, 'item', f'{item}.json.gz'), 'wt', encoding='utf-8') as handle:
+                    json.dump({'entity': fields, 'relations': {}}, handle)
+            entity(287965, {'removed_in_build': 70658})
+            entity(900, {'removed_in_build': None})
+            write(7, {'addon_gathered_from': [{'src': 'item', 'container_item_id': 287965}]})
+            write(8, {'addon_gathered_from': [{'src': 'item', 'container_item_id': 900}]})
+            self.assertEqual(phases.icyveins_sourced({1, 2, 3, 4, 5, 6, 7, 8}, folder), {1, 2, 5, 8})
 
     def test_wowhead_reward_quests(self):
         with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
