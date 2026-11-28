@@ -168,14 +168,30 @@ def wowhead_unsourced_items(folders=None):
 
 
 def icyveins_sourced(items, folder=None):
-    """The items of `items` that the Icy Veins mirror records players' addons seeing drop or sold on live WoW Forever
-    (addon_dropped_by, addon_sold_by): such an item is out, whatever Wowhead's page says. Gluggle's Murloc Oracle's
-    Dagger (281750) and fourteen other new drops of Classic rares had no Wowhead source and waited as not out yet,
-    so the work list never showed their rares' loot tables lacked them (2026-11-28)."""
+    """The items of `items` that the Icy Veins mirror records players' addons getting on live WoW Forever (any
+    addon_* relation: addon_dropped_by, addon_sold_by, addon_gathered_from for gathering, fishing and opening a
+    container): such an item is out, whatever Wowhead's page says. Gluggle's Murloc Oracle's Dagger (281750) and
+    fourteen other new drops of Classic rares had no Wowhead source and waited as not out yet, so the work list never
+    showed their rares' loot tables lacked them (2026-11-28); so did Hyjal Silphium (274979, gathered), the fished
+    coins (286270...) and the Unfinished Masterwork Sword (258734, from its world object). The addons' records keep
+    what live once gave: a sighting from inside a container Icy Veins marks removed (the unnamed 287965 with its six
+    potions and foods, removed in build 70658) does not count."""
+    def removed(container):
+        entity = (icyveins.cached('item', container, folder) or {}).get('entity') or {}
+        return bool(entity.get('removed_in_build'))
+
+    def live(key, rows):
+        if not key.startswith('addon_') or not rows:
+            return False
+        if key != 'addon_gathered_from' or not isinstance(rows, list):
+            return True
+        return any(not (isinstance(row, dict) and row.get('container_item_id') and removed(row['container_item_id']))
+                   for row in rows)
+
     out = set()
     for item in items:
         relations = (icyveins.cached('item', item, folder) or {}).get('relations') or {}
-        if relations.get('addon_dropped_by') or relations.get('addon_sold_by'):
+        if any(live(key, rows) for key, rows in relations.items()):
             out.add(item)
     return out
 
