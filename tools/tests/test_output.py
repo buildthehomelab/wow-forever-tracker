@@ -42,7 +42,8 @@ class Written(unittest.TestCase):
             'mount': {3113: named('[PH] Brown Prideclaw', spell=1), 3000: named('Swift Hyjal Stag', spell=2), 7: named('Gray Wolf', spell=459)},
             'pet': {3500: named('Gill\'el', spell=3)},
             'recipe': {1252979: named(''), 1252000: named('Test Recipe'), 1251000: named('Elderwild Pants'), 2369: named('Herbalism'), 2330: named(''), 2337: named('#2337')},
-            'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants'), 9572: named('<UNUSED> Glyphic Rune')},
+            'item': {269326: named('NOT USED'), 279254: named('Elderwild Pants'), 9572: named('<UNUSED> Glyphic Rune'),
+                     5131: named('Knowledge: Stonesplinter Disguise'), 5132: named('Shared Reward')},
             'quest': {55296: named(''), 9999999: named(''), 2000: named(''), 5561: named(''), 8237: named(''), 9378: named(''), 909: named(''), 6922: named(''), 3111: named(''), 785: named(''), 84394: named(''), 93045: named('Test Your Theory'), 7704: named('')},
         }
         results = {(kind, i): ('missing', 0, []) for kind in cls.content for i in cls.content[kind]}
@@ -54,7 +55,7 @@ class Written(unittest.TestCase):
         results[('quest', 909)] = ('missing', 0, off[1:2])
         results[('quest', 6922)] = ('ok', 100, [])
         results[('quest', 3111)] = ('missing', 0, off[1:])
-        quests = {3111: {'LogTitle': 'Glyphic Rune'}, 909: {'LogTitle': 'Baron Aquanis'}, 6922: {'LogTitle': 'Baron Aquanis'}, 2000: {'LogTitle': 'Rokar Bladeshadow'}, 785: {'LogTitle': 'A Strategic Alliance'}, 7704: {'LogTitle': 'A Pillow for Blackrock'}, 5561: {'LogTitle': 'Kodo Roundup'}, 8237: {'LogTitle': 'REUSE'},
+        quests = {3111: {'LogTitle': 'Glyphic Rune'}, 909: {'LogTitle': 'Baron Aquanis'}, 6922: {'LogTitle': 'Baron Aquanis', 'RewardItem1': 5132}, 2000: {'LogTitle': 'Rokar Bladeshadow'}, 785: {'LogTitle': 'A Strategic Alliance', 'RewardItem1': 5131, 'RewardChoiceItemID2': 5132}, 7704: {'LogTitle': 'A Pillow for Blackrock'}, 5561: {'LogTitle': 'Kodo Roundup'}, 8237: {'LogTitle': 'REUSE'},
                   9378: {'LogTitle': 'DND FLAG The Dread Citadel - Naxxramas'}}
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, 'import.sql')
@@ -69,6 +70,12 @@ class Written(unittest.TestCase):
 
     def internal(self, kind, entity_id):
         return int(re.search(r",(\d),\d,'missing'", self.row(kind, entity_id)).group(1))
+
+    def test_a_reward_only_hidden_quests_give(self):
+        # 785 is filed under Internal / test (never given): its reward goes with it; 5132 is also 6922's, which players do
+        self.assertEqual(self.internal('quest', 785), 1)
+        self.assertEqual(self.internal('item', 5131), 1)
+        self.assertEqual(self.internal('item', 5132), 0)
 
     def test_a_recipe_follows_its_spell(self):
         # spell 2369 is in granted_spells (nothing teaches it here or in the original game): its recipe goes with it
@@ -391,3 +398,9 @@ class UnseenVendors(unittest.TestCase):
         self.assertFalse(output.sold_by_unseen_vendors(3, self.ctx(spawned_npc={233335})))    # the realm spawns it
         self.assertFalse(output.sold_by_unseen_vendors(9, self.ctx()))                        # no vendor at all
         self.assertFalse(output.sold_by_unseen_vendors(1, self.ctx(live_npcs={})))            # no live recording
+
+
+class QuestRewards(unittest.TestCase):
+    def test_rewards_and_choices(self):
+        quests = {1: {'RewardItem1': 10, 'RewardChoiceItemID6': 11}, 2: {'RewardItem4': 10}, 3: {}, 4: None}
+        self.assertEqual(output.quest_rewards(quests), {10: {1, 2}, 11: {1}})
