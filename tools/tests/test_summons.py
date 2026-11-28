@@ -169,6 +169,35 @@ public:
         self.assertEqual(casts['go_tablet_of_the_seven'], [133, 15065])   # the loader's name, the inner AI's casts
         self.assertEqual(casts['go_tablet'], [133, 15065])
 
+    def test_a_script_registered_with_the_spell_it_casts(self):
+        # midsummer.cpp: one class, registered once per capital with the Create Flame spell it casts
+        text = '''
+enum { SPELL_CREATE_FLAME_OF_ORGRIMMAR = 29130, SPELL_CREATE_FLAME_OF_STORMWIND = 29101, SPELL_ARCANE = 500 };
+class spell_midsummer_cleansing_flames : public SpellScript
+{
+public:
+    explicit spell_midsummer_cleansing_flames(uint32 spellId) : _spellId(spellId) { }
+    void HandleDummy(SpellEffIndex) { GetHitUnit()->CastSpell(GetHitUnit(), _spellId, true); }
+    uint32 _spellId;
+};
+class spell_no_cast : public SpellScript { };
+void AddSC()
+{
+    RegisterSpellScriptWithArgs(spell_midsummer_cleansing_flames, "spell_midsummer_cleansing_flames_orgrimmar", SPELL_CREATE_FLAME_OF_ORGRIMMAR);
+    RegisterSpellScriptWithArgs(spell_midsummer_cleansing_flames, "spell_midsummer_cleansing_flames_stormwind", SPELL_CREATE_FLAME_OF_STORMWIND);
+    RegisterSpellScriptWithArgs(spell_no_cast, "spell_no_cast_arcane", SPELL_ARCANE);
+}
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'Events', 'midsummer.cpp')
+            os.makedirs(os.path.dirname(path))
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(text)
+            casts = make_summoned.script_casts(folder)
+        self.assertEqual(casts['spell_midsummer_cleansing_flames_orgrimmar'], [29130])
+        self.assertEqual(casts['spell_midsummer_cleansing_flames_stormwind'], [29101])
+        self.assertNotIn('spell_no_cast_arcane', casts)          # a class that casts nothing gives its arguments no meaning
+
     def test_numbered_boss_slots(self):
         text = '''
 constexpr Entry Bosses[] = { { 0, 253201 }, { 1, 261811 }, { 1, 253218 }, { 2, 7 } };

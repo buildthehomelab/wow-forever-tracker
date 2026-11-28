@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "fd6362da3a",
+"commit": "3e5edcb0ef",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -858,6 +858,7 @@
 "178964": "Custom/Classic/instances/maraudon/classic_boss_celebras_the_cursed.cpp",
 "178965": "Custom/Classic/instances/maraudon/classic_boss_celebras_the_cursed.cpp",
 "179512": "Custom/Classic/instances/dire_maul/classic_instance_dire_maul.cpp",
+"179562": "Custom/Classic/instances/onyxias_lair/classic_boss_onyxia.cpp",
 "179681": "Custom/Classic/instances/dire_maul/classic_dreadsteed_ritual.cpp",
 "179693": "Custom/Classic/eastern_kingdoms/classic_eastern_plaguelands.cpp",
 "179694": "Custom/Classic/eastern_kingdoms/classic_eastern_plaguelands.cpp",
@@ -9114,6 +9115,9 @@
 "classic_brs_urok_underlingAI": [
 16557
 ],
+"classic_celebras_spirit": [
+21939
+],
 "classic_celebras_the_cursed": [
 12747,
 21807,
@@ -9667,6 +9671,9 @@
 14928,
 15064
 ],
+"classic_npc_mizzle_the_crafty": [
+22799
+],
 "classic_npc_murkdeep": [
 6533,
 11971
@@ -9803,6 +9810,7 @@
 8858
 ],
 "classic_npc_yehkinya": [
+12998,
 24085
 ],
 "classic_npc_zealot_lorkhan": [
@@ -15695,6 +15703,9 @@
 39088,
 39091
 ],
+"spell_cenarion_scout_lifebloom": [
+53692
+],
 "spell_chains_of_woe_1": [
 75464
 ],
@@ -15962,6 +15973,29 @@
 "spell_dh_shattered_souls_devourer_dummy": [
 1223412
 ],
+"spell_dh_shattered_souls_devourer_trigger": [
+1223450
+],
+"spell_dh_shattered_souls_havoc": [
+209651
+],
+"spell_dh_shattered_souls_havoc_trigger": [
+209687,
+226370
+],
+"spell_dh_shattered_souls_havoc_trigger_lesser": [
+228536
+],
+"spell_dh_shattered_souls_vengeance": [
+210038
+],
+"spell_dh_shattered_souls_vengeance_trigger": [
+226263,
+226264
+],
+"spell_dh_shattered_souls_vengeance_trigger_lesser": [
+226258
+],
 "spell_dh_shift": [
 1234818,
 1242880
@@ -16226,6 +16260,9 @@
 "spell_dru_flower_walk": [
 439902
 ],
+"spell_dru_full_moon": [
+274297
+],
 "spell_dru_galactic_guardian": [
 164812,
 213708,
@@ -16240,6 +16277,10 @@
 ],
 "spell_dru_gore": [
 93622
+],
+"spell_dru_half_moon": [
+274295,
+274297
 ],
 "spell_dru_incarnation_tree_of_life": [
 117679
@@ -16270,6 +16311,9 @@
 ],
 "spell_dru_natures_grace": [
 450346
+],
+"spell_dru_new_moon": [
+274295
 ],
 "spell_dru_omen_of_clarity": [
 70721
@@ -16420,6 +16464,9 @@
 "spell_ethereal_pet_onsummon": [
 50051
 ],
+"spell_evo_azure_essence_burst": [
+375721
+],
 "spell_evo_burnout": [
 375802
 ],
@@ -16431,6 +16478,9 @@
 ],
 "spell_evo_fire_breath": [
 357209
+],
+"spell_evo_fury_of_the_aspects": [
+390435
 ],
 "spell_evo_glide": [
 358736
@@ -16444,6 +16494,9 @@
 ],
 "spell_evo_pyre": [
 357212
+],
+"spell_evo_ruby_essence_burst": [
+376872
 ],
 "spell_evo_verdant_embrace": [
 361195,
@@ -16466,6 +16519,9 @@
 ],
 "spell_faction_champion_death_grip": [
 64431
+],
+"spell_faction_champion_dru_lifebloom": [
+66094
 ],
 "spell_faction_champion_warl_unstable_affliction": [
 65813
@@ -16789,6 +16845,21 @@
 61611,
 61612
 ],
+"spell_grizzly_hills_script_cast_summon_image_of_drakuru_01": [
+47118
+],
+"spell_grizzly_hills_script_cast_summon_image_of_drakuru_02": [
+47150
+],
+"spell_grizzly_hills_script_cast_summon_image_of_drakuru_03": [
+47317
+],
+"spell_grizzly_hills_script_cast_summon_image_of_drakuru_04": [
+47406
+],
+"spell_grizzly_hills_script_cast_summon_image_of_drakuru_05": [
+50440
+],
 "spell_grobbulus_mutating_injection": [
 28206,
 28240
@@ -16814,6 +16885,20 @@
 ],
 "spell_hadronox_leeching_poison": [
 53800
+],
+"spell_halion_fiery_combustion": [
+74567
+],
+"spell_halion_mark_of_combustion": [
+74562,
+74610
+],
+"spell_halion_mark_of_consumption": [
+74792,
+74800
+],
+"spell_halion_soul_consumption": [
+74795
 ],
 "spell_halion_spawn_living_embers": [
 75881
@@ -16877,6 +16962,12 @@
 ],
 "spell_hellfire_peninsula_send_vengeance_to_player": [
 39206
+],
+"spell_hellfire_peninsula_translocation_falcon_watch_tower_down": [
+30140
+],
+"spell_hellfire_peninsula_translocation_falcon_watch_tower_up": [
+30141
 ],
 "spell_hodir_biting_cold_area_aura": [
 62039
@@ -16949,6 +17040,9 @@
 "spell_hun_explosive_shot": [
 212680
 ],
+"spell_hun_harriers_cry": [
+264689
+],
 "spell_hun_latent_poison_injectors_trigger": [
 336904
 ],
@@ -16985,6 +17079,9 @@
 ],
 "spell_hun_precise_shots": [
 260242
+],
+"spell_hun_primal_rage": [
+264689
 ],
 "spell_hun_quick_draw": [
 1279347
@@ -17230,6 +17327,9 @@
 "spell_item_blessing_of_ancient_kings": [
 64413
 ],
+"spell_item_bloodlust_drums": [
+57723
+],
 "spell_item_bracing_chill_proc": [
 272428,
 272436
@@ -17395,6 +17495,12 @@
 "spell_item_shadows_fate": [
 71203
 ],
+"spell_item_shiver_venom_crossbow": [
+303559
+],
+"spell_item_shiver_venom_lance": [
+303562
+],
 "spell_item_soul_preserver": [
 60512,
 60513,
@@ -17429,6 +17535,12 @@
 ],
 "spell_jokkum_scriptcast": [
 56541
+],
+"spell_jormungars_burning_spray": [
+66869
+],
+"spell_jormungars_paralytic_spray": [
+66823
 ],
 "spell_jormungars_paralytic_toxin": [
 66830
@@ -17746,6 +17858,9 @@
 "spell_mage_tempest_barrier": [
 382290
 ],
+"spell_mage_time_warp": [
+80354
+],
 "spell_mage_touch_of_the_magi_aura": [
 210833
 ],
@@ -17890,6 +18005,30 @@
 45719,
 46074,
 46651
+],
+"spell_midsummer_cleansing_flames_darnassus": [
+29099
+],
+"spell_midsummer_cleansing_flames_ironforge": [
+29102
+],
+"spell_midsummer_cleansing_flames_orgrimmar": [
+29130
+],
+"spell_midsummer_cleansing_flames_silvermoon": [
+46689
+],
+"spell_midsummer_cleansing_flames_stormwind": [
+29101
+],
+"spell_midsummer_cleansing_flames_the_exodar": [
+46690
+],
+"spell_midsummer_cleansing_flames_the_undercity": [
+29133
+],
+"spell_midsummer_cleansing_flames_thunder_bluff": [
+29132
 ],
 "spell_midsummer_fling_torch": [
 45669,
@@ -18382,8 +18521,53 @@
 "spell_pet_gen_lich_pet_periodic_emote": [
 70049
 ],
+"spell_pilgrims_bounty_a_serving_of_cranberries": [
+61833
+],
+"spell_pilgrims_bounty_a_serving_of_pie": [
+61838
+],
+"spell_pilgrims_bounty_a_serving_of_potatoes": [
+61837
+],
+"spell_pilgrims_bounty_a_serving_of_stuffing": [
+61836
+],
+"spell_pilgrims_bounty_a_serving_of_turkey": [
+61835
+],
 "spell_pilgrims_bounty_feast_on": [
 61826
+],
+"spell_pilgrims_bounty_on_plate_cranberries": [
+61804,
+61821,
+61925,
+66372
+],
+"spell_pilgrims_bounty_on_plate_pie": [
+61805,
+61825,
+61926,
+66374
+],
+"spell_pilgrims_bounty_on_plate_stuffing": [
+61806,
+61823,
+61927,
+66375
+],
+"spell_pilgrims_bounty_on_plate_sweet_potatoes": [
+61808,
+61824,
+61929,
+66376
+],
+"spell_pilgrims_bounty_on_plate_turkey": [
+61807,
+61822,
+61928,
+66373
 ],
 "spell_pilgrims_bounty_turkey_tracker": [
 62015,
@@ -18391,6 +18575,21 @@
 ],
 "spell_pilgrims_bounty_well_fed": [
 61849
+],
+"spell_pilgrims_bounty_well_fed_cranberry": [
+65412
+],
+"spell_pilgrims_bounty_well_fed_pie": [
+65415
+],
+"spell_pilgrims_bounty_well_fed_stuffing": [
+65416
+],
+"spell_pilgrims_bounty_well_fed_sweet_potatoes": [
+65410
+],
+"spell_pilgrims_bounty_well_fed_turkey": [
+65414
 ],
 "spell_place_seaforium_charge": [
 226090,
@@ -18448,6 +18647,10 @@
 ],
 "spell_pri_dark_indulgence": [
 198069
+],
+"spell_pri_dark_reprimand": [
+373129,
+400171
 ],
 "spell_pri_deaths_torment": [
 32379
@@ -18546,6 +18749,10 @@
 194384,
 372994
 ],
+"spell_pri_penance": [
+47757,
+47758
+],
 "spell_pri_power_leech_passive": [
 415673,
 415676
@@ -18555,6 +18762,12 @@
 ],
 "spell_pri_power_surge": [
 454342
+],
+"spell_pri_power_surge_periodic_holy": [
+120517
+],
+"spell_pri_power_surge_periodic_shadow": [
+120644
 ],
 "spell_pri_power_word_shield": [
 47755,
@@ -19000,6 +19213,9 @@
 "spell_sha_ascendance_restoration": [
 114083
 ],
+"spell_sha_bloodlust": [
+57724
+],
 "spell_sha_chain_lightning_crash_lightning": [
 333964
 ],
@@ -19057,6 +19273,9 @@
 "spell_sha_healing_rain_areatrigger": [
 73921,
 1307888
+],
+"spell_sha_heroism": [
+57723
 ],
 "spell_sha_ice_strike_proc": [
 466469
@@ -19160,6 +19379,15 @@
 "spell_shade_of_medivh_vo_controller_cast": [
 232314
 ],
+"spell_shadowmoon_arcano_scorp_control_01": [
+37868
+],
+"spell_shadowmoon_arcano_scorp_control_02": [
+37893
+],
+"spell_shadowmoon_arcano_scorp_control_03": [
+37895
+],
 "spell_shadowmoon_illidari_agent_illusion": [
 38225,
 38227
@@ -19245,6 +19473,22 @@
 ],
 "spell_sindragosa_instability": [
 69770
+],
+"spell_sjonnir_periodic_summon_earthen_dwarf": [
+50825,
+50826
+],
+"spell_sjonnir_periodic_summon_iron_dwarf": [
+50790,
+50791
+],
+"spell_sjonnir_periodic_summon_iron_trogg": [
+50793,
+50794
+],
+"spell_sjonnir_periodic_summon_malformed_ooze": [
+50802,
+50803
 ],
 "spell_skadi_poisoned_spear": [
 50258
@@ -19435,6 +19679,18 @@
 "spell_terokkar_shadowy_disguise_cast_from_questgiver": [
 32756
 ],
+"spell_terokkar_translocation_firewing_point_building_down": [
+32572
+],
+"spell_terokkar_translocation_firewing_point_building_up": [
+32568
+],
+"spell_terokkar_translocation_firewing_point_tower_down": [
+32569
+],
+"spell_terokkar_translocation_firewing_point_tower_up": [
+32571
+],
 "spell_teron_gorefiend_shadow_of_death": [
 40266,
 40268,
@@ -19592,6 +19848,12 @@
 ],
 "spell_tunk_seismic_slam_selector": [
 308455
+],
+"spell_tur_ragepaw_lifebloom": [
+52552
+],
+"spell_twisted_visage_lifebloom": [
+57763
 ],
 "spell_tyrannus_rimefang_icy_blast": [
 69238
