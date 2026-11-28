@@ -46,6 +46,7 @@ SOURCES = {
     'use': L('Made by using an item', 'Fait en utilisant un objet'),
     'talk': L('Given in a conversation', 'Donné lors d’une conversation'),
     'script': L('Given by a core script', 'Donné par un script du core'),
+    'start': L('Starting gear: a new character has it', 'Équipement de départ : un nouveau personnage l’a'),
 }
 
 
@@ -87,6 +88,10 @@ BATTLEGROUND_MARKS = {20560: 30, 20558: 489, 20559: 529, 274895: 2997}
 # Well Testing Kit's 1258773 (classic_spell_scripts.cpp, classic_spell_quest_testing_the_wells) gives the Jansen Stead
 # or Molsen Farm water sample next to its well (quest 92742).
 SCRIPT_SPELL_ITEMS = {1258773: {254546, 254547}}
+# Items a new character wears or carries from the start (the client's CharStartOutfit, which the tracker does not read):
+# only those nothing else gives are listed. Recruit's Shirt 38, every class's starting shirt (the only vendor that ever
+# sold it, Thomas Yance in Old Hillsbrad, is not on the realm).
+STARTING_GEAR = {38}
 
 
 def evaluate_all(content, ctx):
@@ -158,6 +163,7 @@ def evaluate_all(content, ctx):
     add({item for npc, item in ctx['quest_items_npc'] if npc in npc_spawned} | {item for go, item in ctx['quest_items_go'] if go in go_spawned}, 'questdrop')
     add({item for npc, item in ctx['vendors'] if npc in npc_spawned}, 'vendor')
     add(ctx['shop_items'], 'shop')
+    add(STARTING_GEAR, 'start')
     # made by a spell a spawned world object casts on its user (a goober's spell: the Windfury Cone's 412365 makes the
     # Windfury Cone 206170), or one a spawned creature's or object's C++ script casts (Jaina's gossip: her autograph)
     for item, spells in ctx['creates'].items():

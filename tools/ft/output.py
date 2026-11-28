@@ -108,6 +108,21 @@ def item_internal(item_id, items, wowhead):
     return bool(not name or INTERNAL_NAME.search(name) or (wowhead or {}).get(('item', item_id)) == 'season')
 
 
+def sold_by_unseen_vendors(item_id, ctx):
+    """True when an item's only way in is a vendor the realm does not spawn and the live server never showed (EG Link's
+    recording has no record of the creature): Season of Discovery's Rune Brokers 233335/233428 and Ziri "The Wrench"
+    Littlesprocket 217689, the Noblegarden vendors 32836/32837. Wowhead's Forever pages still list such sellers from the
+    Classic data. Without a live recording nothing counts as unseen."""
+    live = (ctx or {}).get('live_npcs') or {}
+    if not live:
+        return False
+    vendors = {npc for npc, item in (ctx or {}).get('vendors', ()) if item == item_id}
+    if not vendors:
+        return False
+    spawned = set((ctx or {}).get('spawned_npc') or ()) | set((ctx or {}).get('summoned_npc') or ())
+    return not (vendors & spawned) and not any(npc in live for npc in vendors)
+
+
 def filed_internal(item_id, content, results, ctx, wowhead):
     """True when an item's own line is filed under Internal / test: a test name or none, an item the original game gave
     out nowhere and nothing here gives, or one Wowhead marks as a Season of Discovery leftover. False for an item the
@@ -289,6 +304,8 @@ def write_sql(path, build_list, content, changes, results, first_seen, changed_i
                     internal = 1  # what another ability does, or a spell only an item outside the game teaches: nothing to add
             elif kind == 'item':
                 internal = 1 if filed_internal(entity_id, content, results, ctx, wowhead) else 0
+                if status != 'ok' and not internal and sold_by_unseen_vendors(entity_id, ctx):
+                    internal = 1  # sold only by vendors live never showed and the realm does not spawn: not given on WoW Forever
                 teachers = ((ctx or {}).get('teachers_only') or {}).get(entity_id)
                 if status != 'ok' and not internal and teachers and all(filed_internal(t, content, results, ctx, wowhead) for t in teachers):
                     internal = 1  # made only by a spell that only test or Season of Discovery items teach or cast (ft.rules)

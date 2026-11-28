@@ -373,3 +373,21 @@ class UnusedTaxi(unittest.TestCase):
     def test_a_classic_node_neither_faction_uses(self):
         self.assertTrue(self.unused(59, 0, 4, old={59}))
         self.assertFalse(self.unused(2, 3, 0, old={2}))
+
+
+class UnseenVendors(unittest.TestCase):
+    """An item only vendors sell that the realm does not spawn and live never showed (Season of Discovery's Rune
+    Brokers) is not given on WoW Forever."""
+
+    def ctx(self, **over):
+        ctx = {'live_npcs': {100: 'Seen Vendor'}, 'vendors': [(233335, 1), (233428, 1), (100, 2), (233335, 3)],
+               'spawned_npc': set(), 'summoned_npc': set()}
+        ctx.update(over)
+        return ctx
+
+    def test_unseen_and_unspawned(self):
+        self.assertTrue(output.sold_by_unseen_vendors(1, self.ctx()))
+        self.assertFalse(output.sold_by_unseen_vendors(2, self.ctx()))                        # live showed its vendor
+        self.assertFalse(output.sold_by_unseen_vendors(3, self.ctx(spawned_npc={233335})))    # the realm spawns it
+        self.assertFalse(output.sold_by_unseen_vendors(9, self.ctx()))                        # no vendor at all
+        self.assertFalse(output.sold_by_unseen_vendors(1, self.ctx(live_npcs={})))            # no live recording
