@@ -212,6 +212,9 @@ $gq = wowhead_pages_gather_queue($gl, fn(string $kind) => $kind === 'quest' ? [9
 check($gq === ['gap' => ['quest' => [97404], 'npc' => [269275]], 'later' => ['npc' => [300001], 'item' => [400]]], 'work list pages by tier: ' . json_encode($gq));
 $gq2 = wowhead_pages_gather_queue($gl, fn(string $kind) => [], [1 => ['key' => 'first-raids']], []);
 check(!isset($gq2['later']['npc']) && $gq2['gap']['npc'] === [269275, 300001], 'a phase that opened since the analysis is read as a gap');
+// the spells that make an item nothing here casts (ft.gather CHECK_SPELL): their page, with the gaps
+$gq3 = wowhead_pages_gather_queue(['wowhead' => ['now' => ['spell' => [2838, 2840]]]], fn(string $kind) => $kind === 'spell' ? [2840 => true] : [], [], []);
+check($gq3 === ['gap' => ['spell' => [2838]], 'later' => []], 'spell pages of the work list: ' . json_encode($gq3));
 $js4 = wowhead_pages_crawler(['item' => [3], 'blocking' => 0, 'gather' => $gq]);
 check(str_contains($js4, 'await WHC.prioritize(["quest:97404"], "gap", {"again":86400});') && str_contains($js4, 'await WHC.prioritize(["npc:300001"], "later", {"again":86400});')
     && strpos($js4, '"gapOther"') < strpos($js4, '"later"'), 'the work list in the crawler: gaps with the gaps, later after the items that only lack a source');

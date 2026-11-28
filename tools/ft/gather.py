@@ -40,6 +40,9 @@ OBJECTIVE_KINDS = {'monster': 'npc', 'gameObject': 'object', 'object': 'object',
 QUICK_LINK = re.compile(r'/forever/(npc|object|item)=(\d+)')
 CHECK_SPAWN = re.compile(r'\b(creature|object) (\d+) not spawned')
 CHECK_ITEM = re.compile(r'\bitem (\d+) not obtainable')
+# an item made by a spell nothing on the server casts: ft.rules names the spell(s) ('recipe that cannot be learned
+# (spell 2838, 2840)'); their Wowhead pages say who casts them on live
+CHECK_SPELL = re.compile(r'recipe that cannot be learned \(spell ([0-9, ]+)')
 # the checks of a quest that ask for who gives or takes it: an open quest failing one is listed, so the crawl reads its
 # Wowhead page and Import Icy Veins asks for it (a Craftsman's Writ with no ender, a quest whose giver nobody spawned)
 GIVER_CHECKS = ('starter', 'ender')
@@ -304,7 +307,9 @@ def build(targets, server, src, phase_list):
         # the pages to read: the crawl skips those it holds and that are not due again (app/wowheadpages.php)
         wanted = {'quest': [r['id'] for r in quests if not r['server'] or not r['gives'] or not r['takes']],
                   'npc': [r['id'] for r in npc_rows], 'object': [r['id'] for r in object_rows],
-                  'item': [r['id'] for r in items if not phase.get('wowhead_no_source')]}
+                  'item': [r['id'] for r in items if not phase.get('wowhead_no_source')],
+                  # the spells that make an item nothing here casts: their page names who casts them (ft.phases)
+                  'spell': sorted(want.get('spell') or {})}
         wowhead[key] = {k: v for k, v in wanted.items() if v}
         for kind, rows in (('quest', quests), ('item', items), ('npc', npc_rows), ('gameobject', object_rows)):
             icy.setdefault(kind, [])
@@ -329,7 +334,7 @@ def targets_from(rows, map_areas, listed):
     """{phase key: {'quest', 'item', 'npc', 'object'}} from ft_entities rows (type, id, name_en, status, phase key,
     checks text) of what is not ok, and the creatures and objects Wowhead's lists place in a phase's instances
     (map_areas: {phase key: {zone ids}}; listed: wowhead_listed())."""
-    out = collections.defaultdict(lambda: {'quest': {}, 'item': {}, 'npc': {}, 'object': {}})
+    out = collections.defaultdict(lambda: {'quest': {}, 'item': {}, 'npc': {}, 'object': {}, 'spell': {}})
     for kind, entry, name, status, key, checks in rows:
         want = out[key]
         if kind == 'quest':
@@ -342,6 +347,13 @@ def targets_from(rows, map_areas, listed):
                     want['item'].setdefault(int(other), {'name': '', 'status': '', 'for': []})['for'].append(f'quest:{entry}')
         elif kind == 'item' and key != NOW:
             want['item'].setdefault(entry, {'for': []}).update({'name': name, 'status': status})
+        if kind == 'item' and status != 'ok':
+            for listed in CHECK_SPELL.findall(checks or ''):
+                for spell in re.findall(r'\d+', listed):
+                    want['spell'].setdefault(int(spell), []).append(f'item:{entry}')
+            # a caster Wowhead's spell page names and the realm has not spawned: its page places it
+            for what, other in CHECK_SPAWN.findall(checks or ''):
+                want['npc' if what == 'creature' else 'object'].setdefault(int(other), []).append(f'item:{entry}')
     for key, areas in map_areas.items():
         for (kind, entry), zones in listed.items():
             if areas & set(zones):
@@ -355,8 +367,9 @@ def run(content, phase_list, folders=None):
     started = time.time()
     keys = {n: p['key'] for n, p in enumerate(phase_list, 1)}
     rows = []
+    # the open phase's items only when a spell nothing here casts makes them: their spell's page is wanted (CHECK_SPELL)
     for r in sqlio.query("SELECT type, id, name_en, status, phase, checks FROM ft_entities WHERE internal = 0 AND status <> 'ok' "
-                         "AND (phase > 0 OR type = 'quest')", 'tracker'):
+                         "AND (phase > 0 OR type = 'quest' OR (type = 'item' AND checks LIKE '%cannot be learned (spell %'))", 'tracker'):
         rows.append((r['type'], int(r['id']), r['name_en'] or '', r['status'], keys.get(int(r['phase'] or 0), NOW), r['checks'] or ''))
     src = Sources()
     said = {}

@@ -89,10 +89,41 @@ def wowhead_page_folders():
 
 def newest_item_pages(folders=None):
     """{item id: record}: the newest answer of each Wowhead Forever item page (by its 'fetched' time) across the folders."""
+    return newest_pages('item', folders)
+
+
+# the tabs of a Wowhead spell page that name who uses the spell, by their rows' template: creatures and objects that
+# cast it, items whose use casts it, quests that cast it as a reward. Tabs that teach it or only relate to it are not.
+SPELL_USER_KINDS = {'npc': 'npc', 'object': 'object', 'item': 'item', 'quest': 'quest'}
+SPELL_NOT_USERS = re.compile(r'^(taught|teaches|see-also|same-|modified|related|news|comments|screenshots|videos|criteria)')
+
+
+def wowhead_spell_users(folders=None):
+    """{spell: {(kind, id)}}: what Wowhead's Forever spell pages name as using each spell (its newest page): a creature,
+    object, item or quest. Read for the spells that make an item nothing on the server casts (ft.gather queues them)."""
+    out = {}
+    for spell, record in newest_pages('spell', folders).items():
+        tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
+        if record.get('status') != 'ok':
+            continue
+        for tab_id, tab in tabs.items():
+            if not isinstance(tab, dict) or SPELL_NOT_USERS.match(str(tab_id)):
+                continue
+            kind = SPELL_USER_KINDS.get(tab.get('template'))
+            if not kind:
+                continue
+            for row in tab.get('rows') or []:
+                if isinstance(row, dict) and isinstance(row.get('id'), int) and row['id'] > 0:
+                    out.setdefault(spell, set()).add((kind, row['id']))
+    return out
+
+
+def newest_pages(shelf, folders=None):
+    """{id: record}: the newest answer of each page of a shelf (item, spell ...) by its 'fetched' time across the folders."""
     newest = {}
     for folder in folders if folders is not None else wowhead_page_folders():
         try:
-            handle = open(os.path.join(folder, 'item.jsonl'), encoding='utf-8')
+            handle = open(os.path.join(folder, shelf + '.jsonl'), encoding='utf-8')
         except OSError:
             continue
         with handle:

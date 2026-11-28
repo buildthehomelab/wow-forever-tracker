@@ -1235,7 +1235,8 @@ function wowhead_pages_gather_queue(array $list, callable $held, ?array $phases 
     foreach ((array)($list['wowhead'] ?? []) as $key => $kinds) {
         $tier = isset($closedKeys[(string)$key]) ? 'later' : 'gap';
         foreach ((array)$kinds as $kind => $ids) {
-            if (!in_array($kind, ['quest', 'npc', 'object', 'item'], true)) continue;
+            // spell: the spells that make an item nothing on the server casts (ft.gather CHECK_SPELL), whose page names who casts them
+            if (!in_array($kind, ['quest', 'npc', 'object', 'item', 'spell'], true)) continue;
             $have[$kind] ??= $held($kind);
             foreach ((array)$ids as $id) {
                 $id = (int)$id;

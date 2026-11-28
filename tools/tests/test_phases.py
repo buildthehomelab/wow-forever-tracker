@@ -351,3 +351,17 @@ class Load(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SpellUsers(unittest.TestCase):
+    def test_who_uses_a_spell(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pages = [{'id': 2838, 'status': 'ok', 'fetched': 1, 'tabs': {'used-by-npc': {'template': 'npc', 'rows': [{'id': 7}]}}},
+                     {'id': 2838, 'status': 'ok', 'fetched': 2, 'tabs': {'used-by-npc': {'template': 'npc', 'rows': [{'id': 8}]},
+                                                                         'used-by-item': {'template': 'item', 'rows': [{'id': 90}]},
+                                                                         'taught-by-npc': {'template': 'npc', 'rows': [{'id': 5}]},
+                                                                         'see-also': {'template': 'spell', 'rows': [{'id': 1}]}}},
+                     {'id': 12900, 'status': 'missing', 'fetched': 3}]
+            with open(os.path.join(folder, 'spell.jsonl'), 'w') as handle:
+                handle.write('\n'.join(json.dumps(p) for p in pages) + '\n')
+            self.assertEqual(phases.wowhead_spell_users([folder]), {2838: {('npc', 8), ('item', 90)}})   # the newest page only
