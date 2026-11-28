@@ -398,6 +398,9 @@ class UnseenVendors(unittest.TestCase):
         self.assertFalse(output.sold_by_unseen_vendors(3, self.ctx(spawned_npc={233335})))    # the realm spawns it
         self.assertFalse(output.sold_by_unseen_vendors(9, self.ctx()))                        # no vendor at all
         self.assertFalse(output.sold_by_unseen_vendors(1, self.ctx(live_npcs={})))            # no live recording
+        # also in a container: not sold only (Love Fool in the gift boxes)
+        self.assertFalse(output.sold_by_unseen_vendors(1, self.ctx(loot={'item': [(21975, 0, 1, 0)]})))
+        self.assertTrue(output.sold_by_unseen_vendors(1, self.ctx(loot={'item': [(21975, 1, 1, 1)]})))   # a reference row, not the item
 
 
 class QuestRewards(unittest.TestCase):
