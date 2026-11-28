@@ -348,8 +348,8 @@ def targets_from(rows, map_areas, listed):
         elif kind == 'item' and key != NOW:
             want['item'].setdefault(entry, {'for': []}).update({'name': name, 'status': status})
         if kind == 'item' and status != 'ok':
-            for listed in CHECK_SPELL.findall(checks or ''):
-                for spell in re.findall(r'\d+', listed):
+            for spells in CHECK_SPELL.findall(checks or ''):        # not `listed`: that is the argument read below
+                for spell in re.findall(r'\d+', spells):
                     want['spell'].setdefault(int(spell), []).append(f'item:{entry}')
             # a caster Wowhead's spell page names and the realm has not spawned: its page places it
             for what, other in CHECK_SPAWN.findall(checks or ''):

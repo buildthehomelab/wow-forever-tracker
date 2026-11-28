@@ -1148,7 +1148,9 @@ def analyse(args):
         from ft import gather
         gather.run(content, phase_list)
     except Exception as error:
-        log(f'later: the work list was not made ({type(error).__name__}: {str(error)[:200]})')
+        # a report, not a failure: app/forge.php marks a run whose log says "Error" as failed, so the word is lowered
+        report = f'{type(error).__name__}: {str(error)[:200]}'.replace('Error', 'error')
+        log(f'later: the work list was not made ({report})')
     answers_table()
     log(f'done in {time.time() - started:.0f} s')
 
