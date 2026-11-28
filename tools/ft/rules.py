@@ -510,8 +510,20 @@ def evaluate_all(content, ctx):
                 else:
                     said_en.append(f'quest {entry}')
                     said_fr.append(f'quête {entry}')
+        # a creature or object of the realm whose own spell or script casts it, but that is not spawned (the Wooden
+        # Figurine 375544 casts Create Artifact): 'object N not spawned' lets ft.gather and the locator go after it
+        here_en, here_fr = [], []
+        for spell in spells[:3]:
+            for kind, entry in sorted(ctx.get('world_casts', {}).get(spell, ()), key=str)[:3]:
+                if kind in ('npc', 'go') and entry not in (npc_spawned if kind == 'npc' else go_spawned):
+                    what_en, what_fr = ('creature', 'PNJ') if kind == 'npc' else ('object', 'objet du monde')
+                    here_en.append(f'{what_en} {entry} not spawned')
+                    here_fr.append(f'{what_fr} {entry} non placé')
         en = f'recipe that cannot be learned (spell {some})' if spells else 'recipe that cannot be learned'
         fr = f'recette non apprenable (sort {some})' if spells else 'recette non apprenable'
+        if here_en:
+            en += ', cast by ' + ', '.join(here_en)
+            fr += ', lancé par ' + ', '.join(here_fr)
         if said_en:
             en += '; on Wowhead it is cast by ' + ', '.join(said_en)
             fr += ' ; sur Wowhead il est lancé par ' + ', '.join(said_fr)
