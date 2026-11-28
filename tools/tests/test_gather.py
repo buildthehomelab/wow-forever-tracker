@@ -184,7 +184,27 @@ class Run(unittest.TestCase):
     """run() end to end: the tracker's rows and the world from a made-up database, EG Link from a made-up download."""
 
     def test_writes_the_list(self):
+        out = self.run_gather(set())
+        now, raids = out['phases']
+        self.assertEqual(out['sources'], {'eglink': self.commit, 'wowhead_pages': 0})
+        self.assertEqual(now['quests'][0]['gives'], {'npc:50': ['eglink']})
+        self.assertTrue(now['quests'][0]['ready'])
+        self.assertEqual([r['id'] for r in now['npcs']], [70])      # 205 drops the objective item and stands on the server
+        self.assertEqual(raids['key'], 'first-raids')
+        self.assertEqual(raids['items'][0]['id'], 300)
+        self.assertEqual(out['wowhead'], {'now': {'quest': [100], 'npc': [70], 'item': [4234]}, 'first-raids': {'item': [300]}})
+
+    def test_a_summoned_creature_is_in_the_world(self):
+        # creature 70 has no spawn row, but a script summons it (ft.summons): nothing to place, no page wanted for it
+        out = self.run_gather({70})
+        self.assertEqual([r['id'] for r in out['phases'][0]['npcs']], [])
+        self.assertNotIn('npc', out['wowhead']['now'])
+
+    commit = 'a' * 40
+
+    def run_gather(self, summoned):
         from unittest import mock
+        commit = self.commit
         commit = 'a' * 40
         with tempfile.TemporaryDirectory() as data, tempfile.TemporaryDirectory() as pages:
             build = os.path.join(data, 'eglink', commit, '1.60.1.70959')
@@ -195,7 +215,8 @@ class Run(unittest.TestCase):
                 json.dump({'npcs': {'50': {'offers': {'100': {}}, 'takes': {'100': {}}}}}, f)
             entities = [{'type': 'quest', 'id': '100', 'name_en': 'New', 'status': 'missing', 'phase': '0', 'checks': None},
                         {'type': 'item', 'id': '300', 'name_en': 'Loot', 'status': 'missing', 'phase': '1', 'checks': ''}]
-            world = {'quest_template': [], 'creature_template': ['50', '205'], 'creature': ['50', '205'], 'gameobject_template': [], 'gameobject': []}
+            # a summoned creature has its template (Majordomo Executus): only its spawn row is missing
+            world = {'quest_template': [], 'creature_template': ['50', '205'] + [str(e) for e in summoned], 'creature': ['50', '205'], 'gameobject_template': [], 'gameobject': []}
             # the quest also asks for item 4234, which creature 205 (on the server, spawned) drops
             icy = {('item', 4234): {'relations': {'addon_dropped_by': [{'npc_id': 205}]}}}
             with open(os.path.join(build, 'quests.enUS.json')) as f:
@@ -216,18 +237,11 @@ class Run(unittest.TestCase):
                     mock.patch.object(gather.facts, 'fetch_eglink', lambda *a, **k: 0), \
                     mock.patch.object(gather.phase_rules, 'load', lambda: []), \
                     mock.patch.object(gather.icyveins, 'cached', lambda kind, entry, folder=None: icy.get((kind, entry))), \
+                    mock.patch.object(gather.summons, 'known', lambda: (summoned, set(), {})), \
                     mock.patch.object(gather, 'log', lambda message: None):
                 gather.run({'dungeon': {}}, phase_list, folders=[pages])
             with open(os.path.join(data, 'gather.json')) as f:
-                out = json.load(f)
-        self.assertEqual(out['sources'], {'eglink': commit, 'wowhead_pages': 0})
-        now, raids = out['phases']
-        self.assertEqual(now['quests'][0]['gives'], {'npc:50': ['eglink']})
-        self.assertTrue(now['quests'][0]['ready'])
-        self.assertEqual([r['id'] for r in now['npcs']], [70])      # 205 drops the objective item and stands on the server
-        self.assertEqual(raids['key'], 'first-raids')
-        self.assertEqual(raids['items'][0]['id'], 300)
-        self.assertEqual(out['wowhead'], {'now': {'quest': [100], 'npc': [70], 'item': [4234]}, 'first-raids': {'item': [300]}})
+                return json.load(f)
 
 
 if __name__ == '__main__':
