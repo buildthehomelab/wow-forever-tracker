@@ -1,6 +1,6 @@
 {
 "source": "TrinityCore C++ scripts (src/server/scripts): entries a script summons",
-"commit": "3e5edcb0ef",
+"commit": "5a826ce0b2",
 "creatures": {
 "68": "Custom/Classic/eastern_kingdoms/classic_stormwind_rendezvous.cpp",
 "412": "Custom/Classic/eastern_kingdoms/classic_duskwood.cpp",
@@ -819,6 +819,7 @@
 "264713": "Custom/Classic/world/classic_npcs_special.cpp",
 "268878": "Custom/Classic/instances/blackmaw_hold/classic_instance_blackmaw_hold.cpp",
 "269185": "Custom/Classic/eastern_kingdoms/classic_loch_modan.cpp",
+"271181": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "272561": "Custom/Classic/instances/shapers_terrace/classic_instance_shapers_terrace.cpp"
 },
 "objects": {
@@ -2861,16 +2862,31 @@
 "167027": "ExilesReach/zone_exiles_reach.cpp",
 "198896": "EasternKingdoms/zone_elwynn_forest.cpp",
 "231042": "KhazAlgar/campaign_visions_of_a_shadowed_sun.cpp",
+"249845": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"251340": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "252383": "Custom/Classic/world/classic_npcs_special.cpp",
 "252800": "Custom/Classic/world/classic_npcs_special.cpp",
 "252863": "Custom/Classic/world/classic_npcs_special.cpp",
 "255013": "Custom/Classic/world/classic_go_scripts.cpp",
+"255777": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "256247": "Custom/Classic/world/classic_npcs_special.cpp",
 "256634": "Custom/Classic/world/classic_npcs_special.cpp",
 "257964": "Custom/Classic/world/classic_spell_scripts.cpp",
+"262036": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"263277": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"263458": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"263460": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"263461": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"263462": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "264712": "Custom/Classic/world/classic_npcs_special.cpp",
+"264715": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "264861": "Custom/Classic/instances/alcaz_prison/classic_instance_alcaz_prison.cpp",
 "266513": "Custom/Classic/world/classic_spell_scripts.cpp",
+"266886": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"266887": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"267462": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"267917": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
+"271182": "Custom/Classic/world/classic_forever_quest_mechanics.cpp",
 "275188": "Battlegrounds/DarkspearIslands/battleground_darkspear_islands.cpp"
 },
 "teleports": {
