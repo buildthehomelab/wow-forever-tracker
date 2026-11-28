@@ -31,6 +31,17 @@ class ItemCastingObjects(unittest.TestCase):
         self.assertEqual(found[('go', 375544)], {'name': 'Wooden Figurine', 'reasons': [['loot', 'item', 190309]]})
         self.assertEqual(len(found), 1)
 
+    def test_summoning_spells_count_as_summoned(self):
+        # Nefarian's drakonids come from spells his script casts (22654-22680): the locator hands the creatures of the
+        # summoning spells to ft.summons, so they are never offered a spawn of their own
+        with mock.patch.object(locator.sqlio, 'query', return_value=[]), \
+                mock.patch.object(locator.sqlio, 'has_column', return_value=False), \
+                mock.patch.object(locator.phases, 'load', return_value=[]), \
+                mock.patch.object(locator.phases, 'closed', return_value=[]), \
+                mock.patch.object(locator.summons, 'known', return_value=(set(), set(), {})) as known:
+            locator.candidates({}, {14261, 14262})
+        known.assert_called_once_with({14261, 14262})
+
 
 if __name__ == '__main__':
     unittest.main()
