@@ -23,7 +23,7 @@ import os
 import re
 import struct
 
-from . import classic, facts, icyveins, phases, questie, sqlio, summons, terrain
+from . import classic, facts, icyveins, phases, questie, server, sqlio, summons, terrain
 from .config import CONFIG
 from .config import DATA
 from .content import builds, table
@@ -82,8 +82,9 @@ def summoned_in_classic(found, said):
     return out
 
 
-def candidates():
-    """{(kind, entry): {'name', 'reasons': [[role, type, id], ...]}} of templates that exist and are not spawned."""
+def candidates(creates=None):
+    """{(kind, entry): {'name', 'reasons': [[role, type, id], ...]}} of templates that exist and are not spawned.
+    creates: {spell: item} of the client's create-item effects, for the objects whose own spell makes a needed item."""
     found = {}
 
     def add(kind, entry, role, ref_type, ref_id):
@@ -134,6 +135,17 @@ def candidates():
         for table_name, column, kind, cond in (('creature_questitem', 'CreatureEntry', 'npc', unspawned_npc), ('gameobject_questitem', 'GameObjectEntry', 'go', unspawned_go)):
             for r in sqlio.query(f"SELECT q.{column} entry, MIN(q.ItemId) item FROM {table_name} q WHERE q.ItemId IN ({part}) AND {cond.format(col='q.' + column)} GROUP BY q.{column}"):
                 add(kind, r['entry'], 'loot', 'item', r['item'])
+
+        # a world object whose own spell makes it (a goober's Data10, a spellcaster's Data0, a trap's Data3): the Wooden
+        # Figurine 375544 that What Is Love? 65602 asks to pick up (Create Artifact 367069 gives item 190309)
+        wanted_items = {int(i) for i in items[chunk:chunk + 2000]}
+        making = {spell: item for spell, item in (creates or {}).items() if item in wanted_items}
+        if making:
+            spell_list = in_list(making)
+            for type_, column in server.OBJECT_SPELL_COLUMN.items():
+                for r in sqlio.query(f"SELECT gt.entry, gt.{column} spell FROM gameobject_template gt WHERE gt.type = {type_} AND gt.{column} IN ({spell_list}) "
+                                     f"AND {unspawned_go.format(col='gt.entry')}"):
+                    add('go', r['entry'], 'loot', 'item', making.get(int(r['spell']), 0))
 
     # ---- spells: trainers that teach them but stand nowhere
     spells = [(t, sid) for t in ('spell', 'recipe') for sid, _row, checks in entities.get(t, []) if failing(checks, 'learn')]
@@ -280,7 +292,9 @@ def run(args):
     except OSError as error:
         log(f'locator: zone maps not written ({error})')
     log('locator: looking for unspawned creatures and objects that the content needs')
-    found = candidates()
+    creates = {int(e['SpellID']): int(e['EffectItemType']) for e in table(folder, 'SpellEffect')
+               if int(e.get('Effect') or 0) == server.EFFECT_CREATE_ITEM and int(e.get('EffectItemType') or 0) > 0}
+    found = candidates(creates)
     log(f"locator: {len(found)} candidates ({sum(1 for k, _ in found if k == 'npc')} creatures, {sum(1 for k, _ in found if k == 'go')} objects)")
     said = classic_spawning()
     summoned = summoned_in_classic(found, said) if said else {}

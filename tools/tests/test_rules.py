@@ -208,6 +208,12 @@ class MadeByUse(unittest.TestCase):
         self.ctx['spawned_npc'] = set()
         self.assertEqual(failed(evaluate({'item': {1: {}, 2: {}}}, self.ctx)[('item', 2)]), ['source'])
 
+    def test_an_unspawned_object_casts_the_spell(self):
+        # What Is Love?: the Wooden Figurine 375544 (a goober, not spawned) casts Create Artifact 367069 -> item 190309
+        ctx = world(creates={190309: {367069}}, world_casts={367069: {('go', 375544)}})
+        check = next(c for c in evaluate({'item': {190309: {}}}, ctx)[('item', 190309)][2] if c['code'] == 'source')
+        self.assertEqual(check['detail']['en'], 'Inactive source: recipe that cannot be learned (spell 367069), cast by object 375544 not spawned')
+
     def test_what_wowhead_says_casts_the_spell(self):
         # item 2895 is made by spell 2838 only; Wowhead's spell page says creature 7 (not spawned) and object 8 cast it
         ctx = world(creates={2895: {2838}}, wowhead_spell_users={2838: {('npc', 7), ('object', 8)}}, spawned_go={8})
