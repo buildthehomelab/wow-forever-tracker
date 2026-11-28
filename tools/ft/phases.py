@@ -166,6 +166,19 @@ def wowhead_unsourced_items(folders=None):
     return out
 
 
+def wowhead_item_reward_quests(folders=None):
+    """{item: {quests}}: the quests Wowhead's Forever item pages name as handing each item out (Reward from tab)."""
+    out = {}
+    for item, record in newest_item_pages(folders).items():
+        tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
+        if record.get('status') != 'ok':
+            continue
+        for row in ((tabs.get('reward-from-q') or {}).get('rows') or []):
+            if isinstance(row, dict) and str(row.get('id', '')).isdigit() and int(row['id']) > 0:
+                out.setdefault(item, set()).add(int(row['id']))
+    return out
+
+
 def wowhead_reward_quests(folders=None):
     """The quests Wowhead's Forever item pages name as handing out an item ({quest id}: the Reward from tab), from the
     newest answer of each page. The client keeps some real quests unnamed (Forever's Classic-era ids, 84394 with its
@@ -437,6 +450,13 @@ def assign(content, ctx, phases, facts):
             if item in content.get('item', {}) and item not in sources and item not in fixed['item']:
                 fixed['item'][item] = unsourced
                 facts.setdefault('wowhead_no_source_tagged', set()).add(item)
+        # An item only quests the client does not have yet reward (Wowhead's Forever page, Reward from): those quests have
+        # not shipped (Regurgitated Seed Pod 249900 from 92067, Arcanum of Binding 282707 from 98685), so neither has it
+        for item, rewarders in (facts.get('wowhead_item_reward_quests') or {}).items():
+            if item in content.get('item', {}) and item not in sources and item not in fixed['item'] \
+                    and rewarders and not any(q in content.get('quest', {}) for q in rewarders):
+                fixed['item'][item] = unsourced
+                facts.setdefault('wowhead_unshipped_reward_tagged', set()).add(item)
         # A recipe Wowhead's Forever pages do not have at all (the Classic plans Forever dropped: Plans: Rough Bronze
         # Bracers, Thorium Greatsword's): nothing gives it here either, so it waits in the same phase, and what only it
         # teaches with it. The client may not list such an item among its resources: it waits all the same.
@@ -558,11 +578,14 @@ def run(content, ctx):
         facts['wowhead_no_source'] = wowhead_unsourced_items()
         facts['wowhead_missing'] = wowhead_missing_items()
         log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source, {len(facts['wowhead_missing'])} do not exist")
+    if any(p.get('wowhead_no_source') for p in phases):
+        facts['wowhead_item_reward_quests'] = wowhead_item_reward_quests()
     if any(p.get('wowhead_black_market') for p in phases):
         facts['wowhead_black_market'] = wowhead_black_market_items()
         log(f"phases: {len(facts['wowhead_black_market'])} item page(s) on Wowhead say sold on the Black Market")
     tagged = assign(content, ctx, phases, facts)
-    by_rule = sorted(set(facts.get('wowhead_no_source_tagged', ())) | set(facts.get('wowhead_lost_recipes_tagged', ())))
+    by_rule = sorted(set(facts.get('wowhead_no_source_tagged', ())) | set(facts.get('wowhead_lost_recipes_tagged', ()))
+                     | set(facts.get('wowhead_unshipped_reward_tagged', ())))
     by_market = sorted(facts.get('wowhead_black_market_tagged', ()))
     counts = {}
     for (kind, _id), number in tagged.items():

@@ -129,6 +129,17 @@ class Assign(unittest.TestCase):
         # without a phase marked for it, the pages change nothing
         self.assertNotIn(('item', 6), phases.assign(content(), ctx(), PHASES, dict(FACTS, wowhead_no_source={6})))
 
+    def test_a_reward_of_a_quest_the_client_lacks(self):
+        # item 6 has no source; Wowhead says quest 92067 rewards it, which the client does not have: not out yet.
+        # item 8888 is rewarded by quest 100, which the client has: it stays a gap of today
+        listed = [dict(p) for p in PHASES] + [{'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [],
+                                               'quests': [], 'items': [], 'wowhead_no_source': True}]
+        facts = dict(FACTS, wowhead_item_reward_quests={6: {92067}, 4: {100}})
+        c = content()
+        tagged = phases.assign(c, ctx(), listed, facts)
+        self.assertEqual(tagged[('item', 6)], 3)
+        self.assertEqual(facts['wowhead_unshipped_reward_tagged'], {6})
+
     def test_a_mount_whose_spell_the_client_lacks(self):
         # Translocation 2971: its spell 1290805 is not in the client (encrypted until it ships) and nothing teaches it
         listed = [dict(p) for p in PHASES] + [{'key': 'not-out', 'name': 'Not out yet', 'opens': None, 'maps': [], 'npcs': [], 'objects': [],
