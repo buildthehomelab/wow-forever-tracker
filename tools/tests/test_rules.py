@@ -1043,6 +1043,11 @@ class CoreGives(unittest.TestCase):
         self.assertEqual(results[('item', 20560)][0], 'ok')
         self.assertEqual(failed(results[('item', 20558)]), ['source'])   # Warsong Gulch is not declared here
 
+    def test_starting_gear(self):
+        # Recruit's Shirt: nothing sells it on the realm, every new character has one
+        results = evaluate({'item': {38: {}}}, world())
+        self.assertEqual(results[('item', 38)][0], 'ok')
+
     def test_darkspear_islands_marks(self):
         # WoW Forever's battleground: the core gives its Mark of Honor at the end of a battle like the vanilla ones
         results = evaluate({'item': {274895: {}}}, world(battlegrounds={2997}))
