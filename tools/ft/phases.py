@@ -21,6 +21,7 @@ import json
 import os
 import re
 
+from . import icyveins
 from . import sqlio
 from . import config
 from .config import CONFIG, PROJECT
@@ -162,6 +163,19 @@ def wowhead_unsourced_items(folders=None):
     for item, record in newest.items():
         tabs = record.get('tabs') if isinstance(record.get('tabs'), dict) else {}
         if record.get('status') == 'ok' and not any((tabs.get(tab) or {}).get('rows') for tab in WOWHEAD_SOURCE_TABS):
+            out.add(item)
+    return out
+
+
+def icyveins_sourced(items, folder=None):
+    """The items of `items` that the Icy Veins mirror records players' addons seeing drop or sold on live WoW Forever
+    (addon_dropped_by, addon_sold_by): such an item is out, whatever Wowhead's page says. Gluggle's Murloc Oracle's
+    Dagger (281750) and fourteen other new drops of Classic rares had no Wowhead source and waited as not out yet,
+    so the work list never showed their rares' loot tables lacked them (2026-11-28)."""
+    out = set()
+    for item in items:
+        relations = (icyveins.cached('item', item, folder) or {}).get('relations') or {}
+        if relations.get('addon_dropped_by') or relations.get('addon_sold_by'):
             out.add(item)
     return out
 
@@ -575,7 +589,8 @@ def run(content, ctx):
         log(f'phases: no instance named "{value}" in the client ({key}): encrypted, renamed or a typo')
     facts = world_facts(phases, content)
     if any(p.get('wowhead_no_source') for p in phases):
-        facts['wowhead_no_source'] = wowhead_unsourced_items()
+        unsourced = wowhead_unsourced_items()
+        facts['wowhead_no_source'] = unsourced - icyveins_sourced(unsourced)
         facts['wowhead_missing'] = wowhead_missing_items()
         log(f"phases: {len(facts['wowhead_no_source'])} item page(s) on Wowhead name no source, {len(facts['wowhead_missing'])} do not exist")
     if any(p.get('wowhead_no_source') for p in phases):

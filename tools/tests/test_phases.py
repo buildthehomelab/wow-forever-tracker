@@ -225,6 +225,19 @@ class Assign(unittest.TestCase):
                         {'id': 5, 'fetched': 20, 'status': 'ok', 'tabs': {'reward-from-q': {'rows': [{'id': 9}]}}}])
             self.assertEqual(phases.wowhead_unsourced_items([old, new, os.path.join(new, 'none')]), {2, 3})
 
+    def test_icy_veins_seen_drops_are_out(self):
+        import gzip
+        with tempfile.TemporaryDirectory() as folder:
+            os.makedirs(os.path.join(folder, 'item'))
+            def write(item, relations):
+                with gzip.open(os.path.join(folder, 'item', f'{item}.json.gz'), 'wt', encoding='utf-8') as handle:
+                    json.dump({'relations': relations}, handle)
+            write(1, {'addon_dropped_by': [{'npc_id': 14487}]})
+            write(2, {'addon_sold_by': [{'npc_id': 5}]})
+            write(3, {'addon_dropped_by': []})
+            # 4 has no answer kept at all
+            self.assertEqual(phases.icyveins_sourced({1, 2, 3, 4}, folder), {1, 2})
+
     def test_wowhead_reward_quests(self):
         with tempfile.TemporaryDirectory() as old, tempfile.TemporaryDirectory() as new:
             def write(folder, rows):
